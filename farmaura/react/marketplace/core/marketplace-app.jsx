@@ -1038,6 +1038,7 @@ function App() {
           },
           payment: {
             method: details && details.payment && details.payment.method || 'pix',
+            payment_method_id: details && details.payment && details.payment.paymentMethodId || '',
           },
           prescription: {
             sent: !!(details && details.rx && details.rx.sent),

@@ -54,7 +54,8 @@ class CheckoutDeliveryRequest(StrictModel):
 class CheckoutPaymentRequest(StrictModel):
     """Validate the selected payment method."""
 
-    method: str = Field(pattern="^(pix|card|boleto)$")
+    method: str = Field(pattern="^(pix|credit_card|debit_card)$")
+    payment_method_id: str = Field(default="", max_length=64)
 
 
 class CheckoutPrescriptionRequest(StrictModel):

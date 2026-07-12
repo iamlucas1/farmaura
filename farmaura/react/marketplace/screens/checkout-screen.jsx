@@ -227,13 +227,72 @@ function PrescriptionCard({ data, set }) {
   );
 }
 
-function PaymentForm({ data, set }) {
+function CardFieldsForm({ card, onChange }) {
+  /** Render the raw card capture fields for a new saved card. */
+
+  const value = card || {};
+  const update = (patch) => onChange({ ...value, ...patch });
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: '16px 4px 4px' }}>
+      <Field label="Número do cartão" full>
+        <input className="fa-input" placeholder="0000 0000 0000 0000" inputMode="numeric" value={value.number || ''} onChange={(event) => update({ number: event.target.value.replace(/\D/g, '').slice(0, 19) })} />
+      </Field>
+      <Field label="Nome impresso" full>
+        <input className="fa-input" placeholder="Como no cartão" value={value.holderName || ''} onChange={(event) => update({ holderName: event.target.value })} />
+      </Field>
+      <Field label="Validade">
+        <input className="fa-input" placeholder="MM/AA" inputMode="numeric" value={value.expiry || ''} onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, '').slice(0, 4);
+          update({
+            expiry: digits.length > 2 ? digits.slice(0, 2) + '/' + digits.slice(2) : digits,
+            expiryMonth: digits.slice(0, 2),
+            expiryYear: digits.slice(2, 4) ? '20' + digits.slice(2, 4) : '',
+          });
+        }} />
+      </Field>
+      <Field label="CVV">
+        <input className="fa-input" placeholder="123" inputMode="numeric" value={value.cvv || ''} onChange={(event) => update({ cvv: event.target.value.replace(/\D/g, '').slice(0, 4) })} />
+      </Field>
+    </div>
+  );
+}
+
+function CardMethodDetail({ data, set, cards = [] }) {
+  /** Render the saved-card picker plus new-card entry for one card payment method. */
+
+  const savedCards = Array.isArray(cards) ? cards : [];
+  const usingNewCard = !data.paymentMethodId;
+  return (
+    <div style={{ padding: '16px 4px 4px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {savedCards.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {savedCards.map((card) => (
+            <button key={card.id} type="button" onClick={() => set({ ...data, paymentMethodId: card.id, newCard: null })}
+              style={{ textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 'var(--fa-r-input)', border: data.paymentMethodId === card.id ? '1.5px solid var(--fa-primary)' : '1px solid var(--fa-mist)', background: data.paymentMethodId === card.id ? 'var(--fa-rose-soft)' : 'var(--fa-surface)' }}>
+              <Icon name="card" size={18} />
+              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{card.brand || 'Cartão'} •••• {card.last4 || card.lastFourDigits}</span>
+              <span style={{ width: 18, height: 18, borderRadius: 99, border: data.paymentMethodId === card.id ? '5px solid var(--fa-primary)' : '2px solid var(--fa-mist)', flex: 'none' }} />
+            </button>
+          ))}
+          <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => set({ ...data, paymentMethodId: '', newCard: data.newCard || {} })}>
+            <Icon name="plus" size={14} />Usar outro cartão
+          </button>
+        </div>
+      )}
+      {(usingNewCard || savedCards.length === 0) && (
+        <CardFieldsForm card={data.newCard} onChange={(card) => set({ ...data, paymentMethodId: '', newCard: card })} />
+      )}
+    </div>
+  );
+}
+
+function PaymentForm({ data, set, cards = [] }) {
   /** Render the payment method chooser. */
 
   const methods = [
-    { id: 'pix', t: 'Pix', d: '5% de desconto · aprovação imediata', icon: 'pix' },
-    { id: 'card', t: 'Cartão de crédito', d: 'Até 3x sem juros', icon: 'card' },
-    { id: 'boleto', t: 'Boleto bancário', d: 'Vence em 1 dia útil', icon: 'tag' },
+    { id: 'pix', t: 'Pix', d: 'Confirmação via QR Code', icon: 'pix' },
+    { id: 'credit_card', t: 'Cartão de crédito', d: 'Cobrança à vista no cartão', icon: 'card' },
+    { id: 'debit_card', t: 'Cartão de débito', d: 'Débito imediato na conta', icon: 'card' },
   ];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -247,18 +306,13 @@ function PaymentForm({ data, set }) {
             </div>
             <span style={{ width: 22, height: 22, borderRadius: 99, border: data.method === method.id ? '6px solid var(--fa-primary)' : '2px solid var(--fa-mist)', flex: 'none' }} />
           </button>
-          {data.method === 'card' && method.id === 'card' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: '16px 4px 4px' }}>
-              <Field label="Número do cartão" full><input className="fa-input" placeholder="0000 0000 0000 0000" /></Field>
-              <Field label="Nome impresso" full><input className="fa-input" placeholder="Como no cartão" /></Field>
-              <Field label="Validade"><input className="fa-input" placeholder="MM/AA" /></Field>
-              <Field label="CVV"><input className="fa-input" placeholder="123" /></Field>
-            </div>
+          {(data.method === 'credit_card' || data.method === 'debit_card') && method.id === data.method && (
+            <CardMethodDetail data={data} set={set} cards={cards} />
           )}
           {data.method === 'pix' && method.id === 'pix' && (
             <div style={{ display: 'flex', gap: 14, alignItems: 'center', padding: 16, margin: '4px 0', background: 'var(--fa-success-soft)', borderRadius: 'var(--fa-r-card)' }}>
               <span className="fa-iconbox" style={{ background: '#fff', color: 'var(--fa-success)' }}><Icon name="pix" size={24} /></span>
-              <div style={{ fontSize: 13.5, color: 'var(--fa-success)' }}><b>Você economiza 5% no Pix.</b> O QR Code aparece na confirmação do pedido.</div>
+              <div style={{ fontSize: 13.5, color: 'var(--fa-success)' }}><b>Pagamento instantâneo.</b> O QR Code aparece na confirmação do pedido.</div>
             </div>
           )}
         </div>
@@ -284,7 +338,7 @@ function StepHead({ n, title, sub }) {
 function CheckoutScreen({ ctx }) {
   /** Render the checkout flow using the configured variant. */
 
-  const { items, products, coupon, onNav, placeOrder, checkoutVariant, stores = [], profile, addresses = [], placingOrder } = ctx;
+  const { items, products, coupon, onNav, placeOrder, checkoutVariant, stores = [], profile, addresses = [], placingOrder, cards = [] } = ctx;
   const hasRx = items.some((item) => products.find((product) => product.id === item.id)?.rx);
   const primaryAddress = resolvePrimaryAddress(addresses);
   const [delivery, setDelivery] = useState({
@@ -380,12 +434,12 @@ function CheckoutScreen({ ctx }) {
           <div className="fa-card" style={{ padding: 24 }}>
             {currentStep.id === 'delivery' && <><StepHead n="1" title="Entrega" sub="Para onde levamos seu cuidado?" /><DeliveryForm data={delivery} set={setDelivery} stores={stores} /></>}
             {currentStep.id === 'rx' && <><StepHead n="2" title="Receita digital" sub="Validação rápida pelo farmacêutico." /><PrescriptionCard data={rx} set={setRx} /></>}
-            {currentStep.id === 'payment' && <><StepHead n={hasRx ? '3' : '2'} title="Pagamento" sub="Escolha como prefere pagar." /><PaymentForm data={payment} set={setPayment} /></>}
+            {currentStep.id === 'payment' && <><StepHead n={hasRx ? '3' : '2'} title="Pagamento" sub="Escolha como prefere pagar." /><PaymentForm data={payment} set={setPayment} cards={cards} /></>}
             {currentStep.id === 'review' && (
               <>
                 <StepHead n={steps.length} title="Revise seu pedido" sub="Tudo certo? É só confirmar." />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {[['Entrega', delivery.method === 'express' ? 'Expressa · 60 min' : delivery.method === 'pickup' ? ('Retirada · ' + ((stores.find((entry) => entry.id === (delivery.store || (stores[0] && stores[0].id))) || {}).name || 'loja')) : 'Padrão · hoje', 'truck'], ['Pagamento', payment.method === 'pix' ? 'Pix (-5%)' : payment.method === 'card' ? 'Cartão · até 3x' : 'Boleto', 'card'], ...(hasRx ? [['Receita', rx.sent ? 'Enviada ✓' : 'Pendente', 'rx']] : [])].map(([label, value, icon]) => (
+                  {[['Entrega', delivery.method === 'express' ? 'Expressa · 60 min' : delivery.method === 'pickup' ? ('Retirada · ' + ((stores.find((entry) => entry.id === (delivery.store || (stores[0] && stores[0].id))) || {}).name || 'loja')) : 'Padrão · hoje', 'truck'], ['Pagamento', payment.method === 'pix' ? 'Pix' : payment.method === 'credit_card' ? 'Cartão de crédito' : 'Cartão de débito', 'card'], ...(hasRx ? [['Receita', rx.sent ? 'Enviada ✓' : 'Pendente', 'rx']] : [])].map(([label, value, icon]) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, border: '1px solid var(--fa-mist)', borderRadius: 'var(--fa-r-input)' }}>
                       <Icon name={icon} size={20} style={{ color: 'var(--fa-primary)' }} />
                       <div style={{ flex: 1 }}><div className="fa-faint" style={{ fontSize: 12 }}>{label}</div><div style={{ fontWeight: 700, fontSize: 14 }}>{value}</div></div>
@@ -415,7 +469,7 @@ function CheckoutScreen({ ctx }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="fa-card" style={{ padding: 24 }}><StepHead n="1" title="Entrega" /><DeliveryForm data={delivery} set={setDelivery} stores={stores} /></div>
           {hasRx && <div className="fa-card" style={{ padding: 24 }}><StepHead n="2" title="Receita digital" /><PrescriptionCard data={rx} set={setRx} /></div>}
-          <div className="fa-card" style={{ padding: 24 }}><StepHead n={hasRx ? '3' : '2'} title="Pagamento" /><PaymentForm data={payment} set={setPayment} /></div>
+          <div className="fa-card" style={{ padding: 24 }}><StepHead n={hasRx ? '3' : '2'} title="Pagamento" /><PaymentForm data={payment} set={setPayment} cards={cards} /></div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 180 }}>
           {summaryCard}

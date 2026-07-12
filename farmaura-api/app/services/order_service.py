@@ -595,9 +595,9 @@ class OrderService:
         """Return the customer-facing payment label for the selected payment method."""
 
         labels = {
-            'pix': 'Pix · pago',
-            'card': 'Cartao de credito · pago',
-            'boleto': 'Boleto · pago',
+            'pix': 'Pix',
+            'credit_card': 'Cartão de crédito',
+            'debit_card': 'Cartão de débito',
         }
         return labels.get(method, 'Pagamento')
 
