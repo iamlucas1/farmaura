@@ -20,6 +20,7 @@ from app.api.deps import get_subject_session, require_marketplace_subject
 from app.domain.enums import UserRole
 from app.schemas.auth import TokenSubject
 from app.schemas.customers import (
+    CardTokenizeRequest,
     CartItemResponse,
     CartItemUpsertRequest,
     CustomerAddressResponse,
@@ -156,6 +157,18 @@ async def create_customer_payment_method(
 
     service = CustomerService(session)
     return await service.create_payment_method(subject, payload)
+
+
+@router.post("/me/payment-methods/tokenize-card", response_model=list[CustomerPaymentMethodResponse])
+async def tokenize_customer_card(
+    payload: CardTokenizeRequest,
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> list[CustomerPaymentMethodResponse]:
+    """Tokenize one raw card via the payment provider and persist only the resulting token."""
+
+    service = CustomerService(session)
+    return await service.tokenize_and_save_card(subject, payload)
 
 
 @router.patch("/me/payment-methods/{payment_method_id}", response_model=list[CustomerPaymentMethodResponse])

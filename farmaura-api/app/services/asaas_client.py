@@ -1,16 +1,18 @@
 """
 farmaura-api/app/services/asaas_client.py
 
-Minimal Asaas client for Farmaura fiscal operations.
+Asaas client for Farmaura fiscal and payment operations.
 
 Responsibilities:
 - send authenticated requests to the Asaas REST API;
-- expose the invoice endpoints used by Farmaura fiscal issuance;
+- expose the invoice, customer, card tokenization, and payment endpoints used by Farmaura;
 - normalize transport failures into deterministic service errors.
 
 Observations:
-- this client intentionally covers only the fiscal surface required by Farmaura;
-- invoice emission remains best-effort and must not block the core sale flow.
+- invoice emission remains best-effort and must not block the core sale flow;
+- card tokenization payloads carry raw PAN/CVV in-memory only for the duration of the
+  request to Asaas; callers must never persist or log the raw fields, only the token
+  Asaas returns.
 """
 
 from __future__ import annotations
@@ -97,6 +99,41 @@ class AsaasClient:
 
         self.assert_configured()
         return self._request("POST", "/v3/invoices", payload=payload).payload
+
+    def upsert_customer(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create one Asaas customer record for payment and tokenization operations."""
+
+        self.assert_configured()
+        return self._request("POST", "/v3/customers", payload=payload).payload
+
+    def tokenize_credit_card(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Tokenize one credit or debit card and return the reusable Asaas token.
+
+        The payload carries raw card fields (number, CVV) that exist only for the
+        duration of this call; the response contains only the token/brand/last-4
+        that Farmaura is allowed to persist.
+        """
+
+        self.assert_configured()
+        return self._request("POST", "/v3/creditCard/tokenizeCreditCard", payload=payload).payload
+
+    def create_payment(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create one Pix or tokenized card payment in Asaas."""
+
+        self.assert_configured()
+        return self._request("POST", "/v3/payments", payload=payload).payload
+
+    def get_pix_qrcode(self, payment_id: str) -> dict[str, Any]:
+        """Return the Pix QR code payload for one previously created payment."""
+
+        self.assert_configured()
+        return self._request("GET", f"/v3/payments/{payment_id}/pixQrCode").payload
+
+    def get_payment(self, payment_id: str) -> dict[str, Any]:
+        """Return the current remote state of one payment."""
+
+        self.assert_configured()
+        return self._request("GET", f"/v3/payments/{payment_id}").payload
 
     def _request(
         self,

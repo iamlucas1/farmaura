@@ -39,6 +39,7 @@ class Customer(Base, UuidModel, TimestampedModel):
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     external_code: Mapped[str] = mapped_column(String(64), default="", index=True, nullable=False)
+    payment_provider_customer_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), default="", index=True, nullable=False)
     phone: Mapped[str] = mapped_column(String(32), default="", index=True, nullable=False)

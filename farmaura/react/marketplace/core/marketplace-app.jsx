@@ -1006,6 +1006,24 @@ function App() {
       setRoute({ name: 'cart' });
       return;
     }
+    let resolvedPaymentMethodId = details && details.payment && details.payment.paymentMethodId || '';
+    const isCardPayment = details && details.payment && (details.payment.method === 'credit_card' || details.payment.method === 'debit_card');
+    if (isCardPayment && !resolvedPaymentMethodId && details.payment.newCard) {
+      setPlacingOrder(true);
+      try {
+        const savedCards = await tokenizeAndSaveCard(details.payment.newCard);
+        const newest = savedCards[savedCards.length - 1];
+        resolvedPaymentMethodId = newest ? newest.id : '';
+      } catch (error) {
+        setPlacingOrder(false);
+        showToast(error && error.message ? error.message : 'Nao foi possivel salvar o cartao para pagamento');
+        return;
+      }
+    }
+    if (isCardPayment && !resolvedPaymentMethodId) {
+      showToast('Selecione ou cadastre um cartao para continuar');
+      return;
+    }
     window.FA_OBS.emit({ portal: 'marketplace', type: 'commerce', action: 'checkout.place_order', route: route.name, userRole: user && user.role || '', accessScope: user && user.accessScope || '', metadata: { paymentMethod: details && details.payment && details.payment.method || '', fulfillment: details && details.delivery && details.delivery.method || '' } });
     setPlacingOrder(true);
     try {
@@ -1038,7 +1056,7 @@ function App() {
           },
           payment: {
             method: details && details.payment && details.payment.method || 'pix',
-            payment_method_id: details && details.payment && details.payment.paymentMethodId || '',
+            payment_method_id: resolvedPaymentMethodId,
           },
           prescription: {
             sent: !!(details && details.rx && details.rx.sent),
@@ -1346,18 +1364,16 @@ function App() {
     exp: (entry.expiration_month || '00') + '/' + String(entry.expiration_year || '0000').slice(-2),
     primary: !!entry.is_primary,
   });
-  const createCustomerPaymentMethod = async (card) => {
-    const [expMonth, expYearShort] = String(card.exp || '00/00').split('/');
-    const response = await authClient.request('/customers/me/payment-methods', {
+  const tokenizeAndSaveCard = async (card) => {
+    const [expMonth, expYearShort] = String(card.expiry || '00/00').split('/');
+    const response = await authClient.request('/customers/me/payment-methods/tokenize-card', {
       method: 'POST',
       body: JSON.stringify({
-        provider_name: 'manual',
-        provider_token: 'tok_manual_' + Date.now() + Math.random().toString(16).slice(2, 8),
-        brand_name: card.brand || 'Cartão',
-        last_four_digits: card.last4 || '0000',
-        holder_name: card.holder || '',
-        expiration_month: (expMonth || '01').padStart(2, '0'),
-        expiration_year: '20' + (expYearShort || '00').slice(-2),
+        holder_name: card.holderName || '',
+        number: String(card.number || '').replace(/\D/g, ''),
+        cvv: String(card.cvv || '').replace(/\D/g, ''),
+        expiration_month: card.expiryMonth || (expMonth || '').padStart(2, '0'),
+        expiration_year: card.expiryYear || (expYearShort ? '20' + expYearShort.slice(-2) : ''),
         is_primary: cards.length === 0,
       }),
     });
@@ -1423,7 +1439,7 @@ function App() {
     user, logout, reorder, orders, statusMap: MARKETPLACE_ORDER_STATUS_MAP, stores: portalData.stores,
     profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
-    cards, createCustomerPaymentMethod, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,
+    cards, tokenizeAndSaveCard, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,
     privacyPrograms: [], commChannels: [],
     healthServices: portalData.healthServices, healthHistory: portalData.healthHistory, bookHealthAppointment,
     openChat, openPrescription, requireAuth,

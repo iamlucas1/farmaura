@@ -140,6 +140,24 @@ class CustomerPaymentMethodUpdateRequest(StrictModel):
     is_primary: bool = True
 
 
+class CardTokenizeRequest(StrictModel):
+    """Validate one raw card capture for immediate provider tokenization.
+
+    This is the single, intentional entry point where raw card data is allowed
+    to reach the backend. The fields here exist only in memory for the duration
+    of the tokenize request to Asaas and are never persisted, logged, or echoed
+    back — only the resulting provider token/brand/last-4 survive, through the
+    existing CustomerPaymentMethodResponse contract.
+    """
+
+    holder_name: str = Field(min_length=1, max_length=255)
+    number: str = Field(pattern=r"^\d{12,19}$")
+    cvv: str = Field(pattern=r"^\d{3,4}$")
+    expiration_month: str = Field(pattern=r"^(0[1-9]|1[0-2])$")
+    expiration_year: str = Field(pattern=r"^\d{4}$")
+    is_primary: bool = False
+
+
 # ============================================================================
 # CART SCHEMAS
 # ============================================================================

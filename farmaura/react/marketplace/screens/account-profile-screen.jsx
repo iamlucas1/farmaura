@@ -436,22 +436,27 @@ function DataPrivacy({ ctx, acct }) {
   );
 }
 
-function CardForm({ onSave, onCancel }) {
+function CardForm({ onSave, onCancel, saving }) {
   /** Render the saved-card creation form. */
 
   const [card, setCard] = useState({ number: '', holder: '', exp: '', cvv: '' });
   const setCardField = (field, value) => setCard((current) => ({ ...current, [field]: value }));
-  const brandOf = (value) => value.startsWith('4') ? 'Visa' : value.startsWith('5') ? 'Mastercard' : value.startsWith('6') ? 'Elo' : 'Cartão';
+  const digits = card.exp.replace(/\D/g, '').slice(0, 4);
+  const expiryMonth = digits.slice(0, 2);
+  const expiryYear = digits.slice(2, 4) ? '20' + digits.slice(2, 4) : '';
+  const canSubmit = card.number.length >= 12 && card.holder.trim() && expiryMonth.length === 2 && expiryYear.length === 4 && card.cvv.length >= 3;
   return (
     <div style={{ background: 'var(--fa-mist-2)', borderRadius: 'var(--fa-r-card)', padding: 18 }}>
       <div className="fa-form2">
-        <div className="fa-field fa-span2"><label>Número do cartão</label><input className="fa-input" value={card.number} onChange={(event) => setCardField('number', event.target.value.replace(/[^0-9]/g, '').slice(0, 16))} placeholder="0000 0000 0000 0000" /></div>
+        <div className="fa-field fa-span2"><label>Número do cartão</label><input className="fa-input" value={card.number} onChange={(event) => setCardField('number', event.target.value.replace(/[^0-9]/g, '').slice(0, 19))} placeholder="0000 0000 0000 0000" /></div>
         <div className="fa-field fa-span2"><label>Nome impresso no cartão</label><input className="fa-input" value={card.holder} onChange={(event) => setCardField('holder', event.target.value.toUpperCase())} placeholder="NOME COMPLETO" /></div>
-        <div className="fa-field"><label>Validade</label><input className="fa-input" value={card.exp} onChange={(event) => setCardField('exp', event.target.value)} placeholder="MM/AA" /></div>
+        <div className="fa-field"><label>Validade</label><input className="fa-input" value={card.exp} onChange={(event) => setCardField('exp', event.target.value.replace(/[^0-9/]/g, '').slice(0, 5))} placeholder="MM/AA" /></div>
         <div className="fa-field"><label>CVV</label><input className="fa-input" value={card.cvv} onChange={(event) => setCardField('cvv', event.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="000" /></div>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-        <button className="fa-btn fa-btn-primary" disabled={card.number.length < 4 || !card.holder} onClick={() => onSave({ brand: brandOf(card.number), last4: card.number.slice(-4).padStart(4, '0'), holder: card.holder, exp: card.exp || '00/00' })}><Icon name="check" size={16} stroke={2.4} />Adicionar cartão</button>
+        <button className="fa-btn fa-btn-primary" disabled={!canSubmit || saving} onClick={() => onSave({ number: card.number, holderName: card.holder, expiryMonth, expiryYear, cvv: card.cvv })}>
+          <Icon name="check" size={16} stroke={2.4} />{saving ? 'Salvando...' : 'Adicionar cartão'}
+        </button>
         <button className="fa-btn fa-btn-soft" onClick={onCancel}>Cancelar</button>
       </div>
     </div>
@@ -464,6 +469,7 @@ function MyCards({ ctx }) {
   const cards = ctx.cards;
   const [adding, setAdding] = useState(false);
   const [cardError, setCardError] = useState('');
+  const [savingCard, setSavingCard] = useState(false);
   const setPrimary = async (id) => {
     try {
       setCardError('');
@@ -483,10 +489,13 @@ function MyCards({ ctx }) {
   const add = async (data) => {
     try {
       setCardError('');
-      await ctx.createCustomerPaymentMethod(data);
+      setSavingCard(true);
+      await ctx.tokenizeAndSaveCard(data);
       setAdding(false);
     } catch (error) {
       setCardError(error && error.message ? error.message : 'Não foi possível adicionar o cartão.');
+    } finally {
+      setSavingCard(false);
     }
   };
 
@@ -498,7 +507,7 @@ function MyCards({ ctx }) {
       </div>
 
       {cardError ? <div style={{ color: 'var(--fa-error)', fontSize: 12.5 }}>{cardError}</div> : null}
-      {adding && <CardForm onSave={add} onCancel={() => setAdding(false)} />}
+      {adding && <CardForm onSave={add} onCancel={() => setAdding(false)} saving={savingCard} />}
 
       <div className="fa-grid" style={{ '--fa-grid-min': '300px' }}>
         {cards.map((card) => (

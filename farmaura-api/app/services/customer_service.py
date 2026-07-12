@@ -18,6 +18,9 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import asyncio
+import re
+
 from app.domain.validators import is_valid_cpf, normalize_cpf
 from app.models.cart_item import CartItem
 from app.models.customer_address import CustomerAddress
@@ -28,9 +31,11 @@ from app.repositories.customer_payment_method_repository import CustomerPaymentM
 from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.user_repository import UserRepository
+from app.services.asaas_client import AsaasClient, AsaasError
 from app.services.marketplace_projection import build_marketplace_catalog_groups
 from app.schemas.auth import TokenSubject
 from app.schemas.customers import (
+    CardTokenizeRequest,
     CartItemResponse,
     CartItemUpsertRequest,
     CustomerAddressResponse,
@@ -234,6 +239,101 @@ class CustomerService:
         await self.payment_method_repository.save(method)
         await self.session.commit()
         return await self.list_payment_methods(subject)
+
+    async def tokenize_and_save_card(
+        self, subject: TokenSubject, payload: CardTokenizeRequest,
+    ) -> list[CustomerPaymentMethodResponse]:
+        """Tokenize one raw card via Asaas and persist only the resulting token metadata.
+
+        Raw card fields live only in this method's local scope; they are handed to
+        the Asaas client for the single tokenization call and discarded afterward.
+        """
+
+        customer = await self._resolve_customer(subject)
+        if not is_valid_cpf(customer.cpf or ""):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Informe um CPF válido em Minha Conta antes de salvar um cartão.",
+            )
+        addresses = await self.address_repository.list_for_customer(customer_id=customer.id)
+        primary_address = next((address for address in addresses if address.is_primary), addresses[0] if addresses else None)
+        if primary_address is None or not primary_address.postal_code:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Cadastre um endereço em Meus Endereços antes de salvar um cartão.",
+            )
+        asaas_client = AsaasClient()
+        try:
+            asaas_client.assert_configured()
+        except AsaasError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+        provider_customer_id = customer.payment_provider_customer_id
+        if not provider_customer_id:
+            try:
+                remote_customer = await asyncio.to_thread(
+                    asaas_client.upsert_customer,
+                    {
+                        "name": customer.full_name,
+                        "email": customer.email,
+                        "cpfCnpj": normalize_cpf(customer.cpf or ""),
+                        "phone": customer.phone,
+                        "externalReference": customer.id,
+                    },
+                )
+            except AsaasError as error:
+                raise HTTPException(status_code=error.status_code, detail=error.message) from error
+            provider_customer_id = str(remote_customer.get("id") or "")
+            if not provider_customer_id:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="O Asaas não retornou um cliente válido.")
+            customer.payment_provider_customer_id = provider_customer_id
+            await self.customer_repository.save(customer)
+        address_number = self._extract_address_number(primary_address.street_line)
+        wants_primary = payload.is_primary
+        try:
+            tokenized = await asyncio.to_thread(
+                asaas_client.tokenize_credit_card,
+                {
+                    "customer": provider_customer_id,
+                    "creditCard": {
+                        "holderName": payload.holder_name.strip(),
+                        "number": payload.number,
+                        "expiryMonth": payload.expiration_month,
+                        "expiryYear": payload.expiration_year,
+                        "ccv": payload.cvv,
+                    },
+                    "creditCardHolderInfo": {
+                        "name": customer.full_name,
+                        "email": customer.email,
+                        "cpfCnpj": normalize_cpf(customer.cpf or ""),
+                        "postalCode": re.sub(r"\D", "", primary_address.postal_code),
+                        "addressNumber": address_number,
+                        "phone": customer.phone,
+                    },
+                },
+            )
+        except AsaasError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+        # `payload` (raw card number/CVV) is not referenced again past this point.
+        provider_token = str(tokenized.get("creditCardToken") or "")
+        if not provider_token:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="O Asaas não retornou um token de cartão válido.")
+        create_request = CustomerPaymentMethodCreateRequest(
+            provider_name="asaas",
+            provider_token=provider_token,
+            brand_name=str(tokenized.get("creditCardBrand") or "Cartão"),
+            last_four_digits=str(tokenized.get("creditCardNumber") or "0000")[-4:],
+            holder_name=str(tokenized.get("creditCardHolderName") or ""),
+            expiration_month=str(tokenized.get("creditCardExpiryMonth") or ""),
+            expiration_year=str(tokenized.get("creditCardExpiryYear") or ""),
+            is_primary=wants_primary,
+        )
+        return await self.create_payment_method(subject, create_request)
+
+    def _extract_address_number(self, street_line: str) -> str:
+        """Return the best-effort street number extracted from a combined address line."""
+
+        match = re.search(r"(\d+)\s*$", street_line or "")
+        return match.group(1) if match else "S/N"
 
     async def delete_payment_method(self, subject: TokenSubject, payment_method_id: str) -> list[CustomerPaymentMethodResponse]:
         """Delete one payment method owned by the authenticated customer."""
