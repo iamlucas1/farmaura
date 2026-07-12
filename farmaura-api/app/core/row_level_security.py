@@ -118,6 +118,15 @@ RLS_STATEMENTS: tuple[str, ...] = (
             $$;
     """,
     """
+    CREATE OR REPLACE FUNCTION app_private.is_system_job()
+            RETURNS boolean
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT current_setting('app.current_system_job', true) = 'true'
+            $$;
+    """,
+    """
     CREATE OR REPLACE FUNCTION app_private.is_admin()
             RETURNS boolean
             LANGUAGE sql
@@ -259,12 +268,18 @@ RLS_STATEMENTS: tuple[str, ...] = (
     CREATE POLICY customers_access_policy
             ON customers
             USING (
-                tenant_id = app_private.current_tenant_id()
-                AND app_private.can_access_customer_row(id)
+                (
+                    tenant_id = app_private.current_tenant_id()
+                    AND app_private.can_access_customer_row(id)
+                )
+                OR app_private.is_system_job()
             )
             WITH CHECK (
-                tenant_id = app_private.current_tenant_id()
-                AND app_private.can_access_customer_row(id)
+                (
+                    tenant_id = app_private.current_tenant_id()
+                    AND app_private.can_access_customer_row(id)
+                )
+                OR app_private.is_system_job()
             )
     """,
     """
@@ -280,6 +295,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     AND app_private.can_access_order_row(customer_id)
                 )
                 OR gateway_payment_id = app_private.current_webhook_payment_id()
+                OR app_private.is_system_job()
             )
             WITH CHECK (
                 (
@@ -287,6 +303,23 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     AND app_private.can_access_order_row(customer_id)
                 )
                 OR gateway_payment_id = app_private.current_webhook_payment_id()
+                OR app_private.is_system_job()
+            )
+    """,
+    """
+    DROP POLICY IF EXISTS tenant_isolation_policy ON fiscal_documents
+    """,
+    """
+    DROP POLICY IF EXISTS fiscal_documents_access_policy ON fiscal_documents;
+    CREATE POLICY fiscal_documents_access_policy
+            ON fiscal_documents
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                OR app_private.is_system_job()
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                OR app_private.is_system_job()
             )
     """,
     """

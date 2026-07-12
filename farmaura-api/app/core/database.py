@@ -49,6 +49,7 @@ from app.models import (
     PdvOrderItem,
     PdvSale,
     PdvSaleItem,
+    PaymentWebhookEvent,
     PortalSetting,
     Prescription,
     PrescriptionCheck,

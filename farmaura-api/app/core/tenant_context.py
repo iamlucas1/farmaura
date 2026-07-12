@@ -63,6 +63,29 @@ async def apply_login_context(session: AsyncSession, email: str) -> None:
     )
 
 
+async def apply_system_job_context(session: AsyncSession) -> None:
+    """Apply transaction-local context for one trusted, backend-only background job.
+
+    This flag can only ever be set by trusted server code that calls this
+    function directly (e.g. the fiscal issuance scheduler) — no HTTP request
+    path derives or forwards it from client input, so it cannot be spoofed
+    through any endpoint. It grants the narrow set of cross-tenant reads/writes
+    a system-wide sweep genuinely needs (e.g. scanning orders across every
+    tenant for deferred fiscal issuance), the same way current_login_email
+    and current_webhook_payment_id grant narrow, purpose-built carve-outs.
+    """
+
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+    await session.execute(
+        text(
+            """
+            SELECT set_config('app.current_system_job', 'true', true)
+            """
+        )
+    )
+
+
 async def apply_webhook_context(session: AsyncSession, gateway_payment_id: str) -> None:
     """Apply transaction-local context for one verified payment webhook update.
 

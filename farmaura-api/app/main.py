@@ -13,6 +13,8 @@ Observations:
 - security headers are additive and gateway-compatible;
 """
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -29,6 +31,7 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.services.fiscal_scheduler import run_fiscal_scheduler_forever
 
 
 # ============================================================================
@@ -41,7 +44,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Initialize application resources."""
 
     configure_logging()
-    yield
+    scheduler_task = asyncio.create_task(run_fiscal_scheduler_forever())
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await scheduler_task
 
 
 # ============================================================================
