@@ -46,6 +46,8 @@ class PortalStoreResponse(StrictModel):
     state_code: str = ""
     ready_minutes: int = 20
     open_status_label: str = ""
+    latitude: Decimal = Decimal("0.0000000")
+    longitude: Decimal = Decimal("0.0000000")
 
 
 class PortalPharmacistResponse(StrictModel):
@@ -84,6 +86,29 @@ class PortalMarketplaceMetaUpdateRequest(StrictModel):
     cnpj: str = Field(default="", max_length=32)
     state_registration: str = Field(default="", max_length=32)
     footer_note: str = Field(default="", max_length=255)
+
+
+class PortalDeliveryPricingTier(StrictModel):
+    """Represent one distance-based delivery fee tier."""
+
+    up_to_km: Decimal = Field(gt=Decimal("0.00"), le=Decimal("500.00"))
+    fee: Decimal = Field(ge=Decimal("0.00"), le=Decimal("999.99"))
+
+
+class PortalDeliveryPricingResponse(StrictModel):
+    """Represent the tenant's delivery pricing configuration."""
+
+    tiers: list[PortalDeliveryPricingTier] = Field(default_factory=list)
+    fee_beyond_last_tier: Decimal = Decimal("9.90")
+    free_above_subtotal: Decimal = Decimal("120.00")
+
+
+class PortalDeliveryPricingUpdateRequest(StrictModel):
+    """Validate a delivery pricing configuration update payload."""
+
+    tiers: list[PortalDeliveryPricingTier] = Field(default_factory=list, max_length=12)
+    fee_beyond_last_tier: Decimal = Field(default=Decimal("9.90"), ge=Decimal("0.00"), le=Decimal("999.99"))
+    free_above_subtotal: Decimal = Field(default=Decimal("120.00"), ge=Decimal("0.00"))
 
 
 class PortalCouponResponse(StrictModel):
@@ -251,6 +276,7 @@ class PortalInternalBootstrapResponse(StrictModel):
     coupon_campaigns: list[PortalCouponResponse] = Field(default_factory=list)
     financial_settings: PortalFinancialSettingsResponse = Field(default_factory=PortalFinancialSettingsResponse)
     delivery_route: PortalDeliveryRouteResponse = Field(default_factory=PortalDeliveryRouteResponse)
+    delivery_pricing: PortalDeliveryPricingResponse = Field(default_factory=PortalDeliveryPricingResponse)
 
 
 class PortalHealthServiceResponse(StrictModel):

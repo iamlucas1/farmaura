@@ -15,6 +15,7 @@ Observations:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -23,6 +24,9 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.services.geocoding_client import GeocodingClient
 
 from app.models.chat_thread import ChatThread
 from app.models.coupon_campaign import CouponCampaign
@@ -56,6 +60,8 @@ from app.schemas.portal import (
     PortalHealthServiceResponse,
     PortalInternalBootstrapResponse,
     PortalMarketplaceBootstrapResponse,
+    PortalDeliveryPricingResponse,
+    PortalDeliveryPricingUpdateRequest,
     PortalMarketplaceMetaResponse,
     PortalMarketplaceMetaUpdateRequest,
     PortalMarketplacePublicBootstrapResponse,
@@ -79,6 +85,7 @@ PORTAL_NAME_INTERNAL = 'internal'
 PORTAL_NAME_MARKETPLACE = 'marketplace'
 SETTING_KEY_MARKETPLACE_META = 'marketplace_meta'
 SETTING_KEY_FINANCIAL_SETTINGS = 'financial_settings'
+SETTING_KEY_DELIVERY_PRICING = 'delivery_pricing'
 WEEKDAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom']
 ZERO_FINANCIAL_MONTH = {
     'faturamento': 0, 'aluguel': 0, 'energia': 0, 'agua': 0, 'contab': 0,
@@ -164,6 +171,7 @@ class PortalService:
             coupon_campaigns=await self._list_coupon_campaigns(tenant_id=tenant_id, active_only=False),
             financial_settings=await self._resolve_financial_settings(tenant_id=tenant_id),
             delivery_route=await self._resolve_delivery_route(tenant_id=tenant_id, store=store),
+            delivery_pricing=await self._resolve_delivery_pricing(tenant_id=tenant_id),
         )
 
     async def update_marketplace_meta(self, subject: TokenSubject, payload: PortalMarketplaceMetaUpdateRequest) -> PortalMarketplaceMetaResponse:
@@ -179,6 +187,31 @@ class PortalService:
         )
         await self.session.commit()
         return await self._resolve_marketplace_meta(tenant_id=str(subject.tenant_id))
+
+    async def get_delivery_pricing(self, subject: TokenSubject) -> PortalDeliveryPricingResponse:
+        """Return tenant-scoped distance-based delivery pricing configuration."""
+
+        await self._require_user(subject)
+        return await self._resolve_delivery_pricing(tenant_id=str(subject.tenant_id))
+
+    async def update_delivery_pricing(self, subject: TokenSubject, payload: PortalDeliveryPricingUpdateRequest) -> PortalDeliveryPricingResponse:
+        """Persist tenant-scoped distance-based delivery pricing configuration."""
+
+        await self._require_user(subject)
+        sorted_tiers = sorted(payload.tiers, key=lambda tier: tier.up_to_km)
+        value = {
+            'tiers': [tier.model_dump(mode='json') for tier in sorted_tiers],
+            'fee_beyond_last_tier': str(payload.fee_beyond_last_tier),
+            'free_above_subtotal': str(payload.free_above_subtotal),
+        }
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_DELIVERY_PRICING,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_delivery_pricing(tenant_id=str(subject.tenant_id))
 
     async def get_financial_settings(self, subject: TokenSubject) -> PortalFinancialSettingsResponse:
         """Return tenant-scoped financial assumptions for the internal portal."""
@@ -547,7 +580,7 @@ class PortalService:
             seen_names.add(store_name)
             stores.append(PortalStoreResponse(id=str(route.store_id or ''), name=store_name, address=str(route.origin_address or '').strip(), postal_code=self._extract_postal_code(str(route.origin_address or '')), district=self._extract_address_part(str(route.origin_address or ''), 1), city=self._extract_address_part(str(route.origin_address or ''), 2), state_code=self._extract_state_code(str(route.origin_address or '')), ready_minutes=20, open_status_label='Loja operando'))
         if stores:
-            return stores
+            return await self._attach_hub_coordinates(stores)
         appointment_statement = select(HealthServiceAppointment.store_id, HealthServiceAppointment.store_name_snapshot)
         if tenant_id:
             appointment_statement = appointment_statement.where(HealthServiceAppointment.tenant_id == tenant_id)
@@ -559,6 +592,41 @@ class PortalService:
                 continue
             seen_names.add(normalized_name)
             stores.append(PortalStoreResponse(id=str(store_id or ''), name=normalized_name, ready_minutes=20, open_status_label='Loja operando'))
+        return await self._attach_hub_coordinates(stores)
+
+    async def _attach_hub_coordinates(self, stores: list[PortalStoreResponse]) -> list[PortalStoreResponse]:
+        """Attach real store coordinates so the marketplace can render an accurate map pin.
+
+        Uses the same store_hub_address geocoded for delivery-distance pricing, so the
+        "store" a customer sees on the map is the same physical origin used for fees.
+        """
+
+        settings = get_settings()
+        hub_address = (settings.store_hub_address or '').strip()
+        if not hub_address:
+            return stores
+        hub_point = await asyncio.to_thread(GeocodingClient().geocode, hub_address)
+        if hub_point is None:
+            return stores
+        if not stores:
+            return [
+                PortalStoreResponse(
+                    id='hub',
+                    name=(settings.store_hub_name or '').strip() or 'Farmácia Farmaura',
+                    address=hub_address,
+                    ready_minutes=20,
+                    open_status_label='Loja operando',
+                    latitude=hub_point.latitude,
+                    longitude=hub_point.longitude,
+                )
+            ]
+        primary = stores[0]
+        if primary.latitude == Decimal('0.0000000') and primary.longitude == Decimal('0.0000000'):
+            stores[0] = primary.model_copy(update={
+                'latitude': hub_point.latitude,
+                'longitude': hub_point.longitude,
+                'address': primary.address or hub_address,
+            })
         return stores
 
     async def _resolve_primary_pharmacist(self, *, tenant_id: str | None) -> PortalPharmacistResponse:
@@ -597,6 +665,14 @@ class PortalService:
             return derived
         merged = {**derived.model_dump(mode='json'), **stored_value}
         return PortalMarketplaceMetaResponse.model_validate(merged)
+
+    async def _resolve_delivery_pricing(self, *, tenant_id: str) -> PortalDeliveryPricingResponse:
+        """Return the tenant's delivery pricing configuration, defaulting to the legacy flat rule."""
+
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_DELIVERY_PRICING, default=None)
+        if not stored_value:
+            return PortalDeliveryPricingResponse()
+        return PortalDeliveryPricingResponse.model_validate(stored_value)
 
     async def _derive_marketplace_meta_from_listing(self, *, tenant_id: str | None) -> PortalMarketplaceMetaResponse:
         """Return marketplace metadata derived from published listings."""

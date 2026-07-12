@@ -403,6 +403,8 @@ function normalizeMarketplaceStore(entry, index) {
     dist: entry.postal_code || entry.postalCode || '',
     hours: entry.open_status_label || entry.openStatusLabel || 'Consulte a disponibilidade',
     ready: String(entry.ready_minutes || entry.readyMinutes || 20) + ' min',
+    lat: entry.latitude != null ? Number(entry.latitude) : null,
+    lng: entry.longitude != null ? Number(entry.longitude) : null,
   };
 }
 

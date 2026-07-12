@@ -22,6 +22,10 @@ import {
 } from "../core/marketplace-address.js";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { OrderSummary } from "./cart-screen.jsx";
+import { loadLeaflet } from "../../shared/leaflet.js";
+
+const MAP_TILE_LAYER_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const MAP_TILE_LAYER_ATTRIBUTION = "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors";
 
 
 function resolvePrimaryAddress(addresses) {
@@ -39,30 +43,83 @@ function Field({ label, children, full }) {
   return <div className="fa-field" style={full ? { gridColumn: '1 / -1' } : {}}><label>{label}</label>{children}</div>;
 }
 
+function getStoreCoordinates(store) {
+  /** Return one valid latitude/longitude pair for a store, or null when unresolved. */
+
+  if (!store || store.lat == null || store.lng == null) {
+    return null;
+  }
+  const lat = Number(store.lat);
+  const lng = Number(store.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
+    return null;
+  }
+  return { lat, lng };
+}
+
 function StoreMap({ store, stores, onPick }) {
-  /** Render the pickup store chooser map placeholder. */
+  /** Render a real map pinpointing exactly where the store is located. */
+
+  const elementRef = useRef(null);
+  const mapRef = useRef(null);
+  const markersRef = useRef([]);
+  const [mapError, setMapError] = useState('');
+  const coordinates = getStoreCoordinates(store);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderMap() {
+      if (!elementRef.current || !coordinates) {
+        return;
+      }
+      try {
+        const leaflet = await loadLeaflet();
+        if (cancelled || !elementRef.current) {
+          return;
+        }
+        setMapError('');
+        const map = mapRef.current || leaflet.map(elementRef.current, {
+          center: [coordinates.lat, coordinates.lng],
+          zoom: 15,
+          zoomControl: true,
+          scrollWheelZoom: false,
+        });
+        mapRef.current = map;
+        map.setView([coordinates.lat, coordinates.lng], 15);
+        leaflet.tileLayer(MAP_TILE_LAYER_URL, { attribution: MAP_TILE_LAYER_ATTRIBUTION, maxZoom: 19 }).addTo(map);
+        markersRef.current.forEach((marker) => marker.remove());
+        markersRef.current = [];
+        const icon = leaflet.divIcon({
+          className: 'fa-map-pin-icon',
+          html: '<span style="display:grid;place-items:center;width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--fa-vital);box-shadow:0 6px 14px -4px rgba(0,0,0,.5)"><span style="transform:rotate(45deg);color:#fff;font-weight:800;font-size:14px">•</span></span>',
+          iconSize: [34, 34],
+          iconAnchor: [17, 34],
+        });
+        const marker = leaflet.marker([coordinates.lat, coordinates.lng], { icon, title: store.name }).addTo(map);
+        markersRef.current.push(marker);
+      } catch (error) {
+        if (!cancelled) {
+          setMapError(error && error.message ? error.message : 'Nao foi possivel carregar o mapa.');
+        }
+      }
+    }
+
+    void renderMap();
+    return () => { cancelled = true; };
+  }, [coordinates && coordinates.lat, coordinates && coordinates.lng, store && store.name]);
+
+  const directionsUrl = coordinates ? `https://www.google.com/maps/dir/?api=1&destination=${coordinates.lat},${coordinates.lng}` : '';
 
   return (
     <div style={{ marginTop: 4, border: '1px solid var(--fa-mist)', borderRadius: 'var(--fa-r-card)', overflow: 'hidden' }}>
-      <div style={{ position: 'relative', height: 200, background: '#EAE6E3',
-        backgroundImage: 'repeating-linear-gradient(0deg, transparent 0 38px, rgba(43,26,26,.06) 38px 40px), repeating-linear-gradient(90deg, transparent 0 52px, rgba(43,26,26,.06) 52px 54px)' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(58deg, transparent 46%, rgba(255,255,255,.7) 46% 52%, transparent 52%)' }} />
-        <div style={{ position: 'absolute', left: '12%', top: '14%', width: 70, height: 54, borderRadius: 10, background: 'rgba(46,125,91,.18)', border: '1px solid rgba(46,125,91,.3)' }} />
-        {stores.filter((entry) => entry.id !== store.id).map((entry) => (
-          <button key={entry.id} onClick={() => onPick(entry.id)} title={entry.name} aria-label={entry.name}
-            style={{ position: 'absolute', left: entry.x + '%', top: entry.y + '%', transform: 'translate(-50%,-100%)', border: 'none', background: 'transparent', cursor: 'pointer' }}>
-            <span style={{ display: 'grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50% 50% 50% 0', transform: 'rotate(-45deg)', background: '#fff', border: '2px solid var(--fa-ink-3)' }}>
-              <span style={{ width: 5, height: 5, borderRadius: 99, background: 'var(--fa-ink-3)', transform: 'rotate(45deg)' }} />
-            </span>
-          </button>
-        ))}
-        <div style={{ position: 'absolute', left: store.x + '%', top: store.y + '%', transform: 'translate(-50%,-100%)', zIndex: 2 }}>
-          <span style={{ display: 'grid', placeItems: 'center', width: 34, height: 34, borderRadius: '50% 50% 50% 0', transform: 'rotate(-45deg)', background: 'var(--fa-vital)', boxShadow: '0 6px 14px -4px rgba(0,0,0,.5)' }}>
-            <span style={{ transform: 'rotate(45deg)', display: 'grid', placeItems: 'center' }}><Icon name="pin" size={16} style={{ color: '#fff' }} stroke={2.4} /></span>
-          </span>
+      {coordinates ? (
+        <div ref={elementRef} style={{ height: 200, background: '#EAE6E3' }} />
+      ) : (
+        <div style={{ height: 200, background: '#EAE6E3', display: 'grid', placeItems: 'center' }}>
+          <span className="fa-muted" style={{ fontSize: 12.5 }}>{mapError || 'Localização da loja indisponível no momento.'}</span>
         </div>
-        <span className="fa-mono" style={{ position: 'absolute', bottom: 8, right: 10, fontSize: 10, color: 'var(--fa-ink-3)', background: 'rgba(255,255,255,.7)', padding: '2px 6px', borderRadius: 6 }}>mapa · {store.name}</span>
-      </div>
+      )}
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <span className="fa-iconbox" style={{ width: 40, height: 40, flex: 'none' }}><Icon name="pin" size={20} /></span>
@@ -76,9 +133,24 @@ function StoreMap({ store, stores, onPick }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" style={{ flex: 1 }}><Icon name="pin" size={15} />Ver rotas</button>
+          {coordinates ? (
+            <a href={directionsUrl} target="_blank" rel="noreferrer" className="fa-btn fa-btn-soft fa-btn-sm" style={{ flex: 1, textDecoration: 'none' }}>
+              <Icon name="pin" size={15} />Ver rotas
+            </a>
+          ) : (
+            <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" style={{ flex: 1 }} disabled><Icon name="pin" size={15} />Ver rotas</button>
+          )}
           <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" style={{ flex: 1 }}><Icon name="phone" size={15} />Ligar para loja</button>
         </div>
+        {stores.filter((entry) => entry.id !== store.id).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {stores.filter((entry) => entry.id !== store.id).map((entry) => (
+              <button key={entry.id} type="button" className="fa-btn fa-btn-ghost fa-btn-sm" onClick={() => onPick(entry.id)}>
+                <Icon name="pin" size={13} />{entry.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

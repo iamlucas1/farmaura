@@ -67,6 +67,8 @@ from app.services.marketplace_projection import (
     quantize_money,
 )
 from app.services.payment_service import PaymentService
+from app.services.portal_service import PortalService
+from app.schemas.portal import PortalDeliveryPricingResponse
 
 
 # ============================================================================
@@ -160,9 +162,20 @@ class OrderService:
         subtotal_amount = quantize_money(
             sum((Decimal(group['price']) * Decimal(entry['request'].quantity) for entry in requested_groups), start=Decimal('0.00'))
         )
+        delivery_geo: tuple[Decimal, Decimal, Decimal] | None = None
         delivery_fee_amount = Decimal('0.00')
-        if payload.delivery.method != 'pickup' and subtotal_amount < Decimal('120.00'):
-            delivery_fee_amount = Decimal('9.90')
+        if payload.delivery.method != 'pickup':
+            pricing = await PortalService(self.session).get_delivery_pricing(subject)
+            if pricing.tiers:
+                delivery_geo = await self._resolve_delivery_geo(self._build_full_delivery_address(payload))
+                resolved_distance_km = delivery_geo[2]
+                delivery_fee_amount = (
+                    self._resolve_delivery_fee_by_distance(pricing, resolved_distance_km)
+                    if resolved_distance_km > Decimal('0.00')
+                    else quantize_money(Decimal(pricing.fee_beyond_last_tier))
+                )
+            elif subtotal_amount < pricing.free_above_subtotal:
+                delivery_fee_amount = pricing.fee_beyond_last_tier
         coupon_discount = Decimal('0.00')
         if payload.coupon_type == 'shipping_full':
             coupon_discount = quantize_money(delivery_fee_amount)
@@ -254,7 +267,7 @@ class OrderService:
                 remaining_quantity -= allocated_quantity
             if remaining_quantity > 0:
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to allocate stock across grouped inventory items.')
-        fulfillment = await self._build_fulfillment(order=order, customer=customer, payload=payload, now=now)
+        fulfillment = await self._build_fulfillment(order=order, customer=customer, payload=payload, now=now, precomputed_geo=delivery_geo)
         await self.repository.add_fulfillment(fulfillment)
         if order.fulfillment_type == 'delivery':
             await self._attach_delivery_route_stop(order=order, fulfillment=fulfillment, subject=subject, store_id=store_id, now=now)
@@ -664,6 +677,25 @@ class OrderService:
         minutes = 60 if method == 'express' else 180
         return (now + timedelta(minutes=minutes)).strftime('%H:%M')
 
+    def _resolve_delivery_fee_by_distance(self, pricing: PortalDeliveryPricingResponse, distance_km: Decimal) -> Decimal:
+        """Return the configured delivery fee for one resolved distance."""
+
+        for tier in sorted(pricing.tiers, key=lambda entry: entry.up_to_km):
+            if distance_km <= tier.up_to_km:
+                return quantize_money(Decimal(tier.fee))
+        return quantize_money(Decimal(pricing.fee_beyond_last_tier))
+
+    def _build_full_delivery_address(self, payload: CheckoutOrderRequest) -> str:
+        """Return one free-form address string for geocoding from the checkout delivery fields."""
+
+        return ', '.join(part for part in [
+            ' '.join(part for part in [payload.delivery.address_line, payload.delivery.address_number] if part).strip(),
+            payload.delivery.district,
+            payload.delivery.city,
+            payload.delivery.state_code,
+            payload.delivery.postal_code,
+        ] if part)
+
     async def _resolve_delivery_geo(self, address_text: str) -> tuple[Decimal, Decimal, Decimal]:
         """Return (latitude, longitude, distance_km) from real geocoding, or zeros when unavailable."""
 
@@ -690,7 +722,15 @@ class OrderService:
         a = sin(delta_phi / 2) ** 2 + cos(phi1) * cos(phi2) * sin(delta_lambda / 2) ** 2
         return quantize_money(Decimal(str(earth_radius_km * 2 * atan2(sqrt(a), sqrt(1 - a)))))
 
-    async def _build_fulfillment(self, *, order: Order, customer: object, payload: CheckoutOrderRequest, now: datetime) -> OrderFulfillment:
+    async def _build_fulfillment(
+        self,
+        *,
+        order: Order,
+        customer: object,
+        payload: CheckoutOrderRequest,
+        now: datetime,
+        precomputed_geo: tuple[Decimal, Decimal, Decimal] | None = None,
+    ) -> OrderFulfillment:
         """Return the persisted order fulfillment snapshot."""
 
         store_label = payload.delivery.store_name.strip() or (get_settings().store_hub_name or '').strip() or 'Farmácia Farmaura'
@@ -723,14 +763,11 @@ class OrderService:
                 driver_name='',
                 driver_phone='',
             )
-        full_address = ', '.join(part for part in [
-            ' '.join(part for part in [payload.delivery.address_line, payload.delivery.address_number] if part).strip(),
-            payload.delivery.district,
-            payload.delivery.city,
-            payload.delivery.state_code,
-            payload.delivery.postal_code,
-        ] if part)
-        latitude, longitude, distance = await self._resolve_delivery_geo(full_address)
+        if precomputed_geo is not None:
+            latitude, longitude, distance = precomputed_geo
+        else:
+            full_address = self._build_full_delivery_address(payload)
+            latitude, longitude, distance = await self._resolve_delivery_geo(full_address)
         eta_minutes = 60 if payload.delivery.method == 'express' else 180
         return OrderFulfillment(
             id=str(uuid4()),

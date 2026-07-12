@@ -21,6 +21,8 @@ from app.schemas.auth import TokenSubject
 from app.schemas.portal import (
     PortalCouponMutationRequest,
     PortalCouponResponse,
+    PortalDeliveryPricingResponse,
+    PortalDeliveryPricingUpdateRequest,
     PortalFavoriteMutationRequest,
     PortalFavoriteResponse,
     PortalFinancialSettingsResponse,
@@ -101,6 +103,29 @@ async def update_marketplace_meta(
 
     service = PortalService(session)
     return await service.update_marketplace_meta(subject, payload)
+
+
+@router.get("/internal/delivery-pricing", response_model=PortalDeliveryPricingResponse)
+async def get_delivery_pricing(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalDeliveryPricingResponse:
+    """Return tenant-scoped distance-based delivery pricing configuration."""
+
+    service = PortalService(session)
+    return await service.get_delivery_pricing(subject)
+
+
+@router.put("/internal/delivery-pricing", response_model=PortalDeliveryPricingResponse)
+async def update_delivery_pricing(
+    payload: PortalDeliveryPricingUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalDeliveryPricingResponse:
+    """Persist tenant-scoped distance-based delivery pricing configuration."""
+
+    service = PortalService(session)
+    return await service.update_delivery_pricing(subject, payload)
 
 
 @router.get("/internal/financial-settings", response_model=PortalFinancialSettingsResponse)

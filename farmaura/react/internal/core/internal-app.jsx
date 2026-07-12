@@ -701,6 +701,37 @@ function PharmApp() {
       setMarketplaceMetaBusy(false);
     }
   };
+  // Frete por distância: faixas de km configuráveis, persistidas no backend ao salvar
+  const [deliveryPricing, setDp] = useState({ tiers: [], feeBeyondLastTier: 9.9, freeAboveSubtotal: 120 });
+  const [deliveryPricingBusy, setDeliveryPricingBusy] = useState(false);
+  const setDeliveryPricing = (patch) => setDp((d) => ({ ...d, ...patch }));
+  const saveDeliveryPricing = async () => {
+    if (isFilePreview || !user) {
+      showToast('Frete por distância salvo', 'success');
+      return;
+    }
+    setDeliveryPricingBusy(true);
+    try {
+      const response = await authClient.request('/portal/internal/delivery-pricing', {
+        method: 'PUT',
+        body: JSON.stringify({
+          tiers: (deliveryPricing.tiers || []).map((tier) => ({ up_to_km: Number(tier.upToKm || 0), fee: Number(tier.fee || 0) })),
+          fee_beyond_last_tier: Number(deliveryPricing.feeBeyondLastTier || 0),
+          free_above_subtotal: Number(deliveryPricing.freeAboveSubtotal || 0),
+        }),
+      });
+      setDp({
+        tiers: (response.tiers || []).map((tier) => ({ upToKm: Number(tier.up_to_km || 0), fee: Number(tier.fee || 0) })),
+        feeBeyondLastTier: Number(response.fee_beyond_last_tier ?? 9.9),
+        freeAboveSubtotal: Number(response.free_above_subtotal ?? 120),
+      });
+      showToast('Frete por distância salvo', 'success');
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível salvar o frete por distância.', 'warn');
+    } finally {
+      setDeliveryPricingBusy(false);
+    }
+  };
   const [threads, setThreads] = useState([]);
   const [activeThread, setActiveThreadId] = useState(null);
   const [coupons, setCoupons] = useState([]);
@@ -954,6 +985,14 @@ function PharmApp() {
           minMargin: Number(bootstrap.marketplace && bootstrap.marketplace.minimum_margin_percent || bootstrap.marketplace && bootstrap.marketplace.minimumMarginPercent || 0),
           footerNote: bootstrap.marketplace && (bootstrap.marketplace.footer_note ?? bootstrap.marketplace.footerNote) || '',
         });
+        const deliveryPricingPayload = bootstrap.delivery_pricing || bootstrap.deliveryPricing || null;
+        if (deliveryPricingPayload) {
+          setDp({
+            tiers: (deliveryPricingPayload.tiers || []).map((tier) => ({ upToKm: Number(tier.up_to_km || 0), fee: Number(tier.fee || 0) })),
+            feeBeyondLastTier: Number(deliveryPricingPayload.fee_beyond_last_tier ?? 9.9),
+            freeAboveSubtotal: Number(deliveryPricingPayload.free_above_subtotal ?? 120),
+          });
+        }
         setChartSeed(bootstrap.chart_seed || bootstrap.chartSeed || {});
         setCoupons((Array.isArray(bootstrap.coupon_campaigns) ? bootstrap.coupon_campaigns : []).map(normalizeCouponCampaign));
         setFinancialSettingsState(bootstrap.financial_settings || bootstrap.financialSettings || { months: {} });
@@ -1698,6 +1737,7 @@ function PharmApp() {
     pdvQueue, pdvSendToCashier, pdvClaimFromQueue,
     pdvSales, recordSale, sendFiscalDocumentEmail,
     marketplace, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy, setItemPricing, notify: showToast,
+    deliveryPricing, setDeliveryPricing, saveDeliveryPricing, deliveryPricingBusy,
     coupons, couponModalState, openCouponCreate, openCouponEdit, closeCouponModal, createCoupon, updateCoupon, toggleCouponState, removeCoupon, duplicateCoupon,
     customers, customerByName, createPdvCustomer,
     nowLabel, todayIso, todayLabel,

@@ -82,7 +82,7 @@ function VsMarket({ vsRef, refPrice }) {
 
 /* ===================== TELA PRINCIPAL ===================== */
 function PricingScreen({ ctx }) {
-  const { inventory, marketplace: mkt, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy, setItemPricing, notify, onLogout } = ctx;
+  const { inventory, marketplace: mkt, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy, setItemPricing, notify, onLogout, deliveryPricing, setDeliveryPricing, saveDeliveryPricing, deliveryPricingBusy } = ctx;
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('all');     // all | promo | low | controlled
   const [edit, setEdit] = useState(null);    // item sendo precificado
@@ -129,6 +129,9 @@ function PricingScreen({ ctx }) {
 
         {/* Taxas do marketplace (editáveis) */}
         <MarketplaceFees mkt={mkt} setMarketplace={setMarketplace} onSave={saveMarketplaceMeta} saving={marketplaceMetaBusy} />
+
+        {/* Frete por distância da loja (editável) */}
+        <DeliveryPricing value={deliveryPricing} setValue={setDeliveryPricing} onSave={saveDeliveryPricing} saving={deliveryPricingBusy} />
 
         {/* Filtros + ações em massa */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '18px 0 16px', flexWrap: 'wrap' }}>
@@ -230,6 +233,56 @@ function MarketplaceFees({ mkt, setMarketplace, onSave, saving }) {
         </FeeRow>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+        <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={onSave} disabled={!!saving}>
+          <Icon name="check" size={14} />{saving ? 'Salvando…' : 'Salvar alterações'}
+        </button>
+      </div>
+    </AnCard>
+  );
+}
+function DeliveryPricing({ value, setValue, onSave, saving }) {
+  /** Render the distance-based delivery fee configuration. */
+
+  const tiers = Array.isArray(value.tiers) ? value.tiers : [];
+  const setTiers = (nextTiers) => setValue({ ...value, tiers: nextTiers });
+  const updateTier = (index, patch) => setTiers(tiers.map((tier, i) => (i === index ? { ...tier, ...patch } : tier)));
+  const addTier = () => setTiers([...tiers, { upToKm: tiers.length ? (tiers[tiers.length - 1].upToKm || 0) + 2 : 3, fee: 0 }]);
+  const removeTier = (index) => setTiers(tiers.filter((_, i) => i !== index));
+
+  return (
+    <AnCard icon="truck" title="Frete por distância da loja" sub="Defina faixas de km a partir da loja: quanto mais longe, maior a taxa — ou deixe grátis em uma faixa"
+      right={<span className="fa-badge fa-badge-mist"><Icon name="pin" size={12} />{tiers.length ? tiers.length + ' faixas' : 'Regra padrão'}</span>}>
+      {tiers.length === 0 && (
+        <div className="fa-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+          Sem faixas configuradas: hoje vale a regra padrão (grátis a partir de {'R$ ' + Number(value.freeAboveSubtotal || 0).toFixed(2)} em pedidos, senão taxa fixa de {'R$ ' + Number(value.feeBeyondLastTier || 0).toFixed(2)}).
+        </div>
+      )}
+      <div className="prc-fees">
+        {tiers.map((tier, index) => (
+          <FeeRow key={index} icon="pin" label={'Até ' + (tier.upToKm || 0) + ' km'}>
+            <span className="fin-prem-pre" style={{ marginRight: 6 }}>R$</span>
+            <input className="fa-input" type="number" min="0" step="0.5" style={{ width: 90 }} value={tier.fee}
+              onChange={(e) => updateTier(index, { fee: Number(e.target.value) })} />
+            <span className="fin-prem-pre" style={{ margin: '0 6px' }}>até</span>
+            <input className="fa-input" type="number" min="0.5" step="0.5" style={{ width: 80 }} value={tier.upToKm}
+              onChange={(e) => updateTier(index, { upToKm: Number(e.target.value) })} />
+            <span className="fin-prem-pre" style={{ marginLeft: 4 }}>km</span>
+            <button className="fa-btn fa-btn-ghost fa-btn-sm" style={{ marginLeft: 8 }} onClick={() => removeTier(index)}><Icon name="trash" size={14} /></button>
+          </FeeRow>
+        ))}
+        <FeeRow icon="receipt" label="Taxa acima da última faixa" sub="ou taxa padrão se nenhuma faixa configurada">
+          <span className="fin-prem-pre" style={{ marginRight: 6 }}>R$</span>
+          <input className="fa-input" type="number" min="0" step="0.5" style={{ width: 90 }} value={value.feeBeyondLastTier}
+            onChange={(e) => setValue({ ...value, feeBeyondLastTier: Number(e.target.value) })} />
+        </FeeRow>
+        <FeeRow icon="gauge" label="Frete grátis acima de" sub="usado apenas quando não há faixas configuradas">
+          <span className="fin-prem-pre" style={{ marginRight: 6 }}>R$</span>
+          <input className="fa-input" type="number" min="0" step="5" style={{ width: 90 }} value={value.freeAboveSubtotal}
+            onChange={(e) => setValue({ ...value, freeAboveSubtotal: Number(e.target.value) })} />
+        </FeeRow>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
+        <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={addTier}><Icon name="plus" size={14} />Adicionar faixa</button>
         <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={onSave} disabled={!!saving}>
           <Icon name="check" size={14} />{saving ? 'Salvando…' : 'Salvar alterações'}
         </button>
@@ -541,4 +594,4 @@ function BulkMarginModal({ rows, mkt, onClose, onApply }) {
   );
 }
 
-export { BdRow, BulkMarginModal, FeeRow, MarketplaceFees, PriceDrawer, PricingScreen, VsMarket, marginState, priceCalc, priceForMargin };
+export { BdRow, BulkMarginModal, DeliveryPricing, FeeRow, MarketplaceFees, PriceDrawer, PricingScreen, VsMarket, marginState, priceCalc, priceForMargin };
