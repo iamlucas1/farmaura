@@ -36,6 +36,7 @@ from app.models.order_item import OrderItem
 from app.models.prescription import Prescription
 from app.models.prescription_check import PrescriptionCheck
 from app.models.prescription_item import PrescriptionItem
+from app.repositories.customer_payment_method_repository import CustomerPaymentMethodRepository
 from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.order_repository import OrderRepository
@@ -65,6 +66,7 @@ from app.services.marketplace_projection import (
     build_marketplace_product_id,
     quantize_money,
 )
+from app.services.payment_service import PaymentService
 
 
 # ============================================================================
@@ -174,20 +176,27 @@ class OrderService:
             coupon_discount = quantize_money(subtotal_amount * (payload.coupon_percent / Decimal('100')))
         total_amount = quantize_money(subtotal_amount - coupon_discount + delivery_fee_amount)
         now = datetime.now(UTC)
+        payment_method = None
+        if payload.payment.method in ('credit_card', 'debit_card'):
+            payment_method = await CustomerPaymentMethodRepository(self.session).get_for_customer(
+                customer_id=customer.id, payment_method_id=payload.payment.payment_method_id,
+            )
+            if payment_method is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cartão selecionado não encontrado.')
         order = Order(
             id=str(uuid4()),
             tenant_id=str(subject.tenant_id),
             store_id=store_id,
             customer_id=customer.id,
             selected_address_id=None,
-            selected_payment_method_id=None,
+            selected_payment_method_id=payment_method.id if payment_method else None,
             order_code=self._build_order_code(now),
             channel=payload.channel or 'app',
             status=OrderStatus.NEW.value,
             fulfillment_type='pickup' if payload.delivery.method == 'pickup' else 'delivery',
             priority='express' if payload.delivery.method == 'express' else 'normal',
             payment_method_label=self._build_payment_label(payload.payment.method),
-            payment_status='approved',
+            payment_status='pending',
             customer_display_name=customer.full_name,
             customer_document_snapshot=customer.cpf,
             customer_phone_snapshot=payload.delivery.recipient_phone or customer.phone,
@@ -251,20 +260,36 @@ class OrderService:
             await self._attach_delivery_route_stop(order=order, fulfillment=fulfillment, subject=subject, store_id=store_id, now=now)
         if order.requires_prescription_review:
             await self._create_prescription_snapshot(order=order, customer=customer, payload=payload, order_items=created_items)
-        fiscal_service = FiscalService(self.session)
-        fiscal_document = await fiscal_service.issue_for_order(order=order, customer=customer)
+        payment_service = PaymentService(self.session)
+        pix_qr_code = ''
+        pix_copy_paste = ''
+        if payload.payment.method == 'pix':
+            charge = await payment_service.charge_pix(
+                customer=customer, amount=total_amount, external_reference=order.order_code,
+                description=f'Pedido marketplace {order.order_code}',
+            )
+            pix_qr_code = charge['pix_qr_code']
+            pix_copy_paste = charge['pix_copy_paste']
+        else:
+            assert payment_method is not None  # guaranteed above: card methods 404 early when unresolved
+            billing_type = 'CREDIT_CARD' if payload.payment.method == 'credit_card' else 'DEBIT_CARD'
+            charge = await payment_service.charge_card(
+                customer=customer, provider_token=payment_method.provider_token, billing_type=billing_type,
+                amount=total_amount, external_reference=order.order_code,
+                description=f'Pedido marketplace {order.order_code}',
+            )
+        order.gateway_payment_id = charge['payment_id']
+        order.payment_status = payment_service.resolve_order_payment_status(charge['status'])
+        if order.payment_status == 'approved':
+            order.payment_confirmed_at = now
+        await self.session.flush()
         await self.session.commit()
-        fiscal_response = fiscal_service.serialize_document(fiscal_document)
-        if customer.email:
-            try:
-                fiscal_service.notification_service.send_fiscal_document_email(
-                    document=fiscal_document,
-                    email=customer.email,
-                    printable_html_url=fiscal_response.printable_html_url,
-                )
-            except Exception:
-                pass
-        return self._serialize_marketplace_order(order, created_items, fulfillment, fiscal_document=fiscal_response)
+        # Fiscal issuance is deferred: a background job (app.services.fiscal_scheduler) issues
+        # the document once payment_confirmed_at is at least 7 days old, so a product return or
+        # order cancellation inside that window never forces a fiscal document to be cancelled.
+        return self._serialize_marketplace_order(
+            order, created_items, fulfillment, fiscal_document=None, pix_qr_code=pix_qr_code, pix_copy_paste=pix_copy_paste,
+        )
 
     async def list_internal_board(self) -> InternalOrderBoardResponse:
         """Return the pharmacist operational order board."""
@@ -382,6 +407,8 @@ class OrderService:
         fulfillment: OrderFulfillment | None,
         *,
         fiscal_document: FiscalDocumentResponse | None = None,
+        pix_qr_code: str = '',
+        pix_copy_paste: str = '',
     ) -> MarketplaceOrderResponse:
         """Convert one persisted order into the marketplace response shape."""
 
@@ -435,6 +462,8 @@ class OrderService:
             rx_status=order.prescription_status,
             items=list(grouped_items.values()),
             fiscal_document=fiscal_document,
+            pix_qr_code=pix_qr_code,
+            pix_copy_paste=pix_copy_paste,
         )
 
     def _serialize_internal_order(

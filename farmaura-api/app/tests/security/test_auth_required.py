@@ -161,6 +161,76 @@ def test_pdv_allows_internal_cashier_session(client: object) -> None:
     assert response.json()["message"] == "PDV workflows scaffolded."
 
 
+def test_tokenize_card_requires_authentication(client: object) -> None:
+    """Verify the card tokenization endpoint rejects anonymous requests."""
+
+    response = client.post("/api/v1/customers/me/payment-methods/tokenize-card", json={})
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Authentication required."}
+
+
+def test_tokenize_card_rejects_internal_session(client: object) -> None:
+    """Verify an internal session cannot call the marketplace card tokenization endpoint."""
+
+    response = client.post(
+        "/api/v1/customers/me/payment-methods/tokenize-card",
+        headers=build_auth_headers(role=UserRole.CASHIER, access_scope=AccessScope.INTERNAL),
+        json={
+            "holder_name": "Test Holder",
+            "number": "4111111111111111",
+            "cvv": "123",
+            "expiration_month": "01",
+            "expiration_year": "2030",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden."}
+
+
+def test_tokenize_card_rejects_malformed_card_fields(client: object) -> None:
+    """Verify the tokenize endpoint enforces the raw card field contract before any provider call."""
+
+    response = client.post(
+        "/api/v1/customers/me/payment-methods/tokenize-card",
+        headers=build_auth_headers(role=UserRole.CUSTOMER, access_scope=AccessScope.MARKETPLACE),
+        json={
+            "holder_name": "Test Holder",
+            "number": "not-a-card-number",
+            "cvv": "12",
+            "expiration_month": "13",
+            "expiration_year": "30",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_asaas_webhook_fails_closed_when_unconfigured(client: object) -> None:
+    """Verify the payment webhook rejects events when no shared secret is configured."""
+
+    response = client.post(
+        "/api/v1/payments/asaas/webhook",
+        json={"event": "PAYMENT_CONFIRMED", "payment": {"id": "pay_test_123"}},
+    )
+    assert response.status_code == 503
+
+
+def test_asaas_webhook_rejects_wrong_token(client: object) -> None:
+    """Verify the payment webhook rejects requests with an incorrect shared-secret token."""
+
+    from app.core.config import get_settings
+
+    get_settings().asaas_webhook_auth_token = "expected-secret"
+    try:
+        response = client.post(
+            "/api/v1/payments/asaas/webhook",
+            headers={"asaas-access-token": "wrong-secret"},
+            json={"event": "PAYMENT_CONFIRMED", "payment": {"id": "pay_test_123"}},
+        )
+        assert response.status_code == 401
+    finally:
+        get_settings().asaas_webhook_auth_token = ""
+
+
 def test_auth_session_returns_scope_and_modules(client: object) -> None:
     """Verify the session endpoint exposes normalized access metadata."""
 

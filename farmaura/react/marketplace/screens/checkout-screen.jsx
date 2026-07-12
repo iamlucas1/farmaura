@@ -488,14 +488,30 @@ function ConfirmScreen({ ctx }) {
   const etaLabel = lastOrder && lastOrder.eta ? lastOrder.eta : '—';
   const orderCode = lastOrder && (lastOrder.id || lastOrder.code) ? lastOrder.id || lastOrder.code : '—';
   const totalAmount = lastOrder ? Number(lastOrder.total || lastOrder.total_amount || 0) : 0;
+  const paymentApproved = lastOrder && lastOrder.paymentStatus === 'approved';
+  const hasPixQrCode = lastOrder && !paymentApproved && lastOrder.pixQrCode;
   return (
     <div className="fa-wrap fa-fadein" style={{ paddingTop: 50, paddingBottom: 80, maxWidth: 600, textAlign: 'center' }}>
       <span className="fa-iconbox" style={{ margin: '0 auto 20px', width: 84, height: 84, background: 'var(--fa-success-soft)', color: 'var(--fa-success)' }}><Icon name="check" size={42} stroke={2.4} /></span>
       <h1 className="fa-h1" style={{ fontSize: 'clamp(26px,3vw,36px)' }}>Pedido confirmado!</h1>
-      <p className="fa-lead" style={{ marginTop: 10 }}>Seu pedido foi enviado para a operacao da Farmaura com pagamento registrado e aprovado. Agora ele segue para separacao, retirada ou entrega conforme o fluxo escolhido.</p>
-      <div className="fa-card" style={{ padding: 22, marginTop: 28, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <p className="fa-lead" style={{ marginTop: 10 }}>
+        {paymentApproved
+          ? 'Seu pedido foi enviado para a operacao da Farmaura com pagamento aprovado. Agora ele segue para separacao, retirada ou entrega conforme o fluxo escolhido.'
+          : 'Seu pedido foi registrado e aguarda a confirmação do pagamento. Assim que o pagamento for aprovado, ele segue para separação, retirada ou entrega.'}
+      </p>
+      {hasPixQrCode ? (
+        <div className="fa-card" style={{ padding: 22, marginTop: 20, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>Pague com Pix para confirmar o pedido</div>
+          <img src={'data:image/png;base64,' + lastOrder.pixQrCode} alt="QR Code Pix" style={{ width: 200, height: 200 }} />
+          {lastOrder.pixCopyPaste ? (
+            <div className="fa-mono" style={{ fontSize: 11.5, wordBreak: 'break-all', background: 'var(--fa-mist-2)', padding: 10, borderRadius: 'var(--fa-r-input)' }}>{lastOrder.pixCopyPaste}</div>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="fa-card" style={{ padding: 22, marginTop: 20, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Pedido</span><b className="fa-mono">#{orderCode}</b></div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Total</span><b>{lastOrder ? brl(totalAmount) : '—'}</b></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Pagamento</span><b style={{ color: paymentApproved ? 'var(--fa-success)' : 'var(--fa-warn, #9A6700)' }}>{paymentApproved ? 'Aprovado' : 'Aguardando confirmação'}</b></div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Fluxo</span><b>{lastOrder && lastOrder.fulfillment === 'pickup' ? 'Pronto para retirada' : 'Entrega em preparacao'}</b></div>
         {lastOrder && lastOrder.fulfillment === 'pickup' && lastOrder.pickupCode ? (
           <div style={{ background: 'var(--fa-info-soft)', borderRadius: 'var(--fa-r-card)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>

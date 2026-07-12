@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     asaas_enabled: bool = False
     asaas_base_url: str = "https://api-sandbox.asaas.com"
     asaas_access_token: str = ""
+    asaas_webhook_auth_token: str = ""
+    asaas_webhook_allowed_ips: str = ""
     asaas_invoice_enabled: bool = False
     asaas_invoice_municipal_service_id: str = ""
     asaas_invoice_municipal_service_code: str = ""

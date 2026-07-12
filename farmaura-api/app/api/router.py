@@ -28,6 +28,7 @@ from app.api.v1 import (
     health,
     inventory,
     orders,
+    payments,
     pdv,
     portal,
     prescriptions,
@@ -48,6 +49,7 @@ api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 api_router.include_router(customers.router, prefix="/customers", tags=["customers"])
 api_router.include_router(cart.router, prefix="/cart", tags=["cart"])
 api_router.include_router(orders.router, prefix="/orders", tags=["orders"])
+api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(prescriptions.router, prefix="/prescriptions", tags=["prescriptions"])
 api_router.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(deliveries.router, prefix="/deliveries", tags=["deliveries"])

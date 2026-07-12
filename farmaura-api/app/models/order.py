@@ -13,9 +13,10 @@ Observations:
 - fulfillment-specific address and pickup data live in a dedicated child table;
 """
 
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Numeric, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import OrderStatus
@@ -60,6 +61,8 @@ class Order(Base, UuidModel, TimestampedModel):
     priority: Mapped[str] = mapped_column(String(24), default="normal", nullable=False)
     payment_method_label: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     payment_status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    gateway_payment_id: Mapped[str] = mapped_column(String(64), default="", index=True, nullable=False)
+    payment_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     customer_display_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     customer_document_snapshot: Mapped[str] = mapped_column(String(20), default="", nullable=False)
     customer_phone_snapshot: Mapped[str] = mapped_column(String(32), default="", nullable=False)

@@ -111,6 +111,8 @@ class MarketplaceOrderResponse(StrictModel):
     rx_status: str = "none"
     items: list[MarketplaceOrderItemResponse]
     fiscal_document: FiscalDocumentResponse | None = None
+    pix_qr_code: str = ""
+    pix_copy_paste: str = ""
 
 
 class MarketplaceOrderListResponse(StrictModel):

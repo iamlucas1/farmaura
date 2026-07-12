@@ -43,6 +43,7 @@ from app.models.pdv_order import PdvOrder
 from app.models.pdv_order_item import PdvOrderItem
 from app.models.pdv_sale import PdvSale
 from app.models.pdv_sale_item import PdvSaleItem
+from app.models.payment_webhook_event import PaymentWebhookEvent
 from app.models.portal_setting import PortalSetting
 from app.models.prescription import Prescription
 from app.models.prescription_check import PrescriptionCheck
@@ -88,6 +89,7 @@ __all__ = [
     "PdvOrderItem",
     "PdvSale",
     "PdvSaleItem",
+    "PaymentWebhookEvent",
     "PortalSetting",
     "Prescription",
     "PrescriptionCheck",

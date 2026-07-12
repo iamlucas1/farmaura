@@ -61,3 +61,24 @@ async def apply_login_context(session: AsyncSession, email: str) -> None:
         ),
         {"login_email": email.strip().lower()},
     )
+
+
+async def apply_webhook_context(session: AsyncSession, gateway_payment_id: str) -> None:
+    """Apply transaction-local context for one verified payment webhook update.
+
+    Scoped narrowly to the single gateway payment id the caller already
+    authenticated (shared-secret token + IP allowlist), mirroring the
+    current_login_email carve-out used for pre-auth user lookups: it grants
+    access to exactly one order row, not cross-tenant access in general.
+    """
+
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+    await session.execute(
+        text(
+            """
+            SELECT set_config('app.current_webhook_payment_id', :gateway_payment_id, true)
+            """
+        ),
+        {"gateway_payment_id": gateway_payment_id.strip()},
+    )

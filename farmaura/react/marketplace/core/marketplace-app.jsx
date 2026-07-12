@@ -376,6 +376,8 @@ function normalizeMarketplaceOrder(item) {
     subtotal: Number(item.subtotal_amount || 0),
     deliveryFee: Number(item.delivery_fee_amount || 0),
     discountAmount: Number(item.discount_amount || 0),
+    pixQrCode: item.pix_qr_code || '',
+    pixCopyPaste: item.pix_copy_paste || '',
     items: Array.isArray(item.items) ? item.items.map((line) => ({
       id: line.product_id || line.id,
       productId: line.product_id || line.id,

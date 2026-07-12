@@ -109,6 +109,15 @@ RLS_STATEMENTS: tuple[str, ...] = (
             $$;
     """,
     """
+    CREATE OR REPLACE FUNCTION app_private.current_webhook_payment_id()
+            RETURNS text
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT NULLIF(current_setting('app.current_webhook_payment_id', true), '')
+            $$;
+    """,
+    """
     CREATE OR REPLACE FUNCTION app_private.is_admin()
             RETURNS boolean
             LANGUAGE sql
@@ -266,12 +275,18 @@ RLS_STATEMENTS: tuple[str, ...] = (
     CREATE POLICY orders_access_policy
             ON orders
             USING (
-                tenant_id = app_private.current_tenant_id()
-                AND app_private.can_access_order_row(customer_id)
+                (
+                    tenant_id = app_private.current_tenant_id()
+                    AND app_private.can_access_order_row(customer_id)
+                )
+                OR gateway_payment_id = app_private.current_webhook_payment_id()
             )
             WITH CHECK (
-                tenant_id = app_private.current_tenant_id()
-                AND app_private.can_access_order_row(customer_id)
+                (
+                    tenant_id = app_private.current_tenant_id()
+                    AND app_private.can_access_order_row(customer_id)
+                )
+                OR gateway_payment_id = app_private.current_webhook_payment_id()
             )
     """,
     """
