@@ -1,0 +1,124 @@
+name: backend
+
+services:
+  farmaura:
+    container_name: farmaura
+    build:
+      context: ..
+      dockerfile: docker/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      farmaura-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - farmaura_private
+
+  farmaura-api:
+    container_name: farmaura_api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_NAME: Farmaura API
+      APP_ENV: docker
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8080
+      APP_BASE_URL: https://api.farmaura.local
+      APP_API_V1_PREFIX: /api/v1
+      APP_DEBUG: "false"
+      APP_ALLOWED_ORIGINS: http://127.0.0.1:3000,http://localhost:3000,https://farmaura.local,https://farmacia.local
+      APP_DATABASE_URL: postgresql+psycopg://farmaura:farmaura@farmaura-postgres:5432/farmaura
+      APP_REDIS_URL: redis://farmaura-redis:6379/0
+      APP_STORAGE_ROOT: /app/storage/private
+      APP_STORAGE_TMP_ROOT: /app/storage/tmp
+      APP_STORAGE_QUARANTINE_ROOT: /app/storage/quarantine
+      APP_GEOCODING_ENABLED: "true"
+      APP_GEOCODING_BASE_URL: https://nominatim.openstreetmap.org
+      APP_GEOCODING_USER_AGENT: farmaura-api/1.0 (contato@farmaura.com.br)
+      APP_STORE_HUB_NAME: Farmácia Farmaura
+      APP_STORE_HUB_ADDRESS: Setor Comercial Sul, Brasília, DF, Brasil
+    depends_on:
+      farmaura-postgres:
+        condition: service_healthy
+      farmaura-redis:
+        condition: service_healthy
+    expose:
+      - "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - farmaura_storage_private:/app/storage/private
+      - farmaura_storage_quarantine:/app/storage/quarantine
+      - farmaura_storage_tmp:/app/storage/tmp
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - farmaura_private
+
+  farmaura-postgres:
+    container_name: farmaura_postgres
+    image: postgres:17.10-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farmaura
+      POSTGRES_USER: farmaura
+      POSTGRES_PASSWORD: farmaura
+      TZ: America/Sao_Paulo
+    volumes:
+      - farmaura_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farmaura -d farmaura"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - farmaura_private
+
+  farmaura-redis:
+    container_name: farmaura_redis
+    image: redis:8.2.6-bookworm
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - farmaura_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - farmaura_private
+
+networks:
+  farmaura_private:
+    name: farmaura_private
+    driver: bridge
+
+volumes:
+  farmaura_postgres_data:
+    name: farmaura_postgres_data
+  farmaura_redis_data:
+    name: farmaura_redis_data
+  farmaura_storage_private:
+    name: farmaura_storage_private
+  farmaura_storage_quarantine:
+    name: farmaura_storage_quarantine
+  farmaura_storage_tmp:
+    name: farmaura_storage_tmp

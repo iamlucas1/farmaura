@@ -1,0 +1,179 @@
+"""
+farmaura-api/app/api/v1/auth.py
+
+Authentication routes for Farmaura.
+
+Responsibilities:
+- expose credential-based login;
+- return validated access and refresh token pairs;
+- keep transport logic thin and service-driven;
+
+Observations:
+- refresh, logout, and revoke routes should be added next;
+- auth endpoints should receive rate limiting in production deployment;
+"""
+
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_app_settings, get_current_subject, get_session
+from app.core.config import Settings
+from app.domain.permissions import get_allowed_modules, get_allowed_portals
+from app.repositories.user_repository import UserRepository
+from app.schemas.auth import (
+    AuthSessionResponse,
+    AuthenticatedResponse,
+    LoginRequest,
+    LogoutAllResponse,
+    LogoutRequest,
+    LogoutResponse,
+    RefreshRequest,
+    TokenPair,
+    TokenSubject,
+    TwoFactorChallengeResponse,
+    TwoFactorDisableRequest,
+    TwoFactorEnableRequest,
+    TwoFactorOperationResponse,
+    TwoFactorSetupResponse,
+    TwoFactorVerifyRequest,
+)
+from app.services.auth_service import AuthService
+
+
+# ============================================================================
+# AUTH ROUTES
+# ============================================================================
+
+
+router = APIRouter()
+
+
+@router.post("/login", response_model=AuthenticatedResponse | TwoFactorChallengeResponse)
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> AuthenticatedResponse | TwoFactorChallengeResponse:
+    """Authenticate a user and issue tokens."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.login(
+        payload,
+        ip_address=request.client.host if request.client else "",
+        user_agent=request.headers.get("user-agent", ""),
+    )
+
+
+@router.post("/verify-2fa", response_model=AuthenticatedResponse)
+async def verify_two_factor(
+    payload: TwoFactorVerifyRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> AuthenticatedResponse:
+    """Validate a second-factor challenge and issue tokens."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.verify_two_factor(
+        payload,
+        ip_address=request.client.host if request.client else "",
+        user_agent=request.headers.get("user-agent", ""),
+    )
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+async def begin_two_factor_setup(
+    subject: TokenSubject = Depends(get_current_subject),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> TwoFactorSetupResponse:
+    """Generate a fresh authenticator-app setup payload for the current user."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.begin_two_factor_setup(subject)
+
+
+@router.post("/2fa/enable", response_model=TwoFactorOperationResponse)
+async def enable_two_factor(
+    payload: TwoFactorEnableRequest,
+    subject: TokenSubject = Depends(get_current_subject),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> TwoFactorOperationResponse:
+    """Enable two-factor authentication for the current user."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.enable_two_factor(subject, payload)
+
+
+@router.post("/2fa/disable", response_model=TwoFactorOperationResponse)
+async def disable_two_factor(
+    payload: TwoFactorDisableRequest,
+    subject: TokenSubject = Depends(get_current_subject),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> TwoFactorOperationResponse:
+    """Disable two-factor authentication for the current user."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.disable_two_factor(subject, payload)
+
+
+@router.post("/refresh", response_model=TokenPair)
+async def refresh(
+    payload: RefreshRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> TokenPair:
+    """Rotate a refresh token and issue a new pair."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.refresh(
+        payload,
+        ip_address=request.client.host if request.client else "",
+        user_agent=request.headers.get("user-agent", ""),
+    )
+
+
+@router.post("/logout", response_model=LogoutResponse)
+async def logout(
+    payload: LogoutRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> LogoutResponse:
+    """Revoke the presented refresh token."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.logout(payload)
+
+
+@router.post("/logout-all", response_model=LogoutAllResponse)
+async def logout_all(
+    subject: TokenSubject = Depends(get_current_subject),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> LogoutAllResponse:
+    """Invalidate every session for the authenticated user."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.logout_all(subject)
+
+
+@router.get("/session", response_model=AuthSessionResponse)
+async def get_session_context(
+    subject: TokenSubject = Depends(get_current_subject),
+    session: AsyncSession = Depends(get_session),
+) -> AuthSessionResponse:
+    """Return the current authenticated session context."""
+
+    user = await UserRepository(session).get_by_id(str(subject.user_id))
+    return AuthSessionResponse(
+        subject=subject,
+        full_name=user.full_name if user else "",
+        email=user.email if user else "",
+        allowed_portals=get_allowed_portals(subject.access_scope, subject.role),
+        allowed_modules=get_allowed_modules(subject.role, subject.access_scope),
+        two_factor_enabled=bool(user and user.two_factor_enabled),
+    )

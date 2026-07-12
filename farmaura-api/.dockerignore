@@ -1,0 +1,16 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+app/__pycache__/
+app/tests/
+alembic/__pycache__/
+scripts/__pycache__/
+storage/private/*
+storage/quarantine/*
+storage/tmp/*
+*.pyc
+*.pyo
+*.pyd
+*.db

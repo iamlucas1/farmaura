@@ -1,0 +1,27 @@
+farmaura/node_modules/
+farmaura/dist/
+farmaura/.generated/
+
+# secrets - never commit real env files, any project
+.env
+.env.*
+!*.env.example
+
+# generated / dependency / cache directories, any project
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+vendor/
+dist/
+dist-debug/
+build/
+storage/
+*.sqlite3
+.DS_Store
+
+# sibling projects have their own independent git repos
+/lumos-api/
+/lumos-gateway/
+/lumosmed/

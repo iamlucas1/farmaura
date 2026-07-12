@@ -1,0 +1,9 @@
+services:
+  farmaura-api:
+    networks:
+      - lumos_gateway
+
+networks:
+  lumos_gateway:
+    name: lumos_gateway
+    external: true

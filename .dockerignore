@@ -1,0 +1,33 @@
+# ============================================================================
+# .dockerignore
+# ============================================================================
+#
+# Docker build context exclusions for the Farmaura web container.
+#
+# Responsibilities:
+# - reduce unnecessary files from the root Docker build context;
+# - keep local caches and VCS metadata out of container images;
+# - speed up frontend image builds with predictable inputs;
+#
+# Observations:
+# - this file applies to root-context builds such as the web container;
+# - backend image exclusions remain isolated in backend/.dockerignore.
+
+.git
+.gitignore
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache
+.ruff_cache
+node_modules
+backend/.venv
+backend/.pytest_cache
+backend/__pycache__
+backend/test.db
+backend/storage/private
+backend/storage/tmp
+backend/storage/quarantine
