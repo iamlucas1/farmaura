@@ -31,6 +31,8 @@ from app.schemas.customers import (
     CustomerPaymentMethodUpdateRequest,
     CustomerProfileResponse,
     CustomerProfileUpdateRequest,
+    ProductAvailabilityAlertCreateRequest,
+    ProductAvailabilityAlertResponse,
 )
 from app.services.customer_service import CustomerService
 
@@ -246,3 +248,44 @@ async def clear_customer_cart(
 
     service = CustomerService(session)
     return await service.clear_cart(subject)
+
+
+# ----------------------------------------------------------------------------
+# Product availability alerts
+# ----------------------------------------------------------------------------
+
+
+@router.get("/me/availability-alerts", response_model=list[ProductAvailabilityAlertResponse])
+async def list_customer_availability_alerts(
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> list[ProductAvailabilityAlertResponse]:
+    """Return every back-in-stock alert requested by the authenticated customer."""
+
+    service = CustomerService(session)
+    return await service.list_availability_alerts(subject)
+
+
+@router.put("/me/availability-alerts/{product_ref}", response_model=list[ProductAvailabilityAlertResponse])
+async def create_customer_availability_alert(
+    product_ref: str,
+    payload: ProductAvailabilityAlertCreateRequest,
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> list[ProductAvailabilityAlertResponse]:
+    """Register one back-in-stock alert for the authenticated customer."""
+
+    service = CustomerService(session)
+    return await service.create_availability_alert(subject, product_ref, payload)
+
+
+@router.delete("/me/availability-alerts/{product_ref}", response_model=list[ProductAvailabilityAlertResponse])
+async def delete_customer_availability_alert(
+    product_ref: str,
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> list[ProductAvailabilityAlertResponse]:
+    """Remove one back-in-stock alert for the authenticated customer."""
+
+    service = CustomerService(session)
+    return await service.delete_availability_alert(subject, product_ref)

@@ -14,12 +14,64 @@ The backend must be production-oriented from the first commit, with secure defau
 This repository hosts more than one product. Know which folder you are in before writing code, and never mix responsibilities across stacks.
 
 - `farmaura/`: Farmaura frontend. Vanilla React (no meta-framework) bundled with Vite, with two strictly separated surfaces — `react/marketplace/` (customer marketplace) and `react/internal/` (pharmacist and operations console) — sharing common code in `react/shared/` (API client, access control, portal cache, observability). See "Marketplace/Internal Access Segregation" below for the mandatory access rule between these two surfaces.
-- `farmaura-api/`: Farmaura backend. The FastAPI + Pydantic v2 + SQLAlchemy (async) + PostgreSQL + Redis Python API specified by the rest of this document. Owns all Farmaura business data: catalog, cart, orders, prescriptions, inventory, PDV, CRM, delivery, fiscal documents.
+- `farmaura-api/`: Farmaura backend. The FastAPI + Pydantic v2 + SQLAlchemy (async) + PostgreSQL + Valkey Python API specified by the rest of this document. Owns all Farmaura business data: catalog, cart, orders, prescriptions, inventory, PDV, CRM, delivery, fiscal documents.
 - `lumos-api/`: backend for the separate Lumos product family (`identity` auth domain plus the `lumosmed` clinic domain), Flask + Gunicorn + SQLAlchemy, organized as `domains/<name>/{api,services}`. Not part of Farmaura's business domain, but it is a sibling stack in this repository and shares the same gateway.
 - `lumosmed/`: Laravel (PHP) front-end and portal for the Lumos Med clinic product; consumes `lumos-api` over the internal network.
 - `lumos-gateway/`: shared Nginx edge gateway (TLS via Certbot, GeoIP filtering, Fail2ban) that fronts every stack in this repository, including Farmaura per the constraint below.
-- `skills/`: Claude Code skill definitions that encode this repository's security requirements — `secure-api-endpoint`, `secure-auth-rbac-jwt`, `secure-file-upload`, `secure-python-backend`, `secure-service-communication`. These are not background reading; invoke them and apply their guidance while writing code, in every stack, not only `farmaura-api/`.
+- `dev-obsidian/_Compartilhado/Skills/`: canonical skill library for agents and human readers. Each skill has a human-oriented `<skill-name>.md` note and an executable `<skill-name>/SKILL.md` definition. The `SKILL.md` files encode repository requirements and must be read and applied while writing code.
 - root docs: `agent.md` (this file), `claude.md` (Claude-specific mirror of the same guide).
+
+## Knowledge Vault
+
+Decisions, evolving documentation, standards, policies, business rules, integrations, APIs, databases, infrastructure, risks, vulnerabilities, pending items, architecture, and operating procedures for this repository (and any other project the user develops) live in an Obsidian vault at `dev-obsidian/` in this repository's root — tracked in this same git repository. Its `dev-obsidian/CLAUDE.md` is the authoritative governance file: read it before writing anything there.
+
+The vault is organized **project-first**, not by category — each product gets its own top-level folder:
+
+- `dev-obsidian/farmaura/` — this product (frontend `farmaura/`, backend `farmaura-api/`, infra `docker/`).
+- `dev-obsidian/lumosmed/` — the LumosMed product, kept deliberately thin here; its deep documentation lives in the separate `lumos-obsidian` vault.
+- `dev-obsidian/_Compartilhado/` — generic skills, agents, prompts, standards, and POPs not tied to one product, meant to be copied into other repositories.
+
+Each project folder has the same 8 numbered categories, each with a ready `_Template.md` to copy from: `00_Decisoes` (ADRs), `01_Contexto_Usuario` (**read-only for AI agents — never write here**), `02_Documentacao`, `03_Padroes_Politicas` (standards/policies/assumptions/business rules), `04_Seguranca_Riscos` (security findings/vulnerabilities/risk register), `05_Integracoes_Infra` (APIs/integrations/databases/infra), `06_Pendencias` (open items/tech debt), `07_POPs_Processos`.
+
+**Updating the vault is mandatory, not on-request — do it proactively, in the same change set as the work that produced the fact, without waiting to be asked:**
+
+- made an architecture or trade-off decision → write an ADR in `<projeto>/00_Decisoes/`;
+- touched or added an API, integration, database, or infra piece → update `<projeto>/05_Integracoes_Infra/`;
+- found, fixed, or accepted a security issue, vulnerability, or risk → update `<projeto>/04_Seguranca_Riscos/`;
+- formalized a standard, policy, assumption, or business rule not already covered by this file → update `<projeto>/03_Padroes_Politicas/`;
+- agreed to defer something instead of doing it now → log it in `<projeto>/06_Pendencias/`;
+- documented a repeatable operational procedure → update `<projeto>/07_POPs_Processos/`;
+- built a skill, agent, or prompt reusable beyond this project → put it in `dev-obsidian/_Compartilhado/`;
+- materially edited a living-doc note (`02_Documentacao`, `03_Padroes_Politicas`, `04_Seguranca_Riscos`, `05_Integracoes_Infra`, `07_POPs_Processos`, `08_Skills_Agentes_Prompts`, or any `_Compartilhado/*` note), or adopted a new technology/library/tool relevant to it → append a dated entry (`- AAAA-MM-DD: what changed`) to that note's `## Atualizações` section, most recent first. Does not apply to `00_Decisoes` (ADRs are point-in-time by design — a changed decision is a new ADR, not an update to the old one).
+
+Before starting relevant work in a project, check its `Hub.md`, `01_Contexto_Usuario/`, and `00_Decisoes/` for prior context. Never write in `01_Contexto_Usuario/` under any project — it is human-authored only. Never write secrets or real `.env` values into any vault note, only their purpose/contract.
+
+
+## Agent Skill Execution Protocol
+
+The executable skills live in `dev-obsidian/_Compartilhado/Skills/<skill-name>/SKILL.md`. They are mandatory workflow instructions, not optional documentation. Before implementing, refactoring, reviewing, or testing code, identify every applicable skill below, read its complete `SKILL.md` (and its referenced files when applicable), then execute its requirements during the task.
+
+- `secure-python-backend`: Python backend foundations, models, persistence, services, configuration, or architecture.
+- `secure-api-endpoint`: FastAPI routes, contracts, authorization, tenant scope, pagination, idempotency, or public endpoints.
+- `secure-auth-rbac-jwt`: authentication, JWTs, RBAC, ownership, tenant isolation, password flows, sessions, rate limits, or account lockouts.
+- `secure-file-upload`: uploads, downloads, file storage, OCR, document/image processing, or file endpoints.
+- `secure-service-communication`: browser-to-API, service-to-service, portal-to-API, CORS, CSRF, token transport/storage, or `lumos-gateway` routing changes.
+- `security-vulnerability-testing`: security verification of authentication, payment, upload, sensitive-data, or abuse-sensitive work.
+- `qa-functional-review`: functional verification of a changed UI screen, form, route, or interactive component.
+- `project-test-orientation`: selecting a stack, container, local port, or health endpoint for a test in this repository.
+
+Read the matching human note at `dev-obsidian/_Compartilhado/Skills/<skill-name>.md` when its repository links or operational context help the task. The executable `SKILL.md` is the source of truth for agent behavior; the human note must not be treated as a substitute.
+
+
+## Agent Prompt Execution Protocol
+
+The executable prompts live in `dev-obsidian/_Compartilhado/Prompts/<prompt-name>/PROMPT.md`. When a user explicitly names a prompt, or the requested work directly matches a cataloged prompt, read the complete `PROMPT.md` and execute its instructions. The human note at `dev-obsidian/_Compartilhado/Prompts/<prompt-name>.md` provides context but does not replace the executable prompt.
+
+Available prompts:
+
+- `prompt-qa-funcional`: functional QA of a UI screen or feature.
+- `prompt-varredura-vulnerabilidades`: security scan of a sensitive feature or change.
+- `prompt-teste-geral-feature`: end-to-end verification of a new feature.
 
 ## Development Environment Policy
 
@@ -27,7 +79,7 @@ This repository is currently a development environment, not a live production de
 
 - do not preserve legacy code paths, deprecated fields, backward-compatibility shims, feature flags for old behavior, or "just in case" fallbacks — when a design changes, change it everywhere it applies and delete what it replaces in the same change set, across `farmaura/`, `farmaura-api/`, `lumos-api/`, and `lumosmed/` alike;
 - do not create database migrations (Alembic in `farmaura-api/`, or any equivalent in `lumos-api/`/`lumosmed/`) for schema changes made during this development phase — change the ORM models directly and apply the schema through the project's existing dev bootstrap path (e.g. `farmaura-api/scripts/bootstrap_database.py`, `lumos-api/database/runtime_bootstrap.py` and `schema_updates.py`) instead of hand-writing a migration file; this overrides the "Migrations and Seed Data" section below, which describes the eventual production-grade posture, not the current one;
-- always apply the security skills in `skills/` while implementing anything touching authentication, authorization, request handling, file uploads, or backend business logic — treat them as required steps in the workflow, not optional references.
+- always apply the applicable executable skills in `dev-obsidian/_Compartilhado/Skills/` while implementing anything touching authentication, authorization, request handling, file uploads, backend business logic, cross-service communication, UI behavior, or testing — treat them as required steps in the workflow, not optional references.
 
 None of this relaxes the Security-First Rules below: skipping migrations and legacy compatibility is about development velocity, not about weakening tenant isolation, input validation, authorization, or any other control in this document.
 
@@ -54,7 +106,7 @@ Use these exact versions or these exact version families when creating the backe
 
 - Python `3.13.13`;
 - PostgreSQL `17.x`, starting from `17.0` and pinned to a tested patch release in deployment images;
-- Redis `8.6.x`, pinned by exact image digest in containers;
+- Valkey `9.1.x`, pinned by exact image digest in containers;
 - Docker Engine `29.5.3` or newer within the `29.x` line after validation;
 - Nginx `1.30.2` stable through the existing `lumos-gateway` stack.
 
@@ -67,7 +119,7 @@ Pin exact versions in `pyproject.toml` and lock them in `uv.lock`.
 - `sqlalchemy==2.0.50`
 - `alembic==1.18.4`
 - `uv==0.11.19`
-- `redis==8.0.0`
+- `valkey==6.1.1`
 - `PyJWT==2.13.0`
 - `pwdlib[argon2]==0.3.0`
 - `argon2-cffi==25.1.0`
@@ -104,7 +156,7 @@ Use the following stack unless a concrete technical blocker is found:
 - SQLAlchemy 2.x;
 - Alembic;
 - PostgreSQL;
-- Redis;
+- Valkey;
 - `uv` for environment and dependency management;
 - `pytest` for tests;
 - `ruff` for lint and formatting;
@@ -289,8 +341,8 @@ Required rules:
 Network model:
 
 - shared edge network: `lumos_gateway`;
-- backend private network: application-only, for PostgreSQL, Redis, workers, and internal-only services;
-- PostgreSQL and Redis must not be placed on the shared edge network unless there is a justified operational requirement.
+- backend private network: application-only, for PostgreSQL, Valkey, workers, and internal-only services;
+- PostgreSQL and Valkey must not be placed on the shared edge network unless there is a justified operational requirement.
 
 Deployment model:
 
@@ -327,6 +379,8 @@ If cookie-based auth is used anywhere:
 - add CSRF protection for state-changing requests;
 - rotate session identifiers on privilege changes;
 - invalidate sessions after password change, suspicious activity, or explicit logout.
+
+Login, password-reset-request, and any user-lookup flow must return the same generic response regardless of whether the identifier exists, to prevent account enumeration — the same principle the section below already requires for internal-portal access denial.
 
 ## Marketplace/Internal Access Segregation
 
@@ -561,7 +615,11 @@ Required controls:
 - lockout or stepped friction for repeated failed logins;
 - per-user and per-IP abuse counters;
 - quotas for storage and uploads;
-- bounded background job concurrency.
+- bounded background job concurrency;
+- CAPTCHA (or equivalent human/proof-of-work challenge) on public high-risk forms — signup, password-reset request, anonymous checkout — after repeated suspicious attempts from the same actor or IP;
+- MFA required for staff/admin roles and any elevated-privilege operation, using the existing MFA challenge token type in `core/jwt.py` — this makes it a mandatory control, not just available infrastructure.
+
+Account-security notifications (failed-login alerts, password-reset e-mails, lockout notices) must include a standard anti-phishing notice: this company never calls, texts, or e-mails asking for a password, OTP, or full card number.
 
 ## Logging, Errors, Audit, and Data Exposure
 
@@ -642,6 +700,15 @@ If JavaScript tooling is ever used:
 - use scoped registries only when justified;
 - disable lifecycle scripts in audit contexts;
 - block dependency confusion with explicit registry configuration.
+
+If PHP/Composer tooling is touched (`lumosmed/`, a sibling stack in its own nested git repository):
+
+- commit `composer.lock`, install with `composer install --no-dev --no-scripts` outside local development;
+- pin exact versions for anything touching auth, crypto, or HTTP clients instead of unconstrained `^`/`~` ranges;
+- review a package before requiring it, never install from an unreviewed registry;
+- no unreviewed Composer scripts (`post-install-cmd`, `post-update-cmd`).
+
+This file covers `farmaura`/`farmaura-api`/`lumos-gateway` directly. `lumosmed`/`lumos-api` are separate git repositories without their own copy of this file — the full multi-stack version-locking policy (Python, npm, Composer, Docker) lives in `dev-obsidian/_Compartilhado/Padroes_Politicas/padrao-supply-chain-multi-stack.md` for manual copy into those repositories.
 
 Gateway-specific supply-chain rules:
 
@@ -821,7 +888,7 @@ At minimum define:
 - `ACCESS_TOKEN_EXPIRE_MINUTES`;
 - `REFRESH_TOKEN_EXPIRE_DAYS`;
 - `DATABASE_URL`;
-- `REDIS_URL`;
+- `VALKEY_URL`;
 - `CORS_ORIGINS`;
 - `CSRF_SECRET`;
 - `MAX_REQUEST_BODY_BYTES`;

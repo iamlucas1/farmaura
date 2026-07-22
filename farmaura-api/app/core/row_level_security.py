@@ -72,8 +72,10 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     'pdv_orders',
                     'pdv_sales',
                     'prescriptions',
-                    'products',
+                    'pricing_promotions',
+                    'inventory_products',
                     'saved_products',
+                    'stores',
                     'subscriptions',
                     'users'
                 ];
@@ -100,12 +102,53 @@ RLS_STATEMENTS: tuple[str, ...] = (
             $$;
     """,
     """
+    CREATE OR REPLACE FUNCTION app_private.current_customer_id()
+            RETURNS uuid
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = pg_catalog, public, app_private
+            AS $$
+                SELECT cust.id
+                FROM customers cust
+                JOIN users usr ON usr.id = app_private.current_user_id()
+                WHERE cust.tenant_id = app_private.current_tenant_id()
+                  AND usr.tenant_id = app_private.current_tenant_id()
+                  AND lower(cust.email) = lower(usr.email)
+                LIMIT 1
+            $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION app_private.resolve_public_marketplace_tenant_id()
+            RETURNS text
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = pg_catalog, public, app_private
+            AS $$
+                SELECT tenant_id
+                FROM inventory_items
+                WHERE is_active = true AND sale_price IS NOT NULL AND sale_price > 0
+                ORDER BY created_at ASC
+                LIMIT 1
+            $$;
+    """,
+    """
     CREATE OR REPLACE FUNCTION app_private.current_login_email()
             RETURNS text
             LANGUAGE sql
             STABLE
             AS $$
                 SELECT lower(NULLIF(current_setting('app.current_login_email', true), ''))
+            $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION app_private.current_first_access_email()
+            RETURNS text
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT lower(NULLIF(current_setting('app.current_first_access_email', true), ''))
             $$;
     """,
     """
@@ -154,12 +197,50 @@ RLS_STATEMENTS: tuple[str, ...] = (
             $$;
     """,
     """
+    CREATE OR REPLACE FUNCTION app_private.is_manager()
+            RETURNS boolean
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT app_private.current_user_role() = 'manager'
+            $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION app_private.is_driver()
+            RETURNS boolean
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT app_private.current_user_role() = 'driver'
+            $$;
+    """,
+    """
     CREATE OR REPLACE FUNCTION app_private.is_internal_operator()
             RETURNS boolean
             LANGUAGE sql
             STABLE
             AS $$
-                SELECT app_private.current_user_role() IN ('admin', 'pharmacist', 'cashier')
+                SELECT app_private.current_user_role() IN ('admin', 'manager', 'pharmacist', 'cashier')
+            $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION app_private.current_store_id()
+            RETURNS uuid
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT NULLIF(current_setting('app.current_store_id', true), '')::uuid
+            $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION app_private.can_access_store_row(target_store_id uuid)
+            RETURNS boolean
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT
+                    app_private.current_user_role() = 'admin'
+                    OR target_store_id = app_private.current_store_id()
             $$;
     """,
     """
@@ -171,8 +252,8 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 SELECT
                     app_private.current_tenant_id() IS NOT NULL
                     AND (
-                        target_customer_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        target_customer_id = app_private.current_customer_id()
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     )
             $$;
     """,
@@ -186,8 +267,8 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 SELECT
                     app_private.current_tenant_id() IS NOT NULL
                     AND (
-                        target_customer_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        target_customer_id = app_private.current_customer_id()
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     )
             $$;
     """,
@@ -201,7 +282,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     app_private.current_tenant_id() IS NOT NULL
                     AND (
                         target_owner_user_id = app_private.current_user_id()::text
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     )
             $$;
     """,
@@ -214,9 +295,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 SELECT
                     app_private.current_tenant_id() IS NOT NULL
                     AND (
-                        target_customer_id = app_private.current_user_id()
+                        target_customer_id = app_private.current_customer_id()
                         OR target_reviewer_user_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     )
             $$;
     """,
@@ -229,9 +310,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 SELECT
                     app_private.current_tenant_id() IS NOT NULL
                     AND (
-                        target_customer_id = app_private.current_user_id()
+                        target_customer_id = app_private.current_customer_id()
                         OR target_pharmacist_user_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     )
             $$;
     """,
@@ -244,20 +325,43 @@ RLS_STATEMENTS: tuple[str, ...] = (
             ON users
             USING (
                 lower(email) = app_private.current_login_email()
+                OR lower(email) = app_private.current_first_access_email()
                 OR (
                     tenant_id = app_private.current_tenant_id()
                     AND (
                         id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     )
                 )
             )
             WITH CHECK (
+                lower(email) = app_private.current_first_access_email()
+                OR (
+                    tenant_id = app_private.current_tenant_id()
+                    AND (
+                        id = app_private.current_user_id()
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                    )
+                )
+            )
+    """,
+    """
+    DROP POLICY IF EXISTS tenant_isolation_policy ON stores
+    """,
+    """
+    DROP POLICY IF EXISTS stores_access_policy ON stores;
+    CREATE POLICY stores_access_policy
+            ON stores
+            USING (
                 tenant_id = app_private.current_tenant_id()
                 AND (
-                    id = app_private.current_user_id()
-                    OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                    app_private.current_user_role() = 'customer'
+                    OR app_private.can_access_store_row(id)
                 )
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_store_row(id)
             )
     """,
     """
@@ -273,6 +377,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     AND app_private.can_access_customer_row(id)
                 )
                 OR app_private.is_system_job()
+                OR lower(email) = app_private.current_first_access_email()
             )
             WITH CHECK (
                 (
@@ -280,6 +385,11 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     AND app_private.can_access_customer_row(id)
                 )
                 OR app_private.is_system_job()
+                OR lower(email) = app_private.current_first_access_email()
+                OR (
+                    app_private.current_user_role() = 'customer'
+                    AND lower(email) = (SELECT lower(u.email) FROM users u WHERE u.id = app_private.current_user_id())
+                )
             )
     """,
     """
@@ -371,22 +481,22 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
     """,
     """
-    DROP POLICY IF EXISTS tenant_isolation_policy ON products
+    DROP POLICY IF EXISTS tenant_isolation_policy ON inventory_products
     """,
     """
-    DROP POLICY IF EXISTS products_access_policy ON products;
-    CREATE POLICY products_access_policy
-            ON products
+    DROP POLICY IF EXISTS inventory_products_access_policy ON inventory_products;
+    CREATE POLICY inventory_products_access_policy
+            ON inventory_products
             USING (
                 tenant_id = app_private.current_tenant_id()
                 AND (
                     app_private.current_user_role() = 'customer'
-                    OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                    OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                 )
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
             )
     """,
     """
@@ -398,11 +508,23 @@ RLS_STATEMENTS: tuple[str, ...] = (
             ON inventory_items
             USING (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
             )
     """,
     """
@@ -416,12 +538,12 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 tenant_id = app_private.current_tenant_id()
                 AND (
                     app_private.current_user_role() = 'customer'
-                    OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                    OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                 )
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
             )
     """,
     """
@@ -433,8 +555,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
             ON pdv_orders
             USING (
                 tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_store_row(store_id)
                 AND (
-                    app_private.current_user_role() IN ('admin', 'pharmacist')
+                    app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     OR (
                         app_private.current_user_role() = 'cashier'
                         AND (
@@ -446,8 +569,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_store_row(store_id)
                 AND (
-                    app_private.current_user_role() IN ('admin', 'pharmacist')
+                    app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     OR (
                         app_private.current_user_role() = 'cashier'
                         AND (
@@ -467,8 +591,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
             ON pdv_sales
             USING (
                 tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_store_row(store_id)
                 AND (
-                    app_private.current_user_role() IN ('admin', 'pharmacist')
+                    app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     OR (
                         app_private.current_user_role() = 'cashier'
                         AND cashier_user_id = app_private.current_user_id()
@@ -477,14 +602,84 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_store_row(store_id)
                 AND (
-                    app_private.current_user_role() IN ('admin', 'pharmacist')
+                    app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                     OR (
                         app_private.current_user_role() = 'cashier'
                         AND cashier_user_id = app_private.current_user_id()
                     )
                 )
             )
+    """,
+    """
+    DROP POLICY IF EXISTS tenant_isolation_policy ON delivery_routes
+    """,
+    """
+    DROP POLICY IF EXISTS delivery_routes_access_policy ON delivery_routes;
+    CREATE POLICY delivery_routes_access_policy
+            ON delivery_routes
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id::uuid)
+                    )
+                    OR driver_user_id = app_private.current_user_id()
+                )
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id::uuid)
+                    )
+                    OR driver_user_id = app_private.current_user_id()
+                )
+            )
+    """,
+    """
+    ALTER TABLE delivery_route_stops ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE delivery_route_stops FORCE ROW LEVEL SECURITY;
+            DROP POLICY IF EXISTS delivery_route_stops_access_policy ON delivery_route_stops;
+            CREATE POLICY delivery_route_stops_access_policy
+            ON delivery_route_stops
+            USING (
+                EXISTS (
+                    SELECT 1
+                    FROM delivery_routes
+                    WHERE delivery_routes.id = delivery_route_stops.route_id
+                      AND delivery_routes.tenant_id = app_private.current_tenant_id()
+                      AND (
+                        app_private.current_user_role() = 'customer'
+                        OR (
+                            app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                            AND app_private.can_access_store_row(delivery_routes.store_id::uuid)
+                        )
+                        OR delivery_routes.driver_user_id = app_private.current_user_id()
+                      )
+                )
+            )
+            WITH CHECK (
+                EXISTS (
+                    SELECT 1
+                    FROM delivery_routes
+                    WHERE delivery_routes.id = delivery_route_stops.route_id
+                      AND delivery_routes.tenant_id = app_private.current_tenant_id()
+                      AND (
+                        app_private.current_user_role() = 'customer'
+                        OR (
+                            app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                            AND app_private.can_access_store_row(delivery_routes.store_id::uuid)
+                        )
+                        OR delivery_routes.driver_user_id = app_private.current_user_id()
+                      )
+                )
+            );
     """,
     """
     DROP POLICY IF EXISTS tenant_isolation_policy ON saved_products
@@ -513,12 +708,12 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 tenant_id = app_private.current_tenant_id()
                 AND (
                     app_private.current_user_role() = 'customer'
-                    OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                    OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                 )
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
             )
     """,
     """
@@ -646,8 +841,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     FROM pdv_orders
                     WHERE pdv_orders.id = pdv_order_items.pdv_order_id
                       AND pdv_orders.tenant_id = app_private.current_tenant_id()
+                      AND app_private.can_access_store_row(pdv_orders.store_id)
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR (
                             app_private.current_user_role() = 'cashier'
                             AND (
@@ -664,8 +860,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     FROM pdv_orders
                     WHERE pdv_orders.id = pdv_order_items.pdv_order_id
                       AND pdv_orders.tenant_id = app_private.current_tenant_id()
+                      AND app_private.can_access_store_row(pdv_orders.store_id)
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR (
                             app_private.current_user_role() = 'cashier'
                             AND (
@@ -689,8 +886,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     FROM pdv_sales
                     WHERE pdv_sales.id = pdv_sale_items.pdv_sale_id
                       AND pdv_sales.tenant_id = app_private.current_tenant_id()
+                      AND app_private.can_access_store_row(pdv_sales.store_id)
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR (
                             app_private.current_user_role() = 'cashier'
                             AND pdv_sales.cashier_user_id = app_private.current_user_id()
@@ -704,13 +902,35 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     FROM pdv_sales
                     WHERE pdv_sales.id = pdv_sale_items.pdv_sale_id
                       AND pdv_sales.tenant_id = app_private.current_tenant_id()
+                      AND app_private.can_access_store_row(pdv_sales.store_id)
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR (
                             app_private.current_user_role() = 'cashier'
                             AND pdv_sales.cashier_user_id = app_private.current_user_id()
                         )
                       )
+                )
+            );
+    """,
+    """
+    ALTER TABLE pdv_draft_sessions ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE pdv_draft_sessions FORCE ROW LEVEL SECURITY;
+            DROP POLICY IF EXISTS pdv_draft_sessions_access_policy ON pdv_draft_sessions;
+            CREATE POLICY pdv_draft_sessions_access_policy
+            ON pdv_draft_sessions
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    pharmacist_user_id = app_private.current_user_id()
+                    OR app_private.is_admin()
+                )
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    pharmacist_user_id = app_private.current_user_id()
+                    OR app_private.is_admin()
                 )
             );
     """,
@@ -840,7 +1060,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                       AND prescriptions.tenant_id = app_private.current_tenant_id()
                       AND (
                         prescriptions.reviewed_by_user_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                       )
                 )
             )
@@ -852,7 +1072,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                       AND prescriptions.tenant_id = app_private.current_tenant_id()
                       AND (
                         prescriptions.reviewed_by_user_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'pharmacist')
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                       )
                 )
             );
@@ -874,7 +1094,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                         chat_threads.pharmacist_user_id
                       )
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR chat_messages.is_internal_note IS FALSE
                       )
                 )
@@ -890,7 +1110,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                         chat_threads.pharmacist_user_id
                       )
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR chat_messages.is_internal_note IS FALSE
                       )
                 )
@@ -914,7 +1134,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                         chat_threads.pharmacist_user_id
                       )
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR chat_messages.is_internal_note IS FALSE
                       )
                 )
@@ -931,7 +1151,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                         chat_threads.pharmacist_user_id
                       )
                       AND (
-                        app_private.current_user_role() IN ('admin', 'pharmacist')
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
                         OR chat_messages.is_internal_note IS FALSE
                       )
                 )
@@ -964,11 +1184,13 @@ RLS_STATEMENTS: tuple[str, ...] = (
             ON inventory_locations
             USING (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                AND app_private.can_access_store_row(store_id)
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                AND app_private.can_access_store_row(store_id)
             )
     """,
     """
@@ -983,11 +1205,125 @@ RLS_STATEMENTS: tuple[str, ...] = (
             ON inventory_movements
             USING (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
             )
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
-                AND app_private.current_user_role() IN ('admin', 'pharmacist')
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
+            )
+    """,
+    """
+    ALTER TABLE inventory_audit_entries ENABLE ROW LEVEL SECURITY
+    """,
+    """
+    ALTER TABLE inventory_audit_entries FORCE ROW LEVEL SECURITY
+    """,
+    """
+    DROP POLICY IF EXISTS inventory_audit_entries_access_policy ON inventory_audit_entries;
+    CREATE POLICY inventory_audit_entries_access_policy
+            ON inventory_audit_entries
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+                AND app_private.can_access_store_row(store_id::uuid)
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+                AND app_private.can_access_store_row(store_id::uuid)
+            )
+    """,
+    """
+    ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY
+    """,
+    """
+    ALTER TABLE suppliers FORCE ROW LEVEL SECURITY
+    """,
+    """
+    DROP POLICY IF EXISTS suppliers_access_policy ON suppliers;
+    CREATE POLICY suppliers_access_policy
+            ON suppliers
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+            )
+    """,
+    """
+    ALTER TABLE inventory_stock_lots ENABLE ROW LEVEL SECURITY
+    """,
+    """
+    ALTER TABLE inventory_stock_lots FORCE ROW LEVEL SECURITY
+    """,
+    """
+    DROP POLICY IF EXISTS inventory_stock_lots_access_policy ON inventory_stock_lots;
+    CREATE POLICY inventory_stock_lots_access_policy
+            ON inventory_stock_lots
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
+            )
+    """,
+    """
+    ALTER TABLE inventory_lot_movements ENABLE ROW LEVEL SECURITY
+    """,
+    """
+    ALTER TABLE inventory_lot_movements FORCE ROW LEVEL SECURITY
+    """,
+    """
+    DROP POLICY IF EXISTS inventory_lot_movements_access_policy ON inventory_lot_movements;
+    CREATE POLICY inventory_lot_movements_access_policy
+            ON inventory_lot_movements
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    app_private.current_user_role() = 'customer'
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
             )
     """,
     """
@@ -1008,6 +1344,42 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 tenant_id = app_private.current_tenant_id()
                 AND app_private.can_access_customer_row(customer_id)
             )
+    """,
+    """
+    ALTER TABLE product_availability_alerts ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE product_availability_alerts FORCE ROW LEVEL SECURITY;
+            DROP POLICY IF EXISTS product_availability_alerts_access_policy ON product_availability_alerts;
+            CREATE POLICY product_availability_alerts_access_policy
+            ON product_availability_alerts
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_customer_row(customer_id)
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_customer_row(customer_id)
+            )
+    """,
+    """
+    ALTER TABLE driver_locations ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE driver_locations FORCE ROW LEVEL SECURITY;
+            DROP POLICY IF EXISTS driver_locations_access_policy ON driver_locations;
+            CREATE POLICY driver_locations_access_policy
+            ON driver_locations
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND (
+                    driver_user_id = app_private.current_user_id()
+                    OR (
+                        app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        AND app_private.can_access_store_row(store_id)
+                    )
+                )
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND driver_user_id = app_private.current_user_id()
+            );
     """,
 )
 

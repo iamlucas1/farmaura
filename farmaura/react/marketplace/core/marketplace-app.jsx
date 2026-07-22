@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import "../../shared/portal-cache.js";
 import { PharmacistChatModal, PrescriptionModal } from "./marketplace-care-actions.jsx";
 import { Header, Footer } from "./marketplace-chrome.jsx";
 import { Icon } from "./marketplace-icons.jsx";
 import { TweakColor, TweakRadio, TweakSection, TweakSelect, TweakSlider, TweakText, TweakToggle, TweaksPanel, useTweaks } from "./marketplace-tweaks-panel.jsx";
-import { AccountScreen, LoginScreen } from "../screens/account-screen.jsx";
+import { AccountScreen, LoginScreen, UnlockAccountScreen } from "../screens/account-screen.jsx";
 import { CareScreen } from "../screens/care-screen.jsx";
 import { CartScreen } from "../screens/cart-screen.jsx";
 import { CheckoutScreen, ConfirmScreen } from "../screens/checkout-screen.jsx";
@@ -18,6 +19,37 @@ import { ShopScreen } from "../screens/shop-screen.jsx";
 import { SubscriptionsScreen } from "../screens/subscriptions-screen.jsx";
 
 /* FARMAURA — App shell: routing, cart state, tweaks. Depends on all screen files. */
+
+const MARKETPLACE_ROUTE_RESERVED_KEYS = new Set(['name', 'id', 'cat']);
+
+function buildMarketplacePath(route) {
+  const name = (route && route.name) || 'home';
+  const segments = [name === 'home' ? '' : name];
+  if (route && route.id) segments.push(encodeURIComponent(route.id));
+  else if (route && route.cat) segments.push(encodeURIComponent(route.cat));
+  const path = '/' + segments.filter(Boolean).join('/');
+  const params = new URLSearchParams();
+  Object.keys(route || {}).forEach((key) => {
+    if (MARKETPLACE_ROUTE_RESERVED_KEYS.has(key)) return;
+    const value = route[key];
+    if (value === undefined || value === null || value === '') return;
+    params.set(key === 'query' ? 'q' : key, value);
+  });
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
+function parseMarketplaceRoute(splat, searchParams) {
+  const segments = String(splat || '').split('/').filter(Boolean);
+  const name = segments[0] || 'home';
+  const route = { name };
+  if (name === 'product' && segments[1]) route.id = decodeURIComponent(segments[1]);
+  else if (name === 'category' && segments[1]) route.cat = decodeURIComponent(segments[1]);
+  for (const [key, value] of searchParams.entries()) {
+    route[key === 'q' ? 'query' : key] = value;
+  }
+  return route;
+}
 
 const FONT_STACKS = {
   'Montserrat': "'Montserrat', system-ui, sans-serif",
@@ -252,12 +284,13 @@ function normalizeMarketplaceCoupon(item) {
 }
 
 const MARKETPLACE_ORDER_STATUS_MAP = {
-  awaiting_confirmation: { label: "Aguardando confirmação", tone: "warn", icon: "clock" },
-  preparing: { label: "Em separação", tone: "info", icon: "box" },
-  ready: { label: "Pronto para envio", tone: "info", icon: "truck" },
-  ready_for_pickup: { label: "Pronto para retirada", tone: "success", icon: "store" },
-  transit: { label: "Saiu para entrega", tone: "info", icon: "truck" },
-  delivered: { label: "Concluído", tone: "success", icon: "check" },
+  awaiting_confirmation: { label: "Aguardando confirmação", cls: "fa-badge-warn", icon: "clock", step: 0 },
+  preparing: { label: "Em separação", cls: "fa-badge-rx", icon: "box", step: 1 },
+  ready: { label: "Pronto para envio", cls: "fa-badge-rx", icon: "truck", step: 1 },
+  ready_for_pickup: { label: "Pronto para retirada", cls: "fa-badge-health", icon: "store", step: 2 },
+  transit: { label: "Saiu para entrega", cls: "fa-badge-rx", icon: "truck", step: 2 },
+  delivered: { label: "Concluído", cls: "fa-badge-health", icon: "check", step: 3 },
+  cancelled: { label: "Pedido cancelado", cls: "fa-badge-vital", icon: "close", step: 0 },
 };
 
 function normalizeMarketplaceCatalogItem(item) {
@@ -316,7 +349,7 @@ function normalizeMarketplaceOrderStatus(status, fulfillment) {
     return 'delivered';
   }
   if (raw === 'cancelled') {
-    return 'delivered';
+    return 'cancelled';
   }
   return 'awaiting_confirmation';
 }
@@ -330,6 +363,8 @@ function createMarketplaceProfileSnapshot(user) {
     cpf: '',
     birth: '',
     gender: '',
+    maritalStatus: '',
+    childrenCount: '',
     photo: safeUser.photo || null,
     twoFactor: !!safeUser.twoFactorEnabled,
     memberSince: '',
@@ -347,6 +382,8 @@ function normalizeMarketplaceProfile(profilePayload, user) {
     cpf: source.cpf || '',
     birth: source.birth_date || '',
     gender: source.gender || '',
+    maritalStatus: source.marital_status || '',
+    childrenCount: source.children_count == null ? '' : Number(source.children_count),
     photo: source.avatar_url || null,
     twoFactor: typeof source.two_factor_enabled === 'boolean' ? source.two_factor_enabled : baseProfile.twoFactor,
     memberSince: source.member_since_label || '',
@@ -370,6 +407,8 @@ function normalizeMarketplaceOrder(item) {
     fulfillment: item.fulfillment || 'delivery',
     store: item.store || '',
     pickupCode: item.pickup_code || '',
+    trackingCode: item.tracking_code || '',
+    carrierName: item.carrier_name || '',
     address: item.address || '',
     rxStatus: item.rx_status || 'none',
     total: Number(item.total_amount || 0),
@@ -469,6 +508,10 @@ function normalizeMarketplacePortalData(payload) {
     favorites: Array.isArray(source.favorites) ? source.favorites.map((entry) => entry && entry.product_ref).filter(Boolean) : [],
     subscriptions: Array.isArray(source.subscriptions) ? source.subscriptions.map(normalizeMarketplaceSubscription).filter(Boolean) : [],
     coupons: Array.isArray(source.coupons) ? source.coupons.map(normalizeMarketplaceCoupon).filter(Boolean) : [],
+    deliveryEstimate: source.delivery_estimate ? {
+      freeAboveSubtotal: Number(source.delivery_estimate.free_above_subtotal || 0),
+      baseFee: Number(source.delivery_estimate.base_fee || 0),
+    } : { freeAboveSubtotal: 120, baseFee: 9.9 },
   };
 }
 
@@ -502,10 +545,18 @@ function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [portalData, setPortalData] = useState(() => normalizeMarketplacePortalData(window.FA_PORTAL_CACHE.readLocal('marketplace', null, MARKETPLACE_BOOTSTRAP_STORAGE_KEY, {})));
   const [products, setProducts] = useState(() => resolveMarketplaceCatalogSnapshot());
-  const [route, setRoute] = useState({ name: 'home' });
+  const navigate = useNavigate();
+  const urlParams = useParams();
+  const [searchParams] = useSearchParams();
+  const route = useMemo(
+    () => parseMarketplaceRoute(urlParams['*'], searchParams),
+    [urlParams['*'], searchParams]
+  );
+  const goTo = (r) => navigate(buildMarketplacePath(r));
   const [items, setItems] = useState([]);
   const [coupon, setCoupon] = useState(null);
   const [fav, setFav] = useState([]);
+  const [availabilityAlerts, setAvailabilityAlerts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [ordersRevision, setOrdersRevision] = useState('');
   const [lastOrder, setLastOrder] = useState(null);
@@ -514,6 +565,7 @@ function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatThreads, setChatThreads] = useState([]);
   const [activeChatThreadId, setActiveChatThreadId] = useState(null);
+  const [pendingChatOptions, setPendingChatOptions] = useState({});
   const [rxOpen, setRxOpen] = useState(false);
   const [pendingAuth, setPendingAuth] = useState(null);
   const [user, setUser] = useState(null);
@@ -728,7 +780,7 @@ function App() {
       userRole: user && user.role || '',
       accessScope: user && user.accessScope || '',
     });
-    setRoute(r);
+    goTo(r);
   };
   const onSearch = (q) => {
     window.FA_OBS.emit({
@@ -740,7 +792,7 @@ function App() {
       accessScope: user && user.accessScope || '',
       detail: String(q || '').slice(0, 80),
     });
-    setRoute({ name: 'search', query: q });
+    goTo({ name: 'search', query: q });
   };
   const showToast = (msg) => { setToast(msg); clearTimeout(window.__faT); window.__faT = setTimeout(() => setToast(null), 2200); };
   const markChatThreadRead = (threadId) => {
@@ -769,14 +821,22 @@ function App() {
     });
     return normalized;
   };
-  const openChat = (options = {}) => requireAuth(async () => {
-    const thread = await ensureMarketplaceChatThread(options);
-    if (thread && thread.id) {
-      setActiveChatThreadId(thread.id);
-      markChatThreadRead(thread.id);
-    }
+  // Opens the chat modal immediately, on top of whatever screen is active. When the
+  // visitor isn't signed in yet, the modal shows an inline login instead of routing away.
+  const openChat = (options = {}) => {
+    setPendingChatOptions(options);
     setChatOpen(true);
-  });
+    if (!user) {
+      return;
+    }
+    return (async () => {
+      const thread = await ensureMarketplaceChatThread(options);
+      if (thread && thread.id) {
+        setActiveChatThreadId(thread.id);
+        markChatThreadRead(thread.id);
+      }
+    })();
+  };
   const selectChatThread = (threadId) => {
     setActiveChatThreadId(threadId);
     markChatThreadRead(threadId);
@@ -903,6 +963,29 @@ function App() {
       : await authClient.request('/portal/marketplace/favorites', { method: 'POST', body: JSON.stringify({ product_ref: id }) });
     setFav(Array.isArray(response) ? response.map((entry) => entry && entry.product_ref).filter(Boolean) : []);
   };
+  // "Avise-me quando chegar": subscribes/unsubscribes to a back-in-stock e-mail for one out-of-stock or hidden product.
+  const subscribeAvailabilityAlert = (id, productName) => {
+    requireAuth(async () => {
+      try {
+        const response = await authClient.request('/customers/me/availability-alerts/' + encodeURIComponent(id), {
+          method: 'PUT',
+          body: JSON.stringify({ product_name: productName || '' }),
+        });
+        setAvailabilityAlerts(Array.isArray(response) ? response.map((entry) => entry && entry.product_ref).filter(Boolean) : []);
+        showToast('Vamos te avisar por e-mail quando chegar!');
+      } catch (error) {
+        showToast(error && error.message ? error.message : 'Não foi possível registrar o aviso.');
+      }
+    });
+  };
+  const unsubscribeAvailabilityAlert = async (id) => {
+    try {
+      const response = await authClient.request('/customers/me/availability-alerts/' + encodeURIComponent(id), { method: 'DELETE' });
+      setAvailabilityAlerts(Array.isArray(response) ? response.map((entry) => entry && entry.product_ref).filter(Boolean) : []);
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível remover o aviso.');
+    }
+  };
   const invalidateMarketplaceSession = () => {
     authClient.clear();
     setUser(null);
@@ -910,7 +993,7 @@ function App() {
     setOrdersRevision('');
   };
 
-  const finalizeAuthenticatedSession = async (flow, rememberSession) => {
+  const applyAuthenticatedFlow = async (flow, rememberSession) => {
     authClient.persistAuthenticatedFlow(flow, rememberSession);
     const sessionData = await authClient.fetchSession();
     const nextUser = window.FA_ACCESS.normalizeMarketplaceUser(window.FA_ACCESS.createUserFromSession(sessionData));
@@ -929,8 +1012,23 @@ function App() {
       detail: nextUser.email,
     });
     showToast('Bem-vinda, ' + nextUser.name.split(' ')[0] + '!');
-    if (pendingAuth) { const act = pendingAuth; setPendingAuth(null); setRoute({ name: 'home' }); act(); }
-    else setRoute({ name: 'account', tab: 'summary' });
+    return nextUser;
+  };
+  const finalizeAuthenticatedSession = async (flow, rememberSession) => {
+    const nextUser = await applyAuthenticatedFlow(flow, rememberSession);
+    if (pendingAuth) { const act = pendingAuth; setPendingAuth(null); goTo({ name: 'home' }); act(); }
+    else goTo({ name: 'account', tab: 'summary' });
+    return nextUser;
+  };
+  // Signing in from inside the chat modal must not move the visitor off their current
+  // screen — only the pending chat thread loads, unlike the full-page login flow above.
+  const finalizeChatLogin = async (flow, rememberSession) => {
+    const nextUser = await applyAuthenticatedFlow(flow, rememberSession);
+    const thread = await ensureMarketplaceChatThread(pendingChatOptions);
+    if (thread && thread.id) {
+      setActiveChatThreadId(thread.id);
+      markChatThreadRead(thread.id);
+    }
     return nextUser;
   };
   // Runs `action` if logged in; otherwise routes to login and replays it after sign-in.
@@ -941,11 +1039,11 @@ function App() {
     }
     window.FA_OBS.emit({ portal: 'marketplace', type: 'auth', action: 'auth.required_redirect', route: route.name });
     setPendingAuth(() => action);
-    setRoute({ name: 'login' });
+    goTo({ name: 'login' });
   };
   // Envio de receita: página dedicada, disponível somente para quem está logado.
-  const openPrescription = () => requireAuth(() => setRoute({ name: 'rx' }));
-  const beginCheckout = () => requireAuth(() => setRoute({ name: 'checkout' }));
+  const openPrescription = () => requireAuth(() => goTo({ name: 'rx' }));
+  const beginCheckout = () => requireAuth(() => goTo({ name: 'checkout' }));
   const logout = async () => {
     window.FA_OBS.emit({ portal: 'marketplace', type: 'auth', action: 'auth.logout', route: route.name, userRole: user && user.role || '', accessScope: user && user.accessScope || '' });
     await authClient.logout();
@@ -953,7 +1051,7 @@ function App() {
     setOrders([]);
     setOrdersRevision('');
     setProducts([]);
-    setRoute({ name: 'home' });
+    goTo({ name: 'home' });
   };
   const reorder = (order) => {
     const availableItems = order.items.filter((entry) => products.some((product) => product.id === entry.id));
@@ -974,21 +1072,9 @@ function App() {
       return next;
     });
     showToast('Itens do pedido #' + order.id + ' no carrinho');
-    setRoute({ name: 'cart' });
+    goTo({ name: 'cart' });
   };
 
-  const computeTotal = () => {
-    const subtotal = items.reduce((sum, item) => {
-      const product = products.find((entry) => entry.id === item.id);
-      if (!product) {
-        return sum;
-      }
-      return sum + (item.sub ? product.price * 0.85 : product.price) * item.qty;
-    }, 0);
-    const discount = coupon ? Number(coupon.discountAmount || 0) : 0;
-    const shipping = subtotal >= FREE_SHIP ? 0 : 9.9;
-    return subtotal - discount + shipping;
-  };
   const placeOrder = async (details) => {
     if (!user) {
       requireAuth(() => { void placeOrder(details); });
@@ -1001,13 +1087,13 @@ function App() {
     if (!availableItems.length) {
       setItems([]);
       showToast('Seu carrinho foi atualizado. Adicione itens disponiveis para continuar');
-      setRoute({ name: 'cart' });
+      goTo({ name: 'cart' });
       return;
     }
     if (availableItems.length !== items.length) {
       setItems(availableItems);
       showToast('Alguns itens indisponiveis foram removidos antes do pagamento');
-      setRoute({ name: 'cart' });
+      goTo({ name: 'cart' });
       return;
     }
     let resolvedPaymentMethodId = details && details.payment && details.payment.paymentMethodId || '';
@@ -1074,23 +1160,42 @@ function App() {
       }
       setItems([]);
       setCoupon(null);
-      setRoute({ name: 'confirm' });
+      goTo({ name: 'confirm' });
     } catch (error) {
       if (error && error.status === 401) {
         invalidateMarketplaceSession();
         showToast('Sua sessão expirou. Faça login novamente para concluir o pagamento');
         setPendingAuth(() => () => { void placeOrder(details); });
-        setRoute({ name: 'login' });
+        goTo({ name: 'login' });
         return;
       }
       if (error && error.status === 404) {
         const nextItems = filterMarketplaceCollectionByCatalog(items, products);
         setItems(nextItems);
-        setRoute({ name: 'cart' });
+        goTo({ name: 'cart' });
       }
       showToast(error && error.message ? error.message : 'Nao foi possivel concluir a compra');
     } finally {
       setPlacingOrder(false);
+    }
+  };
+
+  const checkCoverage = async ({ district, city, state, cep }) => {
+    if (!user || !district) {
+      return { configured: false, covered: true };
+    }
+    try {
+      const params = new URLSearchParams({ district: district || '', city: city || '', state_code: state || '', postal_code: cep || '' });
+      const response = await authClient.request('/orders/delivery-coverage?' + params.toString(), { method: 'GET' });
+      return {
+        configured: !!response.configured,
+        covered: response.covered !== false,
+        matchLabel: response.match_label || '',
+        requires_shipping: !!response.requires_shipping,
+        nearestStoreName: response.nearest_store_name || '',
+      };
+    } catch (error) {
+      return { configured: false, covered: true };
     }
   };
 
@@ -1137,11 +1242,12 @@ function App() {
           setOrdersRevision('');
           setFav([]);
           setSubs([]);
+          setAvailabilityAlerts([]);
           setChatThreads([]);
           setCustomerProfile(createMarketplaceProfileSnapshot(user));
           return;
         }
-        const [bootstrapPayload, profilePayload, ordersPayload, chatPayload, cartPayload, addressesPayload, paymentMethodsPayload] = await Promise.all([
+        const [bootstrapPayload, profilePayload, ordersPayload, chatPayload, cartPayload, addressesPayload, paymentMethodsPayload, availabilityAlertsPayload] = await Promise.all([
           authClient.request('/portal/marketplace/bootstrap', { method: 'GET' }),
           authClient.request('/customers/me', { method: 'GET' }),
           authClient.request('/orders', { method: 'GET' }),
@@ -1149,6 +1255,7 @@ function App() {
           authClient.request('/customers/me/cart', { method: 'GET' }),
           authClient.request('/customers/me/addresses', { method: 'GET' }),
           authClient.request('/customers/me/payment-methods', { method: 'GET' }),
+          authClient.request('/customers/me/availability-alerts', { method: 'GET' }),
         ]);
         if (!active) {
           return;
@@ -1158,6 +1265,7 @@ function App() {
         writeMarketplaceScopedCache(user, MARKETPLACE_BOOTSTRAP_STORAGE_KEY, bootstrapPayload || {});
         setFav(normalizedBootstrap.favorites);
         setSubs(normalizedBootstrap.subscriptions);
+        setAvailabilityAlerts(Array.isArray(availabilityAlertsPayload) ? availabilityAlertsPayload.map((entry) => entry && entry.product_ref).filter(Boolean) : []);
         if (Array.isArray(cartPayload)) {
           setItems((prev) => {
             const byRef = Object.fromEntries(prev.map((it) => [it.id, it]));
@@ -1208,6 +1316,7 @@ function App() {
           setPortalData((current) => ({ ...current, ...cachedBootstrap }));
           setFav(cachedBootstrap.favorites || []);
           setSubs(cachedBootstrap.subscriptions || []);
+          setAvailabilityAlerts([]);
           setCoupons(cachedBootstrap.coupons || []);
           setCustomerProfile(createMarketplaceProfileSnapshot(user));
         }
@@ -1292,6 +1401,8 @@ function App() {
         phone: draft.phone || '',
         birth_date: draft.birth || '',
         gender: draft.gender || '',
+        marital_status: draft.maritalStatus || '',
+        children_count: draft.childrenCount === '' || draft.childrenCount == null ? null : Number(draft.childrenCount),
       }),
     });
     const normalizedProfile = normalizeMarketplaceProfile(payload, user);
@@ -1439,8 +1550,10 @@ function App() {
   const ctx = {
     cats: portalData.categories, products, route, onNav, onSearch,
     items, coupon, setCoupon, addToCart, updateQty, removeItem, patchItem, toggleItemSub,
-    fav, toggleFav, recent, beginCheckout, placeOrder, lastOrder, placingOrder,
+    fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, unsubscribeAvailabilityAlert, recent, beginCheckout, placeOrder, lastOrder, placingOrder, checkCoverage,
     user, logout, reorder, orders, statusMap: MARKETPLACE_ORDER_STATUS_MAP, stores: portalData.stores,
+    deliveryEstimate: portalData.deliveryEstimate,
+    paymentRules: portalData.marketplace,
     profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
     cards, tokenizeAndSaveCard, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,
@@ -1484,6 +1597,7 @@ function App() {
       case 'rx': return <PrescriptionScreen ctx={ctx} />;
       case 'discover': return <ShopScreen ctx={ctx} mode="mostsearched" />;
       case 'login': return <LoginScreen ctx={ctx} />;
+      case 'unlock-account': return <UnlockAccountScreen ctx={ctx} />;
       case 'account': return <AccountScreen ctx={ctx} />;
       case 'orders': return <AccountScreen ctx={ctx} />;
       default: return <HomeScreen ctx={ctx} />;
@@ -1511,6 +1625,9 @@ function App() {
       <PharmacistChatModal
         open={chatOpen}
         onClose={() => setChatOpen(false)}
+        user={user}
+        authClient={authClient}
+        onAuthenticated={finalizeChatLogin}
         threads={chatThreads}
         activeThreadId={activeChatThreadId}
         onSelectThread={selectChatThread}
@@ -1577,4 +1694,14 @@ export {
   resolveMarketplaceCatalogSnapshot,
 };
 
-createRoot(document.getElementById("root")).render(<App />);
+function MarketplaceAppRouter() {
+  return (
+    <BrowserRouter basename="/marketplace">
+      <Routes>
+        <Route path="/*" element={<App />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+createRoot(document.getElementById("root")).render(<MarketplaceAppRouter />);

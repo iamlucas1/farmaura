@@ -197,6 +197,34 @@ Observations:
           body: JSON.stringify(payload),
         });
       },
+      async register(payload) {
+        return rawRequest('/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      },
+      async unlockAccount(payload) {
+        return rawRequest('/auth/unlock-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      },
+      async requestFirstAccess(payload) {
+        return rawRequest('/portal/marketplace/first-access', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      },
+      async completeFirstAccess(payload) {
+        return rawRequest('/auth/complete-first-access', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      },
       async beginTwoFactorSetup() {
         return authenticatedRequest('/auth/2fa/setup', {
           method: 'POST',

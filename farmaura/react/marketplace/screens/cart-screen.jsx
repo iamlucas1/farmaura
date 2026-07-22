@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ProductVisual, QtyStepper, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
+import { resolvePaymentBreakdown } from "../../shared/payment-pricing.js";
 
 /* FARMAURA — Cart. */
 
-const FREE_SHIP = 120;
+const DEFAULT_DELIVERY_ESTIMATE = { freeAboveSubtotal: 120, baseFee: 9.9 };
 
 function normalizeMarketplaceCouponCode(value) {
   return String(value || '').trim().toUpperCase();
@@ -30,8 +31,10 @@ function isMarketplaceCouponActive(coupon) {
   return true;
 }
 
-function computeMarketplaceDeliveryFee(subtotal) {
-  return Math.max(0, Number(subtotal || 0)) >= FREE_SHIP ? 0 : 9.9;
+function computeMarketplaceDeliveryFee(subtotal, deliveryEstimate) {
+  const estimate = deliveryEstimate || DEFAULT_DELIVERY_ESTIMATE;
+  const qualifiesForFreeShipping = estimate.freeAboveSubtotal > 0 && Math.max(0, Number(subtotal || 0)) >= estimate.freeAboveSubtotal;
+  return qualifiesForFreeShipping ? 0 : estimate.baseFee;
 }
 
 function computeMarketplaceCouponDiscount(coupon, eligibleSubtotal, shippingFee) {
@@ -61,7 +64,7 @@ function computeMarketplaceCouponDiscount(coupon, eligibleSubtotal, shippingFee)
   return Math.min(rawDiscount, maxDiscountValue);
 }
 
-function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders) {
+function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders, deliveryEstimate) {
   const code = normalizeMarketplaceCouponCode(rawCode);
   if (!code) {
     return { ok: false, message: 'Informe um cupom para aplicar.' };
@@ -112,7 +115,7 @@ function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders) {
     return { ok: false, message: 'Este cupom não se aplica aos itens atuais do carrinho.' };
   }
   const eligibleSubtotal = eligibleLines.reduce((sum, line) => sum + line.lineTotal, 0);
-  const shippingFee = computeMarketplaceDeliveryFee(subtotal);
+  const shippingFee = computeMarketplaceDeliveryFee(subtotal, deliveryEstimate);
   const discountAmount = computeMarketplaceCouponDiscount(coupon, eligibleSubtotal, shippingFee);
   if (coupon.discountType === 'shipping' && shippingFee <= 0) {
     return { ok: false, message: 'Este pedido já está com frete grátis.' };
@@ -135,7 +138,7 @@ function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders) {
   };
 }
 
-function OrderSummary({ items, products, coupon, children }) {
+function OrderSummary({ items, products, coupon, children, deliveryEstimate, paymentRules }) {
   const getProduct = (itemId) => products.find((entry) => entry.id === itemId) || null;
   const sumItem = (item) => {
     const product = getProduct(item.id);
@@ -150,7 +153,7 @@ function OrderSummary({ items, products, coupon, children }) {
     return sum + (item.sub ? product.price * 0.15 * item.qty : 0);
   }, 0);
   const discount = coupon ? Number(coupon.discountAmount || 0) : 0;
-  const shipping = computeMarketplaceDeliveryFee(subtotal);
+  const shipping = computeMarketplaceDeliveryFee(subtotal, deliveryEstimate);
   const total = subtotal - discount + shipping;
   const Line = ({ l, v, c, strong }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: strong ? 16 : 14, fontWeight: strong ? 800 : 500, color: c || (strong ? 'var(--fa-ink)' : 'var(--fa-ink-2)') }}>
@@ -165,15 +168,27 @@ function OrderSummary({ items, products, coupon, children }) {
       <Line l="Entrega" v={shipping === 0 ? 'Grátis' : brl(shipping)} c={shipping === 0 ? 'var(--fa-success)' : undefined} />
       <hr className="fa-divider" style={{ margin: '6px 0' }} />
       <Line l="Total" v={brl(total)} strong />
-      <div className="fa-muted" style={{ fontSize: 12.5 }}>ou 3x de {brl(total / 3)} sem juros</div>
+      {(() => {
+        const bestInstallment = resolvePaymentBreakdown(total, paymentRules).bestInstallmentLabel;
+        if (!bestInstallment || bestInstallment.n <= 1) return null;
+        return (
+          <div className="fa-muted" style={{ fontSize: 12.5 }}>
+            ou {bestInstallment.n}x de {brl(bestInstallment.installmentValue)}{bestInstallment.hasInterest ? '' : ' sem juros'}
+          </div>
+        );
+      })()}
       {children}
     </div>
   );
 }
 
-function FreeShipBar({ subtotal }) {
-  const pct = Math.min(100, (subtotal / FREE_SHIP) * 100);
-  const left = Math.max(0, FREE_SHIP - subtotal);
+function FreeShipBar({ subtotal, deliveryEstimate }) {
+  const freeAboveSubtotal = (deliveryEstimate || DEFAULT_DELIVERY_ESTIMATE).freeAboveSubtotal;
+  if (freeAboveSubtotal <= 0) {
+    return null;
+  }
+  const pct = Math.min(100, (subtotal / freeAboveSubtotal) * 100);
+  const left = Math.max(0, freeAboveSubtotal - subtotal);
   return (
     <div style={{ background: 'var(--fa-rose-soft)', borderRadius: 'var(--fa-r-card)', padding: 14 }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--fa-primary-ink)' }}>
@@ -239,7 +254,7 @@ function CartRecommendations({ items, products, addToCart, onNav }) {
 }
 
 function CartScreen({ ctx }) {
-  const { items, products, onNav, updateQty, removeItem, coupon, setCoupon, patchItem, addToCart, beginCheckout, orders, coupons } = ctx;
+  const { items, products, onNav, updateQty, removeItem, coupon, setCoupon, patchItem, addToCart, beginCheckout, orders, coupons, deliveryEstimate, availabilityAlerts, subscribeAvailabilityAlert, paymentRules } = ctx;
   const [code, setCode] = useState('');
   const [err, setErr] = useState('');
   const getProduct = (itemId) => products.find((entry) => entry.id === itemId) || null;
@@ -248,9 +263,13 @@ function CartScreen({ ctx }) {
     if (!product) return sum;
     return sum + (item.sub ? product.price * 0.85 : product.price) * item.qty;
   }, 0);
+  const hasUnavailableItems = items.some((item) => {
+    const product = getProduct(item.id);
+    return !product || Number(product.stock || 0) <= 0;
+  });
 
   const apply = () => {
-    const result = resolveMarketplaceCoupon(coupons, products, items, code, orders);
+    const result = resolveMarketplaceCoupon(coupons, products, items, code, orders, deliveryEstimate);
     if (result.ok) {
       setCoupon(result.coupon);
       setErr('');
@@ -262,7 +281,7 @@ function CartScreen({ ctx }) {
 
   useEffect(() => {
     if (!coupon || !coupon.code) return;
-    const result = resolveMarketplaceCoupon(coupons, products, items, coupon.code, orders);
+    const result = resolveMarketplaceCoupon(coupons, products, items, coupon.code, orders, deliveryEstimate);
     if (!result.ok) {
       setCoupon(null);
       setErr(result.message || 'Cupom removido do carrinho.');
@@ -319,6 +338,35 @@ function CartScreen({ ctx }) {
                 </div>
               );
             }
+            if (Number(product.stock || 0) <= 0) {
+              const alreadyNotified = availabilityAlerts.includes(product.id);
+              return (
+                <div key={item.id} className="fa-card" style={{ padding: 16, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                  <div style={{ width: 96, flex: 'none', opacity: .5 }}>
+                    <ProductVisual product={product} label={product.sub} style={{ width: 96, height: 96, aspectRatio: 'auto' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <div>
+                        <div className="fa-pc-brand">{product.brand}</div>
+                        <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3 }}>{product.name}</div>
+                        <span className="fa-badge fa-badge-mist" style={{ marginTop: 6 }}><Icon name="minus" size={11} stroke={2.2} />Sem estoque no momento</span>
+                      </div>
+                      <button onClick={() => removeItem(item.id)} className="fa-iconbtn" style={{ width: 34, height: 34, flex: 'none', border: 'none', background: 'transparent', color: 'var(--fa-ink-3)' }} aria-label="remover"><Icon name="trash" size={18} /></button>
+                    </div>
+                    <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 8 }}>Remova este item para finalizar a compra, ou peça para te avisarmos quando ele voltar.</div>
+                    <button
+                      className="fa-btn fa-btn-soft fa-btn-sm"
+                      style={{ marginTop: 10 }}
+                      disabled={alreadyNotified}
+                      onClick={() => subscribeAvailabilityAlert(product.id, product.name)}
+                    >
+                      <Icon name="bell" size={14} stroke={2.1} />{alreadyNotified ? 'Vamos te avisar' : 'Avise-me quando chegar'}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
             const unit = item.sub ? product.price * 0.85 : product.price;
             return (
               <div key={item.id} className="fa-card" style={{ padding: 16, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
@@ -368,7 +416,7 @@ function CartScreen({ ctx }) {
           <CartRecommendations items={items} products={products} addToCart={addToCart} onNav={onNav} />
         </div>
         <div className="fa-card fa-cart-summary" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 150 }}>
-          <FreeShipBar subtotal={subtotal} />
+          <FreeShipBar subtotal={subtotal} deliveryEstimate={deliveryEstimate} />
           <div>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Cupom de desconto</div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -379,8 +427,13 @@ function CartScreen({ ctx }) {
             {coupon && <div style={{ color: 'var(--fa-success)', fontSize: 12.5, marginTop: 6, fontWeight: 600 }}><Icon name="check" size={13} stroke={2.6} style={{ verticalAlign: -2 }} /> Cupom {coupon.code} aplicado {coupon.discountType === 'shipping' ? coupon.shippingDiscountMode === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '% no frete)' : coupon.shippingDiscountMode === 'fixed' ? '(' + brl(coupon.discountValue) + ' no frete)' : '(frete grátis)' : coupon.discountType === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '%)' : '(' + brl(coupon.discountAmount) + ')'}</div>}
           </div>
           <hr className="fa-divider" />
-          <OrderSummary items={items} products={products} coupon={coupon} />
-          <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" onClick={beginCheckout}>Finalizar compra<Icon name="arrowR" size={18} /></button>
+          <OrderSummary items={items} products={products} coupon={coupon} deliveryEstimate={deliveryEstimate} paymentRules={paymentRules} />
+          {hasUnavailableItems && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--fa-warn)', background: 'var(--fa-warn-soft)', borderRadius: 'var(--fa-r-input)', padding: '10px 12px' }}>
+              <Icon name="info" size={15} style={{ flex: 'none' }} />Remova os itens indisponíveis para finalizar a compra.
+            </div>
+          )}
+          <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" disabled={hasUnavailableItems} onClick={beginCheckout}>Finalizar compra<Icon name="arrowR" size={18} /></button>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 12, color: 'var(--fa-ink-3)' }}><Icon name="shield" size={15} />Pagamento 100% seguro</div>
         </div>
       </div>
@@ -388,4 +441,4 @@ function CartScreen({ ctx }) {
   );
 }
 
-export { CartRecommendations, CartScreen, FREE_SHIP, FreeShipBar, OrderSummary, computeMarketplaceCouponDiscount, computeMarketplaceDeliveryFee, isMarketplaceCouponActive, normalizeMarketplaceCouponCode, normalizeMarketplaceCouponTargetList, resolveMarketplaceCoupon };
+export { CartRecommendations, CartScreen, FreeShipBar, OrderSummary, computeMarketplaceCouponDiscount, computeMarketplaceDeliveryFee, isMarketplaceCouponActive, normalizeMarketplaceCouponCode, normalizeMarketplaceCouponTargetList, resolveMarketplaceCoupon };

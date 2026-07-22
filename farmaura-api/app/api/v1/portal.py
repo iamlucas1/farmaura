@@ -13,19 +13,29 @@ Observations:
 - authenticated routes always resolve tenant scope through the token subject.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import get_session, get_subject_session, require_internal_subject, require_marketplace_subject
+from app.core.rate_limit import PASSWORD_RESET_RATE_LIMIT, PUBLIC_RATE_LIMIT, rate_limit
 from app.domain.enums import UserRole
 from app.schemas.auth import TokenSubject
 from app.schemas.portal import (
+    PortalAddressSearchResponse,
+    PortalCnaeSettingsResponse,
+    PortalCnaeSettingsUpdateRequest,
+    PortalConstructionCostsResponse,
+    PortalConstructionCostsUpdateRequest,
     PortalCouponMutationRequest,
     PortalCouponResponse,
     PortalDeliveryPricingResponse,
     PortalDeliveryPricingUpdateRequest,
+    PortalDeliveryAreasResponse,
+    PortalDeliveryAreasUpdateRequest,
     PortalFavoriteMutationRequest,
     PortalFavoriteResponse,
     PortalFinancialSettingsResponse,
+    PortalFirstAccessRequest,
+    PortalFirstAccessResponse,
     PortalFinancialSettingsUpdateRequest,
     PortalHealthAppointmentCreateRequest,
     PortalHealthHistoryResponse,
@@ -34,6 +44,12 @@ from app.schemas.portal import (
     PortalMarketplaceMetaResponse,
     PortalMarketplaceMetaUpdateRequest,
     PortalMarketplacePublicBootstrapResponse,
+    PortalPdvDiscountSettingsResponse,
+    PortalPdvDiscountSettingsUpdateRequest,
+    PortalPricingPromotionAudienceEstimateRequest,
+    PortalPricingPromotionAudienceEstimateResponse,
+    PortalPricingPromotionMutationRequest,
+    PortalPricingPromotionResponse,
     PortalProductReviewCollectionResponse,
     PortalProductReviewCreateRequest,
     PortalSubscriptionCreateRequest,
@@ -56,7 +72,11 @@ router = APIRouter()
 # ----------------------------------------------------------------------------
 
 
-@router.get("/marketplace/public-bootstrap", response_model=PortalMarketplacePublicBootstrapResponse)
+@router.get(
+    "/marketplace/public-bootstrap",
+    response_model=PortalMarketplacePublicBootstrapResponse,
+    dependencies=[Depends(rate_limit(PUBLIC_RATE_LIMIT))],
+)
 async def get_marketplace_public_bootstrap(
     session=Depends(get_session),
 ) -> PortalMarketplacePublicBootstrapResponse:
@@ -64,6 +84,21 @@ async def get_marketplace_public_bootstrap(
 
     service = PortalService(session)
     return await service.get_marketplace_public_bootstrap()
+
+
+@router.post(
+    "/marketplace/first-access",
+    response_model=PortalFirstAccessResponse,
+    dependencies=[Depends(rate_limit(PASSWORD_RESET_RATE_LIMIT))],
+)
+async def request_marketplace_first_access(
+    payload: PortalFirstAccessRequest,
+    session=Depends(get_session),
+) -> PortalFirstAccessResponse:
+    """Provision or renew first-access credentials for a PDV-registered customer."""
+
+    service = PortalService(session)
+    return await service.request_marketplace_first_access(payload)
 
 
 @router.get("/marketplace/bootstrap", response_model=PortalMarketplaceBootstrapResponse)
@@ -79,13 +114,14 @@ async def get_marketplace_bootstrap(
 
 @router.get("/internal/bootstrap", response_model=PortalInternalBootstrapResponse)
 async def get_internal_bootstrap(
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST, UserRole.CASHIER)),
+    store_id: str = Query(default="", max_length=36),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST, UserRole.CASHIER)),
     session=Depends(get_subject_session),
 ) -> PortalInternalBootstrapResponse:
     """Return internal console bootstrap metadata."""
 
     service = PortalService(session)
-    return await service.get_internal_bootstrap(subject)
+    return await service.get_internal_bootstrap(subject, requested_store_id=store_id)
 
 
 # ----------------------------------------------------------------------------
@@ -96,7 +132,7 @@ async def get_internal_bootstrap(
 @router.put("/internal/marketplace-meta", response_model=PortalMarketplaceMetaResponse)
 async def update_marketplace_meta(
     payload: PortalMarketplaceMetaUpdateRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> PortalMarketplaceMetaResponse:
     """Persist tenant-scoped marketplace meta settings."""
@@ -107,7 +143,7 @@ async def update_marketplace_meta(
 
 @router.get("/internal/delivery-pricing", response_model=PortalDeliveryPricingResponse)
 async def get_delivery_pricing(
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> PortalDeliveryPricingResponse:
     """Return tenant-scoped distance-based delivery pricing configuration."""
@@ -119,7 +155,7 @@ async def get_delivery_pricing(
 @router.put("/internal/delivery-pricing", response_model=PortalDeliveryPricingResponse)
 async def update_delivery_pricing(
     payload: PortalDeliveryPricingUpdateRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> PortalDeliveryPricingResponse:
     """Persist tenant-scoped distance-based delivery pricing configuration."""
@@ -128,9 +164,90 @@ async def update_delivery_pricing(
     return await service.update_delivery_pricing(subject, payload)
 
 
+@router.get("/internal/pdv-discount-settings", response_model=PortalPdvDiscountSettingsResponse)
+async def get_pdv_discount_settings(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalPdvDiscountSettingsResponse:
+    """Return the tenant-scoped minimum average margin required to grant a PDV discount."""
+
+    service = PortalService(session)
+    return await service.get_pdv_discount_settings(subject)
+
+
+@router.put("/internal/pdv-discount-settings", response_model=PortalPdvDiscountSettingsResponse)
+async def update_pdv_discount_settings(
+    payload: PortalPdvDiscountSettingsUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalPdvDiscountSettingsResponse:
+    """Persist the tenant-scoped minimum average margin required to grant a PDV discount."""
+
+    service = PortalService(session)
+    return await service.update_pdv_discount_settings(subject, payload)
+
+
+@router.get("/internal/cnae-settings", response_model=PortalCnaeSettingsResponse)
+async def get_cnae_settings(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session=Depends(get_subject_session),
+) -> PortalCnaeSettingsResponse:
+    """Return the tenant-scoped registered CNAEs and their pricing ICMS rates."""
+
+    service = PortalService(session)
+    return await service.get_cnae_settings(subject)
+
+
+@router.put("/internal/cnae-settings", response_model=PortalCnaeSettingsResponse)
+async def update_cnae_settings(
+    payload: PortalCnaeSettingsUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session=Depends(get_subject_session),
+) -> PortalCnaeSettingsResponse:
+    """Persist the tenant-scoped registered CNAEs and their pricing ICMS rates."""
+
+    service = PortalService(session)
+    return await service.update_cnae_settings(subject, payload)
+
+
+@router.get("/internal/delivery-areas", response_model=PortalDeliveryAreasResponse)
+async def get_delivery_areas(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalDeliveryAreasResponse:
+    """Return tenant-scoped per-store delivery-area configuration."""
+
+    service = PortalService(session)
+    return await service.get_delivery_areas(subject)
+
+
+@router.put("/internal/delivery-areas", response_model=PortalDeliveryAreasResponse)
+async def update_delivery_areas(
+    payload: PortalDeliveryAreasUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalDeliveryAreasResponse:
+    """Persist tenant-scoped per-store delivery-area configuration."""
+
+    service = PortalService(session)
+    return await service.update_delivery_areas(subject, payload)
+
+
+@router.get("/internal/address-search", response_model=PortalAddressSearchResponse)
+async def search_delivery_addresses(
+    query: str = Query(default="", max_length=160),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalAddressSearchResponse:
+    """Return neighborhood/city search matches for one free-text query."""
+
+    service = PortalService(session)
+    return await service.search_delivery_addresses(subject, query)
+
+
 @router.get("/internal/financial-settings", response_model=PortalFinancialSettingsResponse)
 async def get_financial_settings(
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> PortalFinancialSettingsResponse:
     """Return tenant-scoped financial assumptions for the internal portal."""
@@ -142,13 +259,36 @@ async def get_financial_settings(
 @router.put("/internal/financial-settings", response_model=PortalFinancialSettingsResponse)
 async def update_financial_settings(
     payload: PortalFinancialSettingsUpdateRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> PortalFinancialSettingsResponse:
     """Persist tenant-scoped financial assumptions for the internal portal."""
 
     service = PortalService(session)
     return await service.update_financial_settings(subject, payload)
+
+
+@router.get("/internal/construction-costs", response_model=PortalConstructionCostsResponse)
+async def get_construction_costs(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session=Depends(get_subject_session),
+) -> PortalConstructionCostsResponse:
+    """Return tenant-scoped, per-store construction cost entries and real-sales ROI figures."""
+
+    service = PortalService(session)
+    return await service.get_construction_costs(subject)
+
+
+@router.put("/internal/construction-costs", response_model=PortalConstructionCostsResponse)
+async def update_construction_costs(
+    payload: PortalConstructionCostsUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session=Depends(get_subject_session),
+) -> PortalConstructionCostsResponse:
+    """Persist tenant-scoped, per-store construction cost entries."""
+
+    service = PortalService(session)
+    return await service.update_construction_costs(subject, payload)
 
 
 # ----------------------------------------------------------------------------
@@ -158,7 +298,7 @@ async def update_financial_settings(
 
 @router.get("/internal/coupons", response_model=list[PortalCouponResponse])
 async def list_coupon_campaigns(
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST, UserRole.CASHIER)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST, UserRole.CASHIER)),
     session=Depends(get_subject_session),
 ) -> list[PortalCouponResponse]:
     """Return all coupon campaigns for the authenticated internal tenant."""
@@ -170,7 +310,7 @@ async def list_coupon_campaigns(
 @router.post("/internal/coupons", response_model=list[PortalCouponResponse])
 async def create_coupon_campaign(
     payload: PortalCouponMutationRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> list[PortalCouponResponse]:
     """Persist one coupon campaign for the authenticated internal tenant."""
@@ -183,7 +323,7 @@ async def create_coupon_campaign(
 async def update_coupon_campaign(
     coupon_id: str,
     payload: PortalCouponMutationRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> list[PortalCouponResponse]:
     """Update one coupon campaign for the authenticated internal tenant."""
@@ -195,7 +335,7 @@ async def update_coupon_campaign(
 @router.delete("/internal/coupons/{coupon_id}", response_model=list[PortalCouponResponse])
 async def delete_coupon_campaign(
     coupon_id: str,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session=Depends(get_subject_session),
 ) -> list[PortalCouponResponse]:
     """Delete one coupon campaign for the authenticated internal tenant."""
@@ -205,11 +345,80 @@ async def delete_coupon_campaign(
 
 
 # ----------------------------------------------------------------------------
+# Pricing promotions
+# ----------------------------------------------------------------------------
+
+
+@router.get("/internal/promotions", response_model=list[PortalPricingPromotionResponse])
+async def list_pricing_promotions(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST, UserRole.CASHIER)),
+    session=Depends(get_subject_session),
+) -> list[PortalPricingPromotionResponse]:
+    """Return all pricing promotions for the authenticated internal tenant."""
+
+    service = PortalService(session)
+    return await service.list_pricing_promotions(subject)
+
+
+@router.post("/internal/promotions", response_model=list[PortalPricingPromotionResponse])
+async def create_pricing_promotion(
+    payload: PortalPricingPromotionMutationRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> list[PortalPricingPromotionResponse]:
+    """Persist one pricing promotion for the authenticated internal tenant."""
+
+    service = PortalService(session)
+    return await service.create_pricing_promotion(subject, payload)
+
+
+@router.put("/internal/promotions/{promotion_id}", response_model=list[PortalPricingPromotionResponse])
+async def update_pricing_promotion(
+    promotion_id: str,
+    payload: PortalPricingPromotionMutationRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> list[PortalPricingPromotionResponse]:
+    """Update one pricing promotion for the authenticated internal tenant."""
+
+    service = PortalService(session)
+    return await service.update_pricing_promotion(subject, promotion_id, payload)
+
+
+@router.delete("/internal/promotions/{promotion_id}", response_model=list[PortalPricingPromotionResponse])
+async def delete_pricing_promotion(
+    promotion_id: str,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> list[PortalPricingPromotionResponse]:
+    """Delete one pricing promotion for the authenticated internal tenant."""
+
+    service = PortalService(session)
+    return await service.delete_pricing_promotion(subject, promotion_id)
+
+
+@router.post("/internal/promotions/estimate-audience", response_model=PortalPricingPromotionAudienceEstimateResponse)
+async def estimate_pricing_promotion_audience(
+    payload: PortalPricingPromotionAudienceEstimateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalPricingPromotionAudienceEstimateResponse:
+    """Return the estimated audience size for a draft promotion's targeting filters."""
+
+    service = PortalService(session)
+    return await service.estimate_pricing_promotion_audience(subject, payload)
+
+
+# ----------------------------------------------------------------------------
 # Product reviews
 # ----------------------------------------------------------------------------
 
 
-@router.get("/products/{product_ref}/reviews", response_model=PortalProductReviewCollectionResponse)
+@router.get(
+    "/products/{product_ref}/reviews",
+    response_model=PortalProductReviewCollectionResponse,
+    dependencies=[Depends(rate_limit(PUBLIC_RATE_LIMIT))],
+)
 async def list_product_reviews(
     product_ref: str,
     session=Depends(get_session),

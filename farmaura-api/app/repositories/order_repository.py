@@ -77,6 +77,18 @@ class OrderRepository:
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
+    async def list_items_by_customer(self, *, tenant_id: str, customer_id: str) -> list[OrderItem]:
+        """Return every marketplace order line ever purchased by one customer."""
+
+        statement = (
+            select(OrderItem)
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(Order.tenant_id == tenant_id, Order.customer_id == customer_id)
+            .order_by(OrderItem.created_at.asc())
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
     async def get_item_by_id(self, *, tenant_id: str, order_id: str, item_id: str, store_id: str = "") -> OrderItem | None:
         """Return one tenant-scoped order item by identifier."""
 
@@ -201,3 +213,39 @@ class OrderRepository:
         await self.session.flush()
         await self.session.refresh(stop)
         return stop
+
+    async def get_delivery_route_by_id(self, *, tenant_id: str, route_id: str) -> DeliveryRoute | None:
+        """Return one tenant-scoped delivery route by identifier."""
+
+        statement = select(DeliveryRoute).where(DeliveryRoute.id == route_id, DeliveryRoute.tenant_id == tenant_id)
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def list_route_stops(self, *, route_id: str) -> list[DeliveryRouteStop]:
+        """Return the ordered stops belonging to one delivery route."""
+
+        statement = select(DeliveryRouteStop).where(DeliveryRouteStop.route_id == route_id).order_by(DeliveryRouteStop.stop_sequence)
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def list_active_routes_for_driver(self, *, tenant_id: str, driver_user_id: str) -> list[DeliveryRoute]:
+        """Return the open routes currently assigned to one driver."""
+
+        statement = (
+            select(DeliveryRoute)
+            .where(
+                DeliveryRoute.tenant_id == tenant_id,
+                DeliveryRoute.driver_user_id == driver_user_id,
+                DeliveryRoute.route_status.in_(["planned", "dispatched"]),
+            )
+            .order_by(DeliveryRoute.created_at.desc())
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def get_route_stop_by_id(self, *, stop_id: str) -> DeliveryRouteStop | None:
+        """Return one delivery route stop by identifier, unscoped (caller must verify route ownership)."""
+
+        statement = select(DeliveryRouteStop).where(DeliveryRouteStop.id == stop_id)
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()

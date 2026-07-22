@@ -15,9 +15,10 @@ Observations:
 
 from uuid import UUID
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 
 from app.domain.enums import AccessScope, PortalName, UserRole
+from app.domain.validators import is_strong_password
 from app.schemas.common import StrictModel
 
 
@@ -43,6 +44,7 @@ class TokenSubject(StrictModel):
     role: UserRole
     access_scope: AccessScope
     session_version: int
+    store_id: UUID | None = None
 
 
 class AuthSessionResponse(StrictModel):
@@ -100,6 +102,42 @@ class TwoFactorChallengeResponse(StrictModel):
     stage: str = "two_factor_required"
     challenge_token: str
     challenge_expires_in_seconds: int
+
+
+class PasswordChangeRequiredResponse(StrictModel):
+    """Represent a pending mandatory password-change stage."""
+
+    stage: str = "password_change_required"
+    challenge_token: str
+    challenge_expires_in_seconds: int
+
+
+class CompletePasswordResetRequest(StrictModel):
+    """Validate a mandatory first-access password-reset completion request."""
+
+    challenge_token: str = Field(min_length=32, max_length=4096)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password_strength(cls, value: str) -> str:
+        """Require lowercase, uppercase, digit, and special characters."""
+
+        if not is_strong_password(value):
+            raise ValueError("A senha deve conter letra minúscula, letra maiúscula, número e caractere especial.")
+        return value
+
+
+class UnlockAccountRequest(StrictModel):
+    """Validate a self-service account-unlock request."""
+
+    token: str = Field(min_length=16, max_length=256)
+
+
+class UnlockAccountResponse(StrictModel):
+    """Represent the outcome of a self-service account-unlock request."""
+
+    detail: str
 
 
 class TwoFactorSetupResponse(StrictModel):

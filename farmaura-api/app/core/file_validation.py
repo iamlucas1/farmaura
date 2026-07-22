@@ -28,6 +28,9 @@ from app.core.config import Settings
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf"}
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 
+INVOICE_ALLOWED_EXTENSIONS = {".pdf", ".xml"}
+INVOICE_ALLOWED_CONTENT_TYPES = {"application/pdf", "text/xml", "application/xml"}
+
 
 async def validate_upload(file: UploadFile, settings: Settings) -> None:
     """Validate an uploaded file against conservative allowlists."""
@@ -41,3 +44,17 @@ async def validate_upload(file: UploadFile, settings: Settings) -> None:
     await file.seek(0)
     if len(body) > settings.max_upload_bytes:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Upload too large.")
+
+
+async def validate_invoice_upload(file: UploadFile, settings: Settings) -> None:
+    """Validate an uploaded supplier invoice file (PDF or XML) against a conservative allowlist."""
+
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in INVOICE_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported invoice file extension.")
+    if file.content_type not in INVOICE_ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported invoice media type.")
+    body = await file.read(settings.max_upload_bytes + 1)
+    await file.seek(0)
+    if len(body) > settings.max_upload_bytes:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Invoice upload too large.")

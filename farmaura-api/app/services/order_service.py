@@ -15,21 +15,18 @@ Observations:
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from math import atan2, cos, radians, sin, sqrt
 from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.domain.enums import OrderStatus
+from app.core.cache import invalidate_cache_scope
+from app.domain.enums import OrderStatus, UserRole
 from app.domain.validators import is_valid_cpf
 from app.models.customer import Customer
-from app.models.delivery_route import DeliveryRoute
-from app.models.delivery_route_stop import DeliveryRouteStop
+from app.models.inventory_movement import InventoryMovement
 from app.models.order import Order
 from app.models.order_fulfillment import OrderFulfillment
 from app.models.order_item import OrderItem
@@ -40,11 +37,14 @@ from app.repositories.customer_payment_method_repository import CustomerPaymentM
 from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.order_repository import OrderRepository
+from app.repositories.store_repository import StoreRepository
 from app.repositories.user_repository import UserRepository
+from app.services.catalog_service import CATALOG_CACHE_NAMESPACE
 from app.schemas.auth import TokenSubject
 from app.schemas.fiscal import FiscalDocumentResponse
 from app.schemas.orders import (
     CheckoutOrderRequest,
+    DeliveryCoverageResponse,
     InternalOrderBoardChangeResponse,
     InternalOrderBoardResponse,
     InternalOrderItemResponse,
@@ -56,19 +56,32 @@ from app.schemas.orders import (
     OrderAdvanceRequest,
     OrderCreateRequest,
     OrderItemLocationUpdateRequest,
+    OrderItemPickRequest,
     OrderResponse,
     PickupCodeConfirmRequest,
 )
+from app.services.delivery_pricing_service import DeliveryPricingService
 from app.services.fiscal_service import FiscalService
-from app.services.geocoding_client import GeocodingClient
+from app.services.inventory_stock_sync import decrement_lot_fefo
 from app.services.marketplace_projection import (
     build_marketplace_catalog_groups,
     build_marketplace_product_id,
     quantize_money,
 )
+from app.services.melhor_envio_client import MelhorEnvioError
 from app.services.payment_service import PaymentService
 from app.services.portal_service import PortalService
-from app.schemas.portal import PortalDeliveryPricingResponse
+from app.services.shipping_service import ShippingService
+from app.schemas.portal import (
+    PortalDeliveryPricingResponse,
+    PortalDeliveryAreasResponse,
+    PortalDeliveryFuelConfig,
+    PortalDeliveryNeighborhood,
+    PortalDeliveryPriceRule,
+    PortalDeliveryRadiusTier,
+    PortalDeliveryStoreAreaConfig,
+    PortalDeliveryVariation,
+)
 
 
 # ============================================================================
@@ -88,7 +101,9 @@ class OrderService:
         self.inventory_repository = InventoryRepository(session)
         self.customer_repository = CustomerRepository(session)
         self.user_repository = UserRepository(session)
-        self.store_id = ""
+        self.store_repository = StoreRepository(session)
+        self.delivery_pricing = DeliveryPricingService(session)
+        self.store_id: str | None = None
 
     async def list_orders(self) -> MarketplaceOrderListResponse:
         """Return marketplace orders for the authenticated customer."""
@@ -140,13 +155,41 @@ class OrderService:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Informe um CPF válido em Minha Conta antes de finalizar a compra.",
             )
-        store_id = await self._get_store_id(subject)
+        requested_items = [(line.product_id, line.quantity) for line in payload.items]
+        store_resolution = None
+        if payload.delivery.method == 'pickup':
+            store_id = payload.delivery.store_id or await self._get_store_id(subject)
+        else:
+            address_text = self._build_full_delivery_address(payload)
+            if not address_text.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='Cadastre um endereço de entrega para continuar.',
+                )
+            store_resolution = await self.delivery_pricing.resolve_order_store(
+                tenant_id=str(subject.tenant_id), address_text=address_text, requested_items=requested_items,
+            )
+            if store_resolution is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='Não foi possível localizar seu endereço. Confira o CEP e tente novamente.',
+                )
+            if store_resolution.requires_shipping and payload.delivery.method != 'shipping':
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='Este endereço está fora do raio de entrega por motoboy. Escolha envio por transportadora para continuar.',
+                )
+            store_id = store_resolution.store.id
         inventory_items = await self.inventory_repository.list_items(
             tenant_id=str(subject.tenant_id),
             store_id=store_id,
             active_only=True,
         )
-        grouped = build_marketplace_catalog_groups(inventory_items)
+        grouped = build_marketplace_catalog_groups([
+            item for item in inventory_items
+            if getattr(item, 'sale_price', None) is not None
+            and item.sale_price > 0
+        ])
         grouped_map = {str(item['id']): item for item in grouped}
         requested_groups: list[dict[str, object]] = []
         for line in payload.items:
@@ -165,9 +208,45 @@ class OrderService:
         delivery_geo: tuple[Decimal, Decimal, Decimal] | None = None
         delivery_fee_amount = Decimal('0.00')
         if payload.delivery.method != 'pickup':
-            pricing = await PortalService(self.session).get_delivery_pricing(subject)
-            if pricing.tiers:
-                delivery_geo = await self._resolve_delivery_geo(self._build_full_delivery_address(payload))
+            assert store_resolution is not None  # guaranteed above: non-pickup methods always resolve or raise first
+            # Distance is always measured against the store that will actually fulfill this
+            # order — there is no fixed hub address in this system.
+            delivery_geo = await self.delivery_pricing.resolve_geo_from_store(
+                tenant_id=str(subject.tenant_id), store_id=store_id, address_text=self._build_full_delivery_address(payload),
+            )
+        if payload.delivery.method == 'shipping':
+            assert store_resolution is not None  # guaranteed above: non-pickup methods always resolve or raise first
+            shipping_quote = ShippingService().quote(
+                origin_postal_code=store_resolution.store.postal_code, destination_postal_code=payload.delivery.postal_code,
+            )
+            if shipping_quote is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='Não foi possível cotar o frete para este endereço.',
+                )
+            delivery_fee_amount = quantize_money(shipping_quote.price)
+        elif payload.delivery.method != 'pickup':
+            assert delivery_geo is not None  # guaranteed above: non-pickup methods always resolve delivery_geo first
+            portal_service = PortalService(self.session)
+            areas = await portal_service.get_delivery_areas(subject)
+            pricing = await portal_service.get_delivery_pricing(subject)
+            store_config = self._find_store_area_config(areas, store_id=store_id)
+            if self._is_area_configured(store_config):
+                resolved_fee = self._resolve_delivery_fee_by_area(
+                    store_config,
+                    areas.variations,
+                    distance_km=delivery_geo[2],
+                    district_text=payload.delivery.district,
+                    city_text=payload.delivery.city,
+                    subtotal_amount=subtotal_amount,
+                )
+                if resolved_fee is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail='Este endereço está fora da área de entrega. Escolha retirar na loja para continuar.',
+                    )
+                delivery_fee_amount = resolved_fee
+            elif pricing.tiers:
                 resolved_distance_km = delivery_geo[2]
                 delivery_fee_amount = (
                     self._resolve_delivery_fee_by_distance(pricing, resolved_distance_km)
@@ -206,7 +285,11 @@ class OrderService:
             order_code=self._build_order_code(now),
             channel=payload.channel or 'app',
             status=OrderStatus.NEW.value,
-            fulfillment_type='pickup' if payload.delivery.method == 'pickup' else 'delivery',
+            fulfillment_type=(
+                'pickup' if payload.delivery.method == 'pickup'
+                else 'shipping' if payload.delivery.method == 'shipping'
+                else 'delivery'
+            ),
             priority='express' if payload.delivery.method == 'express' else 'normal',
             payment_method_label=self._build_payment_label(payload.payment.method),
             payment_status='pending',
@@ -243,6 +326,14 @@ class OrderService:
                     continue
                 allocated_quantity = min(remaining_quantity, available_quantity)
                 inventory_item = component['item']
+                locked_item = await self.inventory_repository.get_item_by_id_for_update(
+                    tenant_id=str(subject.tenant_id), item_id=str(component['inventory_item_id']),
+                )
+                if locked_item is None or locked_item.quantity < allocated_quantity:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"Insufficient stock for {group['name']}.",
+                    )
                 order_item = OrderItem(
                     id=str(uuid4()),
                     order_id=order.id,
@@ -263,11 +354,48 @@ class OrderService:
                     picked_at_label='',
                 )
                 await self.repository.add_order_item(order_item)
+                quantity_before = locked_item.quantity
+                locked_item.quantity = quantity_before - allocated_quantity
+                await self.inventory_repository.add_movement(
+                    InventoryMovement(
+                        id=str(uuid4()),
+                        tenant_id=str(subject.tenant_id),
+                        store_id=locked_item.store_id,
+                        inventory_item_id=locked_item.id,
+                        performed_by_user_id=None,
+                        movement_type='exit',
+                        quantity_delta=-allocated_quantity,
+                        quantity_before=quantity_before,
+                        resulting_quantity=locked_item.quantity,
+                        reason='Venda marketplace',
+                        note='',
+                        reference_code=order.order_code,
+                        from_location_code=locked_item.storage_location,
+                        to_location_code='',
+                        unit_cost_snapshot=locked_item.acquisition_cost,
+                    )
+                )
+                await decrement_lot_fefo(
+                    self.session,
+                    tenant_id=str(subject.tenant_id),
+                    store_id=str(locked_item.store_id),
+                    inventory_item_id=str(locked_item.id),
+                    quantity=allocated_quantity,
+                    performed_by_user_id='',
+                    reason='Venda marketplace',
+                    reference_code=order.order_code,
+                    source_type='marketplace_order',
+                    source_id=order.order_code,
+                )
                 created_items.append(order_item)
                 remaining_quantity -= allocated_quantity
             if remaining_quantity > 0:
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to allocate stock across grouped inventory items.')
-        fulfillment = await self._build_fulfillment(order=order, customer=customer, payload=payload, now=now, precomputed_geo=delivery_geo)
+        fulfillment = await self._build_fulfillment(
+            order=order, customer=customer, payload=payload, now=now, precomputed_geo=delivery_geo,
+            shipping_delivery_days=shipping_quote.delivery_days if order.fulfillment_type == 'shipping' else 0,
+            shipping_service_id=shipping_quote.service_id if order.fulfillment_type == 'shipping' else '',
+        )
         await self.repository.add_fulfillment(fulfillment)
         if order.fulfillment_type == 'delivery':
             await self._attach_delivery_route_stop(order=order, fulfillment=fulfillment, subject=subject, store_id=store_id, now=now)
@@ -297,6 +425,7 @@ class OrderService:
             order.payment_confirmed_at = now
         await self.session.flush()
         await self.session.commit()
+        await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(subject.tenant_id))
         # Fiscal issuance is deferred: a background job (app.services.fiscal_scheduler) issues
         # the document once payment_confirmed_at is at least 7 days old, so a product return or
         # order cancellation inside that window never forces a fiscal document to be cancelled.
@@ -304,11 +433,11 @@ class OrderService:
             order, created_items, fulfillment, fiscal_document=None, pix_qr_code=pix_qr_code, pix_copy_paste=pix_copy_paste,
         )
 
-    async def list_internal_board(self) -> InternalOrderBoardResponse:
+    async def list_internal_board(self, *, requested_store_id: str = "") -> InternalOrderBoardResponse:
         """Return the pharmacist operational order board."""
 
         subject = self._require_subject()
-        store_id = await self._get_store_id(subject)
+        store_id = await self._get_store_id(subject, requested_store_id=requested_store_id, allow_all_stores=True)
         return await self._build_internal_board_response(tenant_id=str(subject.tenant_id), store_id=store_id)
 
     async def get_internal_board_changes(self, *, since: str) -> InternalOrderBoardChangeResponse:
@@ -353,6 +482,30 @@ class OrderService:
         await self.session.commit()
         return await self._load_internal_order(order)
 
+    async def update_internal_order_item_pick(
+        self,
+        *,
+        order_id: str,
+        item_id: str,
+        payload: OrderItemPickRequest,
+    ) -> InternalOrderResponse:
+        """Persist the separation-checklist state for one picked order item."""
+
+        subject = self._require_subject()
+        store_id = await self._get_store_id(subject)
+        order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, store_id=store_id)
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
+        item = await self.repository.get_item_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, item_id=item_id, store_id=store_id)
+        if item is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order item not found.')
+        now = datetime.now(UTC)
+        item.picked_for_fulfillment = payload.picked
+        item.picked_at_label = now.strftime('%H:%M') if payload.picked else ''
+        order.updated_at = now
+        await self.session.commit()
+        return await self._load_internal_order(order)
+
     async def confirm_internal_pickup(self, *, order_id: str, payload: PickupCodeConfirmRequest) -> InternalOrderResponse:
         """Validate the pickup code informed by the customer and finish the order."""
 
@@ -380,6 +533,42 @@ class OrderService:
         await self.session.commit()
         return await self._load_internal_order(order)
 
+    async def dispatch_shipping_order(self, *, order_id: str) -> InternalOrderResponse:
+        """Buy the real carrier shipment, generate its label, and mark the order dispatched."""
+
+        subject = self._require_subject()
+        store_id = await self._get_store_id(subject)
+        order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, store_id=store_id)
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
+        if order.fulfillment_type != 'shipping':
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Shipping dispatch is only available for envio orders.')
+        if order.status != OrderStatus.READY.value:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Order is not ready for shipping dispatch.')
+        fulfillment = await self.repository.get_fulfillment_by_order_id(order_id=order.id)
+        if fulfillment is None:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Shipping fulfillment payload unavailable.')
+        store = await self.store_repository.get_by_id(tenant_id=str(subject.tenant_id), store_id=order.store_id)
+        if store is None:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Order store unavailable.')
+        try:
+            result = ShippingService().purchase_and_label(
+                service_id=fulfillment.shipping_service_id, store=store, fulfillment=fulfillment, order=order,
+            )
+        except MelhorEnvioError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+        now = datetime.now(UTC)
+        fulfillment.carrier_name = result.carrier_name
+        fulfillment.tracking_code = result.tracking_code
+        fulfillment.shipping_provider_order_id = result.provider_order_id
+        fulfillment.shipping_label_url = result.label_url
+        fulfillment.dispatched_at_label = now.strftime('%H:%M')
+        order.status = OrderStatus.DISPATCHED.value
+        order.completed_at_label = 'Postado'
+        order.updated_at = now
+        await self.session.commit()
+        return await self._load_internal_order(order)
+
     async def advance_internal_order(self, order_id: str, payload: OrderAdvanceRequest) -> InternalOrderResponse:
         """Advance one order through the pharmacist operational workflow."""
 
@@ -398,6 +587,18 @@ class OrderService:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Invalid order transition.')
         if order.fulfillment_type == 'pickup' and payload.next_status == OrderStatus.DISPATCHED.value:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Use pickup code confirmation to conclude retirada orders.')
+        if order.fulfillment_type == 'shipping' and payload.next_status == OrderStatus.DISPATCHED.value:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Use o despacho de transportadora para concluir pedidos de envio.')
+        if (
+            order.status in {OrderStatus.NEW.value, OrderStatus.SEPARATING.value}
+            and order.requires_prescription_review
+            and order.prescription_status == 'pending'
+        ):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Pedido aguardando validação de receita.')
+        if payload.next_status == OrderStatus.READY.value:
+            items = await self.repository.list_items(order_ids=[order.id])
+            if not all(item.picked_for_fulfillment for item in items):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Confira todos os itens antes de marcar como pronto.')
         fulfillment = await self.repository.get_fulfillment_by_order_id(order_id=order.id)
         now = datetime.now(UTC)
         order.status = payload.next_status
@@ -454,7 +655,7 @@ class OrderService:
             eta = fulfillment.eta_label or fulfillment.ready_at_label or fulfillment.dispatched_at_label or ''
         if not eta:
             eta = order.estimated_delivery_at_label or order.estimated_ready_at_label or ''
-        address = fulfillment.address_line if fulfillment and order.fulfillment_type == 'delivery' else ''
+        address = fulfillment.address_line if fulfillment and order.fulfillment_type in ('delivery', 'shipping') else ''
         store = fulfillment.store_label if fulfillment and order.fulfillment_type == 'pickup' else ''
         return MarketplaceOrderResponse(
             id=order.id,
@@ -472,6 +673,8 @@ class OrderService:
             address=address,
             store=store,
             pickup_code=fulfillment.pickup_code if fulfillment and order.fulfillment_type == 'pickup' else '',
+            tracking_code=fulfillment.tracking_code if fulfillment and order.fulfillment_type == 'shipping' else '',
+            carrier_name=fulfillment.carrier_name if fulfillment and order.fulfillment_type == 'shipping' else '',
             rx_status=order.prescription_status,
             items=list(grouped_items.values()),
             fiscal_document=fiscal_document,
@@ -500,7 +703,7 @@ class OrderService:
             doc=order.customer_document_snapshot,
             status=order.status,
             fulfillment=order.fulfillment_type,
-            fulfillment_label='Retirada na loja' if order.fulfillment_type == 'pickup' else 'Entrega em domicilio',
+            fulfillment_label={'pickup': 'Retirada na loja', 'shipping': 'Envio por transportadora'}.get(order.fulfillment_type, 'Entrega em domicilio'),
             priority=order.priority,
             placed=order.placed_at_label,
             payment=order.payment_method_label,
@@ -512,6 +715,9 @@ class OrderService:
             store=fulfillment.store_label if fulfillment else '',
             pickup_code='',
             pickup_code_required=bool(fulfillment and fulfillment.fulfillment_type == 'pickup' and order.status == OrderStatus.READY.value),
+            tracking_code=fulfillment.tracking_code if fulfillment and order.fulfillment_type == 'shipping' else '',
+            carrier_name=fulfillment.carrier_name if fulfillment and order.fulfillment_type == 'shipping' else '',
+            shipping_dispatch_required=bool(fulfillment and order.fulfillment_type == 'shipping' and order.status == OrderStatus.READY.value),
             note=order.marketplace_note,
             rx=order.requires_prescription_review,
             rx_status=order.prescription_status,
@@ -565,6 +771,7 @@ class OrderService:
                     qty=item.quantity,
                     loc=item.storage_location_snapshot,
                     rx=item.requires_prescription_upload,
+                    picked=item.picked_for_fulfillment,
                 )
             )
         fulfillment_map = {row.order_id: row for row in fulfillments}
@@ -594,6 +801,7 @@ class OrderService:
                     qty=item.quantity,
                     loc=item.storage_location_snapshot,
                     rx=item.requires_prescription_upload,
+                    picked=item.picked_for_fulfillment,
                 )
                 for item in items
             ],
@@ -621,10 +829,23 @@ class OrderService:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Authenticated subject required.')
         return self.subject
 
-    async def _get_store_id(self, subject: TokenSubject) -> str:
-        """Resolve the active store identifier for the current tenant."""
+    async def _get_store_id(self, subject: TokenSubject, *, requested_store_id: str = "", allow_all_stores: bool = False) -> str:
+        """Resolve the active store identifier, honoring an admin-supplied override.
 
-        if not self.store_id:
+        Admins have no store of their own: for read/list use-cases (allow_all_stores=True)
+        they default to seeing every store in the tenant (empty string, unfiltered) unless
+        they pick one. Writes always resolve to a concrete store.
+        """
+
+        if self.store_id is not None:
+            return self.store_id
+        if requested_store_id and subject.role == UserRole.ADMIN:
+            self.store_id = requested_store_id
+        elif subject.store_id:
+            self.store_id = str(subject.store_id)
+        elif allow_all_stores and subject.role == UserRole.ADMIN:
+            self.store_id = ""
+        else:
             self.store_id = await self.inventory_repository.get_primary_store_id(tenant_id=str(subject.tenant_id))
         return self.store_id
 
@@ -680,10 +901,74 @@ class OrderService:
     def _resolve_delivery_fee_by_distance(self, pricing: PortalDeliveryPricingResponse, distance_km: Decimal) -> Decimal:
         """Return the configured delivery fee for one resolved distance."""
 
-        for tier in sorted(pricing.tiers, key=lambda entry: entry.up_to_km):
-            if distance_km <= tier.up_to_km:
-                return quantize_money(Decimal(tier.fee))
-        return quantize_money(Decimal(pricing.fee_beyond_last_tier))
+        return self.delivery_pricing.resolve_fee_by_distance(pricing, distance_km)
+
+    def _resolve_distance_tier_fee(self, pricing: PortalDeliveryPricingResponse, distance_km: Decimal, subtotal_amount: Decimal) -> Decimal:
+        """Return the base fee for the 'distance_tier' zone calculation mode."""
+
+        return self.delivery_pricing.resolve_distance_tier_fee(pricing, distance_km, subtotal_amount)
+
+    def _resolve_fuel_fee(self, fuel: PortalDeliveryFuelConfig, distance_km: Decimal) -> Decimal:
+        """Return the fuel-cost-based fee: (km / km per liter) * price per liter * (1 + margin%)."""
+
+        return self.delivery_pricing.resolve_fuel_fee(fuel, distance_km)
+
+    def _compute_price_rule_fee(self, rule: PortalDeliveryPriceRule, *, distance_km: Decimal) -> Decimal:
+        """Return the base delivery fee for one matched neighborhood or radius tier."""
+
+        return self.delivery_pricing.compute_price_rule_fee(rule, distance_km=distance_km)
+
+    def _resolve_variation_extra_fee(self, variations: list[PortalDeliveryVariation], variation_key: str) -> Decimal:
+        """Return the configured extra fee for one delivery variation, defaulting to zero if unmatched."""
+
+        return self.delivery_pricing.resolve_variation_extra_fee(variations, variation_key)
+
+    def _find_store_area_config(self, areas: PortalDeliveryAreasResponse, *, store_id: str) -> PortalDeliveryStoreAreaConfig | None:
+        """Return the delivery-area configuration for one store, if any has been saved."""
+
+        return self.delivery_pricing.find_store_area_config(areas, store_id=store_id)
+
+    def _is_area_configured(self, store_config: PortalDeliveryStoreAreaConfig | None) -> bool:
+        """Return whether a store has touched the delivery-area screen at all (turns on exclusion)."""
+
+        return self.delivery_pricing.is_area_configured(store_config)
+
+    def _match_delivery_area(
+        self, store_config: PortalDeliveryStoreAreaConfig, *, distance_km: Decimal, district_text: str, city_text: str = '',
+    ) -> tuple[str, PortalDeliveryNeighborhood | PortalDeliveryRadiusTier] | None:
+        """Return ('neighborhood'|'radius', matched entry); a neighborhood match takes precedence over radius tiers.
+
+        A neighborhood entry with no district set covers the whole city instead (matched by city name).
+        """
+
+        return self.delivery_pricing.match_delivery_area(store_config, distance_km=distance_km, district_text=district_text, city_text=city_text)
+
+    def _resolve_delivery_fee_by_area(
+        self,
+        store_config: PortalDeliveryStoreAreaConfig,
+        variations: list[PortalDeliveryVariation],
+        *,
+        distance_km: Decimal,
+        district_text: str,
+        city_text: str = '',
+        subtotal_amount: Decimal = Decimal('0.00'),
+        variation: str = 'normal',
+    ) -> Decimal | None:
+        """Return the resolved delivery fee, or None when the address matches no configured area (excluded)."""
+
+        return self.delivery_pricing.resolve_fee_by_area(
+            store_config, variations,
+            distance_km=distance_km, district_text=district_text, city_text=city_text,
+            subtotal_amount=subtotal_amount, variation=variation,
+        )
+
+    async def check_delivery_coverage(self, *, district: str, city: str, state_code: str, postal_code: str) -> DeliveryCoverageResponse:
+        """Return a best-effort delivery-coverage preview for one typed CEP/address."""
+
+        subject = self._require_subject()
+        return await self.delivery_pricing.check_coverage(
+            subject=subject, district=district, city=city, state_code=state_code, postal_code=postal_code,
+        )
 
     def _build_full_delivery_address(self, payload: CheckoutOrderRequest) -> str:
         """Return one free-form address string for geocoding from the checkout delivery fields."""
@@ -696,31 +981,10 @@ class OrderService:
             payload.delivery.postal_code,
         ] if part)
 
-    async def _resolve_delivery_geo(self, address_text: str) -> tuple[Decimal, Decimal, Decimal]:
-        """Return (latitude, longitude, distance_km) from real geocoding, or zeros when unavailable."""
-
-        client = GeocodingClient()
-        delivery_point = await asyncio.to_thread(client.geocode, address_text)
-        if delivery_point is None:
-            return Decimal('0.0000000'), Decimal('0.0000000'), Decimal('0.00')
-        hub_address = (get_settings().store_hub_address or '').strip()
-        hub_point = await asyncio.to_thread(client.geocode, hub_address) if hub_address else None
-        distance = (
-            self._haversine_km(hub_point.latitude, hub_point.longitude, delivery_point.latitude, delivery_point.longitude)
-            if hub_point is not None
-            else Decimal('0.00')
-        )
-        return delivery_point.latitude, delivery_point.longitude, distance
-
     def _haversine_km(self, lat1: Decimal, lng1: Decimal, lat2: Decimal, lng2: Decimal) -> Decimal:
         """Return the real great-circle distance in kilometers between two coordinates."""
 
-        earth_radius_km = 6371.0
-        phi1, phi2 = radians(float(lat1)), radians(float(lat2))
-        delta_phi = radians(float(lat2) - float(lat1))
-        delta_lambda = radians(float(lng2) - float(lng1))
-        a = sin(delta_phi / 2) ** 2 + cos(phi1) * cos(phi2) * sin(delta_lambda / 2) ** 2
-        return quantize_money(Decimal(str(earth_radius_km * 2 * atan2(sqrt(a), sqrt(1 - a)))))
+        return self.delivery_pricing.haversine_km(lat1, lng1, lat2, lng2)
 
     async def _build_fulfillment(
         self,
@@ -730,10 +994,12 @@ class OrderService:
         payload: CheckoutOrderRequest,
         now: datetime,
         precomputed_geo: tuple[Decimal, Decimal, Decimal] | None = None,
+        shipping_delivery_days: int = 0,
+        shipping_service_id: str = '',
     ) -> OrderFulfillment:
         """Return the persisted order fulfillment snapshot."""
 
-        store_label = payload.delivery.store_name.strip() or (get_settings().store_hub_name or '').strip() or 'Farmácia Farmaura'
+        store_label = payload.delivery.store_name.strip() or 'Farmácia Farmaura'
         if order.fulfillment_type == 'pickup':
             return OrderFulfillment(
                 id=str(uuid4()),
@@ -763,18 +1029,24 @@ class OrderService:
                 driver_name='',
                 driver_phone='',
             )
-        if precomputed_geo is not None:
-            latitude, longitude, distance = precomputed_geo
+        assert precomputed_geo is not None  # guaranteed: caller always resolves geo for non-pickup orders
+        latitude, longitude, distance = precomputed_geo
+        is_shipping = order.fulfillment_type == 'shipping'
+        if is_shipping:
+            eta_days = max(shipping_delivery_days, 1)
+            eta_label = f'Chega em até {eta_days} dia(s) útil(eis) · rastreio pela transportadora'
+            sla_target_minutes = eta_days * 24 * 60
         else:
-            full_address = self._build_full_delivery_address(payload)
-            latitude, longitude, distance = await self._resolve_delivery_geo(full_address)
-        eta_minutes = 60 if payload.delivery.method == 'express' else 180
+            eta_minutes = 60 if payload.delivery.method == 'express' else 180
+            eta_label = 'Hoje, ate ' + (now + timedelta(minutes=eta_minutes)).strftime('%H:%M')
+            sla_target_minutes = eta_minutes
         return OrderFulfillment(
             id=str(uuid4()),
             order_id=order.id,
-            fulfillment_type='delivery',
+            fulfillment_type=order.fulfillment_type,
             store_label=store_label,
             pickup_code='',
+            shipping_service_id=shipping_service_id,
             recipient_name=payload.delivery.recipient_name or customer.full_name,
             recipient_document_snapshot=customer.cpf,
             recipient_phone=payload.delivery.recipient_phone or customer.phone,
@@ -788,8 +1060,8 @@ class OrderService:
             longitude=longitude,
             route_distance_km=distance,
             route_sequence=0,
-            sla_target_minutes=eta_minutes,
-            eta_label='Hoje, ate ' + (now + timedelta(minutes=eta_minutes)).strftime('%H:%M'),
+            sla_target_minutes=sla_target_minutes,
+            eta_label=eta_label,
             ready_at_label='',
             dispatched_at_label='',
             delivered_at_label='',
@@ -809,52 +1081,27 @@ class OrderService:
     ) -> None:
         """Append the placed delivery order as a real stop on the tenant's active route."""
 
-        tenant_id = str(subject.tenant_id)
-        route = await self.repository.get_active_delivery_route(tenant_id=tenant_id, store_id=store_id)
-        if route is None:
-            hub_name = (get_settings().store_hub_name or '').strip() or fulfillment.store_label
-            hub_address = (get_settings().store_hub_address or '').strip()
-            hub_point = await asyncio.to_thread(GeocodingClient().geocode, hub_address) if hub_address else None
-            route = DeliveryRoute(
-                id=str(uuid4()),
-                tenant_id=tenant_id,
-                store_id=store_id,
-                route_code=self._build_route_code(now),
-                route_status='planned',
-                origin_name=hub_name,
-                origin_address=hub_address,
-                origin_latitude=hub_point.latitude if hub_point else Decimal('0.0000000'),
-                origin_longitude=hub_point.longitude if hub_point else Decimal('0.0000000'),
-                route_provider='nominatim' if hub_point else '',
-                planned_at_label=now.strftime('%H:%M'),
-            )
-            route = await self.repository.add_delivery_route(route)
-        next_sequence = await self.repository.get_next_route_stop_sequence(route_id=route.id)
-        stop = DeliveryRouteStop(
-            id=str(uuid4()),
-            route_id=route.id,
-            order_id=order.id,
-            order_fulfillment_id=fulfillment.id,
-            stop_sequence=next_sequence,
-            stop_status='planned',
-            customer_name_snapshot=fulfillment.recipient_name,
-            address_line_snapshot=fulfillment.address_line,
-            district_snapshot=fulfillment.district,
-            postal_code_snapshot=fulfillment.postal_code,
+        await self.delivery_pricing.attach_route_stop(
+            tenant_id=str(subject.tenant_id),
+            store_id=store_id,
+            now=now,
+            recipient_name=fulfillment.recipient_name,
+            address_line=fulfillment.address_line,
+            district=fulfillment.district,
+            postal_code=fulfillment.postal_code,
             latitude=fulfillment.latitude,
             longitude=fulfillment.longitude,
-            distance_from_origin_km=fulfillment.route_distance_km,
-            estimated_arrival_label=fulfillment.eta_label,
+            route_distance_km=fulfillment.route_distance_km,
+            eta_label=fulfillment.eta_label,
+            order_id=order.id,
+            order_fulfillment_id=fulfillment.id,
+            store_label=fulfillment.store_label,
         )
-        await self.repository.add_delivery_route_stop(stop)
-        route.stop_count = int(route.stop_count or 0) + 1
-        route.total_distance_km = quantize_money(Decimal(route.total_distance_km or 0) + Decimal(fulfillment.route_distance_km or 0))
-        await self.repository.save_delivery_route(route)
 
     def _build_route_code(self, now: datetime) -> str:
         """Return a readable delivery route code."""
 
-        return 'ROTA-' + now.strftime('%Y%m%d') + '-' + uuid4().hex[:4].upper()
+        return self.delivery_pricing.build_route_code(now)
 
     def _format_revision(self, value: datetime | None) -> str:
         """Return a stable string representation for board revisions."""

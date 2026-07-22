@@ -57,6 +57,18 @@ function createHubIcon(leaflet) {
   });
 }
 
+function createDriverIcon(leaflet) {
+  /** Create the Leaflet icon used for the live driver position marker. */
+
+  return leaflet.divIcon({
+    className: "lf-icon",
+    html: "<div class=\"lf-hub\" style=\"background:var(--fa-success)\"></div>",
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    popupAnchor: [0, -14],
+  });
+}
+
 function createStopIcon(leaflet, index) {
   /** Create the Leaflet icon used for a numbered delivery stop marker. */
 
@@ -83,7 +95,7 @@ function getCoordinates(item) {
   return { lat, lng };
 }
 
-function RouteMap({ hub, stops, active }) {
+function RouteMap({ hub, stops, active, driverPosition }) {
   /** Render the delivery map with Leaflet markers and a route line. */
 
   const elementRef = useRef(null);
@@ -91,6 +103,7 @@ function RouteMap({ hub, stops, active }) {
   const tileLayerRef = useRef(null);
   const markersRef = useRef({});
   const routeLineRef = useRef(null);
+  const driverMarkerRef = useRef(null);
   const [mapError, setMapError] = useState("");
   const validStops = useMemo(
     () => stops.filter((stop) => getCoordinates(stop)),
@@ -228,6 +241,44 @@ function RouteMap({ hub, stops, active }) {
   }, [active]);
 
   useEffect(() => {
+    /** Move (or create/remove) the live driver marker as GPS pings arrive. */
+
+    let cancelled = false;
+
+    async function updateDriverMarker() {
+      const map = mapRef.current;
+      if (!map) {
+        return;
+      }
+      if (!driverPosition) {
+        if (driverMarkerRef.current) {
+          driverMarkerRef.current.remove();
+          driverMarkerRef.current = null;
+        }
+        return;
+      }
+      const leaflet = await loadLeaflet();
+      if (cancelled || !mapRef.current) {
+        return;
+      }
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.setLatLng([driverPosition.lat, driverPosition.lng]);
+      } else {
+        driverMarkerRef.current = leaflet
+          .marker([driverPosition.lat, driverPosition.lng], { icon: createDriverIcon(leaflet), title: "Entregador" })
+          .addTo(map);
+      }
+      driverMarkerRef.current.bindPopup(`<div style="font-size:12.5px">Entregador · atualizado às ${driverPosition.updatedLabel || "—"}</div>`);
+    }
+
+    void updateDriverMarker();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [driverPosition]);
+
+  useEffect(() => {
     /** Destroy the Leaflet map when the screen unmounts. */
 
     return () => {
@@ -238,6 +289,7 @@ function RouteMap({ hub, stops, active }) {
       tileLayerRef.current = null;
       markersRef.current = {};
       routeLineRef.current = null;
+      driverMarkerRef.current = null;
     };
   }, []);
 
@@ -261,16 +313,39 @@ function RouteMap({ hub, stops, active }) {
 function DeliveriesScreen({ ctx }) {
   /** Render the deliveries route page and actions. */
 
-  const { orders, openOrder, openChatFor, onLogout, dispatchRoute, deliveryRoute } = ctx;
+  const { orders, openOrder, openChatFor, onLogout, dispatchRoute, deliveryRoute, driverLivePosition, assignRouteDriver, fetchTeamMembers } = ctx;
   const hub = ctx.hub || { name: "", addr: "", lat: null, lng: null };
   const route = {
+    id: (deliveryRoute && deliveryRoute.id) || "",
     optimizedOrder: Array.isArray(deliveryRoute && deliveryRoute.stops) ? deliveryRoute.stops.map((stop) => stop.order_id) : [],
     totalKm: deliveryRoute ? Number(deliveryRoute.total_km || 0) : 0,
     totalMin: deliveryRoute ? Number(deliveryRoute.total_min || 0) : 0,
     savedKm: deliveryRoute ? Number(deliveryRoute.saved_km || 0) : 0,
     driver: (deliveryRoute && deliveryRoute.driver) || "",
+    driverUserId: (deliveryRoute && deliveryRoute.driver_user_id) || "",
   };
   const [active, setActive] = useState(null);
+  const [drivers, setDrivers] = useState([]);
+  const [assigningDriver, setAssigningDriver] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const members = fetchTeamMembers ? await fetchTeamMembers() : [];
+      if (alive) setDrivers((members || []).filter((member) => member.role === 'driver'));
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const handleAssignDriver = async (driverUserId) => {
+    if (!route.id) return;
+    setAssigningDriver(true);
+    try {
+      await assignRouteDriver(route.id, driverUserId);
+    } finally {
+      setAssigningDriver(false);
+    }
+  };
 
   const byId = (id) => orders.find((order) => order.id === id);
   const ordered = route.optimizedOrder
@@ -292,12 +367,12 @@ function DeliveriesScreen({ ctx }) {
       <Topbar
         title="Entregas & rota"
         sub={`${stops.length} entregas pendentes · ${readyCount} prontas para sair`}
-        onLogout={onLogout}
+        onLogout={onLogout} ctx={ctx}
       />
       <div className="ph-content ph-content-wide">
         <div className="ph-map-grid">
           <div>
-            <RouteMap hub={hub} stops={stops} active={active} />
+            <RouteMap hub={hub} stops={stops} active={active} driverPosition={driverLivePosition} />
             <div className="fa-card" style={{ marginTop: 16, padding: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
               <span className="fa-iconbox" style={{ background: "var(--fa-rose-soft)" }}>
                 <Icon name="route" size={22} />
@@ -334,8 +409,25 @@ function DeliveriesScreen({ ctx }) {
             <div className="ph-sec-head" style={{ marginTop: 0 }}>
               <div style={{ flex: 1 }}>
                 <div className="ph-sec-title">Lista de endereços</div>
-                <div className="ph-sec-sub">Sequência otimizada · entregador: {route.driver}</div>
+                <div className="ph-sec-sub">Sequência otimizada{driverLivePosition ? ` · posição atualizada às ${driverLivePosition.updatedLabel}` : ''}</div>
               </div>
+            </div>
+            <div className="fa-card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <span className="fa-iconbox"><Icon name="truck" size={18} /></span>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Entregador</div>
+                <div className="ph-cell-sub">{route.driver || 'Nenhum entregador atribuído'}</div>
+              </div>
+              <select
+                className="fa-select"
+                value={route.driverUserId}
+                disabled={assigningDriver || !route.id}
+                onChange={(event) => handleAssignDriver(event.target.value)}
+                style={{ width: 220, flex: "none" }}
+              >
+                <option value="">Sem entregador</option>
+                {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
+              </select>
             </div>
             <div className="fa-card" style={{ padding: "4px 16px" }}>
               {stops.map((order, index) => (

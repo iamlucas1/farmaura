@@ -1,5 +1,6 @@
 import React, { useState as _useStateChrome } from "react";
 
+import { fetchViaCepAddress, formatCep } from "./marketplace-address.js";
 import { MARKETPLACE_LOGO_MARK_URL } from "./marketplace-assets.js";
 import { Icon } from "./marketplace-icons.jsx";
 
@@ -26,6 +27,83 @@ function resolveStoreMeta(portalData) {
       : (store && store.postalCode ? store.postalCode : 'Consulte a disponibilidade'),
     address: store && store.address ? store.address : '',
   };
+}
+
+const DELIVERY_LOCATION_STORAGE_KEY = 'delivery_location';
+
+function readDeliveryLocation() {
+  return window.FA_PORTAL_CACHE.readLocal('marketplace', null, DELIVERY_LOCATION_STORAGE_KEY, null);
+}
+
+function writeDeliveryLocation(location) {
+  window.FA_PORTAL_CACHE.writeLocal('marketplace', null, DELIVERY_LOCATION_STORAGE_KEY, location);
+}
+
+function DeliveryLocationMenu({ fallbackLabel }) {
+  const [open, setOpen] = _useStateChrome(false);
+  const [location, setLocation] = _useStateChrome(() => readDeliveryLocation());
+  const [cep, setCep] = _useStateChrome('');
+  const [status, setStatus] = _useStateChrome({ loading: false, error: '', result: null });
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', h);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', esc); };
+  }, [open]);
+
+  const search = async (e) => {
+    e.preventDefault();
+    if (formatCep(cep).replace(/\D/g, '').length !== 8) {
+      setStatus({ loading: false, error: 'Informe um CEP válido.', result: null });
+      return;
+    }
+    setStatus({ loading: true, error: '', result: null });
+    try {
+      const address = await fetchViaCepAddress(cep);
+      setStatus({ loading: false, error: '', result: address });
+    } catch (requestError) {
+      setStatus({ loading: false, error: (requestError && requestError.message) || 'Não foi possível consultar o CEP.', result: null });
+    }
+  };
+
+  const confirm = () => {
+    if (!status.result) return;
+    const label = [status.result.district, status.result.cep].filter(Boolean).join(' · ') || status.result.cep;
+    const next = { ...status.result, label };
+    setLocation(next);
+    writeDeliveryLocation(next);
+    setOpen(false);
+  };
+
+  const label = location && location.label ? location.label : fallbackLabel;
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <a onClick={() => setOpen((o) => !o)} role="button"><Icon name="pin" size={15} /> Entregar em <b style={{ marginLeft: 2 }}>{label}</b> <Icon name="chevD" size={13} /></a>
+      {open && (
+        <div className="fa-delivery-pop" role="dialog" aria-label="Consultar CEP de entrega">
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Consultar CEP de entrega</div>
+          <div className="fa-muted" style={{ fontSize: 12.5, marginTop: 2, marginBottom: 10 }}>Informe seu CEP para conferir a disponibilidade na sua região.</div>
+          <form onSubmit={search} style={{ display: 'flex', gap: 8 }}>
+            <input className="fa-input" value={cep} onChange={(e) => setCep(formatCep(e.target.value))} placeholder="00000-000" inputMode="numeric" style={{ flex: 1 }} />
+            <button type="submit" className="fa-btn fa-btn-primary fa-btn-sm" disabled={status.loading}>{status.loading ? '...' : 'Buscar'}</button>
+          </form>
+          {status.error ? <div style={{ fontSize: 12.5, marginTop: 8, color: 'var(--fa-error)' }}>{status.error}</div> : null}
+          {status.result ? (
+            <div style={{ marginTop: 10, padding: 10, background: 'var(--fa-mist-2)', borderRadius: 'var(--fa-r-btn)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{[status.result.district, status.result.city, status.result.state].filter(Boolean).join(' - ')}</div>
+              <div className="fa-faint" style={{ fontSize: 12, marginTop: 2 }}>CEP {status.result.cep}</div>
+              <button type="button" className="fa-btn fa-btn-primary fa-btn-sm fa-btn-block" style={{ marginTop: 8 }} onClick={confirm}>Entregar neste endereço</button>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function resolveMarketplaceMeta(portalData) {
@@ -120,7 +198,7 @@ function Header({ cats, route, cartCount, query, user, portalData, onNav, onSear
     <header className="fa-header">
       <div className="fa-topbar">
         <div className="fa-wrap">
-          <a onClick={() => onNav({ name: 'home' })} role="button"><Icon name="pin" size={15} /> Entregar em <b style={{ marginLeft: 2 }}>{storeMeta.topbarLabel}</b> <Icon name="chevD" size={13} /></a>
+          <DeliveryLocationMenu fallbackLabel={storeMeta.topbarLabel} />
           <div style={{ display: 'flex', gap: 20 }}>
             <a onClick={() => onNav({ name: user ? 'account' : 'login', tab: 'orders' })} role="button"><Icon name="bag" size={15} /> {user ? 'Meus pedidos' : 'Entrar'}</a>
             <a onClick={() => onChat && onChat()} role="button"><Icon name="chat" size={15} /> Falar com farmacêutico</a>

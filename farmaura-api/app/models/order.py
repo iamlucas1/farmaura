@@ -42,7 +42,7 @@ class Order(Base, UuidModel, TimestampedModel):
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    store_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id", ondelete="RESTRICT"), index=True, nullable=False)
     customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), index=True, nullable=True)
     selected_address_id: Mapped[str | None] = mapped_column(
         ForeignKey("customer_addresses.id", ondelete="SET NULL"),

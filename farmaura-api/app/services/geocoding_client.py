@@ -39,10 +39,42 @@ class GeocodeResult:
     longitude: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class GeocodeSearchResult:
+    """Represent one free-text address search match, classified by locality kind."""
+
+    label: str
+    district: str
+    city: str
+    state_code: str
+    kind: str
+    latitude: Decimal
+    longitude: Decimal
+
+
+_BR_STATE_NAME_TO_CODE = {
+    "acre": "AC", "alagoas": "AL", "amapa": "AP", "amazonas": "AM", "bahia": "BA",
+    "ceara": "CE", "distrito federal": "DF", "espirito santo": "ES", "goias": "GO",
+    "maranhao": "MA", "mato grosso": "MT", "mato grosso do sul": "MS", "minas gerais": "MG",
+    "para": "PA", "paraiba": "PB", "parana": "PR", "pernambuco": "PE", "piaui": "PI",
+    "rio de janeiro": "RJ", "rio grande do norte": "RN", "rio grande do sul": "RS",
+    "rondonia": "RO", "roraima": "RR", "santa catarina": "SC", "sao paulo": "SP",
+    "sergipe": "SE", "tocantins": "TO",
+}
+_CITY_LOCALITY_ADDRESS_TYPES = {"city", "town", "village", "municipality"}
+_NEIGHBORHOOD_ADDRESS_TYPES = {"suburb", "neighbourhood", "city_district", "quarter"}
+
 _CACHE: dict[str, GeocodeResult | None] = {}
 _CACHE_LOCK = threading.Lock()
 _LAST_REQUEST_MONOTONIC = 0.0
 _MIN_REQUEST_INTERVAL_SECONDS = 1.05
+
+
+def _strip_accents(value: str) -> str:
+    """Return a lowercase, accent-free copy of one string for lookup normalization."""
+
+    replacements = str.maketrans("áàâãäéèêëíìîïóòôõöúùûüçñ", "aaaaaeeeeiiiiooooouuuucn")
+    return value.strip().lower().translate(replacements)
 
 
 # ============================================================================
@@ -76,8 +108,68 @@ class GeocodingClient:
             _CACHE[normalized] = result
         return result
 
+    def search(self, query: str, *, limit: int = 8) -> list[GeocodeSearchResult]:
+        """Return up to `limit` free-text address matches, classified as neighborhood/city/other."""
+
+        normalized = " ".join((query or "").split()).strip()
+        if not normalized or not self.enabled or not self.base_url or not self.user_agent:
+            return []
+        payload = self._request_search(normalized, limit=limit, addressdetails=True)
+        if not isinstance(payload, list):
+            return []
+        results: list[GeocodeSearchResult] = []
+        for entry in payload:
+            parsed = self._parse_search_entry(entry)
+            if parsed is not None:
+                results.append(parsed)
+        return results
+
+    def _parse_search_entry(self, entry: object) -> GeocodeSearchResult | None:
+        """Return one parsed search result, or None when the entry lacks usable coordinates."""
+
+        if not isinstance(entry, dict):
+            return None
+        address = entry.get("address") if isinstance(entry.get("address"), dict) else {}
+        district = str(address.get("suburb") or address.get("neighbourhood") or address.get("city_district") or address.get("quarter") or "").strip()
+        city = str(address.get("city") or address.get("town") or address.get("village") or address.get("municipality") or "").strip()
+        state_name = _strip_accents(str(address.get("state") or ""))
+        state_code = _BR_STATE_NAME_TO_CODE.get(state_name, "")
+        address_type = str(entry.get("addresstype") or "")
+        if address_type in _CITY_LOCALITY_ADDRESS_TYPES:
+            kind = "city"
+            city = city or str(entry.get("name") or "").strip()
+        elif address_type in _NEIGHBORHOOD_ADDRESS_TYPES or district:
+            kind = "neighborhood"
+            district = district or str(entry.get("name") or "").strip()
+        else:
+            kind = "other"
+        try:
+            return GeocodeSearchResult(
+                label=str(entry.get("display_name") or ""),
+                district=district,
+                city=city,
+                state_code=state_code,
+                kind=kind,
+                latitude=Decimal(str(entry["lat"])),
+                longitude=Decimal(str(entry["lon"])),
+            )
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            return None
+
     def _lookup(self, address: str) -> GeocodeResult | None:
         """Execute one throttled Nominatim lookup, returning None on any failure."""
+
+        payload = self._request_search(address, limit=1, addressdetails=False)
+        if not isinstance(payload, list) or not payload:
+            return None
+        entry = payload[0]
+        try:
+            return GeocodeResult(latitude=Decimal(str(entry["lat"])), longitude=Decimal(str(entry["lon"])))
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            return None
+
+    def _request_search(self, query: str, *, limit: int, addressdetails: bool) -> list | None:
+        """Execute one throttled Nominatim /search request, returning the parsed JSON list or None."""
 
         global _LAST_REQUEST_MONOTONIC
         with _CACHE_LOCK:
@@ -85,20 +177,15 @@ class GeocodingClient:
             if elapsed < _MIN_REQUEST_INTERVAL_SECONDS:
                 time.sleep(_MIN_REQUEST_INTERVAL_SECONDS - elapsed)
             _LAST_REQUEST_MONOTONIC = time.monotonic()
-        query = parse.urlencode({"q": address, "format": "jsonv2", "limit": 1, "countrycodes": "br"})
+        params = {"q": query, "format": "jsonv2", "limit": limit, "countrycodes": "br"}
+        if addressdetails:
+            params["addressdetails"] = 1
         req = request.Request(
-            f"{self.base_url}/search?{query}",
+            f"{self.base_url}/search?{parse.urlencode(params)}",
             headers={"user-agent": self.user_agent, "accept": "application/json"},
         )
         try:
             with request.urlopen(req, timeout=self.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8") or "[]")
+                return json.loads(response.read().decode("utf-8") or "[]")
         except (error.URLError, error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError, OSError):
-            return None
-        if not isinstance(payload, list) or not payload:
-            return None
-        entry = payload[0]
-        try:
-            return GeocodeResult(latitude=Decimal(str(entry["lat"])), longitude=Decimal(str(entry["lon"])))
-        except (KeyError, TypeError, ValueError, ArithmeticError):
             return None

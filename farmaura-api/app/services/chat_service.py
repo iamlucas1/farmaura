@@ -26,6 +26,7 @@ from app.models.customer import Customer
 from app.models.order import Order
 from app.models.user import User
 from app.repositories.chat_repository import ChatRepository
+from app.repositories.prescription_repository import PrescriptionRepository
 from app.schemas.auth import TokenSubject
 from app.schemas.chat import ChatMessageResponse, ChatSendMessageRequest, ChatThreadListResponse, ChatThreadResponse
 
@@ -44,6 +45,7 @@ class ChatService:
         self.session = session
         self.subject = subject
         self.repository = ChatRepository(session)
+        self.prescription_repository = PrescriptionRepository(session)
 
     async def list_threads(self) -> ChatThreadListResponse:
         """Return tenant-scoped pharmacist chat threads."""
@@ -157,19 +159,71 @@ class ChatService:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Thread payload unavailable after creation.')
         return match
 
+    async def ensure_thread_for_customer(self, *, customer_id: str, topic: str) -> ChatThread:
+        """Return or create one thread for a customer, callable by an internal (pharmacist/admin) actor.
+
+        Unlike `ensure_customer_thread`, this does not require the acting subject to be the
+        customer — used by PDV to route a prescription validation request into the customer's
+        existing conversation without needing them to be logged into the marketplace right now.
+        """
+
+        customer_statement = select(Customer).where(Customer.id == customer_id, Customer.tenant_id == str(self.subject.tenant_id))
+        customer_result = await self.session.execute(customer_statement)
+        customer = customer_result.scalar_one_or_none()
+        if customer is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found.")
+        threads = await self.repository.list_customer_threads(tenant_id=str(self.subject.tenant_id), customer_id=customer.id)
+        for thread in threads:
+            if thread.thread_status == "open":
+                return thread
+        return await self._create_customer_thread(customer=customer, topic=topic)
+
+    async def post_prescription_request_message(self, *, thread_id: str, prescription_id: str, text: str) -> None:
+        """Post one system-originated prescription validation request into an existing thread."""
+
+        thread = await self.repository.get_thread_by_id(tenant_id=str(self.subject.tenant_id), thread_id=thread_id)
+        if thread is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found.")
+        message = ChatMessage(
+            id=str(uuid4()),
+            thread_id=thread.id,
+            sender_user_id=str(self.subject.user_id),
+            sender_customer_id=None,
+            message_type="prescription_request",
+            sender_role=self.subject.role.value,
+            sender_name_snapshot="Farmacêutico",
+            body_text=text,
+            prescription_id=prescription_id,
+            sent_at_label="agora",
+            customer_read=False,
+            pharmacist_read=False,
+            is_internal_note=False,
+        )
+        await self.repository.add_message(message)
+        thread.last_message_preview = text[:240]
+        thread.last_message_at_label = "agora"
+        thread.pharmacist_unread_count = int(thread.pharmacist_unread_count or 0) + 1
+
     async def _build_thread_list_response(self, threads: list[ChatThread], *, viewer_role: str) -> ChatThreadListResponse:
         """Build one serialized thread list response for the requested viewer."""
 
         thread_ids = [thread.id for thread in threads]
         messages = await self.repository.list_messages(thread_ids=thread_ids)
+        prescription_ids = [message.prescription_id for message in messages if message.prescription_id]
+        prescriptions = await self.prescription_repository.list_by_ids(prescription_ids=prescription_ids)
+        prescription_map = {prescription.id: prescription for prescription in prescriptions}
         message_map: dict[str, list[ChatMessageResponse]] = {}
         for message in messages:
+            prescription = prescription_map.get(message.prescription_id) if message.prescription_id else None
             message_map.setdefault(message.thread_id, []).append(
                 ChatMessageResponse(
                     id=message.id,
                     from_role=self._map_message_role(message.sender_role, viewer_role=viewer_role),
                     text=message.body_text,
                     at=message.sent_at_label,
+                    prescription_id=message.prescription_id,
+                    prescription_status=prescription.status if prescription else "",
+                    prescription_reference_url=prescription.digital_reference_url if prescription else "",
                 )
             )
         return ChatThreadListResponse(

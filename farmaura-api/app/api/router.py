@@ -18,8 +18,10 @@ from fastapi import APIRouter
 from app.api.v1 import (
     ai,
     auth,
+    brands,
     cart,
     catalog,
+    categories,
     chat,
     crm,
     customers,
@@ -27,11 +29,17 @@ from app.api.v1 import (
     fiscal,
     health,
     inventory,
+    inventory_lots,
     orders,
     payments,
     pdv,
     portal,
     prescriptions,
+    products,
+    stores,
+    suppliers,
+    team,
+    therapeutic_classes,
     uploads,
 )
 
@@ -51,12 +59,20 @@ api_router.include_router(cart.router, prefix="/cart", tags=["cart"])
 api_router.include_router(orders.router, prefix="/orders", tags=["orders"])
 api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(prescriptions.router, prefix="/prescriptions", tags=["prescriptions"])
+api_router.include_router(products.router, prefix="/products", tags=["products"])
+api_router.include_router(brands.router, prefix="/brands", tags=["brands"])
+api_router.include_router(categories.router, prefix="/categories", tags=["categories"])
+api_router.include_router(therapeutic_classes.router, prefix="/therapeutic-classes", tags=["therapeutic-classes"])
 api_router.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
+api_router.include_router(inventory_lots.router, prefix="/inventory", tags=["inventory-lots"])
 api_router.include_router(deliveries.router, prefix="/deliveries", tags=["deliveries"])
 api_router.include_router(fiscal.router, prefix="/fiscal-documents", tags=["fiscal-documents"])
 api_router.include_router(crm.router, prefix="/crm", tags=["crm"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(pdv.router, prefix="/pdv", tags=["pdv"])
 api_router.include_router(portal.router, prefix="/portal", tags=["portal"])
+api_router.include_router(stores.router, prefix="/stores", tags=["stores"])
+api_router.include_router(suppliers.router, prefix="/suppliers", tags=["suppliers"])
+api_router.include_router(team.router, prefix="/team", tags=["team"])
 api_router.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
 

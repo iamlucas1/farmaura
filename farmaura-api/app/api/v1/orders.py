@@ -21,6 +21,7 @@ from app.domain.enums import UserRole
 from app.schemas.auth import TokenSubject
 from app.schemas.orders import (
     CheckoutOrderRequest,
+    DeliveryCoverageResponse,
     InternalOrderBoardChangeResponse,
     InternalOrderBoardResponse,
     InternalOrderResponse,
@@ -30,6 +31,7 @@ from app.schemas.orders import (
     OrderAdvanceRequest,
     OrderCreateRequest,
     OrderItemLocationUpdateRequest,
+    OrderItemPickRequest,
     OrderResponse,
     PickupCodeConfirmRequest,
 )
@@ -67,6 +69,21 @@ async def create_marketplace_order(
     return await service.create_marketplace_order(payload)
 
 
+@router.get('/delivery-coverage', response_model=DeliveryCoverageResponse)
+async def check_delivery_coverage(
+    district: str = Query(default="", max_length=120),
+    city: str = Query(default="", max_length=120),
+    state_code: str = Query(default="", max_length=2),
+    postal_code: str = Query(default="", max_length=9),
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DeliveryCoverageResponse:
+    """Return a best-effort delivery-coverage preview for one typed CEP/address."""
+
+    service = OrderService(session=session, subject=subject)
+    return await service.check_delivery_coverage(district=district, city=city, state_code=state_code, postal_code=postal_code)
+
+
 @router.post('/draft', response_model=OrderResponse)
 async def create_order_draft(
     payload: OrderCreateRequest,
@@ -93,19 +110,20 @@ async def get_marketplace_order_changes(
 
 @router.get('/internal-board', response_model=InternalOrderBoardResponse)
 async def list_internal_order_board(
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    store_id: str = Query(default="", max_length=36),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderBoardResponse:
     """Return the pharmacist operational order board."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.list_internal_board()
+    return await service.list_internal_board(requested_store_id=store_id)
 
 
 @router.get('/internal-board/changes', response_model=InternalOrderBoardChangeResponse)
 async def get_internal_order_board_changes(
     since: str = Query(default="", max_length=64),
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderBoardChangeResponse:
     """Return a lightweight board sync payload when operational orders changed."""
@@ -119,7 +137,7 @@ async def update_internal_order_item_location(
     order_id: str,
     item_id: str,
     payload: OrderItemLocationUpdateRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Persist the selected stock location used to pick one order item."""
@@ -128,11 +146,25 @@ async def update_internal_order_item_location(
     return await service.update_internal_order_item_location(order_id=order_id, item_id=item_id, payload=payload)
 
 
+@router.post('/{order_id}/items/{item_id}/pick', response_model=InternalOrderResponse)
+async def update_internal_order_item_pick(
+    order_id: str,
+    item_id: str,
+    payload: OrderItemPickRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> InternalOrderResponse:
+    """Persist the separation-checklist state for one picked order item."""
+
+    service = OrderService(session=session, subject=subject)
+    return await service.update_internal_order_item_pick(order_id=order_id, item_id=item_id, payload=payload)
+
+
 @router.post('/{order_id}/pickup/confirm', response_model=InternalOrderResponse)
 async def confirm_internal_pickup(
     order_id: str,
     payload: PickupCodeConfirmRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Validate a pickup code without exposing it to the pharmacist UI."""
@@ -141,11 +173,23 @@ async def confirm_internal_pickup(
     return await service.confirm_internal_pickup(order_id=order_id, payload=payload)
 
 
+@router.post('/{order_id}/shipping/dispatch', response_model=InternalOrderResponse)
+async def dispatch_shipping_order(
+    order_id: str,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> InternalOrderResponse:
+    """Buy the real carrier shipment, generate its label, and mark the order dispatched."""
+
+    service = OrderService(session=session, subject=subject)
+    return await service.dispatch_shipping_order(order_id=order_id)
+
+
 @router.post('/{order_id}/advance', response_model=InternalOrderResponse)
 async def advance_internal_order(
     order_id: str,
     payload: OrderAdvanceRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Advance one internal order through its allowed operational transition."""

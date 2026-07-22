@@ -1,0 +1,16 @@
+name: backend
+
+services:
+  farmaura-api:
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_BASE_URL: https://drogariafarmaura.com.br
+      APP_MARKETPLACE_BASE_URL: https://drogariafarmaura.com.br
+      APP_ALLOWED_ORIGINS: https://drogariafarmaura.com.br,https://www.drogariafarmaura.com.br
+      APP_DATABASE_URL: postgresql+psycopg://farmaura_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required in production}@farmaura-postgres:5432/farmaura
+      APP_DATABASE_ADMIN_URL: postgresql+psycopg://farmaura:${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD is required in production}@farmaura-postgres:5432/farmaura
+
+  farmaura-postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD is required in production}

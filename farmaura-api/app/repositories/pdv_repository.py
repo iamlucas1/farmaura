@@ -63,6 +63,18 @@ class PdvRepository:
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
+    async def list_sale_items_by_customer(self, *, tenant_id: str, customer_id: str) -> list[PdvSaleItem]:
+        """Return every balcão sale line ever purchased by one customer."""
+
+        statement = (
+            select(PdvSaleItem)
+            .join(PdvSale, PdvSale.id == PdvSaleItem.pdv_sale_id)
+            .where(PdvSale.tenant_id == tenant_id, PdvSale.customer_id == customer_id)
+            .order_by(PdvSaleItem.created_at.asc())
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
     async def add_order(self, order: PdvOrder) -> PdvOrder:
         """Persist a PDV queue order."""
 

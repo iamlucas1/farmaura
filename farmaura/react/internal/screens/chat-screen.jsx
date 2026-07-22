@@ -5,7 +5,9 @@ import { Topbar } from "../core/internal-shell.jsx";
 /* FARMAURA Console — Conversas com clientes (lado farmacêutico). */
 
 function ChatScreen({ ctx }) {
-  const { threads, activeThread, setActiveThread, sendChat, onLogout } = ctx;
+  const { threads, activeThread, setActiveThread, sendChat, onLogout, validateRx } = ctx;
+  const [decidingId, setDecidingId] = useState('');
+  const [resolvedStatuses, setResolvedStatuses] = useState({}); // override otimista: prescriptionId -> status, até o backend confirmar
   const thread = threads.find((entry) => entry.id === activeThread) || threads[0];
   const [input, setInput] = useState('');
   const bodyRef = useRef(null);
@@ -29,7 +31,7 @@ function ChatScreen({ ctx }) {
 
   return (
     <>
-      <Topbar title="Conversas" sub={threads.length + ' clientes · ' + totalUnread + ' não lidas'} onLogout={onLogout} />
+      <Topbar title="Conversas" sub={threads.length + ' clientes · ' + totalUnread + ' não lidas'} onLogout={onLogout} ctx={ctx} />
       <div className="ph-content ph-content-wide" style={{ paddingBottom: 24 }}>
         <div className="ph-chat-grid">
           <div className="ph-thread-list">
@@ -45,7 +47,7 @@ function ChatScreen({ ctx }) {
                     <span className="ph-thread-time">{entry.lastAt}</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="ph-thread-last">{entry.msgs[entry.msgs.length - 1].text}</span>
+                    <span className="ph-thread-last">{entry.msgs.length ? entry.msgs[entry.msgs.length - 1].text : 'Sem mensagens'}</span>
                     {entry.unread > 0 && <span className="ph-thread-unread" style={{ marginLeft: 'auto' }}>{entry.unread}</span>}
                   </div>
                   <div style={{ marginTop: 4 }}><span className="fa-badge fa-badge-mist" style={{ fontSize: 10 }}><Icon name="bag" size={10} />{entry.order}</span></div>
@@ -68,7 +70,43 @@ function ChatScreen({ ctx }) {
                 <div style={{ textAlign: 'center', margin: '4px 0 8px' }}><span className="fa-badge fa-badge-mist" style={{ fontSize: 11 }}>Pedido {thread.order} · {thread.topic}</span></div>
                 {thread.msgs.map((message, index) => (
                   <div key={index} className="fa-chat-msg" data-from={message.from === 'cust' ? 'pharm' : 'me'}>
-                    {message.text}
+                    {message.prescriptionId ? (
+                      <div style={{ minWidth: 220 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, marginBottom: 4 }}>
+                          <Icon name="rx" size={14} />Validação de receita
+                        </div>
+                        <div style={{ fontSize: 12.5, marginBottom: 8, wordBreak: 'break-all' }}>{message.text}</div>
+                        {(() => {
+                          const effectiveStatus = resolvedStatuses[message.prescriptionId] || message.prescriptionStatus;
+                          if (effectiveStatus === 'pending') {
+                            return (
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button
+                                  className="fa-btn fa-btn-sm fa-btn-block"
+                                  style={{ background: 'var(--fa-error)', color: '#fff', border: 'none' }}
+                                  disabled={decidingId === message.prescriptionId}
+                                  onClick={async () => { setDecidingId(message.prescriptionId); await validateRx(message.prescriptionId, 'rejected'); setResolvedStatuses((prev) => ({ ...prev, [message.prescriptionId]: 'rejected' })); setDecidingId(''); }}
+                                >
+                                  Recusar
+                                </button>
+                                <button
+                                  className="fa-btn fa-btn-primary fa-btn-sm fa-btn-block"
+                                  disabled={decidingId === message.prescriptionId}
+                                  onClick={async () => { setDecidingId(message.prescriptionId); await validateRx(message.prescriptionId, 'approved'); setResolvedStatuses((prev) => ({ ...prev, [message.prescriptionId]: 'approved' })); setDecidingId(''); }}
+                                >
+                                  Validar
+                                </button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <span className="fa-badge" style={{ background: effectiveStatus === 'approved' ? 'var(--fa-success-soft)' : '#FBEAE9', color: effectiveStatus === 'approved' ? 'var(--fa-success)' : 'var(--fa-error)' }}>
+                              {effectiveStatus === 'approved' ? 'Validada' : 'Recusada'}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    ) : message.text}
                     <div style={{ fontSize: 10.5, opacity: .6, marginTop: 4, textAlign: 'right' }}>{message.at}</div>
                   </div>
                 ))}

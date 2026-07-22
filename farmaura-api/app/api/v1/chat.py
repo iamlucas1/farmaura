@@ -33,7 +33,7 @@ router = APIRouter()
 
 @router.get('/threads', response_model=ChatThreadListResponse)
 async def list_chat_threads(
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> ChatThreadListResponse:
     """Return the internal pharmacist inbox threads."""
@@ -46,7 +46,7 @@ async def list_chat_threads(
 async def send_chat_message(
     thread_id: str,
     payload: ChatSendMessageRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.PHARMACIST)),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> ChatThreadResponse:
     """Persist one outbound pharmacist message."""

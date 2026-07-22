@@ -27,9 +27,33 @@ import { defineConfig } from "vite";
 const configDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(configDirectory, "..");
 
+// Both portals now push real sub-routes (e.g. /internal/orders) via
+// react-router. Vite's "mpa" appType has no built-in SPA fallback, so deep
+// links 404 unless we rewrite them back to their portal's HTML shell before
+// Vite's own middlewares run — mirroring what nginx does in production.
+function portalDeepLinkFallback() {
+  const rewrite = (req) => {
+    if (req.url.startsWith("/internal")) {
+      req.url = "/farmaura/internal.html";
+    } else if (req.url.startsWith("/marketplace")) {
+      req.url = "/farmaura/marketplace.html";
+    }
+  };
+  return {
+    name: "farmaura-portal-deep-link-fallback",
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => { rewrite(req); next(); });
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use((req, _res, next) => { rewrite(req); next(); });
+    },
+  };
+}
+
 export default defineConfig({
   root: repositoryRoot,
   appType: "mpa",
+  plugins: [portalDeepLinkFallback()],
   server: {
     host: "0.0.0.0",
     port: 5173,

@@ -15,22 +15,34 @@ Observations:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.inventory_item import InventoryItem
+from app.core.cache import get_cached_json, set_cached_json
+from app.core.device_detection import detect_device_type
+from app.core.tenant_context import apply_public_marketplace_context
+from app.models.customer import Customer
+from app.models.customer_address import CustomerAddress
+from app.models.pricing_promotion import PricingPromotion
 from app.models.product_review import ProductReview
+from app.models.user import User
 from app.repositories.inventory_repository import InventoryRepository
+from app.schemas.auth import TokenSubject
 from app.schemas.catalog import CatalogItem, CatalogListResponse, CatalogReviewSummary, PublicCatalogItem, PublicCatalogListResponse
 from app.schemas.portal import PortalProductReviewResponse
-from app.services.marketplace_projection import build_marketplace_catalog_groups
+from app.services.marketplace_projection import build_marketplace_catalog_groups, compute_effective_price, quantize_money
+from app.services.pricing_promotion_service import compute_discount_percent, find_best_promotion, resolve_customer_promotion_profile
 
 
 # ============================================================================
 # CATALOG SERVICE
 # ============================================================================
+
+
+CATALOG_CACHE_NAMESPACE = "catalog:grouped"
 
 
 class CatalogService:
@@ -42,10 +54,27 @@ class CatalogService:
         self.session = session
         self.repository = InventoryRepository(session)
 
-    async def list_products(self, *, tenant_id: str, page: int, page_size: int) -> CatalogListResponse:
-        """Return a paginated grouped marketplace catalog for one tenant."""
+    async def list_products(
+        self,
+        *,
+        tenant_id: str,
+        page: int,
+        page_size: int,
+        subject: TokenSubject | None = None,
+        user_agent: str = "",
+    ) -> CatalogListResponse:
+        """Return a paginated grouped marketplace catalog for one tenant.
+
+        When an authenticated customer subject is provided, active pricing promotions are
+        evaluated server-side and applied on top of the manually configured price/promo —
+        never below it — so the storefront price can never be spoofed from the client.
+        """
 
         grouped = await self._list_grouped_products(tenant_id=tenant_id)
+        if subject is not None:
+            grouped = await self._apply_personalized_promotions(
+                tenant_id=tenant_id, subject=subject, user_agent=user_agent, grouped=grouped
+            )
         review_summary_map = await self._build_review_summary_map(tenant_id=tenant_id, grouped=grouped)
         total = len(grouped)
         offset = (page - 1) * page_size
@@ -86,6 +115,7 @@ class CatalogService:
         tenant_id = await self._resolve_public_tenant_id()
         if not tenant_id:
             return PublicCatalogListResponse(items=[], page=page, page_size=page_size, total=0)
+        await apply_public_marketplace_context(self.session, tenant_id)
         grouped = await self._list_grouped_products(tenant_id=tenant_id)
         review_summary_map = await self._build_review_summary_map(tenant_id=tenant_id, grouped=grouped)
         total = len(grouped)
@@ -116,15 +146,90 @@ class CatalogService:
         ]
         return PublicCatalogListResponse(items=items, page=page, page_size=page_size, total=total)
 
-    async def _list_grouped_products(self, *, tenant_id: str) -> list[dict[str, object]]:
-        """Return grouped marketplace products for one tenant."""
+    async def _apply_personalized_promotions(
+        self,
+        *,
+        tenant_id: str,
+        subject: TokenSubject,
+        user_agent: str,
+        grouped: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        """Override grouped catalog pricing with the best-matching active promotion, per customer."""
 
-        store_id = await self.repository.get_primary_store_id(tenant_id=tenant_id)
-        inventory_items = await self.repository.list_items(tenant_id=tenant_id, store_id=store_id, active_only=True)
-        return build_marketplace_catalog_groups([
+        promotions = list(
+            (
+                await self.session.execute(
+                    select(PricingPromotion).where(PricingPromotion.tenant_id == tenant_id, PricingPromotion.is_active.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not promotions:
+            return grouped
+        user = (
+            await self.session.execute(select(User).where(User.id == subject.user_id, User.tenant_id == tenant_id))
+        ).scalar_one_or_none()
+        if user is None:
+            return grouped
+        customer = (
+            await self.session.execute(select(Customer).where(Customer.tenant_id == tenant_id, Customer.email == user.email))
+        ).scalar_one_or_none()
+        if customer is None:
+            return grouped
+        primary_address = (
+            await self.session.execute(
+                select(CustomerAddress).where(CustomerAddress.customer_id == customer.id, CustomerAddress.is_primary.is_(True))
+            )
+        ).scalar_one_or_none()
+        device_type = detect_device_type(user_agent)
+        profile = resolve_customer_promotion_profile(customer=customer, primary_address=primary_address, device_type=device_type)
+        now = datetime.now(tz=UTC)
+        if device_type and customer.last_device_type != device_type:
+            try:
+                customer.last_device_type = device_type
+                customer.last_device_seen_at = now
+                await self.session.commit()
+            except Exception:
+                await self.session.rollback()
+        for item in grouped:
+            old_price_raw = item.get('old_price')
+            base_price = quantize_money(Decimal(str(old_price_raw)) if old_price_raw is not None else Decimal(str(item['price'])))
+            promotion = find_best_promotion(promotions, category=str(item['cat']), product_name=str(item['name']), profile=profile, now=now)
+            if promotion is None:
+                continue
+            promo_percent = compute_discount_percent(promotion, base_price=base_price)
+            current_discount_percent = int(str(item['discount_percent']))
+            if promo_percent <= current_discount_percent:
+                continue
+            item['price'] = compute_effective_price(base_price, promo_percent)
+            item['old_price'] = base_price
+            item['discount_percent'] = int(promo_percent)
+            tags = item['tags']
+            if isinstance(tags, list) and 'oferta' not in tags:
+                item['tags'] = [*tags, 'oferta']
+        return grouped
+
+    async def _list_grouped_products(self, *, tenant_id: str) -> list[dict[str, object]]:
+        """Return grouped marketplace products for one tenant, merged across every active store.
+
+        Browsing never pins one store: build_marketplace_catalog_groups already sums stock
+        across inventory items sharing the same name/brand, so a product carried in any store
+        shows real availability instead of "indisponível" just because a single reference
+        store happened to be out — which store actually fulfills the order is resolved later,
+        at checkout, against the customer's address.
+        """
+
+        cached = await get_cached_json(CATALOG_CACHE_NAMESPACE, tenant_id, "grouped")
+        if cached is not None:
+            return cached
+        inventory_items = await self.repository.list_items(tenant_id=tenant_id, store_id="", active_only=True)
+        grouped = build_marketplace_catalog_groups([
             item for item in inventory_items
-            if getattr(item, 'sale_price', None) is not None and item.sale_price > 0 and getattr(item, 'is_marketplace_visible', True)
+            if getattr(item, 'sale_price', None) is not None and item.sale_price > 0
         ])
+        await set_cached_json(CATALOG_CACHE_NAMESPACE, tenant_id, "grouped", grouped)
+        return grouped
 
     async def _build_review_summary_map(self, *, tenant_id: str, grouped: list[dict[str, object]]) -> dict[str, CatalogReviewSummary]:
         """Return persisted review summaries keyed by grouped product id."""
@@ -173,8 +278,13 @@ class CatalogService:
         return result
 
     async def _resolve_public_tenant_id(self) -> str:
-        """Return the first tenant that has active sellable inventory."""
+        """Return the first tenant that has active sellable inventory.
 
-        statement = select(InventoryItem.tenant_id).where(InventoryItem.is_active.is_(True), InventoryItem.sale_price.is_not(None), InventoryItem.sale_price > 0).order_by(InventoryItem.created_at.asc()).limit(1)
-        tenant_id = (await self.session.execute(statement)).scalar_one_or_none()
+        Runs through a SECURITY DEFINER function rather than a plain ORM query: this
+        lookup is inherently cross-tenant (there is no tenant context yet for an
+        anonymous visitor), so it must bypass row-level security narrowly for this one
+        read — it returns only a tenant id, never product data.
+        """
+
+        tenant_id = (await self.session.execute(text("SELECT app_private.resolve_public_marketplace_tenant_id()"))).scalar_one_or_none()
         return str(tenant_id or '')

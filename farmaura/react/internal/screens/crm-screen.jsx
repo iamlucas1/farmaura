@@ -39,7 +39,7 @@ function CrmScreen({ ctx }) {
 
   return (
     <>
-      <Topbar title="CRM de clientes" sub={customers.length + ' clientes · visão 360 de relacionamento'} onLogout={onLogout}>
+      <Topbar title="CRM de clientes" sub={customers.length + ' clientes · visão 360 de relacionamento'} onLogout={onLogout} ctx={ctx}>
         <div className="ph-topsearch"><Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} /><input placeholder="Buscar cliente" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
       </Topbar>
       <div className="ph-content ph-content-wide">

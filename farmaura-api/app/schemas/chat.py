@@ -30,6 +30,9 @@ class ChatMessageResponse(StrictModel):
     from_role: str
     text: str
     at: str
+    prescription_id: str | None = None
+    prescription_status: str = ""
+    prescription_reference_url: str = ""
 
 
 class ChatThreadResponse(StrictModel):

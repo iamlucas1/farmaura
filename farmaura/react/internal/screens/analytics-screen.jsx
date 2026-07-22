@@ -147,7 +147,7 @@ function AnalyticsScreen({ ctx }) {
 
   return (
     <>
-      <Topbar title="Análises" sub={view === 'comercial' ? ('Hoje · ' + (todayLabel || '')) : 'Projeção mensal'} onLogout={onLogout}>
+      <Topbar title="Análises" sub={view === 'comercial' ? ('Hoje · ' + (todayLabel || '')) : 'Projeção mensal'} onLogout={onLogout} ctx={ctx}>
         <div className="ph-seg" style={{ marginRight: 4 }}>
           <button data-on={view === 'comercial' ? '1' : '0'} onClick={() => setView('comercial')}><Icon name="trendup" size={14} />Vendas</button>
           <button data-on={view === 'financeiro' ? '1' : '0'} onClick={() => setView('financeiro')}><Icon name="percent" size={14} />Financeiro</button>

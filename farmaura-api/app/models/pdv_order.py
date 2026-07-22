@@ -13,9 +13,10 @@ Observations:
 - finalized orders should be linked to a PDV sale record after payment;
 """
 
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampedModel, UuidModel
@@ -40,7 +41,7 @@ class PdvOrder(Base, UuidModel, TimestampedModel):
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    store_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id", ondelete="RESTRICT"), index=True, nullable=False)
     order_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), index=True, nullable=True)
     pharmacist_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
@@ -61,3 +62,15 @@ class PdvOrder(Base, UuidModel, TimestampedModel):
     claimed_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     completed_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     notes: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    fulfillment_type: Mapped[str] = mapped_column(String(24), default="pickup", nullable=False)
+    delivery_address_line: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    delivery_district: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    delivery_city: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    delivery_state_code: Mapped[str] = mapped_column(String(2), default="", nullable=False)
+    delivery_postal_code: Mapped[str] = mapped_column(String(12), default="", nullable=False)
+    delivery_fee_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    delivery_latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), default=Decimal("0.0000000"), nullable=False)
+    delivery_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), default=Decimal("0.0000000"), nullable=False)
+    is_reservation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    reservation_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    requested_by_store_id: Mapped[str | None] = mapped_column(ForeignKey("stores.id", ondelete="SET NULL"), nullable=True)

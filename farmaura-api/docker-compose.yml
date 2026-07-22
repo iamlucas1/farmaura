@@ -35,23 +35,23 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 8080
       APP_BASE_URL: https://api.farmaura.local
+      APP_MARKETPLACE_BASE_URL: https://farmaura.local
       APP_API_V1_PREFIX: /api/v1
       APP_DEBUG: "false"
       APP_ALLOWED_ORIGINS: http://127.0.0.1:3000,http://localhost:3000,https://farmaura.local,https://farmacia.local
-      APP_DATABASE_URL: postgresql+psycopg://farmaura:farmaura@farmaura-postgres:5432/farmaura
-      APP_REDIS_URL: redis://farmaura-redis:6379/0
+      APP_DATABASE_URL: postgresql+psycopg://farmaura_app:farmaura_app@farmaura-postgres:5432/farmaura
+      APP_DATABASE_ADMIN_URL: postgresql+psycopg://farmaura:farmaura@farmaura-postgres:5432/farmaura
+      APP_VALKEY_URL: valkey://farmaura-valkey:6379/0
       APP_STORAGE_ROOT: /app/storage/private
       APP_STORAGE_TMP_ROOT: /app/storage/tmp
       APP_STORAGE_QUARANTINE_ROOT: /app/storage/quarantine
       APP_GEOCODING_ENABLED: "true"
       APP_GEOCODING_BASE_URL: https://nominatim.openstreetmap.org
       APP_GEOCODING_USER_AGENT: farmaura-api/1.0 (contato@farmaura.com.br)
-      APP_STORE_HUB_NAME: Farmácia Farmaura
-      APP_STORE_HUB_ADDRESS: Setor Comercial Sul, Brasília, DF, Brasil
     depends_on:
       farmaura-postgres:
         condition: service_healthy
-      farmaura-redis:
+      farmaura-valkey:
         condition: service_healthy
     expose:
       - "8080"
@@ -90,15 +90,15 @@ services:
     networks:
       - farmaura_private
 
-  farmaura-redis:
-    container_name: farmaura_redis
-    image: redis:8.2.6-bookworm
+  farmaura-valkey:
+    container_name: farmaura_valkey
+    image: valkey/valkey:9.1-trixie
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["valkey-server", "--appendonly", "yes"]
     volumes:
-      - farmaura_redis_data:/data
+      - farmaura_valkey_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -114,8 +114,8 @@ networks:
 volumes:
   farmaura_postgres_data:
     name: farmaura_postgres_data
-  farmaura_redis_data:
-    name: farmaura_redis_data
+  farmaura_valkey_data:
+    name: farmaura_valkey_data
   farmaura_storage_private:
     name: farmaura_storage_private
   farmaura_storage_quarantine:

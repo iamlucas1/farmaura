@@ -10,7 +10,9 @@ Responsibilities:
 
 Observations:
 - refresh token persistence is scaffolded and should be expanded next;
-- account lockout and Redis-backed throttling can be added incrementally;
+- failed-login lockout is enforced per account via app.core.login_guard
+  (Valkey-backed, exponential backoff); per-IP rate limiting on the route
+  itself is enforced via app.core.rate_limit.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -23,26 +25,37 @@ from app.core.config import Settings
 from app.core.jwt import (
     create_access_token,
     create_mfa_challenge_token,
+    create_password_reset_challenge_token,
     create_refresh_token,
     decode_mfa_challenge_token,
+    decode_password_reset_challenge_token,
     decode_refresh_token,
 )
-from app.core.password_hashing import verify_password
+from app.core.login_guard import (
+    assert_not_locked,
+    clear_failed_attempts,
+    register_failed_attempt,
+    resolve_and_consume_unlock_token,
+)
+from app.core.password_hashing import hash_password, verify_password
 from app.core.token_fingerprints import hash_refresh_token
-from app.core.tenant_context import apply_login_context
+from app.core.tenant_context import apply_authenticated_context, apply_login_context
 from app.core.two_factor import build_totp_provisioning_uri, generate_totp_secret, verify_totp_code
 from app.domain.enums import AccessScope, PortalName, UserRole
 from app.domain.errors import AuthenticationError
 from app.domain.permissions import can_access_portal
 from app.models.refresh_token import RefreshToken
+from app.models.user import User
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import (
     AuthenticatedResponse,
+    CompletePasswordResetRequest,
     LoginRequest,
     LogoutAllResponse,
     LogoutRequest,
     LogoutResponse,
+    PasswordChangeRequiredResponse,
     RefreshRequest,
     TokenPair,
     TokenSubject,
@@ -52,7 +65,10 @@ from app.schemas.auth import (
     TwoFactorOperationResponse,
     TwoFactorSetupResponse,
     TwoFactorVerifyRequest,
+    UnlockAccountRequest,
+    UnlockAccountResponse,
 )
+from app.services.notification_service import NotificationService
 
 
 # ============================================================================
@@ -77,19 +93,46 @@ class AuthService:
         *,
         ip_address: str,
         user_agent: str,
-    ) -> AuthenticatedResponse | TwoFactorChallengeResponse:
+    ) -> AuthenticatedResponse | TwoFactorChallengeResponse | PasswordChangeRequiredResponse:
         """Validate credentials and continue the authentication flow."""
 
         normalized_email = payload.email.strip().lower()
+        await assert_not_locked(normalized_email)
         await apply_login_context(self.session, normalized_email)
         user = await self.user_repository.get_by_email(normalized_email)
         if user is None or not verify_password(payload.password, user.password_hash):
+            lockout = await register_failed_attempt(normalized_email)
+            if lockout is not None and user is not None:
+                unlock_token, lockout_seconds = lockout
+                unlock_url = f"{self.settings.marketplace_base_url.rstrip('/')}/marketplace/unlock-account?token={unlock_token}"
+                NotificationService().send_account_locked_email(
+                    email=user.email,
+                    full_name=user.full_name,
+                    unlock_url=unlock_url,
+                    lockout_minutes=max(1, lockout_seconds // 60),
+                )
             raise AuthenticationError()
+        await clear_failed_attempts(normalized_email)
         role = UserRole(user.role)
         access_scope = AccessScope(user.access_scope)
         self._ensure_portal_login_allowed(role=role, access_scope=access_scope, portal=payload.portal)
         user_id = UUID(user.id)
         tenant_id = UUID(user.tenant_id)
+        if user.must_change_password:
+            challenge_token = create_password_reset_challenge_token(
+                settings=self.settings,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                role=role,
+                access_scope=access_scope,
+                portal=payload.portal,
+                remember_session=payload.remember_session,
+                session_version=user.session_version,
+            )
+            return PasswordChangeRequiredResponse(
+                challenge_token=challenge_token,
+                challenge_expires_in_seconds=self.settings.jwt_password_reset_ttl_minutes * 60,
+            )
         if user.two_factor_enabled:
             if not user.two_factor_secret.strip():
                 raise AuthenticationError("Two-factor authentication is not configured.")
@@ -116,6 +159,7 @@ class AuthService:
             remember_session=payload.remember_session,
             ip_address=ip_address,
             user_agent=user_agent,
+            store_id=user.store_id,
         )
         return AuthenticatedResponse(token_pair=token_pair)
 
@@ -152,6 +196,69 @@ class AuthService:
             remember_session=bool(challenge_payload["remember_session"]),
             ip_address=ip_address,
             user_agent=user_agent,
+            store_id=user.store_id,
+        )
+        return AuthenticatedResponse(token_pair=token_pair)
+
+    async def complete_password_reset(
+        self,
+        payload: CompletePasswordResetRequest,
+        *,
+        ip_address: str,
+        user_agent: str,
+    ) -> AuthenticatedResponse:
+        """Set a new password for a mandatory first-access reset and issue session tokens."""
+
+        challenge_payload = decode_password_reset_challenge_token(token=payload.challenge_token, settings=self.settings)
+        user = await self.user_repository.get_by_id(str(challenge_payload["sub"]))
+        if user is None:
+            raise AuthenticationError()
+        if not user.must_change_password:
+            raise AuthenticationError("Password change is not pending for this account.")
+        if int(challenge_payload["session_version"]) != user.session_version:
+            raise AuthenticationError("Authentication challenge expired.")
+        self._ensure_portal_login_allowed(
+            role=UserRole(user.role),
+            access_scope=AccessScope(user.access_scope),
+            portal=PortalName(str(challenge_payload["portal"])),
+        )
+        await apply_authenticated_context(self.session, tenant_id=user.tenant_id, user_id=user.id)
+        user.password_hash = hash_password(payload.new_password)
+        user.must_change_password = False
+        await self.user_repository.save(user)
+        token_pair = await self._issue_token_pair(
+            user_id=UUID(user.id),
+            tenant_id=UUID(user.tenant_id),
+            role=UserRole(user.role),
+            access_scope=AccessScope(user.access_scope),
+            session_version=user.session_version,
+            remember_session=bool(challenge_payload["remember_session"]),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            store_id=user.store_id,
+        )
+        return AuthenticatedResponse(token_pair=token_pair)
+
+    async def issue_session_for_user(
+        self,
+        user: User,
+        *,
+        remember_session: bool,
+        ip_address: str,
+        user_agent: str,
+    ) -> AuthenticatedResponse:
+        """Issue session tokens for an already-provisioned user, such as a fresh registration."""
+
+        token_pair = await self._issue_token_pair(
+            user_id=UUID(user.id),
+            tenant_id=UUID(user.tenant_id),
+            role=UserRole(user.role),
+            access_scope=AccessScope(user.access_scope),
+            session_version=user.session_version,
+            remember_session=remember_session,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            store_id=user.store_id,
         )
         return AuthenticatedResponse(token_pair=token_pair)
 
@@ -211,9 +318,11 @@ class AuthService:
         """Rotate a refresh token and issue a new token pair."""
 
         refresh_payload = decode_refresh_token(token=payload.refresh_token, settings=self.settings)
+        await apply_authenticated_context(self.session, tenant_id="", user_id=str(refresh_payload["sub"]))
         refresh_record = await self.refresh_token_repository.get_by_token_id(str(refresh_payload["jti"]))
         if refresh_record is None:
             raise AuthenticationError("Refresh token not recognized.")
+        await apply_authenticated_context(self.session, tenant_id=refresh_record.tenant_id, user_id=refresh_record.user_id)
         presented_hash = hash_refresh_token(payload.refresh_token)
         if refresh_record.token_hash != presented_hash:
             await self.refresh_token_repository.revoke_family(
@@ -261,6 +370,7 @@ class AuthService:
             user_agent=user_agent,
             family_id=UUID(refresh_record.family_id),
             token_id=UUID(replacement_token_id),
+            store_id=user.store_id,
         )
         return token_pair
 
@@ -268,9 +378,11 @@ class AuthService:
         """Revoke the presented refresh token."""
 
         refresh_payload = decode_refresh_token(token=payload.refresh_token, settings=self.settings)
+        await apply_authenticated_context(self.session, tenant_id="", user_id=str(refresh_payload["sub"]))
         refresh_record = await self.refresh_token_repository.get_by_token_id(str(refresh_payload["jti"]))
         if refresh_record is None:
             raise AuthenticationError("Refresh token not recognized.")
+        await apply_authenticated_context(self.session, tenant_id=refresh_record.tenant_id, user_id=refresh_record.user_id)
         if refresh_record.token_hash != hash_refresh_token(payload.refresh_token):
             await self.refresh_token_repository.revoke_family(
                 family_id=refresh_record.family_id,
@@ -296,6 +408,15 @@ class AuthService:
         )
         await self.session.commit()
         return LogoutAllResponse(detail="All sessions invalidated.")
+
+    async def unlock_account(self, payload: UnlockAccountRequest) -> UnlockAccountResponse:
+        """End an active brute-force lockout using the token from the lockout notification e-mail."""
+
+        email = await resolve_and_consume_unlock_token(payload.token)
+        if not email:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Link de desbloqueio inválido ou expirado.")
+        await clear_failed_attempts(email)
+        return UnlockAccountResponse(detail="Conta desbloqueada com sucesso. Você já pode tentar entrar novamente.")
 
     def _ensure_portal_login_allowed(
         self,
@@ -349,6 +470,7 @@ class AuthService:
         user_agent: str,
         family_id: UUID | None = None,
         token_id: UUID | None = None,
+        store_id: str | None = None,
     ) -> TokenPair:
         """Create access and refresh tokens and persist refresh state."""
 
@@ -359,6 +481,7 @@ class AuthService:
             role=role,
             access_scope=access_scope,
             session_version=session_version,
+            store_id=store_id,
         )
         issued_family_id = family_id or uuid4()
         issued_token_id = token_id or uuid4()
@@ -376,6 +499,7 @@ class AuthService:
             session_version=session_version,
         )
         expires_at = datetime.now(tz=UTC) + timedelta(days=refresh_ttl_days)
+        await apply_authenticated_context(self.session, tenant_id=str(tenant_id), user_id=str(user_id))
         token_record = RefreshToken(
             id=str(uuid4()),
             user_id=str(user_id),
@@ -401,5 +525,6 @@ class AuthService:
                 role=role,
                 access_scope=access_scope,
                 session_version=session_version,
+                store_id=store_id or None,
             ),
         )

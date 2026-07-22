@@ -26,8 +26,10 @@ class UserRole(StrEnum):
 
     ADMIN = "admin"
     CUSTOMER = "customer"
+    MANAGER = "manager"
     PHARMACIST = "pharmacist"
     CASHIER = "cashier"
+    DRIVER = "driver"
 
 
 class AccessScope(StrEnum):

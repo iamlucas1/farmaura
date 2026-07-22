@@ -9,7 +9,7 @@ Responsibilities:
 - keep test bootstrap consistent across suites;
 
 Observations:
-- database and Redis fixtures can be layered here later;
+- database and Valkey fixtures can be layered here later;
 - current tests focus on transport and middleware behavior;
 """
 
@@ -20,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("APP_DATABASE_URL", "sqlite+aiosqlite:///./test.db")
-os.environ.setdefault("APP_REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("APP_VALKEY_URL", "valkey://localhost:6379/0")
 os.environ.setdefault("APP_JWT_ISSUER", "farmaura-test")
 os.environ.setdefault("APP_JWT_AUDIENCE", "farmaura-test-clients")
 os.environ.setdefault("APP_JWT_PRIVATE_KEY", "test-secret")

@@ -50,6 +50,13 @@ class CrmRepository:
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_by_email(self, *, tenant_id: str, email: str) -> Customer | None:
+        """Return one tenant-scoped customer by e-mail."""
+
+        statement = select(Customer).where(Customer.tenant_id == tenant_id, Customer.email == email)
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
     async def add(self, customer: Customer) -> Customer:
         """Persist one new customer aggregate."""
 

@@ -486,7 +486,7 @@ function CouponsScreen({ ctx }) {
 
   return (
     <>
-      <Topbar title="Cupons" sub="Campanhas, regras promocionais e governança do marketplace" onLogout={onLogout}>
+      <Topbar title="Cupons" sub="Campanhas, regras promocionais e governança do marketplace" onLogout={onLogout} ctx={ctx}>
         <div className="ph-topsearch">
           <Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} />
           <input placeholder="Buscar por código, campanha, categoria ou produto" value={query} onChange={(event) => setQuery(event.target.value)} />

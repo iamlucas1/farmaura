@@ -39,6 +39,8 @@ class CustomerProfileResponse(StrictModel):
     cpf: str = ""
     birth_date: str = ""
     gender: str = ""
+    marital_status: str = ""
+    children_count: int | None = None
     avatar_url: str = ""
     two_factor_enabled: bool = False
     member_since_label: str = ""
@@ -58,6 +60,8 @@ class CustomerProfileUpdateRequest(StrictModel):
     phone: str = Field(default="", max_length=32)
     birth_date: str = Field(default="", max_length=10)
     gender: str = Field(default="", max_length=40)
+    marital_status: str = Field(default="", max_length=16)
+    children_count: int | None = Field(default=None, ge=0, le=20)
 
 
 # ============================================================================
@@ -176,3 +180,22 @@ class CartItemUpsertRequest(StrictModel):
 
     quantity: int = Field(default=1, ge=1, le=99)
     is_subscription: bool = False
+
+
+# ============================================================================
+# PRODUCT AVAILABILITY ALERT SCHEMAS
+# ============================================================================
+
+
+class ProductAvailabilityAlertResponse(StrictModel):
+    """Represent one back-in-stock notification request."""
+
+    product_ref: str
+    product_name: str = ""
+    notified: bool = False
+
+
+class ProductAvailabilityAlertCreateRequest(StrictModel):
+    """Validate a back-in-stock notification request payload."""
+
+    product_name: str = Field(default="", max_length=255)

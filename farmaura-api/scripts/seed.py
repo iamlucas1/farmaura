@@ -18,12 +18,13 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -52,15 +53,25 @@ from app.models.file_asset import FileAsset
 from app.models.fiscal_document import FiscalDocument
 from app.models.health_service import HealthService
 from app.models.health_service_appointment import HealthServiceAppointment
+from app.core.file_storage import write_private_file
+from app.models.brand import Brand
+from app.models.brand_supplier import BrandSupplier
+from app.models.category import Category
+from app.models.inventory_audit_entry import InventoryAuditEntry
+from app.models.inventory_invoice_record import InventoryInvoiceRecord
 from app.models.inventory_item import InventoryItem
 from app.models.inventory_location import InventoryLocation
+from app.models.inventory_lot_movement import InventoryLotMovement
 from app.models.inventory_movement import InventoryMovement
+from app.models.inventory_product import InventoryProduct
+from app.models.inventory_stock_lot import InventoryStockLot
 from app.models.marketplace_listing import MarketplaceListing
 from app.models.order import Order
 from app.models.order_fulfillment import OrderFulfillment
 from app.models.order_item import OrderItem
 from app.models.order_status_event import OrderStatusEvent
 from app.models.pdv_order import PdvOrder
+from app.models.portal_setting import PortalSetting
 from app.models.pdv_order_item import PdvOrderItem
 from app.models.pdv_sale import PdvSale
 from app.models.pdv_sale_item import PdvSaleItem
@@ -68,10 +79,12 @@ from app.models.prescription import Prescription
 from app.models.prescription_check import PrescriptionCheck
 from app.models.prescription_file import PrescriptionFile
 from app.models.prescription_item import PrescriptionItem
-from app.models.product import Product
 from app.models.refresh_token import RefreshToken
 from app.models.saved_product import SavedProduct
+from app.models.store import Store
 from app.models.subscription import Subscription
+from app.models.supplier import Supplier
+from app.models.therapeutic_class import TherapeuticClass
 from app.models.base import Base
 from app.models.user import User
 
@@ -87,9 +100,35 @@ STORE_NAME = "Farmaura Ponte Alta Norte"
 STORE_ADDRESS = "Avenida São Francisco, Ponte Alta Norte, Gama, Distrito Federal, 72426-070"
 STORE_LATITUDE = Decimal("-15.9775167")
 STORE_LONGITUDE = Decimal("-48.0383778")
+SECOND_STORE_ID = str(uuid5(NAMESPACE_URL, "https://farmaura.local/store/aguas-claras"))
+SECOND_STORE_NAME = "Farmaura Águas Claras"
+SECOND_STORE_ADDRESS = "Avenida Araucárias, Águas Claras, Brasília, Distrito Federal, 71916-540"
+SECOND_STORE_LATITUDE = Decimal("-15.8378500")
+SECOND_STORE_LONGITUDE = Decimal("-48.0261600")
 DEFAULT_PASSWORD = "Farmaura@123"
 MFA_SECRET = "JBSWY3DPEHPK3PXP"
 SEED_NOW = datetime(2026, 6, 11, 9, 30, tzinfo=UTC)
+
+# CNAEs (atividades) registrados para a farmácia. O ICMS de cada CNAE fica em
+# 0.00% no seed de propósito — é uma alíquota efetiva que a contabilidade da
+# farmácia deve preencher em Configurações, não um valor legal deduzido aqui.
+CNAE_REGISTRY = [
+    # farmaceuticos entra com ICMS-ST ligado: medicamentos operam sob substituicao
+    # tributaria nacional (Convenio ICMS 76/94), ou seja, o distribuidor ja recolheu
+    # o ICMS antes da farmacia revender — sem o flag, o Precificador cobraria o
+    # imposto em dobro no calculo do Simples Nacional.
+    {"code": "47.71-7-01", "description": "Comercio varejista de produtos farmaceuticos, sem manipulacao de formulas", "is_principal": True, "is_subject_to_icms_st": True},
+    {"code": "47.89-0-05", "description": "Comercio varejista de produtos saneantes domissanitarios", "is_principal": False, "is_subject_to_icms_st": False},
+    {"code": "47.72-5-00", "description": "Comercio varejista de cosmeticos, produtos de perfumaria e de higiene pessoal", "is_principal": False, "is_subject_to_icms_st": False},
+    {"code": "47.29-6-99", "description": "Comercio varejista de produtos alimenticios em geral ou especializado em produtos alimenticios nao especificados anteriormente", "is_principal": False, "is_subject_to_icms_st": False},
+    {"code": "47.73-3-00", "description": "Comercio varejista de artigos medicos e ortopedicos", "is_principal": False, "is_subject_to_icms_st": False},
+    {"code": "47.21-1-04", "description": "Comercio varejista de doces, balas, bombons e semelhantes", "is_principal": False, "is_subject_to_icms_st": False},
+    {"code": "47.23-7-00", "description": "Comercio varejista de bebidas", "is_principal": False, "is_subject_to_icms_st": False},
+]
+
+# CNAEs registrados sem correspondencia direta a nenhum produto do seed
+# (ex.: doces, bebidas) ficam de fora do catalogo, mas continuam registrados
+# em CNAE_REGISTRY para atribuicao manual via Precificador.
 
 
 # ============================================================================
@@ -220,9 +259,110 @@ def label(dt: datetime, *, with_time: bool = True) -> str:
     return dt.astimezone(UTC).strftime("%d/%m/%Y")
 
 
+def build_seed_invoice_xml(
+    *,
+    reference_code: str,
+    supplier_name: str,
+    item_name: str,
+    quantity: int,
+    unit_cost: Decimal,
+    product_total_amount: Decimal,
+    invoice_total_amount: Decimal,
+    issue_date: datetime,
+) -> bytes:
+    """Build a small, well-formed placeholder nota fiscal XML for seeded invoice records."""
+
+    return (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<notaFiscalSeed>\n"
+        f"  <numero>{reference_code}</numero>\n"
+        f"  <dataEmissao>{issue_date.astimezone(UTC).strftime('%Y-%m-%d')}</dataEmissao>\n"
+        f"  <fornecedor>{supplier_name}</fornecedor>\n"
+        f"  <valorTotalNota>{invoice_total_amount}</valorTotalNota>\n"
+        "  <item>\n"
+        f"    <descricao>{item_name}</descricao>\n"
+        f"    <quantidade>{quantity}</quantidade>\n"
+        f"    <valorUnitario>{unit_cost}</valorUnitario>\n"
+        f"    <valorTotalProduto>{product_total_amount}</valorTotalProduto>\n"
+        "  </item>\n"
+        "</notaFiscalSeed>\n"
+    ).encode("utf-8")
+
+
 # ============================================================================
 # BUILDERS
 # ============================================================================
+
+
+def build_cnae_settings() -> PortalSetting:
+    """Build the tenant's registered CNAEs portal setting, consumed by the Precificador's tax math."""
+
+    return PortalSetting(
+        id=seed_uuid("setting-cnae-settings"),
+        tenant_id=TENANT_ID,
+        portal_name="internal",
+        setting_key="cnae_settings",
+        value_json=json_text({
+            "items": [
+                {
+                    "code": entry["code"],
+                    "description": entry["description"],
+                    "is_principal": entry["is_principal"],
+                    "is_subject_to_icms_st": entry["is_subject_to_icms_st"],
+                }
+                for entry in CNAE_REGISTRY
+            ],
+            # Simples Nacional, Anexo I (comercio) — faturamento fictício para o
+            # seed cair numa faixa nao trivial (Faixa 4) e o Precificador ja
+            # nascer mostrando um calculo real, nao um estado vazio/zerado.
+            "tax_regime": {
+                "regime": "simples_nacional",
+                "state_code": "DF",
+                "trailing_12m_revenue": "1200000.00",
+            },
+        }),
+    )
+
+
+def build_stores() -> dict[str, Store]:
+    """Build the tenant's physical stores, including a second branch for multi-store testing."""
+
+    return {
+        "primary": Store(
+            id=STORE_ID,
+            tenant_id=TENANT_ID,
+            code="ponte-alta-norte",
+            name=STORE_NAME,
+            address_line=STORE_ADDRESS,
+            district="Ponte Alta Norte",
+            city="Gama",
+            state_code="DF",
+            postal_code="72426-070",
+            latitude=STORE_LATITUDE,
+            longitude=STORE_LONGITUDE,
+            phone="(61) 3555-0101",
+            cnpj="12.345.678/0001-90",
+            is_primary=True,
+            is_active=True,
+        ),
+        "second": Store(
+            id=SECOND_STORE_ID,
+            tenant_id=TENANT_ID,
+            code="aguas-claras",
+            name=SECOND_STORE_NAME,
+            address_line=SECOND_STORE_ADDRESS,
+            district="Águas Claras",
+            city="Brasília",
+            state_code="DF",
+            postal_code="71916-540",
+            latitude=SECOND_STORE_LATITUDE,
+            longitude=SECOND_STORE_LONGITUDE,
+            phone="(61) 3555-0202",
+            cnpj="12.345.678/0002-71",
+            is_primary=False,
+            is_active=True,
+        ),
+    }
 
 
 def build_users(password_hash: str) -> dict[str, User]:
@@ -254,6 +394,7 @@ def build_users(password_hash: str) -> dict[str, User]:
             two_factor_secret=MFA_SECRET,
             session_version=1,
             is_active=True,
+            store_id=STORE_ID,
         ),
         "pharmacist_support": User(
             id=seed_uuid("user-pharmacist-support"),
@@ -267,6 +408,21 @@ def build_users(password_hash: str) -> dict[str, User]:
             two_factor_secret="",
             session_version=1,
             is_active=True,
+            store_id=SECOND_STORE_ID,
+        ),
+        "store_manager": User(
+            id=seed_uuid("user-store-manager"),
+            tenant_id=TENANT_ID,
+            email="rafael.nunes@farmaura.com.br",
+            password_hash=password_hash,
+            full_name="Rafael Nunes",
+            role=UserRole.MANAGER.value,
+            access_scope=AccessScope.INTERNAL.value,
+            two_factor_enabled=False,
+            two_factor_secret="",
+            session_version=1,
+            is_active=True,
+            store_id=SECOND_STORE_ID,
         ),
         "cashier_lead": User(
             id=seed_uuid("user-cashier-lead"),
@@ -280,6 +436,7 @@ def build_users(password_hash: str) -> dict[str, User]:
             two_factor_secret="",
             session_version=1,
             is_active=True,
+            store_id=STORE_ID,
         ),
         "cashier_support": User(
             id=seed_uuid("user-cashier-support"),
@@ -293,6 +450,21 @@ def build_users(password_hash: str) -> dict[str, User]:
             two_factor_secret="",
             session_version=1,
             is_active=True,
+            store_id=SECOND_STORE_ID,
+        ),
+        "delivery_driver": User(
+            id=seed_uuid("user-delivery-driver"),
+            tenant_id=TENANT_ID,
+            email="marcos.pereira@farmaura.com.br",
+            password_hash=password_hash,
+            full_name="Marcos Pereira",
+            role=UserRole.DRIVER.value,
+            access_scope=AccessScope.INTERNAL.value,
+            two_factor_enabled=False,
+            two_factor_secret="",
+            session_version=1,
+            is_active=True,
+            store_id=STORE_ID,
         ),
         "customer_mariana": User(
             id=seed_uuid("user-customer-mariana"),
@@ -352,7 +524,7 @@ def build_users(password_hash: str) -> dict[str, User]:
 def build_customers() -> dict[str, Customer]:
     """Build CRM and checkout customer entities used by online and PDV flows."""
 
-    return {
+    customers: dict[str, Customer] = {
         "mariana": Customer(
             id=seed_uuid("customer-mariana"),
             tenant_id=TENANT_ID,
@@ -367,7 +539,7 @@ def build_customers() -> dict[str, Customer]:
             loyalty_tier="Ouro",
             is_recurring=True,
             two_factor_enabled=False,
-            member_since_label="Cliente desde março de 2024",
+            member_since_label="março de 2024",
             city_label="Brasilia",
             district_label="Aguas Claras",
             cashback_balance=money("38.40"),
@@ -401,7 +573,7 @@ def build_customers() -> dict[str, Customer]:
             loyalty_tier="Prata",
             is_recurring=True,
             two_factor_enabled=False,
-            member_since_label="Cliente desde janeiro de 2025",
+            member_since_label="janeiro de 2025",
             city_label="Brasilia",
             district_label="Aguas Claras",
             cashback_balance=money("12.30"),
@@ -435,7 +607,7 @@ def build_customers() -> dict[str, Customer]:
             loyalty_tier="Bronze",
             is_recurring=False,
             two_factor_enabled=True,
-            member_since_label="Cliente desde abril de 2026",
+            member_since_label="abril de 2026",
             city_label="Brasilia",
             district_label="Taguatinga Sul",
             cashback_balance=money("4.80"),
@@ -469,7 +641,7 @@ def build_customers() -> dict[str, Customer]:
             loyalty_tier="Prata",
             is_recurring=False,
             two_factor_enabled=False,
-            member_since_label="Cliente desde setembro de 2023",
+            member_since_label="setembro de 2023",
             city_label="Brasilia",
             district_label="Guara",
             cashback_balance=money("0.00"),
@@ -503,7 +675,7 @@ def build_customers() -> dict[str, Customer]:
             loyalty_tier="Ouro",
             is_recurring=True,
             two_factor_enabled=False,
-            member_since_label="Cliente desde fevereiro de 2022",
+            member_since_label="fevereiro de 2022",
             city_label="Brasilia",
             district_label="Vicente Pires",
             cashback_balance=money("21.10"),
@@ -525,6 +697,91 @@ def build_customers() -> dict[str, Customer]:
         ),
     }
 
+    # Additional CRM volume for a realistic single-day operation — generated from a
+    # compact table instead of hand-written per customer, purely to keep this
+    # maintainable at this volume. Every derived field is index-based (no RNG), so
+    # reruns are stable and each customer's numbers stay internally consistent.
+    bulk_customer_rows = [
+        ("Fernanda", "Lima", "Feminino", "Aguas Claras"),
+        ("Diego", "Costa", "Masculino", "Taguatinga Norte"),
+        ("Juliana", "Pereira", "Feminino", "Guara"),
+        ("Bruno", "Carvalho", "Masculino", "Ceilandia"),
+        ("Patricia", "Gomes", "Feminino", "Samambaia"),
+        ("Thiago", "Ribeiro", "Masculino", "Ponte Alta Norte"),
+        ("Larissa", "Barbosa", "Feminino", "Aguas Claras"),
+        ("Rodrigo", "Almeida", "Masculino", "Vicente Pires"),
+        ("Aline", "Fernandes", "Feminino", "Taguatinga Sul"),
+        ("Marcelo", "Teixeira", "Masculino", "Guara"),
+        ("Vanessa", "Cardoso", "Feminino", "Ponte Alta Norte"),
+        ("Felipe", "Nogueira", "Masculino", "Aguas Claras"),
+        ("Renata", "Moreira", "Feminino", "Samambaia"),
+        ("Gustavo", "Pinto", "Masculino", "Ceilandia"),
+        ("Carolina", "Dias", "Feminino", "Taguatinga Norte"),
+        ("Leandro", "Correia", "Masculino", "Vicente Pires"),
+        ("Isabela", "Monteiro", "Feminino", "Ponte Alta Norte"),
+        ("Vinicius", "Batista", "Masculino", "Aguas Claras"),
+        ("Priscila", "Cavalcante", "Feminino", "Guara"),
+        ("Eduardo", "Farias", "Masculino", "Taguatinga Sul"),
+        ("Natalia", "Rocha", "Feminino", "Samambaia"),
+        ("Otavio", "Vieira", "Masculino", "Ceilandia"),
+        ("Tatiane", "Melo", "Feminino", "Ponte Alta Norte"),
+        ("Andre", "Sales", "Masculino", "Aguas Claras"),
+        ("Simone", "Aragao", "Feminino", "Vicente Pires"),
+    ]
+    favorite_item_pool = [
+        "Paracetamol 750mg", "Vitamina D3", "Protetor Labial FPS 30", "Whey Protein Concentrado",
+        "Fralda Infantil Premium", "Omega 3 1000mg", "Shampoo Anticaspa", "Alcool em Gel 70%",
+    ]
+    tier_cycle = ["Bronze", "Prata", "Ouro"]
+    for row_index, (first_name, last_name, gender, district) in enumerate(bulk_customer_rows):
+        key = f"bulk_customer_{row_index:02d}"
+        full_name = first_name + " " + last_name
+        tier = tier_cycle[row_index % len(tier_cycle)]
+        is_recurring = row_index % 2 == 0
+        orders_count = 1 + (row_index * 3) % 14
+        average_ticket = Decimal("60.00") + Decimal(str((row_index * 17) % 180))
+        total_spent = (average_ticket * orders_count).quantize(Decimal("0.01"))
+        cashback_balance = (total_spent * Decimal("0.02")).quantize(Decimal("0.01"))
+        birth_year = 1968 + (row_index * 3) % 38
+        favorite_a = favorite_item_pool[row_index % len(favorite_item_pool)]
+        favorite_b = favorite_item_pool[(row_index + 3) % len(favorite_item_pool)]
+        customers[key] = Customer(
+            id=seed_uuid("customer-" + key),
+            tenant_id=TENANT_ID,
+            external_code=f"CRM-{row_index + 6:04d}",
+            full_name=full_name,
+            email=f"{first_name.lower()}.{last_name.lower()}@cliente.farmaura.com.br",
+            phone=f"+55 61 99{860 + row_index:03d}-{1000 + row_index * 7:04d}",
+            cpf=f"{100 + row_index:03d}.{200 + row_index:03d}.{300 + row_index:03d}-{10 + row_index % 90:02d}",
+            birth_date=f"{birth_year:04d}-{(row_index % 12) + 1:02d}-{(row_index % 27) + 1:02d}",
+            gender=gender,
+            avatar_url="",
+            loyalty_tier=tier,
+            is_recurring=is_recurring,
+            two_factor_enabled=False,
+            member_since_label=f"{['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][row_index % 12]} de {2022 + row_index % 4}",
+            city_label="Brasilia",
+            district_label=district,
+            cashback_balance=money(str(cashback_balance)),
+            orders_count=orders_count,
+            total_spent=money(str(total_spent)),
+            average_ticket=money(str(average_ticket)),
+            last_purchase_days_ago=1 + (row_index * 2) % 25,
+            purchase_frequency_days=14 + (row_index * 3) % 30,
+            tenure_months=3 + (row_index * 5) % 48,
+            active_subscriptions=["SUB-BULK-" + f"{row_index:03d}"] if row_index % 6 == 0 else [],
+            favorite_items=[favorite_a, favorite_b],
+            top_products_snapshot=[{"name": favorite_a, "count": 2 + row_index % 4}, {"name": favorite_b, "count": 1 + row_index % 3}],
+            interest_tags=["marketplace", "entrega-rapida"] if row_index % 2 == 0 else ["retirada-loja", "bem-estar"],
+            category_mix_snapshot=[{"category": "Medicamentos", "share": 55 + row_index % 20}, {"category": "Bem-estar", "share": 45 - row_index % 20}],
+            monthly_orders_snapshot=[row_index % 3, (row_index + 1) % 3, (row_index + 2) % 3, row_index % 2, (row_index + 1) % 2, row_index % 4],
+            marketing_program_preferences=[{"name": "Cashback Farmaura", "enabled": row_index % 3 != 0}],
+            communication_channel_preferences=[{"channel": "whatsapp", "enabled": True}, {"channel": "email", "enabled": row_index % 2 == 0}],
+            is_active=True,
+        )
+
+    return customers
+
 
 def build_catalog() -> dict[str, dict[str, object]]:
     """Build product, inventory, listing, and cashback catalog records."""
@@ -539,12 +796,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "Genfar",
             "category": "Medicamentos",
+            "therapeutic_class": "Anti-hipertensivo",
+            "cnae": "47.71-7-01",
             "ean": "7896004700011",
             "location": "A1-01",
             "batch": "LOT-LOS-2608",
             "expiry": "08/2027",
             "quantity": 64,
             "minimum": 12,
+            "low_stock_threshold": 12,
+            "attention_stock_threshold": 24,
+            "normal_stock_threshold": 40,
             "acquisition_cost": "16.20",
             "market_reference_price": "31.90",
             "promo": "0.00",
@@ -566,12 +828,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": True,
             "brand": "EMS",
             "category": "Medicamentos",
+            "therapeutic_class": "Antibiótico",
+            "cnae": "47.71-7-01",
             "ean": "7894916500028",
             "location": "A1-05",
             "batch": "LOT-AMO-2607",
             "expiry": "07/2027",
             "quantity": 29,
             "minimum": 8,
+            "low_stock_threshold": 10,
+            "attention_stock_threshold": 35,
+            "normal_stock_threshold": 60,
             "acquisition_cost": "19.80",
             "market_reference_price": "38.50",
             "promo": "4.00",
@@ -593,12 +860,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": True,
             "brand": "Medley",
             "category": "Medicamentos",
+            "therapeutic_class": "Ansiolítico",
+            "cnae": "47.71-7-01",
             "ean": "7896422500037",
             "location": "CONTROL-02",
             "batch": "LOT-CLO-2610",
             "expiry": "10/2027",
             "quantity": 18,
             "minimum": 6,
+            "low_stock_threshold": 20,
+            "attention_stock_threshold": 35,
+            "normal_stock_threshold": 50,
             "acquisition_cost": "9.90",
             "market_reference_price": "23.90",
             "promo": "0.00",
@@ -611,6 +883,7 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "cashback_min": "0.00",
             "cashback_max": "0.00",
             "is_controlled": True,
+            "controlled_category": "black_stripe",
         },
         {
             "key": "vitamin_c",
@@ -621,12 +894,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "Neo Quimica",
             "category": "Bem-estar",
+            "therapeutic_class": "Vitaminas e Suplementos",
+            "cnae": "47.29-6-99",
             "ean": "7896112400045",
             "location": "B2-03",
             "batch": "LOT-VIT-2609",
             "expiry": "09/2027",
             "quantity": 51,
             "minimum": 10,
+            "low_stock_threshold": 10,
+            "attention_stock_threshold": 20,
+            "normal_stock_threshold": 35,
             "acquisition_cost": "13.20",
             "market_reference_price": "27.90",
             "promo": "8.00",
@@ -648,12 +926,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "La Roche-Posay",
             "category": "Perfumaria",
+            "therapeutic_class": "Dermocosmético",
+            "cnae": "47.72-5-00",
             "ean": "7899706200052",
             "location": "C4-01",
             "batch": "LOT-SUN-2701",
             "expiry": "01/2028",
-            "quantity": 23,
+            "quantity": 0,
             "minimum": 6,
+            "low_stock_threshold": 6,
+            "attention_stock_threshold": 12,
+            "normal_stock_threshold": 20,
             "acquisition_cost": "39.80",
             "market_reference_price": "67.90",
             "promo": "5.00",
@@ -675,12 +958,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "Pampers",
             "category": "Infantil",
+            "therapeutic_class": "Cuidados Infantis",
+            "cnae": "47.72-5-00",
             "ean": "7891023400064",
             "location": "D1-02",
             "batch": "LOT-DIA-2606",
             "expiry": "06/2028",
             "quantity": 31,
             "minimum": 8,
+            "low_stock_threshold": 10,
+            "attention_stock_threshold": 40,
+            "normal_stock_threshold": 60,
             "acquisition_cost": "52.10",
             "market_reference_price": "79.90",
             "promo": "3.00",
@@ -702,12 +990,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "Novalgina",
             "category": "Medicamentos",
+            "therapeutic_class": "Analgésico e Antitérmico",
+            "cnae": "47.71-7-01",
             "ean": "7896002300073",
             "location": "A2-07",
             "batch": "LOT-DIP-2608",
             "expiry": "08/2027",
             "quantity": 78,
             "minimum": 18,
+            "low_stock_threshold": 15,
+            "attention_stock_threshold": 30,
+            "normal_stock_threshold": 50,
             "acquisition_cost": "8.10",
             "market_reference_price": "16.90",
             "promo": "0.00",
@@ -729,12 +1022,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "Principia",
             "category": "Perfumaria",
+            "therapeutic_class": "Dermocosmético",
+            "cnae": "47.72-5-00",
             "ean": "7896034500081",
             "location": "C4-09",
             "batch": "LOT-SER-2611",
             "expiry": "11/2027",
             "quantity": 19,
             "minimum": 5,
+            "low_stock_threshold": 20,
+            "attention_stock_threshold": 35,
+            "normal_stock_threshold": 50,
             "acquisition_cost": "58.40",
             "market_reference_price": "95.50",
             "promo": "7.50",
@@ -756,12 +1054,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "Accu-Chek",
             "category": "Bem-estar",
+            "therapeutic_class": "Diagnóstico e Monitoramento",
+            "cnae": "47.73-3-00",
             "ean": "7896023400098",
             "location": "B3-01",
             "batch": "LOT-GLI-2609",
             "expiry": "09/2027",
             "quantity": 26,
             "minimum": 8,
+            "low_stock_threshold": 8,
+            "attention_stock_threshold": 16,
+            "normal_stock_threshold": 22,
             "acquisition_cost": "42.90",
             "market_reference_price": "69.90",
             "promo": "0.00",
@@ -783,12 +1086,17 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "requires_prescription": False,
             "brand": "EMS",
             "category": "Medicamentos",
+            "therapeutic_class": "Antiflatulento",
+            "cnae": "47.71-7-01",
             "ean": "7896009100108",
             "location": "A3-02",
             "batch": "LOT-SIM-2702",
             "expiry": "02/2028",
             "quantity": 37,
             "minimum": 10,
+            "low_stock_threshold": 10,
+            "attention_stock_threshold": 20,
+            "normal_stock_threshold": 30,
             "acquisition_cost": "9.10",
             "market_reference_price": "18.90",
             "promo": "0.00",
@@ -803,42 +1111,170 @@ def build_catalog() -> dict[str, dict[str, object]]:
         },
     ]
 
-    products: dict[str, Product] = {}
+    # Additional catalog volume for a realistic single-day operation ("dia de
+    # atendimento") — every entry here is OTC/non-controlled by design, so bulk
+    # daily sales generated in build_daily_operations() never touch the
+    # prescription-approval workflow. Fields are derived from a compact table
+    # instead of hand-written per product, purely to keep this maintainable at
+    # this volume; the derivation is deterministic (no RNG), so `quantity` here
+    # is simply each item's opening stock for the day.
+    bulk_product_rows = [
+        ("paracetamol", "Paracetamol 750mg 20 comprimidos", "Medley", "Medicamentos", "Analgésico e Antitérmico", "9.90", "4.80", "47.71-7-01"),
+        ("ibuprofen", "Ibuprofeno 400mg 20 comprimidos", "EMS", "Medicamentos", "Anti-inflamatório", "12.90", "6.30", "47.71-7-01"),
+        ("loratadine", "Loratadina 10mg 12 comprimidos", "Neo Quimica", "Medicamentos", "Antialérgico", "11.50", "5.60", "47.71-7-01"),
+        ("omeprazole", "Omeprazol 20mg 28 capsulas", "EMS", "Medicamentos", "Antiulceroso", "18.90", "9.40", "47.71-7-01"),
+        ("vitamin_d3", "Vitamina D3 2000UI 60 capsulas", "Sundown", "Bem-estar", "Vitaminas e Suplementos", "34.90", "18.20", "47.29-6-99"),
+        ("complex_b", "Complexo B 30 comprimidos", "Neo Quimica", "Bem-estar", "Vitaminas e Suplementos", "15.90", "7.80", "47.29-6-99"),
+        ("saline", "Soro Fisiologico 0,9% 500ml", "Fresenius", "Medicamentos", "Soro e Hidratação", "8.50", "4.10", "47.71-7-01"),
+        ("melatonin", "Melatonina 5mg 30 comprimidos", "Vitafor", "Bem-estar", "Indutor do Sono", "42.90", "23.50", "47.29-6-99"),
+        ("cough_syrup", "Xarope Guaco Adulto 120ml", "Vick", "Medicamentos", "Antitussígeno e Expectorante", "22.90", "11.40", "47.71-7-01"),
+        ("propolis", "Pastilha Propolis 24 unidades", "Farmavida", "Bem-estar", "Vitaminas e Suplementos", "13.90", "6.70", "47.29-6-99"),
+        ("whey_protein", "Whey Protein Concentrado 900g", "Growth", "Bem-estar", "Vitaminas e Suplementos", "129.90", "78.00", "47.29-6-99"),
+        ("collagen", "Colageno Hidrolisado 300g", "Vitafor", "Bem-estar", "Vitaminas e Suplementos", "79.90", "45.00", "47.29-6-99"),
+        ("omega3", "Omega 3 1000mg 60 capsulas", "Sundown", "Bem-estar", "Vitaminas e Suplementos", "59.90", "32.00", "47.29-6-99"),
+        ("magnesium", "Magnesio Dimalato 60 capsulas", "Vitafor", "Bem-estar", "Vitaminas e Suplementos", "44.90", "24.50", "47.29-6-99"),
+        ("probiotic", "Probiotico 30 capsulas", "Floratil", "Bem-estar", "Vitaminas e Suplementos", "54.90", "29.80", "47.29-6-99"),
+        ("facial_moisturizer", "Hidratante Facial Niacinamida 30g", "La Roche-Posay", "Perfumaria", "Dermocosmético", "79.90", "48.00", "47.72-5-00"),
+        ("shampoo", "Shampoo Anticaspa 200ml", "Head e Shoulders", "Perfumaria", "Dermocosmético", "24.90", "13.50", "47.72-5-00"),
+        ("intimate_soap", "Sabonete Liquido Intimo 200ml", "Cicatricure", "Perfumaria", "Higiene Íntima", "19.90", "10.20", "47.72-5-00"),
+        ("night_cream", "Creme Antissinais Noturno 45g", "Vichy", "Perfumaria", "Dermocosmético", "129.90", "76.00", "47.72-5-00"),
+        ("lip_balm", "Protetor Labial FPS 30 4g", "Nivea", "Perfumaria", "Dermocosmético", "14.90", "7.30", "47.72-5-00"),
+        ("diapers_m", "Fralda Infantil Premium tamanho M 56 unidades", "Huggies", "Infantil", "Cuidados Infantis", "68.90", "41.00", "47.72-5-00"),
+        ("baby_wipes", "Lenco Umedecido Infantil 192 unidades", "Pampers", "Infantil", "Cuidados Infantis", "29.90", "16.50", "47.72-5-00"),
+        ("baby_vitamin", "Vitamina Infantil Gotas 30ml", "Protovit", "Infantil", "Vitaminas Infantis", "32.90", "17.00", "47.71-7-01"),
+        ("diaper_rash_cream", "Pomada para Assadura 45g", "Bepantol Baby", "Infantil", "Cuidados Infantis", "26.90", "14.20", "47.71-7-01"),
+        ("toothbrush", "Escova Dental Macia Kit 2 unidades", "Oral-B", "Higiene", "Higiene Bucal", "16.90", "8.10", "47.72-5-00"),
+        ("dental_floss", "Fio Dental 50m", "Colgate", "Higiene", "Higiene Bucal", "9.90", "4.60", "47.72-5-00"),
+        ("hand_sanitizer", "Alcool em Gel 70% 500ml", "Asseio", "Higiene", "Antisséptico", "12.90", "6.20", "47.89-0-05"),
+        ("thermometer", "Termometro Digital", "G-Tech", "Higiene", "Equipamentos e Acessórios", "24.90", "13.80", "47.73-3-00"),
+        ("face_mask", "Mascara Descartavel Tripla Camada 50 unidades", "Descarpack", "Higiene", "Equipamentos e Acessórios", "34.90", "19.50", "47.73-3-00"),
+        ("adhesive_bandage", "Curativo Adesivo Caixa 100 unidades", "Band-Aid", "Higiene", "Primeiros Socorros", "18.90", "9.90", "47.73-3-00"),
+    ]
+    location_prefix_by_category = {
+        "Medicamentos": "A", "Bem-estar": "B", "Perfumaria": "C", "Infantil": "D", "Higiene": "E",
+    }
+    expiry_cycle = ["06/2027", "07/2027", "08/2027", "09/2027", "10/2027", "11/2027", "12/2027", "01/2028", "02/2028", "03/2028"]
+    location_index_by_category: dict[str, int] = {}
+    for row_index, (key, name, brand, category, therapeutic_class, price_text, cost_text, cnae) in enumerate(bulk_product_rows):
+        price = Decimal(price_text)
+        cost = Decimal(cost_text)
+        quantity = max(18, min(120, round(Decimal("500") / price)))
+        low_threshold = max(4, round(quantity * Decimal("0.20")))
+        attention_threshold = max(low_threshold + 2, round(quantity * Decimal("0.40")))
+        normal_threshold = max(attention_threshold + 2, round(quantity * Decimal("0.65")))
+        is_perfumaria = category == "Perfumaria"
+        has_promo = row_index % 3 == 0
+        promo_percent = Decimal("5.00") if has_promo else Decimal("0.00")
+        published_price = (price * (Decimal("100.00") - promo_percent) / Decimal("100.00")).quantize(Decimal("0.01"))
+        market_reference_price = (price * Decimal("1.18")).quantize(Decimal("0.01"))
+        target_margin = ((price - cost) / price * Decimal("100.00")).quantize(Decimal("0.01"))
+        cashback_percent = {"Medicamentos": "3.00", "Higiene": "5.00", "Infantil": "6.00"}.get(category, "9.00")
+        cashback_min = "10.00" if category in ("Medicamentos", "Higiene") else "30.00"
+        cashback_max = "8.00" if category in ("Medicamentos", "Higiene") else "18.00"
+        location_index_by_category[category] = location_index_by_category.get(category, 0) + 1
+        location = location_prefix_by_category[category] + "5-" + f"{location_index_by_category[category]:02d}"
+        product_specs.append({
+            "key": key,
+            "sku": f"FA-PROD-{row_index + 11:03d}",
+            "name": name,
+            "description": name + " - uso conforme orientacao da embalagem.",
+            "price": str(price),
+            "requires_prescription": False,
+            "brand": brand,
+            "category": category,
+            "therapeutic_class": therapeutic_class,
+            "cnae": cnae,
+            "ean": f"7896{row_index:09d}",
+            "location": location,
+            "batch": "LOT-" + key[:3].upper() + "-2606",
+            "expiry": expiry_cycle[row_index % len(expiry_cycle)],
+            "quantity": quantity,
+            "minimum": max(4, round(quantity * Decimal("0.20"))),
+            "low_stock_threshold": low_threshold,
+            "attention_stock_threshold": attention_threshold,
+            "normal_stock_threshold": normal_threshold,
+            "acquisition_cost": str(cost),
+            "market_reference_price": str(market_reference_price),
+            "promo": str(promo_percent),
+            "published_price": str(published_price),
+            "commission": "8.50" if is_perfumaria else "7.50",
+            "payment_fee": "2.69" if is_perfumaria else "2.49",
+            "fixed_fee": "0.99" if is_perfumaria else "0.79",
+            "target_margin": str(target_margin),
+            "cashback_percent": cashback_percent,
+            "cashback_min": cashback_min,
+            "cashback_max": cashback_max,
+        })
+
+    brands: dict[str, Brand] = {}
+    categories: dict[str, Category] = {}
+    therapeutic_classes: dict[str, TherapeuticClass] = {}
+    inventory_products: dict[str, InventoryProduct] = {}
     inventory: dict[str, InventoryItem] = {}
     listings: dict[str, MarketplaceListing] = {}
     rules: dict[str, CashbackRule] = {}
 
     for spec in product_specs:
         key = str(spec["key"])
-        products[key] = Product(
-            id=seed_uuid("product-" + key),
+        brand_name = str(spec["brand"])
+        if brand_name not in brands:
+            brands[brand_name] = Brand(
+                id=seed_uuid("brand-" + brand_name),
+                tenant_id=TENANT_ID,
+                name=brand_name,
+                description="",
+                logo_url="",
+                is_active=True,
+            )
+        category_name = str(spec["category"])
+        if category_name not in categories:
+            categories[category_name] = Category(
+                id=seed_uuid("category-" + category_name),
+                tenant_id=TENANT_ID,
+                name=category_name,
+                description="",
+                is_active=True,
+            )
+        therapeutic_class_name = str(spec["therapeutic_class"])
+        if therapeutic_class_name not in therapeutic_classes:
+            therapeutic_classes[therapeutic_class_name] = TherapeuticClass(
+                id=seed_uuid("therapeutic-class-" + therapeutic_class_name),
+                tenant_id=TENANT_ID,
+                name=therapeutic_class_name,
+                description="",
+                category_id=categories[category_name].id,
+                is_active=True,
+            )
+        inventory_products[key] = InventoryProduct(
+            id=seed_uuid("inventory-product-" + key),
             tenant_id=TENANT_ID,
             sku=str(spec["sku"]),
+            ean_code=str(spec["ean"]),
             name=str(spec["name"]),
-            description=str(spec["description"]),
-            price=money(str(spec["price"])),
-            requires_prescription=bool(spec["requires_prescription"]),
-            is_active=True,
+            brand_id=brands[brand_name].id,
+            category_id=categories[category_name].id,
+            therapeutic_class_id=therapeutic_classes[therapeutic_class_name].id,
+            is_controlled=bool(spec.get("is_controlled", False)),
+            controlled_category=str(spec.get("controlled_category", "none")),
+            cnae_code=str(spec["cnae"]),
         )
         inventory[key] = InventoryItem(
             id=seed_uuid("inventory-" + key),
             tenant_id=TENANT_ID,
             store_id=STORE_ID,
-            sku=str(spec["sku"]),
-            name=str(spec["name"]),
-            brand_name=str(spec["brand"]),
-            category_name=str(spec["category"]),
-            ean_code=str(spec["ean"]),
+            product=inventory_products[key],
             storage_location=str(spec["location"]),
             batch_code=str(spec["batch"]),
             expiry_label=str(spec["expiry"]),
             quantity=int(spec["quantity"]),
             minimum_quantity=int(spec["minimum"]),
+            low_stock_threshold=int(spec["low_stock_threshold"]),
+            attention_stock_threshold=int(spec["attention_stock_threshold"]),
+            normal_stock_threshold=int(spec["normal_stock_threshold"]),
             sale_price=money(str(spec["price"])),
             acquisition_cost=money(str(spec["acquisition_cost"])),
             market_reference_price=money(str(spec["market_reference_price"])),
             promotional_discount_percent=money(str(spec["promo"])),
-            is_controlled=bool(spec.get("is_controlled", False)),
             is_active=True,
         )
         listings[key] = MarketplaceListing(
@@ -881,11 +1317,76 @@ def build_catalog() -> dict[str, dict[str, object]]:
             is_active=money(str(spec["cashback_percent"])) > Decimal("0.00"),
         )
 
+    second_store_specs = {
+        "losartan": {"location": "B1-02", "batch": "LOT-LOS-2611-AC", "quantity": 22},
+        "dipyrone": {"location": "A1-04", "batch": "LOT-DIP-2610-AC", "quantity": 40},
+        "vitamin_c": {"location": "B2-05", "batch": "LOT-VIT-2701-AC", "quantity": 15},
+    }
+    specs_by_key = {str(spec["key"]): spec for spec in product_specs}
+    for key, overrides in second_store_specs.items():
+        spec = specs_by_key[key]
+        second_key = key + "_aguas_claras"
+        inventory[second_key] = InventoryItem(
+            id=seed_uuid("inventory-" + second_key),
+            tenant_id=TENANT_ID,
+            store_id=SECOND_STORE_ID,
+            product=inventory_products[key],
+            storage_location=str(overrides["location"]),
+            batch_code=str(overrides["batch"]),
+            expiry_label=str(spec["expiry"]),
+            quantity=int(overrides["quantity"]),
+            minimum_quantity=int(spec["minimum"]),
+            low_stock_threshold=int(spec["low_stock_threshold"]),
+            attention_stock_threshold=int(spec["attention_stock_threshold"]),
+            normal_stock_threshold=int(spec["normal_stock_threshold"]),
+            sale_price=money(str(spec["price"])),
+            acquisition_cost=money(str(spec["acquisition_cost"])),
+            market_reference_price=money(str(spec["market_reference_price"])),
+            promotional_discount_percent=money(str(spec["promo"])),
+            is_active=True,
+        )
+
+    # Give every remaining product an independent Store 2 (Aguas Claras) row too —
+    # previously only 3 of 10 products existed in Store 2 at all, which made the
+    # admin store switcher and store-scoped RLS hard to demo. Location/batch codes
+    # get an "-AC" suffix so they never collide with a Store 1 code, and Store 2's
+    # opening quantity is a smaller fraction of Store 1's (a real second branch
+    # rarely carries identical stock levels to the flagship store).
+    for key, spec in specs_by_key.items():
+        second_key = key + "_aguas_claras"
+        if second_key in inventory:
+            continue
+        base_quantity = int(spec["quantity"])
+        second_quantity = max(6, round(base_quantity * 0.55))
+        inventory[second_key] = InventoryItem(
+            id=seed_uuid("inventory-" + second_key),
+            tenant_id=TENANT_ID,
+            store_id=SECOND_STORE_ID,
+            product=inventory_products[key],
+            storage_location=str(spec["location"]) + "-AC",
+            batch_code=str(spec["batch"]) + "-AC",
+            expiry_label=str(spec["expiry"]),
+            quantity=second_quantity,
+            minimum_quantity=int(spec["minimum"]),
+            low_stock_threshold=int(spec["low_stock_threshold"]),
+            attention_stock_threshold=int(spec["attention_stock_threshold"]),
+            normal_stock_threshold=int(spec["normal_stock_threshold"]),
+            sale_price=money(str(spec["price"])),
+            acquisition_cost=money(str(spec["acquisition_cost"])),
+            market_reference_price=money(str(spec["market_reference_price"])),
+            promotional_discount_percent=money(str(spec["promo"])),
+            is_active=True,
+        )
+
     return {
-        "products": products,
+        "brands": brands,
+        "categories": categories,
+        "therapeutic_classes": therapeutic_classes,
+        "inventory_products": inventory_products,
         "inventory": inventory,
         "listings": listings,
         "rules": rules,
+        "bulk_product_keys": [row[0] for row in bulk_product_rows],
     }
 
 
@@ -1065,6 +1566,60 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
         ),
     ]
 
+    # One address, wallet, and (usually) one payment method per bulk customer —
+    # mirrors the curated pattern above but generated to match build_customers()'s
+    # bulk_customer_NN keys.
+    bulk_card_brands = ["Visa", "Mastercard", "Elo", "Hipercard"]
+    for row_index, key in enumerate(sorted(k for k in customers if k.startswith("bulk_customer_"))):
+        customer = customers[key]
+        postal_code = f"7{1000 + (row_index * 37) % 9000:04d}-{100 + row_index % 900:03d}"
+        addresses.append(
+            CustomerAddress(
+                id=seed_uuid("address-" + key),
+                customer_id=customer.id,
+                label="Casa",
+                postal_code=postal_code,
+                street_line=f"Rua {10 + row_index}, Quadra {1 + row_index % 30}, Casa {100 + row_index}",
+                district=customer.district_label,
+                city="Brasilia",
+                state_code="DF",
+                complement="",
+                reference_note="",
+                recipient_name=customer.full_name,
+                recipient_phone=customer.phone,
+                is_primary=True,
+                is_active=True,
+            )
+        )
+        wallets.append(
+            CustomerCashbackWallet(
+                id=seed_uuid("wallet-" + key),
+                customer_id=customer.id,
+                available_balance=customer.cashback_balance,
+                pending_balance=money("0.00"),
+                redeemed_total=money("0.00"),
+                expired_total=money("0.00"),
+                lifetime_earned_total=customer.cashback_balance,
+            )
+        )
+        if row_index % 3 != 0:
+            brand = bulk_card_brands[row_index % len(bulk_card_brands)]
+            payment_methods.append(
+                CustomerPaymentMethod(
+                    id=seed_uuid("payment-" + key),
+                    customer_id=customer.id,
+                    provider_name="seed-gateway",
+                    provider_token="tok_seed_" + key,
+                    brand_name=brand,
+                    last_four_digits=f"{1000 + row_index * 3 % 9000:04d}"[-4:],
+                    holder_name=customer.full_name,
+                    expiration_month=f"{1 + row_index % 12:02d}",
+                    expiration_year=str(2027 + row_index % 4),
+                    is_primary=True,
+                    is_active=True,
+                )
+            )
+
     return {
         "addresses": addresses,
         "payment_methods": payment_methods,
@@ -1072,12 +1627,246 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
     }
 
 
-def build_inventory_operations(catalog: dict[str, dict[str, object]]) -> dict[str, list[object]]:
-    """Build storage locations and initial stock movements from seeded inventory."""
+def build_suppliers() -> dict[str, Supplier]:
+    """Build the deterministic supplier registry used by seeded stock lots and brand links."""
+
+    return {
+        "central": Supplier(
+            id=seed_uuid("supplier-central"),
+            tenant_id=TENANT_ID,
+            legal_name="Distribuidora Central de Medicamentos Ltda",
+            trade_name="Central Med",
+            cnpj="12345678000199",
+            email="comercial@centralmed.com.br",
+            phone="6132223344",
+            website="https://centralmed.com.br",
+            category="Distribuidora",
+            contact_person_name="Roberto Alves",
+            uf="DF",
+            city="Brasília",
+            address_line="SIA Trecho 3, Brasília, DF",
+            lead_time_days=5,
+            minimum_order_amount=Decimal("300.00"),
+            freight_policy="CIF",
+            payment_terms="30/60/90 dias",
+            notes="Fornecedor principal para reposição semanal.",
+            is_active=True,
+        ),
+        "farmalink": Supplier(
+            id=seed_uuid("supplier-farmalink"),
+            tenant_id=TENANT_ID,
+            legal_name="Farmalink Distribuidora Nacional Ltda",
+            trade_name="Farmalink",
+            cnpj="23456789000188",
+            email="vendas@farmalink.com.br",
+            phone="1140028922",
+            website="https://farmalink.com.br",
+            category="Distribuidora",
+            contact_person_name="Juliana Prado",
+            uf="SP",
+            city="São Paulo",
+            address_line="Av. das Nações Unidas, 12000, São Paulo, SP",
+            lead_time_days=3,
+            minimum_order_amount=Decimal("500.00"),
+            freight_policy="FOB",
+            payment_terms="28 dias",
+            notes="Distribuidor nacional com portfólio amplo, usado como segunda fonte de várias marcas.",
+            is_active=True,
+        ),
+        "belezapura": Supplier(
+            id=seed_uuid("supplier-belezapura"),
+            tenant_id=TENANT_ID,
+            legal_name="Beleza Pura Higiene e Perfumaria Ltda",
+            trade_name="Beleza Pura",
+            cnpj="34567890000177",
+            email="comercial@belezapura.com.br",
+            phone="4732014455",
+            website="https://belezapura.com.br",
+            category="Distribuidora especializada",
+            contact_person_name="Marcos Vinícius",
+            uf="SC",
+            city="Blumenau",
+            address_line="Rua XV de Novembro, 850, Blumenau, SC",
+            lead_time_days=7,
+            minimum_order_amount=Decimal("400.00"),
+            freight_policy="CIF",
+            payment_terms="30/45 dias",
+            notes="Especializado em perfumaria, dermocosméticos e itens infantis.",
+            is_active=True,
+        ),
+    }
+
+
+def build_brand_suppliers(catalog: dict[str, dict[str, object]], suppliers: dict[str, Supplier]) -> list[BrandSupplier]:
+    """Link each brand to the supplier(s) that distribute it.
+
+    Derived from the categories a brand's products belong to, so a brand whose
+    products span more than one category resolves to more than one supplier —
+    demonstrating that the Marcas screen supports a brand having several
+    suppliers, instead of leaving every brand pointing at a single one.
+    """
+
+    category_supplier_keys = {
+        "Medicamentos": ["central", "farmalink"],
+        "Bem-estar": ["farmalink", "belezapura"],
+        "Perfumaria": ["belezapura", "farmalink"],
+        "Infantil": ["belezapura"],
+        "Higiene": ["farmalink"],
+    }
+
+    brand_name_by_id = {brand.id: name for name, brand in catalog["brands"].items()}
+    category_name_by_id = {category.id: name for name, category in catalog["categories"].items()}
+
+    brand_category_names: dict[str, set[str]] = {}
+    for product in catalog["inventory_products"].values():
+        brand_name = brand_name_by_id.get(product.brand_id)
+        category_name = category_name_by_id.get(product.category_id)
+        if not brand_name or not category_name:
+            continue
+        brand_category_names.setdefault(brand_name, set()).add(category_name)
+
+    links: list[BrandSupplier] = []
+    for brand_name, category_names in brand_category_names.items():
+        supplier_keys: list[str] = []
+        for category_name in sorted(category_names):
+            for supplier_key in category_supplier_keys.get(category_name, ["central"]):
+                if supplier_key not in supplier_keys:
+                    supplier_keys.append(supplier_key)
+        brand_id = catalog["brands"][brand_name].id
+        for supplier_key in supplier_keys:
+            links.append(
+                BrandSupplier(
+                    id=seed_uuid("brand-supplier-" + brand_name + "-" + supplier_key),
+                    tenant_id=TENANT_ID,
+                    brand_id=brand_id,
+                    supplier_id=suppliers[supplier_key].id,
+                )
+            )
+    return links
+
+
+def parse_expiry_label_to_date(expiry_label: str) -> date | None:
+    """Convert a 'MM/AAAA' expiry label into the last calendar day of that month."""
+
+    parts = expiry_label.split("/")
+    if len(parts) != 2:
+        return None
+    try:
+        month = int(parts[0])
+        year = int(parts[1])
+    except ValueError:
+        return None
+    next_month = date(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1)
+    return next_month - timedelta(days=1)
+
+
+def build_inventory_operations(
+    catalog: dict[str, dict[str, object]],
+    suppliers: dict[str, Supplier],
+    users: dict[str, User],
+    daily_sold: dict[str, int] | None = None,
+) -> dict[str, list[object]]:
+    """Build storage locations, stock lots, movement history, and audit trail entries from seeded inventory.
+
+    `daily_sold` (item key -> quantity sold "today" by build_daily_operations) only
+    ever contains bulk-product keys, never the curated ones with their own
+    purchase_history_by_key narrative below — see build_daily_operations for why.
+    By the time this runs, item.quantity already reflects the post-sales total, so
+    for any key present here the "opening stock this morning" movement is
+    reconstructed as item.quantity + daily_sold[key], followed by one exit
+    movement bringing it back down to item.quantity.
+    """
+
+    daily_sold = daily_sold or {}
 
     inventory = catalog["inventory"]
     locations_by_code: dict[str, InventoryLocation] = {}
     movements: list[InventoryMovement] = []
+    stock_lots: list[InventoryStockLot] = []
+    lot_movements: list[InventoryLotMovement] = []
+    audit_entries: list[InventoryAuditEntry] = []
+    invoice_records: list[InventoryInvoiceRecord] = []
+    invoice_files: list[tuple[str, bytes]] = []
+    default_supplier = suppliers["central"]
+
+    # A handful of the "entry" restock events below carry a real NF- reference
+    # code — these are the ones that get a matching InventoryInvoiceRecord (and
+    # a placeholder XML file on disk), demonstrating the nota-fiscal-per-product
+    # history the pricing screen's admin-only "Anexar nota fiscal" modal reads.
+    invoice_extra_amount_by_reference: dict[str, Decimal] = {
+        "NF-2026-3412": Decimal("142.30"),
+    }
+
+    # Demonstrates the same batch split across estoque, showroom gôndola, and
+    # multiple prateleiras at once — the exact scenario the traceability
+    # screens are built to surface.
+    shelf_splits_by_key: dict[str, list[dict[str, object]]] = {
+        "amoxicillin": [
+            {
+                "location_key": "balcao-01",
+                "code": "BALCAO-01",
+                "name": "Prateleira balcão 1",
+                "zone": "Balcão",
+                "location_type": "prateleira",
+                "description": "Seeded shelf location demonstrating a batch split across the store.",
+                "quantity": 5,
+                "received_offset_days": 2,
+            },
+            {
+                "location_key": "balcao-02",
+                "code": "BALCAO-02",
+                "name": "Prateleira balcão 2",
+                "zone": "Balcão",
+                "location_type": "prateleira",
+                "description": "Seeded secondary shelf location for the same batch.",
+                "quantity": 4,
+                "received_offset_days": 3,
+            },
+            {
+                "location_key": "showroom-gondola-01",
+                "code": "SHOWROOM-GOND-01",
+                "name": "Gôndola showroom 1",
+                "zone": "Show room",
+                "location_type": "gondola",
+                "description": "Seeded showroom gôndola location demonstrating a batch split across the store.",
+                "quantity": 8,
+                "received_offset_days": 4,
+            },
+        ],
+    }
+
+    # Gives a handful of high-turnover items a real purchase/repurchase/sale
+    # history (multiple InventoryMovement entries, staggered over the last
+    # ~90 days, from different suppliers-facing staff) instead of a single
+    # "initial stock" event — this is the timeline the audit trail screen is
+    # meant to surface. Every item's final resulting_quantity below must
+    # equal the item's seeded `quantity` in product_specs.
+    purchase_history_by_key: dict[str, list[dict[str, object]]] = {
+        "losartan": [
+            {"movement_type": "initial", "delta": 40, "reason": "Seeded initial stock", "note": "Initial stock registration created by deterministic seed.", "reference_code": "SEED-INITIAL", "unit_cost": Decimal("15.80"), "days_ago": 90, "user_key": "user-pharmacist-lead"},
+            {"movement_type": "entry", "delta": 30, "reason": "Reposição de estoque - compra recorrente", "note": "Recompra junto ao fornecedor habitual para repor o giro do mês.", "reference_code": "NF-2026-3412", "unit_cost": Decimal("16.00"), "days_ago": 35, "user_key": "user-pharmacist-lead"},
+            {"movement_type": "exit", "delta": -6, "reason": "pdv_sale", "note": "Venda registrada no PDV.", "reference_code": "PV-8B21F0A4", "unit_cost": Decimal("16.00"), "days_ago": 6, "user_key": "user-cashier-lead"},
+        ],
+        "vitamin_c": [
+            {"movement_type": "initial", "delta": 30, "reason": "Seeded initial stock", "note": "Initial stock registration created by deterministic seed.", "reference_code": "SEED-INITIAL", "unit_cost": Decimal("12.50"), "days_ago": 75, "user_key": "user-pharmacist-support"},
+            {"movement_type": "entry", "delta": 25, "reason": "Reposição de estoque - compra recorrente", "note": "Recompra para atender a alta procura sazonal.", "reference_code": "NF-2026-3455", "unit_cost": Decimal("13.20"), "days_ago": 20, "user_key": "user-pharmacist-support"},
+            {"movement_type": "exit", "delta": -4, "reason": "pdv_sale", "note": "Venda registrada no PDV.", "reference_code": "PV-5C9E3D17", "unit_cost": Decimal("13.20"), "days_ago": 3, "user_key": "user-cashier-support"},
+        ],
+        "dipyrone": [
+            {"movement_type": "initial", "delta": 50, "reason": "Seeded initial stock", "note": "Initial stock registration created by deterministic seed.", "reference_code": "SEED-INITIAL", "unit_cost": Decimal("7.80"), "days_ago": 80, "user_key": "user-pharmacist-lead"},
+            {"movement_type": "entry", "delta": 40, "reason": "Reposição de estoque - compra recorrente", "note": "Recompra para manter o giro de item de alta saída.", "reference_code": "NF-2026-3399", "unit_cost": Decimal("8.10"), "days_ago": 40, "user_key": "user-pharmacist-lead"},
+            {"movement_type": "exit", "delta": -12, "reason": "pdv_sale", "note": "Venda registrada no PDV.", "reference_code": "PV-A47C1E92", "unit_cost": Decimal("8.10"), "days_ago": 12, "user_key": "user-cashier-lead"},
+        ],
+        "simethicone": [
+            {"movement_type": "initial", "delta": 20, "reason": "Seeded initial stock", "note": "Initial stock registration created by deterministic seed.", "reference_code": "SEED-INITIAL", "unit_cost": Decimal("8.70"), "days_ago": 70, "user_key": "user-pharmacist-support"},
+            {"movement_type": "entry", "delta": 20, "reason": "Reposição de estoque - compra recorrente", "note": "Recompra programada junto ao fornecedor.", "reference_code": "NF-2026-3444", "unit_cost": Decimal("9.10"), "days_ago": 18, "user_key": "user-pharmacist-support"},
+            {"movement_type": "exit", "delta": -3, "reason": "pdv_sale", "note": "Venda registrada no PDV.", "reference_code": "PV-2F6B88D0", "unit_cost": Decimal("9.10"), "days_ago": 5, "user_key": "user-cashier-support"},
+        ],
+        "sunscreen": [
+            {"movement_type": "initial", "delta": 15, "reason": "Seeded initial stock", "note": "Initial stock registration created by deterministic seed.", "reference_code": "SEED-INITIAL", "unit_cost": Decimal("39.80"), "days_ago": 60, "user_key": "user-pharmacist-lead"},
+            {"movement_type": "exit", "delta": -15, "reason": "Ruptura de estoque - alta demanda no período", "note": "Produto esgotado após pico de vendas; reposição pendente junto ao fornecedor.", "reference_code": "AJUSTE-RUPTURA", "unit_cost": Decimal("39.80"), "days_ago": 4, "user_key": "user-pharmacist-lead"},
+        ],
+    }
 
     for key, item in inventory.items():
         if item.storage_location not in locations_by_code:
@@ -1090,32 +1879,400 @@ def build_inventory_operations(catalog: dict[str, dict[str, object]]) -> dict[st
                 zone=item.storage_location.split("-", maxsplit=1)[0],
                 description="Seeded storage location for internal inventory operations.",
                 temperature_range="Ambient",
+                location_type="caixa" if item.storage_location.lower().startswith("cofre") else "estoque",
                 is_controlled_only=item.storage_location.lower().startswith("cofre"),
                 is_active=True,
             )
-        movements.append(
-            InventoryMovement(
-                id=seed_uuid("inventory-movement-initial-" + key),
+
+        history = purchase_history_by_key.get(key)
+        if history:
+            running_quantity = 0
+            for index, event in enumerate(history):
+                event_delta = int(event["delta"])
+                quantity_before = running_quantity
+                running_quantity += event_delta
+                # Reuse the original "initial" movement id for the first event so
+                # re-running the seed updates that row in place instead of leaving
+                # a stale single-event duplicate behind (session.merge never deletes).
+                movement_id = (
+                    seed_uuid("inventory-movement-initial-" + key)
+                    if index == 0
+                    else seed_uuid("inventory-movement-" + key + "-" + str(index))
+                )
+                movements.append(
+                    InventoryMovement(
+                        id=movement_id,
+                        tenant_id=item.tenant_id,
+                        store_id=item.store_id,
+                        inventory_item_id=item.id,
+                        performed_by_user_id=seed_uuid(str(event["user_key"])),
+                        movement_type=str(event["movement_type"]),
+                        quantity_delta=event_delta,
+                        quantity_before=quantity_before,
+                        resulting_quantity=running_quantity,
+                        reason=str(event["reason"]),
+                        note=str(event["note"]),
+                        reference_code=str(event["reference_code"]),
+                        from_location_code=item.storage_location if event_delta < 0 else "",
+                        to_location_code=item.storage_location,
+                        unit_cost_snapshot=Decimal(str(event["unit_cost"])),
+                        created_at=SEED_NOW - timedelta(days=int(event["days_ago"])),
+                    )
+                )
+
+                reference_code = str(event["reference_code"])
+                if str(event["movement_type"]) == "entry" and reference_code.startswith("NF-"):
+                    unit_cost = Decimal(str(event["unit_cost"]))
+                    product_total_amount = (unit_cost * event_delta).quantize(Decimal("0.01"))
+                    invoice_total_amount = product_total_amount + invoice_extra_amount_by_reference.get(
+                        reference_code, Decimal("0.00")
+                    )
+                    issue_date = SEED_NOW - timedelta(days=int(event["days_ago"]))
+                    storage_key = "seed/invoices/" + key + "/" + reference_code + ".xml"
+                    file_content = build_seed_invoice_xml(
+                        reference_code=reference_code,
+                        supplier_name=default_supplier.trade_name or default_supplier.legal_name,
+                        item_name=item.name,
+                        quantity=event_delta,
+                        unit_cost=unit_cost,
+                        product_total_amount=product_total_amount,
+                        invoice_total_amount=invoice_total_amount,
+                        issue_date=issue_date,
+                    )
+                    invoice_records.append(
+                        InventoryInvoiceRecord(
+                            id=seed_uuid("inventory-invoice-" + key + "-" + reference_code),
+                            tenant_id=item.tenant_id,
+                            store_id=item.store_id,
+                            inventory_item_id=item.id,
+                            uploaded_by_user_id=seed_uuid(str(event["user_key"])),
+                            invoice_total_amount=invoice_total_amount,
+                            product_total_amount=product_total_amount,
+                            quantity=event_delta,
+                            unit_cost=unit_cost,
+                            file_name=reference_code + ".xml",
+                            content_type="text/xml",
+                            size_bytes=len(file_content),
+                            storage_key=storage_key,
+                            note="Nota fiscal seedada para " + item.name + " · " + str(event["reason"]),
+                            created_at=issue_date,
+                        )
+                    )
+                    invoice_files.append((storage_key, file_content))
+            assert running_quantity == item.quantity, (
+                "Seeded purchase history for '" + key + "' must end at the item's seeded quantity."
+            )
+        else:
+            sold_today = daily_sold.get(key, 0)
+            opening_quantity = item.quantity + sold_today
+            movements.append(
+                InventoryMovement(
+                    id=seed_uuid("inventory-movement-initial-" + key),
+                    tenant_id=item.tenant_id,
+                    store_id=item.store_id,
+                    inventory_item_id=item.id,
+                    performed_by_user_id=seed_uuid("user-pharmacist-lead"),
+                    movement_type="initial",
+                    quantity_delta=opening_quantity,
+                    quantity_before=0,
+                    resulting_quantity=opening_quantity,
+                    reason="Seeded initial stock",
+                    note="Initial stock registration created by deterministic seed.",
+                    reference_code="SEED-INITIAL",
+                    from_location_code="",
+                    to_location_code=item.storage_location,
+                    unit_cost_snapshot=item.acquisition_cost,
+                    created_at=SEED_NOW - timedelta(days=90),
+                )
+            )
+            if sold_today > 0:
+                movements.append(
+                    InventoryMovement(
+                        id=seed_uuid("inventory-movement-daily-exit-" + key),
+                        tenant_id=item.tenant_id,
+                        store_id=item.store_id,
+                        inventory_item_id=item.id,
+                        performed_by_user_id=seed_uuid("user-pharmacist-lead"),
+                        movement_type="exit",
+                        quantity_delta=-sold_today,
+                        quantity_before=opening_quantity,
+                        resulting_quantity=item.quantity,
+                        reason="Vendas do dia",
+                        note="Saidas geradas pelo seed para simular as vendas de PDV e pedidos online de hoje.",
+                        reference_code="SEED-DAILY-SALES",
+                        from_location_code=item.storage_location,
+                        to_location_code=item.storage_location,
+                        unit_cost_snapshot=item.acquisition_cost,
+                        created_at=SEED_NOW,
+                    )
+                )
+
+        origin_location = locations_by_code[item.storage_location]
+        expiry_date = parse_expiry_label_to_date(item.expiry_label)
+        shelf_splits = shelf_splits_by_key.get(key, [])
+        total_shelf_split_quantity = sum(int(split["quantity"]) for split in shelf_splits)
+        stock_location_quantity = item.quantity - total_shelf_split_quantity
+
+        stock_lot = InventoryStockLot(
+            id=seed_uuid("stock-lot-" + key),
+            tenant_id=item.tenant_id,
+            store_id=item.store_id,
+            inventory_item_id=item.id,
+            location_id=origin_location.id,
+            supplier_id=default_supplier.id,
+            batch_code=item.batch_code or "SEM-LOTE",
+            expiry_date=expiry_date,
+            quantity=stock_location_quantity,
+            status="available",
+            unit_cost_snapshot=item.acquisition_cost,
+            received_at=SEED_NOW - timedelta(days=14),
+            reference_code="SEED-INITIAL",
+        )
+        stock_lots.append(stock_lot)
+        lot_movements.append(
+            InventoryLotMovement(
+                id=seed_uuid("lot-movement-receipt-" + key),
                 tenant_id=item.tenant_id,
                 store_id=item.store_id,
                 inventory_item_id=item.id,
+                stock_lot_id=stock_lot.id,
                 performed_by_user_id=seed_uuid("user-pharmacist-lead"),
-                movement_type="initial",
+                movement_type="receipt",
                 quantity_delta=item.quantity,
                 quantity_before=0,
                 resulting_quantity=item.quantity,
+                to_location_id=origin_location.id,
+                batch_code=stock_lot.batch_code,
+                expiry_date=expiry_date,
                 reason="Seeded initial stock",
                 note="Initial stock registration created by deterministic seed.",
                 reference_code="SEED-INITIAL",
-                from_location_code="",
-                to_location_code=item.storage_location,
+                source_type="manual",
                 unit_cost_snapshot=item.acquisition_cost,
             )
         )
 
+        running_origin_quantity = item.quantity
+        for split in shelf_splits:
+            split_quantity = int(split["quantity"])
+            location_key = str(split["location_key"])
+            split_location = locations_by_code.get(str(split["code"]))
+            if split_location is None:
+                split_location = InventoryLocation(
+                    id=seed_uuid("inventory-location-" + location_key),
+                    tenant_id=item.tenant_id,
+                    store_id=item.store_id,
+                    code=str(split["code"]),
+                    name=str(split["name"]),
+                    zone=str(split["zone"]),
+                    description=str(split["description"]),
+                    temperature_range="Ambient",
+                    location_type=str(split["location_type"]),
+                    is_controlled_only=False,
+                    is_active=True,
+                )
+                locations_by_code[split_location.code] = split_location
+
+            split_quantity_before = running_origin_quantity
+            running_origin_quantity -= split_quantity
+
+            split_lot = InventoryStockLot(
+                id=seed_uuid("stock-lot-" + key + "-" + location_key),
+                tenant_id=item.tenant_id,
+                store_id=item.store_id,
+                inventory_item_id=item.id,
+                location_id=split_location.id,
+                supplier_id=default_supplier.id,
+                batch_code=stock_lot.batch_code,
+                expiry_date=expiry_date,
+                quantity=split_quantity,
+                status="available",
+                unit_cost_snapshot=item.acquisition_cost,
+                received_at=SEED_NOW - timedelta(days=int(split["received_offset_days"])),
+                reference_code="SEED-SHELF-SPLIT",
+            )
+            stock_lots.append(split_lot)
+            lot_movements.append(
+                InventoryLotMovement(
+                    id=seed_uuid("lot-movement-transfer-out-" + key + "-" + location_key),
+                    tenant_id=item.tenant_id,
+                    store_id=item.store_id,
+                    inventory_item_id=item.id,
+                    stock_lot_id=stock_lot.id,
+                    performed_by_user_id=seed_uuid("user-pharmacist-lead"),
+                    movement_type="transfer_out",
+                    quantity_delta=-split_quantity,
+                    quantity_before=split_quantity_before,
+                    resulting_quantity=running_origin_quantity,
+                    from_location_id=origin_location.id,
+                    to_location_id=split_location.id,
+                    batch_code=stock_lot.batch_code,
+                    expiry_date=expiry_date,
+                    reason="Reposição de " + str(split["zone"]).lower(),
+                    note="Transferência criada pelo seed determinístico para demonstrar rastreabilidade por local.",
+                    reference_code="SEED-SHELF-SPLIT",
+                    source_type="manual",
+                    unit_cost_snapshot=item.acquisition_cost,
+                )
+            )
+            lot_movements.append(
+                InventoryLotMovement(
+                    id=seed_uuid("lot-movement-transfer-in-" + key + "-" + location_key),
+                    tenant_id=item.tenant_id,
+                    store_id=item.store_id,
+                    inventory_item_id=item.id,
+                    stock_lot_id=split_lot.id,
+                    performed_by_user_id=seed_uuid("user-pharmacist-lead"),
+                    movement_type="transfer_in",
+                    quantity_delta=split_quantity,
+                    quantity_before=0,
+                    resulting_quantity=split_quantity,
+                    from_location_id=origin_location.id,
+                    to_location_id=split_location.id,
+                    batch_code=stock_lot.batch_code,
+                    expiry_date=expiry_date,
+                    reason="Reposição de " + str(split["zone"]).lower(),
+                    note="Transferência criada pelo seed determinístico para demonstrar rastreabilidade por local.",
+                    reference_code="SEED-SHELF-SPLIT",
+                    source_type="manual",
+                    unit_cost_snapshot=item.acquisition_cost,
+                )
+            )
+
+    # A handful of realistic field-level edits over time, for the audit
+    # trail admin screen — the "quem mudou o quê, quando" complement to the
+    # quantity-only purchase/sale history built above.
+    def audit_actor(user_key: str) -> dict[str, str]:
+        actor = users[user_key]
+        return {
+            "actor_user_id": actor.id,
+            "actor_name": actor.full_name,
+            "actor_email": actor.email,
+            "actor_role": actor.role,
+        }
+
+    def audit_entry(
+        *,
+        entry_id: str,
+        item_key: str,
+        action: str,
+        changes: list[dict[str, str]],
+        user_key: str,
+        days_ago: int,
+        ip_address: str,
+    ) -> InventoryAuditEntry:
+        item = inventory[item_key]
+        return InventoryAuditEntry(
+            id=seed_uuid("inventory-audit-" + entry_id),
+            tenant_id=item.tenant_id,
+            store_id=item.store_id,
+            entity_type="item",
+            entity_id=item.id,
+            entity_label=item.name,
+            action=action,
+            changes_json=json_text(changes),
+            ip_address=ip_address,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Farmaura-Console/1.0",
+            created_at=SEED_NOW - timedelta(days=days_ago),
+            **audit_actor(user_key),
+        )
+
+    audit_entries.extend([
+        audit_entry(
+            entry_id="serum-create",
+            item_key="serum",
+            action="create",
+            changes=[
+                {"field": "name", "old": "", "new": "Serum facial vitamina C 30ml"},
+                {"field": "category_name", "old": "", "new": "Perfumaria"},
+                {"field": "sale_price", "old": "", "new": "89.90"},
+                {"field": "acquisition_cost", "old": "", "new": "58.40"},
+            ],
+            user_key="admin",
+            days_ago=91,
+            ip_address="172.18.0.10",
+        ),
+        audit_entry(
+            entry_id="losartan-price",
+            item_key="losartan",
+            action="update",
+            changes=[{"field": "sale_price", "old": "27.50", "new": "28.90"}],
+            user_key="pharmacist_lead",
+            days_ago=34,
+            ip_address="172.18.0.12",
+        ),
+        audit_entry(
+            entry_id="vitamin-c-thresholds",
+            item_key="vitamin_c",
+            action="update",
+            changes=[
+                {"field": "low_stock_threshold", "old": "8", "new": "10"},
+                {"field": "attention_stock_threshold", "old": "15", "new": "20"},
+                {"field": "normal_stock_threshold", "old": "25", "new": "35"},
+            ],
+            user_key="pharmacist_support",
+            days_ago=19,
+            ip_address="172.18.0.34",
+        ),
+        audit_entry(
+            entry_id="clonazepam-control",
+            item_key="clonazepam",
+            action="update",
+            changes=[{"field": "controlled_category", "old": "tarja_vermelha", "new": "tarja_preta"}],
+            user_key="admin",
+            days_ago=50,
+            ip_address="172.18.0.10",
+        ),
+        audit_entry(
+            entry_id="sunscreen-marketplace",
+            item_key="sunscreen",
+            action="update",
+            changes=[{"field": "is_marketplace_visible", "old": "true", "new": "false"}],
+            user_key="admin",
+            days_ago=4,
+            ip_address="172.18.0.10",
+        ),
+        audit_entry(
+            entry_id="dipyrone-brand",
+            item_key="dipyrone",
+            action="update",
+            changes=[{"field": "brand_name", "old": "Novalgina Genérico", "new": "Novalgina"}],
+            user_key="pharmacist_lead",
+            days_ago=60,
+            ip_address="172.18.0.12",
+        ),
+        audit_entry(
+            entry_id="simethicone-price",
+            item_key="simethicone",
+            action="update",
+            changes=[{"field": "sale_price", "old": "15.90", "new": "16.90"}],
+            user_key="pharmacist_support",
+            days_ago=17,
+            ip_address="172.18.0.34",
+        ),
+        audit_entry(
+            entry_id="amoxicillin-thresholds",
+            item_key="amoxicillin",
+            action="update",
+            changes=[
+                {"field": "low_stock_threshold", "old": "0", "new": "10"},
+                {"field": "attention_stock_threshold", "old": "0", "new": "35"},
+                {"field": "normal_stock_threshold", "old": "0", "new": "60"},
+            ],
+            user_key="admin",
+            days_ago=85,
+            ip_address="172.18.0.10",
+        ),
+    ])
+
     return {
         "locations": list(locations_by_code.values()),
         "movements": movements,
+        "stock_lots": stock_lots,
+        "lot_movements": lot_movements,
+        "audit_entries": audit_entries,
+        "invoice_records": invoice_records,
+        "invoice_files": invoice_files,
     }
 
 
@@ -1919,10 +3076,10 @@ def build_logistics(users: dict[str, User], customers: dict[str, Customer], orde
         id=seed_uuid("route-completed"),
         tenant_id=TENANT_ID,
         store_id=STORE_ID,
-        driver_user_id=users["admin"].id,
+        driver_user_id=users["delivery_driver"].id,
         route_code="ROT-1001",
         route_status="completed",
-        driver_name_snapshot="Adriana Lima",
+        driver_name_snapshot="Marcos Pereira",
         vehicle_label="Moto 01",
         origin_name=STORE_NAME,
         origin_address=STORE_ADDRESS,
@@ -1943,10 +3100,10 @@ def build_logistics(users: dict[str, User], customers: dict[str, Customer], orde
         id=seed_uuid("route-active"),
         tenant_id=TENANT_ID,
         store_id=STORE_ID,
-        driver_user_id=users["admin"].id,
+        driver_user_id=users["delivery_driver"].id,
         route_code="ROT-1002",
         route_status="dispatched",
-        driver_name_snapshot="Adriana Lima",
+        driver_name_snapshot="Marcos Pereira",
         vehicle_label="Moto 02",
         origin_name=STORE_NAME,
         origin_address=STORE_ADDRESS,
@@ -2272,6 +3429,586 @@ def build_pdv(users: dict[str, User], customers: dict[str, Customer], catalog: d
         "items": order_items,
         "sales": sales,
         "sale_items": sale_items,
+    }
+
+
+def build_daily_operations(
+    users: dict[str, User],
+    customers: dict[str, Customer],
+    catalog: dict[str, dict[str, object]],
+    assets: dict[str, list[object]],
+) -> dict[str, object]:
+    """Build a full day's worth of PDV sales, online orders, deliveries, fiscal
+    documents, cashback, and support chat threads, layered on top of the 30 bulk
+    catalog products only (never the 10 curated ones) so the curated purchase
+    history, shelf-split, and audit-trail narratives in build_inventory_operations
+    stay completely untouched. Returns the generated records plus a `sold_today`
+    map (inventory item key -> quantity sold) consumed by build_inventory_operations
+    to reconcile each bulk item's opening stock and movement history.
+    """
+
+    inventory = catalog["inventory"]
+    listings = catalog["listings"]
+    bulk_keys: list[str] = catalog["bulk_product_keys"]  # type: ignore[assignment]
+
+    addresses_by_customer: dict[str, CustomerAddress] = {}
+    for address in assets["addresses"]:
+        if isinstance(address, CustomerAddress) and address.customer_id not in addresses_by_customer:
+            addresses_by_customer[address.customer_id] = address
+
+    bulk_customer_keys = sorted(key for key in customers if key.startswith("bulk_customer_"))
+    day_start = datetime(2026, 6, 11, 0, 0, tzinfo=UTC)
+
+    store_configs = [
+        {
+            "suffix": "", "store_id": STORE_ID, "store_name": STORE_NAME, "store_address": STORE_ADDRESS,
+            "latitude": STORE_LATITUDE, "longitude": STORE_LONGITUDE,
+            "cashier_key": "cashier_lead", "pharmacist_key": "pharmacist_lead", "code_base": 100,
+        },
+        {
+            "suffix": "_aguas_claras", "store_id": SECOND_STORE_ID, "store_name": SECOND_STORE_NAME, "store_address": SECOND_STORE_ADDRESS,
+            "latitude": SECOND_STORE_LATITUDE, "longitude": SECOND_STORE_LONGITUDE,
+            "cashier_key": "cashier_support", "pharmacist_key": "pharmacist_support", "code_base": 200,
+        },
+    ]
+
+    remaining_stock: dict[str, int] = {}
+    for key in bulk_keys:
+        remaining_stock[key] = int(inventory[key].quantity)
+        remaining_stock[key + "_aguas_claras"] = int(inventory[key + "_aguas_claras"].quantity)
+    sold_today: dict[str, int] = {}
+
+    def take_stock(item_key: str, desired: int) -> int:
+        """Decrement the working stock counter and record the sale, returning the actual quantity taken."""
+
+        available = remaining_stock.get(item_key, 0)
+        quantity = min(desired, available)
+        if quantity <= 0:
+            return 0
+        remaining_stock[item_key] -= quantity
+        sold_today[item_key] = sold_today.get(item_key, 0) + quantity
+        return quantity
+
+    pdv_orders: list[PdvOrder] = []
+    pdv_order_items: list[PdvOrderItem] = []
+    pdv_sales: list[PdvSale] = []
+    pdv_sale_items: list[PdvSaleItem] = []
+    online_orders: list[Order] = []
+    online_items: list[OrderItem] = []
+    online_fulfillments: list[OrderFulfillment] = []
+    online_events: list[OrderStatusEvent] = []
+    routes: list[DeliveryRoute] = []
+    stops: list[DeliveryRouteStop] = []
+    fiscal_documents: list[FiscalDocument] = []
+    cashback_transactions: list[CashbackTransaction] = []
+    chat_threads: list[ChatThread] = []
+    chat_messages: list[ChatMessage] = []
+
+    payment_method_cycle = ["pix", "credit_card", "debit_card", "cash"]
+
+    # ---- PDV sales: ~20 per store spread across the day ----
+    pdv_counter = 0
+    for store in store_configs:
+        cashier = users[str(store["cashier_key"])]
+        pharmacist = users[str(store["pharmacist_key"])]
+        for local_index in range(20):
+            i = pdv_counter
+            pdv_counter += 1
+            hour = 8 + (i * 37) % 11
+            minute = (i * 13) % 60
+            timestamp = day_start + timedelta(hours=hour, minutes=minute)
+
+            status_roll = local_index % 10
+            order_status = "queued" if status_roll < 2 else ("refunded" if status_roll < 4 else "completed")
+            is_walkin = local_index % 5 == 4
+            customer = None if is_walkin else customers[bulk_customer_keys[i % len(bulk_customer_keys)]]
+
+            item_count = 1 + i % 2
+            base_keys = [bulk_keys[(i + n) % len(bulk_keys)] for n in range(item_count)]
+            base_keys = list(dict.fromkeys(base_keys))
+
+            subtotal = Decimal("0.00")
+            line_defs: list[tuple[str, str, int, Decimal, Decimal]] = []
+            for base_key in base_keys:
+                item_key = base_key + str(store["suffix"])
+                quantity = take_stock(item_key, 1 + i % 2)
+                if quantity <= 0:
+                    continue
+                unit_price = inventory[item_key].sale_price
+                line_total = (unit_price * quantity).quantize(Decimal("0.01"))
+                subtotal += line_total
+                line_defs.append((base_key, item_key, quantity, unit_price, line_total))
+            if not line_defs:
+                continue
+
+            discount_percent = Decimal("5.00") if i % 8 == 0 else Decimal("0.00")
+            discount_amount = (subtotal * discount_percent / Decimal("100.00")).quantize(Decimal("0.01"))
+            total = subtotal - discount_amount
+            order_code = f"PV-{int(store['code_base']) + 1000 + i:04d}"
+            sale_code = f"PS-{int(store['code_base']) + 2000 + i:04d}"
+            order_id = seed_uuid("bulk-pdv-order-" + str(i))
+
+            pdv_orders.append(PdvOrder(
+                id=order_id,
+                tenant_id=TENANT_ID,
+                store_id=str(store["store_id"]),
+                order_code=order_code,
+                customer_id=customer.id if customer else None,
+                pharmacist_user_id=pharmacist.id,
+                cashier_user_id=None if order_status == "queued" else cashier.id,
+                order_status=order_status,
+                service_role="cashier",
+                customer_display_name=customer.full_name if customer else "Cliente balcao",
+                customer_document_snapshot=customer.cpf if customer else "",
+                customer_phone_snapshot=customer.phone if customer else "",
+                includes_controlled_items=False,
+                include_cpf_on_invoice=bool(customer),
+                discount_percent=money(str(discount_percent)),
+                cashback_applied_amount=money("0.00"),
+                subtotal_amount=money(str(subtotal)),
+                discount_amount=money(str(discount_amount)),
+                total_amount=money(str(total)),
+                queued_at_label=label(timestamp),
+                claimed_at_label="" if order_status == "queued" else label(timestamp + timedelta(minutes=2)),
+                completed_at_label="" if order_status == "queued" else label(timestamp + timedelta(minutes=9)),
+                notes="Venda gerada pelo seed para simular o movimento do dia.",
+            ))
+            for base_key, item_key, quantity, unit_price, line_total in line_defs:
+                item = inventory[item_key]
+                pdv_order_items.append(PdvOrderItem(
+                    id=seed_uuid("bulk-pdv-order-item-" + str(i) + "-" + item_key),
+                    pdv_order_id=order_id,
+                    inventory_item_id=item.id,
+                    marketplace_listing_id=listings[base_key].id,
+                    item_name_snapshot=str(item.name),
+                    brand_name_snapshot=str(item.brand_name),
+                    ean_code_snapshot=str(item.ean_code),
+                    storage_location_snapshot=str(item.storage_location),
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    line_total=line_total,
+                ))
+
+            if order_status in ("completed", "refunded"):
+                sale_status = order_status
+                payment_status = "paid" if order_status == "completed" else "refunded"
+                cashback_earned = (total * Decimal("0.03")).quantize(Decimal("0.01")) if customer and order_status == "completed" else Decimal("0.00")
+                sale_id = seed_uuid("bulk-pdv-sale-" + str(i))
+                pdv_sales.append(PdvSale(
+                    id=sale_id,
+                    tenant_id=TENANT_ID,
+                    store_id=str(store["store_id"]),
+                    sale_code=sale_code,
+                    pdv_order_id=order_id,
+                    customer_id=customer.id if customer else None,
+                    cashier_user_id=cashier.id,
+                    pharmacist_user_id=pharmacist.id,
+                    payment_method=payment_method_cycle[i % len(payment_method_cycle)],
+                    payment_status=payment_status,
+                    sale_status=sale_status,
+                    include_cpf_on_invoice=bool(customer),
+                    customer_display_name=customer.full_name if customer else "Cliente balcao",
+                    customer_document_snapshot=customer.cpf if customer else "",
+                    subtotal_amount=money(str(subtotal)),
+                    discount_amount=money(str(discount_amount)),
+                    cashback_applied_amount=money("0.00"),
+                    cashback_earned_amount=money(str(cashback_earned)),
+                    total_amount=money(str(total)),
+                    completed_at_label=label(timestamp + timedelta(minutes=9)),
+                ))
+                for base_key, item_key, quantity, unit_price, line_total in line_defs:
+                    item = inventory[item_key]
+                    pdv_sale_items.append(PdvSaleItem(
+                        id=seed_uuid("bulk-pdv-sale-item-" + str(i) + "-" + item_key),
+                        pdv_sale_id=sale_id,
+                        inventory_item_id=item.id,
+                        item_name_snapshot=str(item.name),
+                        brand_name_snapshot=str(item.brand_name),
+                        storage_location_snapshot=str(item.storage_location),
+                        quantity=quantity,
+                        unit_price=unit_price,
+                        line_total=line_total,
+                        is_controlled=False,
+                    ))
+                fiscal_documents.append(FiscalDocument(
+                    id=seed_uuid("bulk-fiscal-pdv-" + str(i)),
+                    tenant_id=TENANT_ID,
+                    store_id=str(store["store_id"]),
+                    document_type="nfce",
+                    source_channel="pdv",
+                    pdv_sale_id=sale_id,
+                    order_id=None,
+                    issued_by_user_id=cashier.id,
+                    customer_id=customer.id if customer else None,
+                    document_number=str(52000 + i),
+                    access_key=f"3526061234567800012355001000052{2000 + i:04d}1000{52000 + i}",
+                    series_code="001",
+                    issue_datetime_label=label(timestamp + timedelta(minutes=9)),
+                    payment_method_snapshot=payment_method_cycle[i % len(payment_method_cycle)],
+                    recipient_name_snapshot=customer.full_name if customer else "Consumidor",
+                    recipient_document_snapshot=customer.cpf if customer else "",
+                    gross_total_amount=money(str(total)),
+                    approximate_tax_amount=money(str((total * Decimal("0.085")).quantize(Decimal("0.01")))),
+                    authorized=order_status == "completed",
+                ))
+                if customer and order_status == "completed" and cashback_earned > Decimal("0.00"):
+                    cashback_transactions.append(CashbackTransaction(
+                        id=seed_uuid("bulk-cashback-pdv-" + str(i)),
+                        tenant_id=TENANT_ID,
+                        customer_id=customer.id,
+                        wallet_id=seed_uuid("wallet-" + bulk_customer_keys[i % len(bulk_customer_keys)]),
+                        transaction_type="earn",
+                        transaction_status="available",
+                        source_channel="pdv",
+                        source_reference=sale_code,
+                        order_id=None,
+                        sale_reference=sale_code,
+                        gross_amount=money(str(cashback_earned)),
+                        net_amount=money(str(cashback_earned)),
+                        wallet_balance_after=customer.cashback_balance,
+                        granted_at_label=label(timestamp + timedelta(minutes=9)),
+                        available_at_label=label(timestamp + timedelta(minutes=9)),
+                        expires_at_label="09/09/2026",
+                        notes="Cashback ganho em venda presencial gerada pelo seed diario.",
+                    ))
+
+    # ---- Online marketplace orders: 25 across both stores, realistic status mix ----
+    status_plan = (
+        ["delivered"] * 8
+        + ["dispatched"] * 5
+        + ["ready"] * 4
+        + ["separating"] * 4
+        + ["new"] * 2
+        + ["cancelled"] * 2
+    )
+    delivered_or_dispatched_orders_by_store: dict[str, list[tuple[Order, OrderFulfillment]]] = {STORE_ID: [], SECOND_STORE_ID: []}
+    for i, order_status in enumerate(status_plan):
+        store = store_configs[i % 2]
+        store_id = str(store["store_id"])
+        hour = 7 + (i * 41) % 12
+        minute = (i * 19) % 60
+        placed_at = day_start + timedelta(hours=hour, minutes=minute)
+        customer = customers[bulk_customer_keys[(i * 3 + 1) % len(bulk_customer_keys)]]
+        address = addresses_by_customer.get(customer.id)
+
+        item_count = 1 + i % 2
+        base_keys = list(dict.fromkeys(bulk_keys[(i * 2 + n) % len(bulk_keys)] for n in range(item_count)))
+        subtotal = Decimal("0.00")
+        line_defs: list[tuple[str, str, int, Decimal, Decimal]] = []
+        for base_key in base_keys:
+            item_key = base_key + str(store["suffix"])
+            quantity = take_stock(item_key, 1 + i % 2)
+            if quantity <= 0:
+                continue
+            unit_price = listings[base_key].published_price
+            line_total = (unit_price * quantity).quantize(Decimal("0.01"))
+            subtotal += line_total
+            line_defs.append((base_key, item_key, quantity, unit_price, line_total))
+        if not line_defs:
+            continue
+
+        is_pickup = order_status == "ready" and i % 2 == 0
+        fulfillment_type = "pickup" if is_pickup else "delivery"
+        delivery_fee = Decimal("0.00") if fulfillment_type == "pickup" else Decimal("9.90")
+        discount_amount = (subtotal * Decimal("0.03")).quantize(Decimal("0.01")) if i % 5 == 0 else Decimal("0.00")
+        total = subtotal + delivery_fee - discount_amount
+        cashback_earned = (total * Decimal("0.04")).quantize(Decimal("0.01")) if order_status not in ("cancelled",) else Decimal("0.00")
+        order_code = f"FA-{1100 + i:04d}"
+        order_id = seed_uuid("bulk-order-" + str(i))
+        payment_method = payment_method_cycle[i % len(payment_method_cycle)]
+
+        status_value = {
+            "delivered": OrderStatus.DELIVERED.value,
+            "dispatched": OrderStatus.DISPATCHED.value,
+            "ready": OrderStatus.READY.value,
+            "separating": OrderStatus.SEPARATING.value,
+            "new": OrderStatus.NEW.value,
+            "cancelled": OrderStatus.CANCELLED.value,
+        }[order_status]
+
+        online_orders.append(Order(
+            id=order_id,
+            tenant_id=TENANT_ID,
+            store_id=store_id,
+            customer_id=customer.id,
+            selected_address_id=address.id if (address and fulfillment_type == "delivery") else None,
+            selected_payment_method_id=None,
+            order_code=order_code,
+            channel="app" if i % 2 == 0 else "web",
+            status=status_value,
+            fulfillment_type=fulfillment_type,
+            priority="normal",
+            payment_method_label=payment_method,
+            payment_status="refunded" if order_status == "cancelled" else "paid",
+            customer_display_name=customer.full_name,
+            customer_document_snapshot=customer.cpf,
+            customer_phone_snapshot=customer.phone,
+            customer_email_snapshot=customer.email,
+            requires_prescription_review=False,
+            prescription_status="none",
+            subtotal_amount=money(str(subtotal)),
+            delivery_fee_amount=money(str(delivery_fee)),
+            discount_amount=money(str(discount_amount)),
+            cashback_applied_amount=money("0.00"),
+            cashback_earned_amount=money(str(cashback_earned)),
+            total_amount=money(str(total)),
+            placed_at_label=label(placed_at),
+            estimated_ready_at_label=label(placed_at + timedelta(minutes=25)),
+            estimated_delivery_at_label="" if fulfillment_type == "pickup" else label(placed_at + timedelta(minutes=55)),
+            completed_at_label=label(placed_at + timedelta(minutes=60)) if order_status in ("delivered", "cancelled") else "",
+            marketplace_note="",
+            internal_note="Pedido gerado pelo seed para simular o movimento do dia.",
+            is_active=order_status != "cancelled",
+        ))
+        for base_key, item_key, quantity, unit_price, line_total in line_defs:
+            item = inventory[item_key]
+            listing = listings[base_key]
+            online_items.append(OrderItem(
+                id=seed_uuid("bulk-order-item-" + str(i) + "-" + item_key),
+                order_id=order_id,
+                inventory_item_id=item.id,
+                marketplace_listing_id=listing.id,
+                item_sku=str(listing.listing_sku),
+                item_name_snapshot=str(listing.title),
+                brand_name_snapshot=str(listing.brand_name),
+                category_name_snapshot=str(listing.category_name),
+                ean_code_snapshot=str(listing.ean_code),
+                storage_location_snapshot=str(item.storage_location),
+                quantity=quantity,
+                unit_price=unit_price,
+                line_total=line_total,
+                requires_prescription_upload=False,
+                prescription_status="none",
+                picked_for_fulfillment=order_status in ("ready", "dispatched", "delivered"),
+                picked_at_label=label(placed_at + timedelta(minutes=18)) if order_status in ("ready", "dispatched", "delivered") else "",
+            ))
+
+        recipient_lat = Decimal(str(store["latitude"])) + Decimal(str(round(0.004 * ((i % 9) - 4), 4)))
+        recipient_lng = Decimal(str(store["longitude"])) + Decimal(str(round(0.004 * ((i % 7) - 3), 4)))
+        fulfillment = OrderFulfillment(
+            id=seed_uuid("bulk-fulfillment-" + str(i)),
+            order_id=order_id,
+            fulfillment_type=fulfillment_type,
+            store_label=str(store["store_name"]),
+            pickup_code=f"PICK-{4000 + i:04d}" if fulfillment_type == "pickup" else "",
+            recipient_name=customer.full_name,
+            recipient_document_snapshot=customer.cpf,
+            recipient_phone=customer.phone,
+            address_line=(address.street_line if (address and fulfillment_type == "delivery") else str(store["store_address"])),
+            district=(address.district if (address and fulfillment_type == "delivery") else "Sede"),
+            city=(address.city if (address and fulfillment_type == "delivery") else "Brasilia"),
+            state_code=(address.state_code if (address and fulfillment_type == "delivery") else "DF"),
+            postal_code=(address.postal_code if (address and fulfillment_type == "delivery") else ""),
+            reference_note=(address.reference_note if (address and fulfillment_type == "delivery") else ""),
+            latitude=recipient_lat,
+            longitude=recipient_lng,
+            route_distance_km=money(str(Decimal("1.20") + Decimal(str(i % 10)) * Decimal("0.35"))),
+            route_sequence=(i % 4) + 1 if order_status in ("dispatched", "delivered") else 0,
+            sla_target_minutes=90,
+            eta_label="Entregue" if order_status == "delivered" else ("A caminho" if order_status == "dispatched" else "Em preparo"),
+            ready_at_label=label(placed_at + timedelta(minutes=25)) if order_status != "new" else "",
+            dispatched_at_label=label(placed_at + timedelta(minutes=35)) if order_status in ("dispatched", "delivered") else "",
+            delivered_at_label=label(placed_at + timedelta(minutes=60)) if order_status == "delivered" else "",
+            picked_up_at_label=label(placed_at + timedelta(minutes=30)) if fulfillment_type == "pickup" and order_status == "delivered" else "",
+            driver_name=("Rota Farmaura " + str(store["code_base"])) if order_status in ("dispatched", "delivered") else "",
+            driver_phone="+55 61 98800-" + f"{2000 + i:04d}" if order_status in ("dispatched", "delivered") else "",
+        )
+        online_fulfillments.append(fulfillment)
+
+        online_events.append(OrderStatusEvent(
+            id=seed_uuid("bulk-order-event-" + str(i) + "-created"),
+            order_id=order_id,
+            actor_user_id=None,
+            event_type="created",
+            source_channel="marketplace",
+            from_status="draft",
+            to_status="new",
+            actor_name_snapshot="Marketplace",
+            actor_role_snapshot="system",
+            occurred_at_label=label(placed_at),
+            notes="Pedido recebido pelo checkout.",
+        ))
+        if order_status != "new":
+            pharmacist = users[str(store["pharmacist_key"])]
+            online_events.append(OrderStatusEvent(
+                id=seed_uuid("bulk-order-event-" + str(i) + "-final"),
+                order_id=order_id,
+                actor_user_id=pharmacist.id if order_status != "cancelled" else None,
+                event_type="status_change" if order_status != "cancelled" else "cancelled",
+                source_channel="internal",
+                from_status="new",
+                to_status=status_value,
+                actor_name_snapshot=pharmacist.full_name if order_status != "cancelled" else "Marketplace",
+                actor_role_snapshot="pharmacist" if order_status != "cancelled" else "system",
+                occurred_at_label=label(placed_at + timedelta(minutes=30)),
+                notes="Atualizacao gerada pelo seed para simular o movimento do dia.",
+            ))
+
+        if order_status in ("delivered", "dispatched"):
+            delivered_or_dispatched_orders_by_store[store_id].append((online_orders[-1], fulfillment))
+
+        fiscal_documents.append(FiscalDocument(
+            id=seed_uuid("bulk-fiscal-order-" + str(i)),
+            tenant_id=TENANT_ID,
+            store_id=store_id,
+            document_type="nfce",
+            source_channel="marketplace",
+            pdv_sale_id=None,
+            order_id=order_id,
+            issued_by_user_id=users[str(store["cashier_key"])].id,
+            customer_id=customer.id,
+            document_number=str(53000 + i),
+            access_key=f"3526061234567800012355001000053{3000 + i:04d}1000{53000 + i}",
+            series_code="001",
+            issue_datetime_label=label(placed_at + timedelta(minutes=20)),
+            payment_method_snapshot=payment_method,
+            recipient_name_snapshot=customer.full_name,
+            recipient_document_snapshot=customer.cpf,
+            gross_total_amount=money(str(total)),
+            approximate_tax_amount=money(str((total * Decimal("0.085")).quantize(Decimal("0.01")))),
+            authorized=order_status != "cancelled",
+        ))
+
+        if cashback_earned > Decimal("0.00"):
+            cashback_transactions.append(CashbackTransaction(
+                id=seed_uuid("bulk-cashback-order-" + str(i)),
+                tenant_id=TENANT_ID,
+                customer_id=customer.id,
+                wallet_id=seed_uuid("wallet-" + bulk_customer_keys[(i * 3 + 1) % len(bulk_customer_keys)]),
+                transaction_type="earn",
+                transaction_status="available" if order_status == "delivered" else "pending",
+                source_channel="marketplace",
+                source_reference=order_code,
+                order_id=order_id,
+                sale_reference="",
+                gross_amount=money(str(cashback_earned)),
+                net_amount=money(str(cashback_earned)),
+                wallet_balance_after=customer.cashback_balance,
+                granted_at_label=label(placed_at + timedelta(minutes=30)),
+                available_at_label=label(placed_at + timedelta(minutes=60)) if order_status == "delivered" else "",
+                expires_at_label="09/09/2026",
+                notes="Cashback gerado pelo seed diario.",
+            ))
+
+        if i % 3 == 0 and len(chat_threads) < 10:
+            thread_id = seed_uuid("bulk-thread-" + str(i))
+            chat_threads.append(ChatThread(
+                id=thread_id,
+                tenant_id=TENANT_ID,
+                order_id=order_id,
+                customer_id=customer.id,
+                pharmacist_user_id=users[str(store["pharmacist_key"])].id,
+                thread_code="CHAT-" + order_code,
+                source_channel="marketplace",
+                thread_status="open" if order_status in ("new", "separating", "dispatched") else "closed",
+                topic="Duvida sobre o pedido " + order_code,
+                customer_name_snapshot=customer.full_name,
+                pharmacist_name_snapshot=users[str(store["pharmacist_key"])].full_name,
+                order_code_snapshot=order_code,
+                last_message_preview="Obrigado pela atualizacao!",
+                last_message_at_label=label(placed_at + timedelta(minutes=40)),
+                customer_unread_count=0,
+                pharmacist_unread_count=0,
+                is_active=True,
+            ))
+            chat_messages.append(ChatMessage(
+                id=seed_uuid("bulk-chat-message-" + str(i) + "-1"),
+                thread_id=thread_id,
+                sender_user_id=None,
+                sender_customer_id=customer.id,
+                message_type="text",
+                sender_role="customer",
+                sender_name_snapshot=customer.full_name,
+                body_text="Oi, qual a previsao para o pedido " + order_code + "?",
+                sent_at_label=label(placed_at + timedelta(minutes=35)),
+                customer_read=True,
+                pharmacist_read=True,
+                is_internal_note=False,
+            ))
+            chat_messages.append(ChatMessage(
+                id=seed_uuid("bulk-chat-message-" + str(i) + "-2"),
+                thread_id=thread_id,
+                sender_user_id=users[str(store["pharmacist_key"])].id,
+                sender_customer_id=None,
+                message_type="text",
+                sender_role="pharmacist",
+                sender_name_snapshot=users[str(store["pharmacist_key"])].full_name,
+                body_text="Ola! " + ("Seu pedido ja foi entregue." if order_status == "delivered" else "Estamos preparando seu pedido com carinho."),
+                sent_at_label=label(placed_at + timedelta(minutes=40)),
+                customer_read=True,
+                pharmacist_read=True,
+                is_internal_note=False,
+            ))
+
+    # ---- Delivery routes: one route per store covering its dispatched/delivered bulk orders ----
+    for store in store_configs:
+        store_id = str(store["store_id"])
+        store_orders = delivered_or_dispatched_orders_by_store[store_id]
+        if not store_orders:
+            continue
+        route_id = seed_uuid("bulk-route-" + store_id)
+        route_status = "completed" if all(order.status == OrderStatus.DELIVERED.value for order, _ in store_orders) else "dispatched"
+        routes.append(DeliveryRoute(
+            id=route_id,
+            tenant_id=TENANT_ID,
+            store_id=store_id,
+            driver_user_id=users["delivery_driver"].id,
+            route_code="ROT-" + str(int(store["code_base"]) + 1),
+            route_status=route_status,
+            driver_name_snapshot=users["delivery_driver"].full_name,
+            vehicle_label="Moto 0" + ("1" if store_id == STORE_ID else "2"),
+            origin_name=str(store["store_name"]),
+            origin_address=str(store["store_address"]),
+            origin_latitude=store["latitude"],
+            origin_longitude=store["longitude"],
+            stop_count=len(store_orders),
+            total_distance_km=money(str(Decimal("1.50") * len(store_orders))),
+            saved_distance_km=money("0.80"),
+            estimated_duration_minutes=25 * len(store_orders),
+            route_provider="seed-routing",
+            route_polyline="enc:seed-" + route_id[:8],
+            planned_at_label=label(day_start + timedelta(hours=8)),
+            dispatched_at_label=label(day_start + timedelta(hours=8, minutes=30)),
+            completed_at_label=label(day_start + timedelta(hours=13)) if route_status == "completed" else "",
+        ))
+        for stop_sequence, (order, fulfillment) in enumerate(store_orders, start=1):
+            delivered = order.status == OrderStatus.DELIVERED.value
+            stops.append(DeliveryRouteStop(
+                id=seed_uuid("bulk-route-stop-" + order.id),
+                route_id=route_id,
+                order_id=order.id,
+                order_fulfillment_id=fulfillment.id,
+                stop_sequence=stop_sequence,
+                stop_status="delivered" if delivered else "en_route",
+                customer_name_snapshot=str(order.customer_display_name),
+                address_line_snapshot=str(fulfillment.address_line),
+                district_snapshot=str(fulfillment.district),
+                postal_code_snapshot=str(fulfillment.postal_code),
+                latitude=fulfillment.latitude,
+                longitude=fulfillment.longitude,
+                distance_from_origin_km=fulfillment.route_distance_km,
+                estimated_arrival_label=str(fulfillment.eta_label),
+                arrived_at_label=str(fulfillment.delivered_at_label) if delivered else "",
+                delivered_at_label=str(fulfillment.delivered_at_label) if delivered else "",
+                navigation_url=f"https://maps.google.com/?q={fulfillment.latitude},{fulfillment.longitude}",
+            ))
+
+    return {
+        "pdv_orders": pdv_orders,
+        "pdv_order_items": pdv_order_items,
+        "pdv_sales": pdv_sales,
+        "pdv_sale_items": pdv_sale_items,
+        "online_orders": online_orders,
+        "online_items": online_items,
+        "online_fulfillments": online_fulfillments,
+        "online_events": online_events,
+        "routes": routes,
+        "stops": stops,
+        "fiscal_documents": fiscal_documents,
+        "cashback_transactions": cashback_transactions,
+        "chat_threads": chat_threads,
+        "chat_messages": chat_messages,
+        "sold_today": sold_today,
     }
 
 
@@ -3062,15 +4799,27 @@ def build_refresh_tokens(users: dict[str, User]) -> list[RefreshToken]:
 # ============================================================================
 
 
-async def seed_database() -> None:
-    """Execute the deterministic seed flow against the configured database."""
+async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None = None) -> None:
+    """Execute the deterministic seed flow against the configured database.
 
+    Accepts an optional session_factory so bootstrap_database.py can run the
+    seed over the admin database connection instead of the app's own
+    restricted runtime-role SessionFactory, since seeding writes across every
+    tenant with no per-request RLS context.
+    """
+
+    factory = session_factory or SessionFactory
     password_hash = hash_password(DEFAULT_PASSWORD)
+    cnae_settings = build_cnae_settings()
+    stores = build_stores()
     users = build_users(password_hash)
     customers = build_customers()
     catalog = build_catalog()
-    inventory_operations = build_inventory_operations(catalog)
+    suppliers = build_suppliers()
+    brand_suppliers = build_brand_suppliers(catalog, suppliers)
     customer_assets = build_customer_assets(customers)
+    daily = build_daily_operations(users, customers, catalog, customer_assets)
+    inventory_operations = build_inventory_operations(catalog, suppliers, users, daily_sold=daily["sold_today"])
     services = build_services(users, customers)
     orders_data = build_orders(customers, customer_assets, catalog)
     logistics = build_logistics(users, customers, orders_data)
@@ -3083,13 +4832,24 @@ async def seed_database() -> None:
     audit_events = build_audit_events(users, orders_data)
     refresh_tokens = build_refresh_tokens(users)
 
-    async with SessionFactory() as session:
+    async with factory() as session:
+        await upsert_many(session, [cnae_settings])
+        await upsert_many(session, list(stores.values()))
         await upsert_many(session, list(users.values()))
         await upsert_many(session, list(customers.values()))
-        await upsert_many(session, list(catalog["products"].values()))
+        await upsert_many(session, list(suppliers.values()))
         await upsert_many(session, inventory_operations["locations"])
+        await upsert_many(session, list(catalog["brands"].values()))
+        await upsert_many(session, brand_suppliers)
+        await upsert_many(session, list(catalog["categories"].values()))
+        await upsert_many(session, list(catalog["therapeutic_classes"].values()))
+        await upsert_many(session, list(catalog["inventory_products"].values()))
         await upsert_many(session, list(catalog["inventory"].values()))
         await upsert_many(session, inventory_operations["movements"])
+        await upsert_many(session, inventory_operations["stock_lots"])
+        await upsert_many(session, inventory_operations["lot_movements"])
+        await upsert_many(session, inventory_operations["audit_entries"])
+        await upsert_many(session, inventory_operations["invoice_records"])
         await upsert_many(session, list(catalog["listings"].values()))
         await upsert_many(session, list(catalog["rules"].values()))
         await upsert_many(session, customer_assets["addresses"])
@@ -3099,41 +4859,53 @@ async def seed_database() -> None:
         await upsert_many(session, services["appointments"])
         await upsert_many(session, saved_and_subscriptions["saved_products"])
         await upsert_many(session, saved_and_subscriptions["subscriptions"])
-        await upsert_many(session, list(orders_data["orders"].values()))
-        await upsert_many(session, orders_data["items"])
-        await upsert_many(session, orders_data["fulfillments"])
-        await upsert_many(session, orders_data["events"])
-        await upsert_many(session, logistics["routes"])
-        await upsert_many(session, logistics["stops"])
-        await upsert_many(session, list(pdv_data["orders"].values()))
-        await upsert_many(session, pdv_data["items"])
-        await upsert_many(session, list(pdv_data["sales"].values()))
-        await upsert_many(session, pdv_data["sale_items"])
-        await upsert_many(session, fiscal_documents)
+        await upsert_many(session, list(orders_data["orders"].values()) + daily["online_orders"])
+        await upsert_many(session, orders_data["items"] + daily["online_items"])
+        await upsert_many(session, orders_data["fulfillments"] + daily["online_fulfillments"])
+        await upsert_many(session, orders_data["events"] + daily["online_events"])
+        await upsert_many(session, logistics["routes"] + daily["routes"])
+        await upsert_many(session, logistics["stops"] + daily["stops"])
+        await upsert_many(session, list(pdv_data["orders"].values()) + daily["pdv_orders"])
+        await upsert_many(session, pdv_data["items"] + daily["pdv_order_items"])
+        await upsert_many(session, list(pdv_data["sales"].values()) + daily["pdv_sales"])
+        await upsert_many(session, pdv_data["sale_items"] + daily["pdv_sale_items"])
+        await upsert_many(session, fiscal_documents + daily["fiscal_documents"])
         await upsert_many(session, prescription_data["file_assets"])
         await upsert_many(session, prescription_data["prescriptions"])
         await upsert_many(session, prescription_data["prescription_files"])
         await upsert_many(session, prescription_data["checks"])
         await upsert_many(session, prescription_data["items"])
-        await upsert_many(session, cashback["transactions"])
+        await upsert_many(session, cashback["transactions"] + daily["cashback_transactions"])
         await upsert_many(session, cashback["lines"])
-        await upsert_many(session, chat["threads"])
-        await upsert_many(session, chat["messages"])
+        await upsert_many(session, chat["threads"] + daily["chat_threads"])
+        await upsert_many(session, chat["messages"] + daily["chat_messages"])
         await upsert_many(session, chat["attachments"])
         await upsert_many(session, audit_events)
         await upsert_many(session, refresh_tokens)
         await session.commit()
 
+    settings = get_settings()
+    for storage_key, file_content in inventory_operations["invoice_files"]:
+        await write_private_file(settings=settings, storage_key=storage_key, content=file_content)
+
     print("Seed concluido com sucesso.")
     print("Tenant ID:", TENANT_ID)
     print("Store ID:", STORE_ID)
+    print("Segunda loja (Aguas Claras) ID:", SECOND_STORE_ID)
     print("Senha padrao para todos os usuarios:", DEFAULT_PASSWORD)
     print("Usuario admin:", users["admin"].email)
     print("Usuario farmaceutico com 2FA:", users["pharmacist_lead"].email)
+    print("Usuario gerente (loja Aguas Claras):", users["store_manager"].email)
     print("Usuario caixa:", users["cashier_lead"].email)
     print("Usuario cliente marketplace:", users["customer_mariana"].email)
     print("Usuario cliente marketplace com 2FA:", users["customer_camila"].email)
     print("Segredo TOTP para contas com 2FA:", MFA_SECRET)
+    print("Produtos unicos cadastrados:", len(catalog["inventory_products"]))
+    print("Itens de estoque (todas as lojas):", len(catalog["inventory"]))
+    print("Clientes cadastrados:", len(customers))
+    print("Vendas PDV geradas para hoje:", len(daily["pdv_orders"]))
+    print("Pedidos online gerados para hoje:", len(daily["online_orders"]))
+    print("Rotas de entrega geradas para hoje:", len(daily["routes"]))
 
 
 def main() -> None:

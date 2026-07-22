@@ -1,0 +1,5 @@
+# local Obsidian workspace state — not shared across machines
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/plugins/*/data.json
+.trash/

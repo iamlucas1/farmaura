@@ -143,16 +143,100 @@ function PharmacistChatInbox({ threads, activeThreadId, onSelectThread, onSendMe
   );
 }
 
-function PharmacistChatModal({ open, onClose, threads = [], activeThreadId = '', onSelectThread, onSendMessage, onOpenAccountConversations }) {
+function ChatLoginPrompt({ authClient, onAuthenticated }) {
+  const [email, setEmail] = _useCA('');
+  const [pass, setPass] = _useCA('');
+  const [show, setShow] = _useCA(false);
+  const [remember, setRemember] = _useCA(true);
+  const [code, setCode] = _useCA('');
+  const [challengeToken, setChallengeToken] = _useCA('');
+  const [challengeActive, setChallengeActive] = _useCA(false);
+  const [error, setError] = _useCA('');
+  const [busy, setBusy] = _useCA(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      if (challengeActive) {
+        const flow = await authClient.verifyTwoFactor({ challenge_token: challengeToken, code: code.trim() });
+        await onAuthenticated(flow, remember);
+        return;
+      }
+      const flow = await authClient.login({ email: email.trim(), password: pass, remember_session: remember });
+      if (flow.stage === 'two_factor_required') {
+        setChallengeToken(flow.challenge_token);
+        setChallengeActive(true);
+        setCode('');
+        return;
+      }
+      await onAuthenticated(flow, remember);
+    } catch (requestError) {
+      setError(requestError && requestError.message ? requestError.message : 'Não foi possível autenticar sua sessão.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <ModalShell open={open} onClose={onClose} maxw={860} padded={false}>
-      <PharmacistChatInbox
-        threads={threads}
-        activeThreadId={activeThreadId}
-        onSelectThread={onSelectThread}
-        onSendMessage={onSendMessage}
-        onOpenAccountConversations={onOpenAccountConversations}
-      />
+    <div style={{ padding: 'clamp(26px,4vw,36px)' }}>
+      <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 16 }}><Icon name="chat" size={24} /></span>
+      <h2 className="fa-h3" style={{ fontSize: 21 }}>Entre para falar com o farmacêutico</h2>
+      <p className="fa-muted" style={{ fontSize: 14, marginTop: 8, lineHeight: 1.55 }}>Acesse sua conta Farmaura para abrir o atendimento farmacêutico, sem sair desta página.</p>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 20 }}>
+        {!challengeActive && (
+          <React.Fragment>
+            <div className="fa-field"><label>E-mail</label>
+              <input className="fa-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" />
+            </div>
+            <div className="fa-field">
+              <label>Senha</label>
+              <div style={{ position: 'relative' }}>
+                <input className="fa-input" type={show ? 'text' : 'password'} value={pass} onChange={(e) => setPass(e.target.value)} style={{ paddingRight: 44 }} />
+                <button type="button" onClick={() => setShow(!show)} aria-label="mostrar senha" style={{ position: 'absolute', right: 6, top: 5, width: 36, height: 36, border: 'none', background: 'transparent', color: 'var(--fa-ink-3)', borderRadius: 8 }}>
+                  <Icon name={show ? 'eyeoff' : 'eye'} size={18} />
+                </button>
+              </div>
+            </div>
+            <label className="fa-check" data-on={remember ? '1' : '0'} onClick={() => setRemember(!remember)} style={{ marginTop: -4 }}>
+              <span className="box"><Icon name="check" size={14} stroke={2.6} /></span>Continuar conectada
+            </label>
+          </React.Fragment>
+        )}
+        {challengeActive && (
+          <div className="fa-field">
+            <label>Código de verificação</label>
+            <input className="fa-input" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value.replace(/\D+/g, '').slice(0, 8))} placeholder="000000" />
+          </div>
+        )}
+        {error && <div className="fa-card" style={{ padding: '14px 16px', background: 'var(--fa-rose-soft)', color: 'var(--fa-primary)', fontWeight: 600, fontSize: 13.5 }}>{error}</div>}
+        {challengeActive && (
+          <button type="button" className="fa-btn fa-btn-soft fa-btn-block" onClick={() => { setChallengeActive(false); setChallengeToken(''); setCode(''); setError(''); }}>
+            Voltar para senha
+          </button>
+        )}
+        <button type="submit" className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" disabled={busy}>
+          {busy ? 'Validando...' : challengeActive ? 'Confirmar código' : 'Entrar'}
+          <Icon name="arrowR" size={18} />
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function PharmacistChatModal({ open, onClose, user, authClient, onAuthenticated, threads = [], activeThreadId = '', onSelectThread, onSendMessage, onOpenAccountConversations }) {
+  return (
+    <ModalShell open={open} onClose={onClose} maxw={user ? 860 : 460} padded={!user}>
+      {user
+        ? <PharmacistChatInbox
+            threads={threads}
+            activeThreadId={activeThreadId}
+            onSelectThread={onSelectThread}
+            onSendMessage={onSendMessage}
+            onOpenAccountConversations={onOpenAccountConversations}
+          />
+        : <ChatLoginPrompt authClient={authClient} onAuthenticated={onAuthenticated} />}
     </ModalShell>
   );
 }

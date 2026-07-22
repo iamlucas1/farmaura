@@ -156,18 +156,23 @@ function StoreMap({ store, stores, onPick }) {
   );
 }
 
-function DeliveryForm({ data, set, stores = [] }) {
+function DeliveryForm({ data, set, stores = [], checkCoverage }) {
   /** Render the delivery and pickup form section. */
 
   const [method, setMethod] = [data.method, (value) => set({ ...data, method: value })];
   const [cepStatus, setCepStatus] = useState({ loading: false, error: "", hint: "" });
+  const [coverage, setCoverage] = useState({ configured: false, covered: true });
   const lastLookupCepRef = useRef("");
+  const lastCoverageCepRef = useRef("");
   const storeId = data.store || (stores[0] && stores[0].id);
   const store = stores.find((entry) => entry.id === storeId) || stores[0];
+  const requiresShipping = coverage.requires_shipping === true;
+  const blockedForDelivery = (coverage.configured && !coverage.covered) || requiresShipping;
   const methods = [
-    { id: 'express', t: 'Entrega expressa', d: 'Em até 60 minutos', price: 'R$ 9,90', icon: 'bolt' },
-    { id: 'standard', t: 'Entrega padrão', d: 'Hoje, até 3h', price: 'Grátis', icon: 'truck' },
-    { id: 'pickup', t: 'Retirar na loja', d: 'Pronto em 20 min · escolha a unidade', price: 'Grátis', icon: 'bag' },
+    { id: 'express', t: 'Entrega expressa', d: blockedForDelivery ? 'Fora da área de entrega por motoboy' : 'Em até 60 minutos', price: 'R$ 9,90', icon: 'bolt', disabled: blockedForDelivery },
+    { id: 'standard', t: 'Entrega padrão', d: blockedForDelivery ? 'Fora da área de entrega por motoboy' : 'Hoje, até 3h', price: 'Grátis', icon: 'truck', disabled: blockedForDelivery },
+    { id: 'pickup', t: 'Retirar na loja', d: 'Pronto em 20 min · escolha a unidade', price: 'Grátis', icon: 'bag', disabled: false },
+    { id: 'shipping', t: 'Envio por transportadora', d: requiresShipping ? `Fora do raio de entrega${coverage.nearestStoreName ? ' · sai de ' + coverage.nearestStoreName : ''}` : 'Rastreio pela transportadora', price: 'Calculado no endereço', icon: 'nav', disabled: false },
   ];
 
   useEffect(() => {
@@ -178,6 +183,7 @@ function DeliveryForm({ data, set, stores = [] }) {
       if (digits.length !== 8) {
         lastLookupCepRef.current = "";
         setCepStatus((current) => current.loading ? current : { loading: false, error: "", hint: "" });
+        setCoverage({ configured: false, covered: true });
       }
       return;
     }
@@ -218,6 +224,42 @@ function DeliveryForm({ data, set, stores = [] }) {
     };
   }, [data, method, set]);
 
+  useEffect(() => {
+    /** Check delivery coverage once the district/city/state are known, independent of the CEP-lookup effect above. */
+
+    const digits = String(data.cep || "").replace(/\D/g, "");
+    if (typeof checkCoverage !== 'function' || method === 'pickup' || !data.district || digits.length !== 8) {
+      return;
+    }
+    if (digits === lastCoverageCepRef.current) {
+      return;
+    }
+    lastCoverageCepRef.current = digits;
+
+    let active = true;
+
+    async function run() {
+      const coverageResult = await checkCoverage({ district: data.district, city: data.city, state: data.state, cep: data.cep });
+      if (!active) {
+        return;
+      }
+      setCoverage(coverageResult);
+      if (coverageResult.requires_shipping) {
+        if (method !== 'pickup' && method !== 'shipping') {
+          setMethod('shipping');
+        }
+      } else if (coverageResult.configured && !coverageResult.covered && method !== 'pickup') {
+        setMethod('pickup');
+      }
+    }
+
+    void run();
+
+    return () => {
+      active = false;
+    };
+  }, [data.district, data.city, data.state, data.cep, method, checkCoverage]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {method !== 'pickup' && (
@@ -228,6 +270,12 @@ function DeliveryForm({ data, set, stores = [] }) {
             {cepStatus.loading ? <div className="fa-faint" style={{ fontSize: 12, marginTop: 6 }}>Buscando endereço...</div> : null}
             {!cepStatus.loading && cepStatus.hint ? <div style={{ fontSize: 12, marginTop: 6, color: 'var(--fa-success)' }}>{cepStatus.hint}</div> : null}
             {!cepStatus.loading && cepStatus.error ? <div style={{ fontSize: 12, marginTop: 6, color: 'var(--fa-error)' }}>{cepStatus.error}</div> : null}
+            {!cepStatus.loading && blockedForDelivery ? (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12, marginTop: 6, color: 'var(--fa-warn)', fontWeight: 600 }}>
+                <Icon name="info" size={13} style={{ flex: 'none', marginTop: 1 }} />
+                Este endereço não está na nossa área de entrega. Apenas retirada na loja está disponível.
+              </div>
+            ) : null}
           </Field>
           <Field label="Telefone"><input className="fa-input" value={data.phone || ''} onChange={(event) => set({ ...data, phone: event.target.value })} /></Field>
           <Field label="Rua" full><input className="fa-input" value={data.street || ''} onChange={(event) => set({ ...data, street: event.target.value })} /></Field>
@@ -243,11 +291,12 @@ function DeliveryForm({ data, set, stores = [] }) {
         <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 10 }}>Como você quer receber?</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {methods.map((entry) => (
-            <button key={entry.id} type="button" onClick={() => setMethod(entry.id)} style={{ textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, padding: 14, borderRadius: 'var(--fa-r-input)', border: method === entry.id ? '1.5px solid var(--fa-primary)' : '1px solid var(--fa-mist)', background: method === entry.id ? 'var(--fa-rose-soft)' : 'var(--fa-surface)', transition: 'all .15s' }}>
+            <button key={entry.id} type="button" disabled={entry.disabled} onClick={() => { if (!entry.disabled) setMethod(entry.id); }}
+              style={{ textAlign: 'left', cursor: entry.disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 14, padding: 14, borderRadius: 'var(--fa-r-input)', border: method === entry.id ? '1.5px solid var(--fa-primary)' : '1px solid var(--fa-mist)', background: entry.disabled ? 'var(--fa-mist-2)' : method === entry.id ? 'var(--fa-rose-soft)' : 'var(--fa-surface)', opacity: entry.disabled ? 0.6 : 1, transition: 'all .15s' }}>
               <span className="fa-iconbox" style={{ background: '#fff', width: 44, height: 44, color: 'var(--fa-primary)' }}><Icon name={entry.icon} size={22} /></span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14.5 }}>{entry.t}</div>
-                <div className="fa-muted" style={{ fontSize: 13 }}>{entry.d}</div>
+                <div className="fa-muted" style={{ fontSize: 13, color: entry.disabled ? 'var(--fa-warn)' : undefined }}>{entry.d}</div>
               </div>
               <div style={{ fontWeight: 800, fontSize: 14, color: entry.price === 'Grátis' ? 'var(--fa-success)' : 'var(--fa-ink)' }}>{entry.price}</div>
               <span style={{ width: 22, height: 22, borderRadius: 99, border: method === entry.id ? '6px solid var(--fa-primary)' : '2px solid var(--fa-mist)', flex: 'none', transition: 'all .15s' }} />
@@ -410,8 +459,12 @@ function StepHead({ n, title, sub }) {
 function CheckoutScreen({ ctx }) {
   /** Render the checkout flow using the configured variant. */
 
-  const { items, products, coupon, onNav, placeOrder, checkoutVariant, stores = [], profile, addresses = [], placingOrder, cards = [] } = ctx;
+  const { items, products, coupon, onNav, placeOrder, checkoutVariant, stores = [], profile, addresses = [], placingOrder, cards = [], checkCoverage, deliveryEstimate } = ctx;
   const hasRx = items.some((item) => products.find((product) => product.id === item.id)?.rx);
+  const hasUnavailableItems = items.some((item) => {
+    const product = products.find((entry) => entry.id === item.id);
+    return !product || Number(product.stock || 0) <= 0;
+  });
   const primaryAddress = resolvePrimaryAddress(addresses);
   const [delivery, setDelivery] = useState({
     method: 'express',
@@ -464,12 +517,22 @@ function CheckoutScreen({ ctx }) {
         ))}
       </div>
       <hr className="fa-divider" />
-      <OrderSummary items={items} products={products} coupon={coupon} />
+      <OrderSummary items={items} products={products} coupon={coupon} deliveryEstimate={deliveryEstimate} />
     </div>
   );
 
   const hasValidCpf = !!(profile && (profile.cpf || '').replace(/\D/g, '').length === 11);
-  const placeBtn = hasValidCpf ? (
+  const placeBtn = hasUnavailableItems ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: 14, borderRadius: 'var(--fa-r-input)', background: 'var(--fa-warn-soft, #FFF6E5)', color: 'var(--fa-warn, #9A6700)', fontSize: 13 }}>
+        <Icon name="info" size={18} style={{ flex: 'none', marginTop: 1 }} />
+        <span>Seu carrinho tem itens sem estoque ou que saíram de venda. Volte ao carrinho e remova-os para continuar.</span>
+      </div>
+      <button className="fa-btn fa-btn-vital fa-btn-lg fa-btn-block" onClick={() => onNav({ name: 'cart' })}>
+        <Icon name="cart" size={18} />Voltar ao carrinho
+      </button>
+    </div>
+  ) : hasValidCpf ? (
     <button className="fa-btn fa-btn-vital fa-btn-lg fa-btn-block" disabled={placingOrder} onClick={() => placeOrder({ delivery, payment, rx })}>
       <Icon name="shield" size={18} />{placingOrder ? 'Processando pedido...' : 'Confirmar e pagar'}
     </button>
@@ -504,14 +567,14 @@ function CheckoutScreen({ ctx }) {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 'var(--fa-gap)', alignItems: 'start' }} className="fa-ck-grid">
           <div className="fa-card" style={{ padding: 24 }}>
-            {currentStep.id === 'delivery' && <><StepHead n="1" title="Entrega" sub="Para onde levamos seu cuidado?" /><DeliveryForm data={delivery} set={setDelivery} stores={stores} /></>}
+            {currentStep.id === 'delivery' && <><StepHead n="1" title="Entrega" sub="Para onde levamos seu cuidado?" /><DeliveryForm data={delivery} set={setDelivery} stores={stores} checkCoverage={checkCoverage} /></>}
             {currentStep.id === 'rx' && <><StepHead n="2" title="Receita digital" sub="Validação rápida pelo farmacêutico." /><PrescriptionCard data={rx} set={setRx} /></>}
             {currentStep.id === 'payment' && <><StepHead n={hasRx ? '3' : '2'} title="Pagamento" sub="Escolha como prefere pagar." /><PaymentForm data={payment} set={setPayment} cards={cards} /></>}
             {currentStep.id === 'review' && (
               <>
                 <StepHead n={steps.length} title="Revise seu pedido" sub="Tudo certo? É só confirmar." />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {[['Entrega', delivery.method === 'express' ? 'Expressa · 60 min' : delivery.method === 'pickup' ? ('Retirada · ' + ((stores.find((entry) => entry.id === (delivery.store || (stores[0] && stores[0].id))) || {}).name || 'loja')) : 'Padrão · hoje', 'truck'], ['Pagamento', payment.method === 'pix' ? 'Pix' : payment.method === 'credit_card' ? 'Cartão de crédito' : 'Cartão de débito', 'card'], ...(hasRx ? [['Receita', rx.sent ? 'Enviada ✓' : 'Pendente', 'rx']] : [])].map(([label, value, icon]) => (
+                  {[['Entrega', delivery.method === 'express' ? 'Expressa · 60 min' : delivery.method === 'pickup' ? ('Retirada · ' + ((stores.find((entry) => entry.id === (delivery.store || (stores[0] && stores[0].id))) || {}).name || 'loja')) : delivery.method === 'shipping' ? 'Envio por transportadora' : 'Padrão · hoje', 'truck'], ['Pagamento', payment.method === 'pix' ? 'Pix' : payment.method === 'credit_card' ? 'Cartão de crédito' : 'Cartão de débito', 'card'], ...(hasRx ? [['Receita', rx.sent ? 'Enviada ✓' : 'Pendente', 'rx']] : [])].map(([label, value, icon]) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, border: '1px solid var(--fa-mist)', borderRadius: 'var(--fa-r-input)' }}>
                       <Icon name={icon} size={20} style={{ color: 'var(--fa-primary)' }} />
                       <div style={{ flex: 1 }}><div className="fa-faint" style={{ fontSize: 12 }}>{label}</div><div style={{ fontWeight: 700, fontSize: 14 }}>{value}</div></div>
@@ -539,7 +602,7 @@ function CheckoutScreen({ ctx }) {
       <h1 className="fa-h1" style={{ fontSize: 'clamp(26px,3vw,36px)', marginBottom: 24 }}>Finalizar compra</h1>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 'var(--fa-gap)', alignItems: 'start' }} className="fa-ck-grid">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="fa-card" style={{ padding: 24 }}><StepHead n="1" title="Entrega" /><DeliveryForm data={delivery} set={setDelivery} stores={stores} /></div>
+          <div className="fa-card" style={{ padding: 24 }}><StepHead n="1" title="Entrega" /><DeliveryForm data={delivery} set={setDelivery} stores={stores} checkCoverage={checkCoverage} /></div>
           {hasRx && <div className="fa-card" style={{ padding: 24 }}><StepHead n="2" title="Receita digital" /><PrescriptionCard data={rx} set={setRx} /></div>}
           <div className="fa-card" style={{ padding: 24 }}><StepHead n={hasRx ? '3' : '2'} title="Pagamento" /><PaymentForm data={payment} set={setPayment} cards={cards} /></div>
         </div>
@@ -584,7 +647,7 @@ function ConfirmScreen({ ctx }) {
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Pedido</span><b className="fa-mono">#{orderCode}</b></div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Total</span><b>{lastOrder ? brl(totalAmount) : '—'}</b></div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Pagamento</span><b style={{ color: paymentApproved ? 'var(--fa-success)' : 'var(--fa-warn, #9A6700)' }}>{paymentApproved ? 'Aprovado' : 'Aguardando confirmação'}</b></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Fluxo</span><b>{lastOrder && lastOrder.fulfillment === 'pickup' ? 'Pronto para retirada' : 'Entrega em preparacao'}</b></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="fa-muted">Fluxo</span><b>{lastOrder && lastOrder.fulfillment === 'pickup' ? 'Pronto para retirada' : lastOrder && lastOrder.fulfillment === 'shipping' ? 'Envio por transportadora' : 'Entrega em preparacao'}</b></div>
         {lastOrder && lastOrder.fulfillment === 'pickup' && lastOrder.pickupCode ? (
           <div style={{ background: 'var(--fa-info-soft)', borderRadius: 'var(--fa-r-card)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fa-info)', fontWeight: 800, fontSize: 13.5 }}><Icon name="bag" size={16} />Codigo de retirada</div>

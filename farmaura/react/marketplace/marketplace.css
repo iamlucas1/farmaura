@@ -70,6 +70,7 @@ body {
 #fa-root { min-height: 100vh; }
 
 button { font-family: inherit; cursor: pointer; }
+a[role="button"], .fa-navlink, [role="button"] { cursor: pointer; }
 input, select, textarea { font-family: inherit; }
 a { color: inherit; text-decoration: none; }
 ::selection { background: var(--fa-rose); color: var(--fa-primary-ink); }
@@ -529,7 +530,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* Modal */
-.fa-modal-overlay { position: fixed; inset: 0; z-index: 2147483647; isolation: isolate; background: rgba(43,26,26,.48); backdrop-filter: blur(3px);
+.fa-modal-overlay { position: fixed; inset: 0; z-index: 1200; isolation: isolate; background: rgba(43,26,26,.48); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; overflow-x: hidden; overflow-y: auto; padding: 20px; animation: faOverlay .18s ease both; }
 @keyframes faOverlay { from { opacity: 0; } to { opacity: 1; } }
 .fa-modal { background: var(--fa-surface); border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-lg);
@@ -706,3 +707,12 @@ a { color: inherit; text-decoration: none; }
   background: var(--fa-rose-soft); color: var(--fa-primary); border-color: var(--fa-rose);
 }
 @media (max-width: 980px) { .fa-caremenu-top { display: none; } }
+
+/* ---------- "Entregar em" delivery CEP popover ---------- */
+.fa-delivery-pop {
+  position: absolute; left: 0; top: calc(100% + 10px); z-index: 70;
+  width: 300px; background: var(--fa-surface); border: 1px solid var(--fa-mist);
+  border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-lg);
+  padding: 14px; color: var(--fa-ink);
+  animation: faPop .16s cubic-bezier(.4,0,.2,1);
+}

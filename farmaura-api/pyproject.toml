@@ -15,7 +15,7 @@ dependencies = [
     "psycopg[binary]==3.3.4",
     "pwdlib[argon2]==0.3.0",
     "python-multipart==0.0.32",
-    "redis==8.0.0",
+    "valkey==6.1.1",
     "sqlalchemy==2.0.50",
     "structlog==26.1.0",
     "uvicorn==0.47.0",

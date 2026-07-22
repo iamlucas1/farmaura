@@ -97,7 +97,7 @@ function SalesScreen({ ctx }) {
 
   return (
     <>
-      <Topbar title="Vendas & Notas" sub="Vendas pagas — online e balcão — com emissão e consulta de nota fiscal" onLogout={onLogout}>
+      <Topbar title="Vendas & Notas" sub="Vendas pagas — online e balcão — com emissão e consulta de nota fiscal" onLogout={onLogout} ctx={ctx}>
         <div className="ph-topsearch"><Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} /><input placeholder="Buscar venda, cliente ou nº da nota" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </Topbar>
 

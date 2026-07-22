@@ -320,7 +320,21 @@ function ProfileManage({ ctx, acct }) {
               {['Feminino', 'Masculino', 'Não-binário', 'Prefiro não informar'].map((gender) => <option key={gender}>{gender}</option>)}
             </select>
           </div>
+          <div className="fa-field"><label>Estado civil</label>
+            <select className="fa-select" value={draft.maritalStatus || ''} onChange={(event) => setDraftField('maritalStatus', event.target.value)}>
+              <option value="">Prefiro não informar</option>
+              <option value="single">Solteiro(a)</option>
+              <option value="married">Casado(a)</option>
+              <option value="divorced">Divorciado(a)</option>
+              <option value="widowed">Viúvo(a)</option>
+              <option value="other">Outro</option>
+            </select>
+          </div>
+          <div className="fa-field"><label>Número de filhos</label>
+            <input className="fa-input" type="number" min="0" max="20" placeholder="Opcional" value={draft.childrenCount === '' || draft.childrenCount == null ? '' : draft.childrenCount} onChange={(event) => setDraftField('childrenCount', event.target.value === '' ? '' : Number(event.target.value))} />
+          </div>
         </div>
+        <div className="ph-cell-sub" style={{ marginTop: 6 }}>Usamos esses dados só para mostrar promoções mais relevantes para você — são opcionais.</div>
         {infoError ? <div style={{ marginTop: 12, color: 'var(--fa-error)', fontSize: 12.5 }}>{infoError}</div> : null}
         <div style={{ marginTop: 18 }}>
           <button className="fa-btn fa-btn-primary" disabled={savingInfo || !draft.name.trim() || draft.cpf.replace(/\D/g, '').length !== 11} onClick={saveInfo}><Icon name="check" size={16} stroke={2.4} />{savingInfo ? 'Salvando...' : 'Salvar alterações'}</button>

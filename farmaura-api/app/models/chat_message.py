@@ -40,3 +40,4 @@ class ChatMessage(Base, UuidModel, TimestampedModel):
     customer_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     pharmacist_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_internal_note: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    prescription_id: Mapped[str | None] = mapped_column(ForeignKey("prescriptions.id", ondelete="SET NULL"), index=True, nullable=True)

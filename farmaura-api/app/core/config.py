@@ -43,13 +43,15 @@ class Settings(BaseSettings):
     debug: bool = False
     allowed_origins_raw: str = Field(default="", validation_alias=AliasChoices("APP_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"))
     database_url: str
-    redis_url: str
+    database_admin_url: str = ""
+    valkey_url: str
     jwt_issuer: str
     jwt_audience: str
     jwt_access_ttl_minutes: int = 15
     jwt_refresh_ttl_days: int = 30
     jwt_refresh_remember_ttl_days: int = 90
     jwt_mfa_ttl_minutes: int = 5
+    jwt_password_reset_ttl_minutes: int = 10
     jwt_private_key: str
     jwt_public_key: str
     jwt_algorithm: str = "HS256"
@@ -99,12 +101,15 @@ class Settings(BaseSettings):
     asaas_invoice_csll: float = 0.0
     asaas_invoice_inss: float = 0.0
     asaas_invoice_ir: float = 0.0
+    melhor_envio_enabled: bool = False
+    melhor_envio_base_url: str = "https://sandbox.melhorenvio.com.br"
+    melhor_envio_access_token: str = ""
+    melhor_envio_user_agent: str = "farmaura-api/1.0 (contato@farmaura.com.br)"
+    melhor_envio_from_document: str = ""
     geocoding_enabled: bool = True
     geocoding_base_url: str = "https://nominatim.openstreetmap.org"
     geocoding_user_agent: str = "farmaura-api/1.0 (contato@farmaura.com.br)"
     geocoding_timeout_seconds: int = 10
-    store_hub_name: str = ""
-    store_hub_address: str = ""
     smtp_enabled: bool = False
     smtp_host: str = ""
     smtp_port: int = 587
@@ -113,12 +118,25 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     smtp_from_email: str = ""
     smtp_from_name: str = "Farmaura"
+    marketplace_base_url: str = "https://farmaura.local"
+    initial_admin_email: str = ""
+    initial_admin_password: str = ""
     ai_inventory_system_prompt: str = (
         "Voce e um analista de estoque farmaceutico da Farmaura. "
         "Responda apenas com base no contexto operacional recebido, "
         "seja objetivo, aponte riscos de ruptura, excesso, validade, "
         "movimentacao e necessidade de reposicao quando relevante."
     )
+
+    @property
+    def database_bootstrap_url(self) -> str:
+        """Return the elevated connection used for schema/RLS bootstrap and seeding.
+
+        Falls back to database_url when no dedicated admin role is configured
+        (e.g. tests or environments that only ever set one connection string).
+        """
+
+        return self.database_admin_url or self.database_url
 
     @property
     def allowed_origins(self) -> list[str]:

@@ -42,7 +42,7 @@ class InventoryMovement(Base, UuidModel, TimestampedModel):
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    store_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id", ondelete="RESTRICT"), index=True, nullable=False)
     inventory_item_id: Mapped[str] = mapped_column(
         ForeignKey("inventory_items.id", ondelete="CASCADE"),
         index=True,

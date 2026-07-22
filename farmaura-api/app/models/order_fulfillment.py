@@ -61,3 +61,8 @@ class OrderFulfillment(Base, UuidModel, TimestampedModel):
     picked_up_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     driver_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     driver_phone: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    carrier_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    shipping_service_id: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    tracking_code: Mapped[str] = mapped_column(String(64), default="", index=True, nullable=False)
+    shipping_provider_order_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    shipping_label_url: Mapped[str] = mapped_column(String(1000), default="", nullable=False)

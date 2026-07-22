@@ -5,20 +5,24 @@ Inventory item ORM model for Farmaura.
 
 Responsibilities:
 - persist store-scoped inventory records;
-- store operational stock, lot, expiry, pricing, class, and threshold fields;
+- store operational stock, lot, expiry, pricing, and threshold fields;
 - support pharmacist console inventory workflows;
 
 Observations:
-- this model reflects the current inventory screen contract;
-- product normalization can be introduced later without losing these fields;
+- product identity/classification (name, SKU, brand, category, therapeutic class,
+  EAN, controlled/generic flags, marketplace images) lives on InventoryProduct and
+  is shared by every store carrying the same product; the read-only properties
+  below proxy to it so existing call sites that read item.name/item.sku/etc. keep
+  working unchanged. Writes to those fields must go through item.product instead.
 """
 
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Numeric, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Numeric, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampedModel, UuidModel
+from app.models.inventory_product import InventoryProduct
 
 
 # ============================================================================
@@ -43,13 +47,9 @@ class InventoryItem(Base, UuidModel, TimestampedModel):
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    store_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    sku: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    brand_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
-    category_name: Mapped[str] = mapped_column(String(120), default="Medicamentos", nullable=False)
-    medication_class_name: Mapped[str] = mapped_column(String(120), default="Geral", nullable=False)
-    ean_code: Mapped[str] = mapped_column(String(32), default="", index=True, nullable=False)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id", ondelete="RESTRICT"), index=True, nullable=False)
+    product_id: Mapped[str] = mapped_column(ForeignKey("inventory_products.id", ondelete="RESTRICT"), index=True, nullable=False)
+    product: Mapped[InventoryProduct] = relationship(lazy="joined")
     storage_location: Mapped[str] = mapped_column(String(64), nullable=False)
     batch_code: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     expiry_label: Mapped[str] = mapped_column(String(16), default="", nullable=False)
@@ -66,8 +66,81 @@ class InventoryItem(Base, UuidModel, TimestampedModel):
         nullable=False,
         default=Decimal("0.00"),
     )
-    is_controlled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_marketplace_visible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    marketplace_image_url: Mapped[str] = mapped_column(String(500), default="", nullable=False)
-    marketplace_gallery_urls: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    is_marketplace_visible: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Per-product override of the CNAE's default ICMS-ST status (Configurações do sistema).
+    # Null inherits the CNAE default; true/false forces this item specifically — some products
+    # under the same CNAE aren't necessarily taxed identically under substituicao tributaria.
+    is_subject_to_icms_st: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    @property
+    def name(self) -> str:
+        """Proxy the shared product's name."""
+
+        return self.product.name
+
+    @property
+    def sku(self) -> str:
+        """Proxy the shared product's SKU."""
+
+        return self.product.sku
+
+    @property
+    def brand_name(self) -> str:
+        """Proxy the shared product's brand name."""
+
+        return self.product.brand_name
+
+    @property
+    def category_name(self) -> str:
+        """Proxy the shared product's category name."""
+
+        return self.product.category_name
+
+    @property
+    def medication_class_name(self) -> str:
+        """Proxy the shared product's medication class name."""
+
+        return self.product.medication_class_name
+
+    @property
+    def ean_code(self) -> str:
+        """Proxy the shared product's EAN code."""
+
+        return self.product.ean_code
+
+    @property
+    def is_controlled(self) -> bool:
+        """Proxy the shared product's controlled flag."""
+
+        return self.product.is_controlled
+
+    @property
+    def controlled_category(self) -> str:
+        """Proxy the shared product's controlled category."""
+
+        return self.product.controlled_category
+
+    @property
+    def is_generic(self) -> bool:
+        """Proxy the shared product's generic flag."""
+
+        return self.product.is_generic
+
+    @property
+    def cnae_code(self) -> str:
+        """Proxy the shared product's CNAE code."""
+
+        return self.product.cnae_code
+
+    @property
+    def marketplace_image_url(self) -> str:
+        """Proxy the shared product's marketplace image URL."""
+
+        return self.product.marketplace_image_url
+
+    @property
+    def marketplace_gallery_urls(self) -> list[str]:
+        """Proxy the shared product's marketplace gallery URLs."""
+
+        return self.product.marketplace_gallery_urls

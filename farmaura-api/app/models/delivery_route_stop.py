@@ -27,17 +27,26 @@ from app.models.base import Base, TimestampedModel, UuidModel
 
 
 class DeliveryRouteStop(Base, UuidModel, TimestampedModel):
-    """Persist an ordered stop inside a delivery route."""
+    """Persist an ordered stop inside a delivery route.
+
+    A stop originates from either a marketplace order or a PDV (balcão) sale
+    — exactly one of order_id/pdv_sale_id is set, never both, never neither.
+    """
 
     __tablename__ = "delivery_route_stops"
     __table_args__ = (
         UniqueConstraint("route_id", "stop_sequence", name="uq_delivery_route_stops_route_sequence"),
         CheckConstraint("stop_sequence > 0", name="delivery_route_stops_sequence_positive"),
         CheckConstraint("distance_from_origin_km >= 0", name="delivery_route_stops_distance_non_negative"),
+        CheckConstraint(
+            "(order_id IS NOT NULL AND pdv_sale_id IS NULL) OR (order_id IS NULL AND pdv_sale_id IS NOT NULL)",
+            name="delivery_route_stops_exactly_one_source",
+        ),
     )
 
     route_id: Mapped[str] = mapped_column(ForeignKey("delivery_routes.id", ondelete="CASCADE"), index=True, nullable=False)
-    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False)
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=True)
+    pdv_sale_id: Mapped[str | None] = mapped_column(ForeignKey("pdv_sales.id", ondelete="CASCADE"), index=True, nullable=True)
     order_fulfillment_id: Mapped[str | None] = mapped_column(
         ForeignKey("order_fulfillments.id", ondelete="SET NULL"),
         index=True,

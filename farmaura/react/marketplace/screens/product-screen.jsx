@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { FlagBadge, ProductCard, ProductVisual, QtyStepper, Stars, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
+import { resolvePaymentBreakdown } from "../../shared/payment-pricing.js";
 import { SectionHead } from "./home-screen.jsx";
 
 /* FARMAURA — Product detail page. Two layout variants (A split / B editorial). */
 
-function PriceBlock({ p, big }) {
+function PriceBlock({ p, big, paymentRules }) {
+  const breakdown = resolvePaymentBreakdown(p.price, paymentRules);
+  const bestInstallment = breakdown.bestInstallmentLabel;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
@@ -13,12 +16,17 @@ function PriceBlock({ p, big }) {
         {p.old && <span className="fa-price-old" style={{ fontSize: 17 }}>{brl(p.old)}</span>}
         {p.discount > 0 && <span className="fa-badge fa-badge-vital" style={{ fontSize: 13, padding: '6px 11px' }}>-{p.discount}% OFF</span>}
       </div>
-      <div className="fa-muted" style={{ fontSize: 13, marginTop: 6 }}>ou 3x de {brl(p.price / 3)} sem juros · <b style={{ color: 'var(--fa-success)' }}>{brl(p.price * 0.95)}</b> no Pix</div>
+      <div className="fa-muted" style={{ fontSize: 13, marginTop: 6 }}>
+        {bestInstallment && bestInstallment.n > 1 && (
+          <>ou {bestInstallment.n}x de {brl(bestInstallment.installmentValue)}{bestInstallment.hasInterest ? '' : ' sem juros'} · </>
+        )}
+        <b style={{ color: 'var(--fa-success)' }}>{brl(breakdown.pixPrice)}</b> no Pix
+      </div>
     </div>
   );
 }
 
-function BuyBox({ p, qty, setQty, addToCart, onNav, sub, setSub }) {
+function BuyBox({ p, qty, setQty, addToCart, onNav, sub, setSub, notified, onNotify }) {
   const unit = sub ? p.price * 0.85 : p.price;
   const outOfStock = Number(p.stock || 0) <= 0;
   return (
@@ -42,10 +50,18 @@ function BuyBox({ p, qty, setQty, addToCart, onNav, sub, setSub }) {
           <div style={{ fontWeight: 800, fontSize: 20 }}>{brl(unit * qty)}</div>
         </div>
       </div>
-      <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" disabled={outOfStock} onClick={() => { if (!outOfStock) addToCart(p, qty, sub); }}>
-        <Icon name={outOfStock ? 'minus' : 'cart'} size={19} stroke={2} />{outOfStock ? 'Sem estoque' : 'Adicionar ao carrinho'}
-      </button>
-      <button className="fa-btn fa-btn-vital fa-btn-block" disabled={outOfStock} onClick={() => { if (!outOfStock) { addToCart(p, qty, sub); onNav({ name: 'cart' }); } }}>{outOfStock ? 'Indisponível' : 'Comprar agora'}</button>
+      {outOfStock ? (
+        <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" disabled={!!notified} onClick={() => { if (!notified && onNotify) onNotify(p.id, p.name); }}>
+          <Icon name="bell" size={19} stroke={2} />{notified ? 'Vamos te avisar por e-mail' : 'Avise-me quando chegar'}
+        </button>
+      ) : (
+        <>
+          <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" onClick={() => addToCart(p, qty, sub)}>
+            <Icon name="cart" size={19} stroke={2} />Adicionar ao carrinho
+          </button>
+          <button className="fa-btn fa-btn-vital fa-btn-block" onClick={() => { addToCart(p, qty, sub); onNav({ name: 'cart' }); }}>Comprar agora</button>
+        </>
+      )}
       <div style={{ display: 'flex', gap: 14, paddingTop: 4 }}>
         {[['truck', 'Entrega 60 min'], ['shield', 'Compra segura'], ['repeat', 'Troca fácil']].map(([iconName, label]) => (
           <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--fa-ink-2)', fontWeight: 600 }}><Icon name={iconName} size={15} style={{ color: 'var(--fa-primary)' }} />{label}</span>
@@ -121,7 +137,7 @@ function ProductTabs({ p }) {
 }
 
 function ProductScreen({ ctx }) {
-  const { products, route, onNav, addToCart, fav, toggleFav, productVariant, cardVariant } = ctx;
+  const { products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, productVariant, cardVariant, paymentRules } = ctx;
   const product = products.find((entry) => entry.id === route.id) || products[0];
   const [qty, setQty] = useState(1);
   const [sub, setSub] = useState(false);
@@ -134,10 +150,21 @@ function ProductScreen({ ctx }) {
     window.scrollTo(0, 0);
   }, [route.id]);
 
+  if (!product) {
+    return (
+      <div className="fa-wrap fa-fadein" style={{ paddingTop: 20, paddingBottom: 20, textAlign: 'center' }}>
+        <p className="fa-muted" style={{ fontSize: 15, margin: '40px 0 16px' }}>
+          {products.length ? 'Produto não encontrado.' : 'Carregando catálogo...'}
+        </p>
+        <button className="fa-btn fa-btn-primary" onClick={() => onNav({ name: 'home' })}>Voltar para a loja</button>
+      </div>
+    );
+  }
+
   const sameCategory = products.filter((entry) => entry.cat === product.cat && entry.id !== product.id);
   const relatedFill = products.filter((entry) => entry.id !== product.id && !sameCategory.includes(entry)).sort((left, right) => right.reviews - left.reviews);
   const related = [...sameCategory, ...relatedFill].slice(0, 10);
-  const cardProps = { variant: cardVariant, onOpen: (entry) => onNav({ name: 'product', id: entry.id }), onAdd: (entry) => addToCart(entry), onFav: toggleFav };
+  const cardProps = { variant: cardVariant, onOpen: (entry) => onNav({ name: 'product', id: entry.id }), onAdd: (entry) => addToCart(entry), onFav: toggleFav, onNotify: subscribeAvailabilityAlert };
   const supportsGallery = product.imagePolicy === 'brand_image';
   const galleryImages = supportsGallery ? Array.from(new Set((Array.isArray(product.gallery) && product.gallery.length ? product.gallery : [product.imageUrl]).filter(Boolean))) : [];
   const activeImageUrl = supportsGallery ? (galleryImages[selectedImageIndex] || '') : '';
@@ -172,7 +199,7 @@ function ProductScreen({ ctx }) {
           <span className="fa-muted" style={{ fontSize: 13.5, color: Number(product.stock || 0) <= 0 ? 'var(--fa-ink-3)' : undefined }}>{Number(product.stock || 0) <= 0 ? 'Sem estoque no momento' : product.stock + ' em estoque'}</span>
         </div>
       </div>
-      <PriceBlock p={product} big={productVariant === 'B'} />
+      <PriceBlock p={product} big={productVariant === 'B'} paymentRules={paymentRules} />
       {product.rx && <RxNotice />}
     </div>
   );
@@ -193,7 +220,7 @@ function ProductScreen({ ctx }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 32, alignItems: 'start' }} className="fa-prod-bandgrid">
             <ProductTabs p={product} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <BuyBox p={product} qty={qty} setQty={setQty} addToCart={addToCart} onNav={onNav} sub={sub} setSub={setSub} />
+              <BuyBox p={product} qty={qty} setQty={setQty} addToCart={addToCart} onNav={onNav} sub={sub} setSub={setSub} notified={availabilityAlerts.includes(product.id)} onNotify={subscribeAvailabilityAlert} />
               <PharmacistCard />
             </div>
           </div>
@@ -204,7 +231,7 @@ function ProductScreen({ ctx }) {
             {gallery}
             {info}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <BuyBox p={product} qty={qty} setQty={setQty} addToCart={addToCart} onNav={onNav} sub={sub} setSub={setSub} />
+              <BuyBox p={product} qty={qty} setQty={setQty} addToCart={addToCart} onNav={onNav} sub={sub} setSub={setSub} notified={availabilityAlerts.includes(product.id)} onNotify={subscribeAvailabilityAlert} />
               <PharmacistCard />
             </div>
           </div>
@@ -214,7 +241,7 @@ function ProductScreen({ ctx }) {
       <div style={{ marginTop: 48 }}>
         <SectionHead eyebrow="Combina com" title="Quem viu, levou também" />
         <div className="fa-grid-5">
-          {related.map((entry) => <ProductCard key={entry.id} product={entry} {...cardProps} fav={fav.includes(entry.id)} />)}
+          {related.map((entry) => <ProductCard key={entry.id} product={entry} {...cardProps} fav={fav.includes(entry.id)} notified={availabilityAlerts.includes(entry.id)} />)}
         </div>
       </div>
     </div>

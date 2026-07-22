@@ -85,7 +85,7 @@ const SORTS = [
 ];
 
 function ShopScreen({ ctx, mode }) {
-  const { cats, products, route, onNav, addToCart, fav, toggleFav, cardVariant } = ctx;
+  const { cats, products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant } = ctx;
   const category = mode === 'category' ? cats.find((entry) => entry.id === route.cat) : null;
   const query = mode === 'search' ? (route.query || '') : '';
   const source = useMemo(() => {
@@ -147,7 +147,7 @@ function ShopScreen({ ctx, mode }) {
   };
 
   const header = mode === 'category'
-    ? { eyebrow: 'Categoria', title: category.label, desc: category.desc }
+    ? { eyebrow: 'Categoria', title: category ? category.label : '', desc: category ? category.desc : '' }
     : mode === 'offers'
       ? { eyebrow: 'Economize', title: 'Ofertas da semana', desc: 'Descontos selecionados com proporção controlada — aproveite enquanto duram.' }
       : mode === 'mostsearched'
@@ -156,7 +156,7 @@ function ShopScreen({ ctx, mode }) {
           ? { eyebrow: 'Sua seleção', title: 'Produtos salvos', desc: `${result.length} ${result.length === 1 ? 'item favoritado' : 'itens favoritados'} · toque no coração para guardar mais.` }
           : { eyebrow: 'Resultados', title: query ? `“${query}”` : 'Busca', desc: `${result.length} ${result.length === 1 ? 'produto encontrado' : 'produtos encontrados'}` };
 
-  const cardProps = { variant: view, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onFav: toggleFav };
+  const cardProps = { variant: view, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onFav: toggleFav, onNotify: subscribeAvailabilityAlert };
 
   return (
     <div className="fa-wrap fa-fadein" style={{ paddingTop: 24, paddingBottom: 20 }}>
@@ -181,12 +181,14 @@ function ShopScreen({ ctx, mode }) {
         <p className="fa-lead" style={{ marginTop: 8 }}>{header.desc}</p>
       </div>
       <div className="fa-shop-grid" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 'var(--fa-gap)', alignItems: 'start' }}>
-        <aside className="fa-card fa-shop-side" style={{ padding: 20, position: 'sticky', top: 180 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <aside className="fa-card fa-shop-side" style={{ padding: 20, position: 'sticky', top: 180, maxHeight: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flex: 'none' }}>
             <span style={{ fontWeight: 800, fontSize: 16, display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="filter" size={18} />Filtros</span>
             <button onClick={() => setFilters(createInitialFilters())} style={{ border: 'none', background: 'none', color: 'var(--fa-primary)', fontWeight: 700, fontSize: 13 }}>Limpar</button>
           </div>
-          <FilterPanel source={source} filters={filters} setFilters={setFilters} maxPrice={maxPrice} />
+          <div style={{ overflowY: 'auto', minHeight: 0, flex: 1 }}>
+            <FilterPanel source={source} filters={filters} setFilters={setFilters} maxPrice={maxPrice} />
+          </div>
         </aside>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -228,7 +230,7 @@ function ShopScreen({ ctx, mode }) {
             </div>
           ) : (
             <div className={view === 'list' ? '' : 'fa-grid'} style={view === 'list' ? { display: 'flex', flexDirection: 'column', gap: 'var(--fa-gap)' } : {}}>
-              {result.map((product) => <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} />)}
+              {result.map((product) => <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />)}
             </div>
           )}
         </div>

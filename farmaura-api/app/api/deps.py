@@ -66,6 +66,7 @@ async def get_current_subject(
             "role": payload["role"],
             "access_scope": payload["access_scope"],
             "session_version": payload["session_version"],
+            "store_id": payload.get("store_id") or None,
         }
     )
 

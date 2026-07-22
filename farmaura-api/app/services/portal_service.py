@@ -17,16 +17,28 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from pydantic import ValidationError
+
+from app.core.password_hashing import generate_temporary_password, hash_password
+from app.core.tenant_context import apply_first_access_context, apply_public_marketplace_context, apply_tenant_context
+from app.domain.enums import AccessScope, OrderStatus, UserRole
+from app.domain.validators import is_valid_email
+from app.repositories.category_repository import CategoryRepository
+from app.repositories.customer_repository import CustomerRepository
+from app.repositories.inventory_repository import InventoryRepository
+from app.repositories.store_repository import StoreRepository
+from app.repositories.user_repository import UserRepository
 from app.services.geocoding_client import GeocodingClient
+from app.services.marketplace_projection import resolve_marketplace_category_id
+from app.services.notification_service import NotificationService
 
 from app.models.chat_thread import ChatThread
 from app.models.coupon_campaign import CouponCampaign
@@ -40,13 +52,23 @@ from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.pdv_sale import PdvSale
 from app.models.portal_setting import PortalSetting
+from app.models.pricing_promotion import PricingPromotion
 from app.models.product_review import ProductReview
 from app.models.saved_product import SavedProduct
 from app.models.subscription import Subscription
 from app.models.user import User
+from app.services.pricing_promotion_service import estimate_audience_size
 from app.schemas.auth import TokenSubject
 from app.schemas.portal import (
+    PortalAddressSearchResponse,
+    PortalAddressSearchResult,
     PortalCategoryResponse,
+    PortalCnaeSettingsResponse,
+    PortalCnaeSettingsUpdateRequest,
+    PortalConstructionCostsResponse,
+    PortalConstructionCostsUpdateRequest,
+    PortalStoreConstructionCostsInput,
+    PortalStoreConstructionCostsResponse,
     PortalCouponMutationRequest,
     PortalCouponResponse,
     PortalDeliveryRouteResponse,
@@ -54,6 +76,8 @@ from app.schemas.portal import (
     PortalFavoriteMutationRequest,
     PortalFavoriteResponse,
     PortalFinancialSettingsResponse,
+    PortalFirstAccessRequest,
+    PortalFirstAccessResponse,
     PortalFinancialSettingsUpdateRequest,
     PortalHealthAppointmentCreateRequest,
     PortalHealthHistoryResponse,
@@ -62,13 +86,23 @@ from app.schemas.portal import (
     PortalMarketplaceBootstrapResponse,
     PortalDeliveryPricingResponse,
     PortalDeliveryPricingUpdateRequest,
+    PortalDeliveryAreasResponse,
+    PortalDeliveryAreasUpdateRequest,
+    PortalMarketplaceDeliveryEstimateResponse,
     PortalMarketplaceMetaResponse,
     PortalMarketplaceMetaUpdateRequest,
     PortalMarketplacePublicBootstrapResponse,
+    PortalPdvDiscountSettingsResponse,
+    PortalPdvDiscountSettingsUpdateRequest,
     PortalPharmacistResponse,
+    PortalPricingPromotionAudienceEstimateRequest,
+    PortalPricingPromotionAudienceEstimateResponse,
+    PortalPricingPromotionMutationRequest,
+    PortalPricingPromotionResponse,
     PortalProductReviewCollectionResponse,
     PortalProductReviewCreateRequest,
     PortalProductReviewResponse,
+    PortalRegisterRequest,
     PortalStoreResponse,
     PortalSubscriptionCreateRequest,
     PortalSubscriptionResponse,
@@ -85,7 +119,12 @@ PORTAL_NAME_INTERNAL = 'internal'
 PORTAL_NAME_MARKETPLACE = 'marketplace'
 SETTING_KEY_MARKETPLACE_META = 'marketplace_meta'
 SETTING_KEY_FINANCIAL_SETTINGS = 'financial_settings'
+SETTING_KEY_CONSTRUCTION_COSTS = 'construction_costs'
+NON_REVENUE_ORDER_STATUSES = {OrderStatus.DRAFT.value, OrderStatus.SUBMITTED.value, OrderStatus.CANCELLED.value}
 SETTING_KEY_DELIVERY_PRICING = 'delivery_pricing'
+SETTING_KEY_DELIVERY_AREAS = 'delivery_areas'
+SETTING_KEY_PDV_DISCOUNT_SETTINGS = 'pdv_discount_settings'
+SETTING_KEY_CNAE_SETTINGS = 'cnae_settings'
 WEEKDAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom']
 ZERO_FINANCIAL_MONTH = {
     'faturamento': 0, 'aluguel': 0, 'energia': 0, 'agua': 0, 'contab': 0,
@@ -110,10 +149,19 @@ class PortalService:
         """Return marketplace bootstrap metadata derived from persisted records."""
 
         tenant_id = await self._resolve_public_tenant_id()
+        if tenant_id:
+            await apply_public_marketplace_context(self.session, tenant_id)
         categories = await self._list_marketplace_categories(tenant_id=tenant_id)
         stores = await self._list_store_snapshots(tenant_id=tenant_id)
-        pharmacist = await self._resolve_primary_pharmacist(tenant_id=tenant_id)
-        marketplace = await self._resolve_marketplace_meta(tenant_id=tenant_id)
+        pharmacist = await self._resolve_primary_pharmacist(tenant_id=tenant_id, include_contact=False)
+        marketplace = (await self._resolve_marketplace_meta(tenant_id=tenant_id)).model_copy(
+            update={
+                'commission_percent': Decimal('0.00'),
+                'payment_fee_percent': Decimal('0.00'),
+                'fixed_fee': Decimal('0.00'),
+                'minimum_margin_percent': Decimal('0.00'),
+            }
+        )
         health_services = await self._list_health_services(tenant_id=tenant_id)
         coupons = await self._list_coupon_campaigns(tenant_id=tenant_id, active_only=True)
         return PortalMarketplacePublicBootstrapResponse(
@@ -123,7 +171,97 @@ class PortalService:
             marketplace=marketplace,
             health_services=health_services,
             coupons=coupons,
+            delivery_estimate=await self._resolve_marketplace_delivery_estimate(tenant_id=tenant_id),
         )
+
+    async def request_marketplace_first_access(self, payload: PortalFirstAccessRequest) -> PortalFirstAccessResponse:
+        """Provision or renew first-access credentials for a PDV-registered customer."""
+
+        generic_response = PortalFirstAccessResponse(
+            detail="Se o e-mail informado estiver cadastrado, enviaremos uma senha temporária para acesso.",
+        )
+        email = payload.email.strip().lower()
+        await apply_first_access_context(self.session, email)
+        tenant_id = await self._resolve_public_tenant_id()
+        customer = await CustomerRepository(self.session).get_by_email(tenant_id=tenant_id, email=email)
+        if customer is None:
+            return generic_response
+
+        user_repository = UserRepository(self.session)
+        user = await user_repository.get_by_email(email)
+        temporary_password = generate_temporary_password()
+        if user is None:
+            user = User(
+                id=str(uuid4()),
+                tenant_id=customer.tenant_id,
+                email=email,
+                password_hash=hash_password(temporary_password),
+                full_name=customer.full_name,
+                role=UserRole.CUSTOMER.value,
+                access_scope=AccessScope.MARKETPLACE.value,
+                must_change_password=True,
+            )
+            await user_repository.add(user)
+        elif user.must_change_password:
+            user.password_hash = hash_password(temporary_password)
+            await user_repository.save(user)
+        else:
+            await self.session.commit()
+            return generic_response
+
+        NotificationService().send_first_access_email(
+            email=email,
+            full_name=customer.full_name,
+            temporary_password=temporary_password,
+        )
+        await self.session.commit()
+        return generic_response
+
+    async def register_marketplace_account(self, payload: PortalRegisterRequest) -> User:
+        """Create a self-service marketplace account and its customer profile."""
+
+        email = payload.email.strip().lower()
+        full_name = payload.full_name.strip()
+        phone = payload.phone.strip()
+        if not is_valid_email(email):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="E-mail inválido.")
+        await apply_first_access_context(self.session, email)
+        user_repository = UserRepository(self.session)
+        if await user_repository.get_by_email(email) is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Já existe uma conta com este e-mail.")
+
+        tenant_id = await self._resolve_public_tenant_id()
+        customer_repository = CustomerRepository(self.session)
+        customer = await customer_repository.get_by_email(tenant_id=tenant_id, email=email)
+        if customer is None:
+            customer = Customer(
+                id=str(uuid4()),
+                tenant_id=tenant_id,
+                external_code="web-" + uuid4().hex[:8],
+                full_name=full_name,
+                email=email,
+                phone=phone,
+                member_since_label="Agora",
+                loyalty_tier="Novo",
+            )
+            await customer_repository.add(customer)
+        elif phone and not customer.phone:
+            customer.phone = phone
+            await customer_repository.save(customer)
+
+        user = User(
+            id=str(uuid4()),
+            tenant_id=tenant_id,
+            email=email,
+            password_hash=hash_password(payload.password),
+            full_name=full_name or customer.full_name,
+            role=UserRole.CUSTOMER.value,
+            access_scope=AccessScope.MARKETPLACE.value,
+            must_change_password=False,
+        )
+        await user_repository.add(user)
+        await self.session.commit()
+        return user
 
     async def get_marketplace_bootstrap(self, subject: TokenSubject) -> PortalMarketplaceBootstrapResponse:
         """Return authenticated marketplace bootstrap data for one customer."""
@@ -148,9 +286,10 @@ class PortalService:
             favorites=favorites,
             subscriptions=subscriptions,
             coupons=coupons,
+            delivery_estimate=await self._resolve_marketplace_delivery_estimate(tenant_id=str(customer.tenant_id)),
         )
 
-    async def get_internal_bootstrap(self, subject: TokenSubject) -> PortalInternalBootstrapResponse:
+    async def get_internal_bootstrap(self, subject: TokenSubject, *, requested_store_id: str = "") -> PortalInternalBootstrapResponse:
         """Return internal portal metadata derived from persisted records."""
 
         user = await self._require_user(subject)
@@ -158,7 +297,12 @@ class PortalService:
         pharmacist = await self._build_pharmacist_profile(user=user)
         marketplace = await self._resolve_marketplace_meta(tenant_id=tenant_id)
         stores = await self._list_store_snapshots(tenant_id=tenant_id)
-        store = stores[0] if stores else PortalStoreResponse(id='', name='Farmaura', address='')
+        if requested_store_id and subject.role == UserRole.ADMIN:
+            own_store_id = requested_store_id
+        else:
+            own_store_id = user.store_id or await InventoryRepository(self.session).get_primary_store_id(tenant_id=tenant_id)
+        store = next((candidate for candidate in stores if candidate.id == own_store_id), None)
+        store = store or (stores[0] if stores else PortalStoreResponse(id='', name='Farmaura', address=''))
         now = datetime.now(tz=UTC)
         return PortalInternalBootstrapResponse(
             now_label=now.astimezone().strftime('%H:%M'),
@@ -167,11 +311,16 @@ class PortalService:
             pharmacist=pharmacist,
             marketplace=marketplace,
             store=store,
+            stores=stores,
             chart_seed=await self._build_chart_seed(tenant_id=tenant_id),
             coupon_campaigns=await self._list_coupon_campaigns(tenant_id=tenant_id, active_only=False),
+            pricing_promotions=await self._list_pricing_promotions(tenant_id=tenant_id),
             financial_settings=await self._resolve_financial_settings(tenant_id=tenant_id),
             delivery_route=await self._resolve_delivery_route(tenant_id=tenant_id, store=store),
             delivery_pricing=await self._resolve_delivery_pricing(tenant_id=tenant_id),
+            delivery_areas=await self._resolve_delivery_areas(tenant_id=tenant_id),
+            pdv_discount_settings=await self._resolve_pdv_discount_settings(tenant_id=tenant_id),
+            cnae_settings=await self._resolve_cnae_settings(tenant_id=tenant_id),
         )
 
     async def update_marketplace_meta(self, subject: TokenSubject, payload: PortalMarketplaceMetaUpdateRequest) -> PortalMarketplaceMetaResponse:
@@ -213,6 +362,96 @@ class PortalService:
         await self.session.commit()
         return await self._resolve_delivery_pricing(tenant_id=str(subject.tenant_id))
 
+    async def get_pdv_discount_settings(self, subject: TokenSubject) -> PortalPdvDiscountSettingsResponse:
+        """Return the tenant-scoped minimum average margin required to grant a PDV discount."""
+
+        await self._require_user(subject)
+        return await self._resolve_pdv_discount_settings(tenant_id=str(subject.tenant_id))
+
+    async def update_pdv_discount_settings(self, subject: TokenSubject, payload: PortalPdvDiscountSettingsUpdateRequest) -> PortalPdvDiscountSettingsResponse:
+        """Persist the tenant-scoped minimum average margin required to grant a PDV discount."""
+
+        await self._require_user(subject)
+        value = payload.model_dump(mode='json')
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_PDV_DISCOUNT_SETTINGS,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_pdv_discount_settings(tenant_id=str(subject.tenant_id))
+
+    async def get_cnae_settings(self, subject: TokenSubject) -> PortalCnaeSettingsResponse:
+        """Return the tenant-scoped registered CNAEs and tax regime."""
+
+        await self._require_user(subject)
+        return await self._resolve_cnae_settings(tenant_id=str(subject.tenant_id))
+
+    async def update_cnae_settings(self, subject: TokenSubject, payload: PortalCnaeSettingsUpdateRequest) -> PortalCnaeSettingsResponse:
+        """Persist the tenant-scoped registered CNAEs and tax regime."""
+
+        await self._require_user(subject)
+        normalized = []
+        principal_seen = False
+        principal_requested = any(entry.is_principal for entry in payload.items)
+        for index, entry in enumerate(payload.items):
+            is_principal = (entry.is_principal or (not principal_requested and index == 0)) and not principal_seen
+            if is_principal:
+                principal_seen = True
+            normalized.append(entry.model_copy(update={'is_principal': is_principal}))
+        value = {
+            'items': [entry.model_dump(mode='json') for entry in normalized],
+            'tax_regime': payload.tax_regime.model_dump(mode='json'),
+        }
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_CNAE_SETTINGS,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_cnae_settings(tenant_id=str(subject.tenant_id))
+
+    async def get_delivery_areas(self, subject: TokenSubject) -> PortalDeliveryAreasResponse:
+        """Return tenant-scoped per-store delivery-area configuration."""
+
+        await self._require_user(subject)
+        return await self._resolve_delivery_areas(tenant_id=str(subject.tenant_id))
+
+    async def update_delivery_areas(self, subject: TokenSubject, payload: PortalDeliveryAreasUpdateRequest) -> PortalDeliveryAreasResponse:
+        """Persist tenant-scoped per-store delivery-area configuration."""
+
+        await self._require_user(subject)
+        value = payload.model_dump(mode='json')
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_DELIVERY_AREAS,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_delivery_areas(tenant_id=str(subject.tenant_id))
+
+    async def search_delivery_addresses(self, subject: TokenSubject, query: str) -> PortalAddressSearchResponse:
+        """Return neighborhood/city search matches for one free-text query, to add as a delivery area."""
+
+        await self._require_user(subject)
+        matches = await asyncio.to_thread(GeocodingClient().search, query)
+        results = [
+            PortalAddressSearchResult(
+                label=entry.label,
+                district=entry.district,
+                city=entry.city,
+                state_code=entry.state_code,
+                kind=entry.kind,
+                latitude=entry.latitude,
+                longitude=entry.longitude,
+            )
+            for entry in matches
+        ]
+        return PortalAddressSearchResponse(results=results)
+
     async def get_financial_settings(self, subject: TokenSubject) -> PortalFinancialSettingsResponse:
         """Return tenant-scoped financial assumptions for the internal portal."""
 
@@ -232,6 +471,27 @@ class PortalService:
         )
         await self.session.commit()
         return await self._resolve_financial_settings(tenant_id=str(subject.tenant_id))
+
+    async def get_construction_costs(self, subject: TokenSubject) -> PortalConstructionCostsResponse:
+        """Return tenant-scoped, per-store construction cost entries and real-sales ROI figures."""
+
+        await self._require_user(subject)
+        return await self._resolve_construction_costs(tenant_id=str(subject.tenant_id))
+
+    async def update_construction_costs(self, subject: TokenSubject, payload: PortalConstructionCostsUpdateRequest) -> PortalConstructionCostsResponse:
+        """Persist tenant-scoped, per-store construction cost entries."""
+
+        await self._require_user(subject)
+        tenant_id = str(subject.tenant_id)
+        value = {'stores': {store_id: entry.model_dump(mode='json') for store_id, entry in payload.stores.items()}}
+        await self._upsert_setting_payload(
+            tenant_id=tenant_id,
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_CONSTRUCTION_COSTS,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_construction_costs(tenant_id=tenant_id)
 
     async def list_coupon_campaigns(self, subject: TokenSubject) -> list[PortalCouponResponse]:
         """Return all coupon campaigns for the authenticated internal tenant."""
@@ -313,6 +573,78 @@ class PortalService:
         await self.session.delete(record)
         await self.session.commit()
         return await self._list_coupon_campaigns(tenant_id=str(subject.tenant_id), active_only=False)
+
+    # ------------------------------------------------------------------------
+    # Pricing promotions
+    # ------------------------------------------------------------------------
+
+    async def list_pricing_promotions(self, subject: TokenSubject) -> list[PortalPricingPromotionResponse]:
+        """Return all pricing promotions for the authenticated internal tenant."""
+
+        await self._require_user(subject)
+        return await self._list_pricing_promotions(tenant_id=str(subject.tenant_id))
+
+    async def create_pricing_promotion(
+        self, subject: TokenSubject, payload: PortalPricingPromotionMutationRequest
+    ) -> list[PortalPricingPromotionResponse]:
+        """Persist one pricing promotion for the authenticated internal tenant."""
+
+        await self._require_user(subject)
+        tenant_id = str(subject.tenant_id)
+        record = PricingPromotion(tenant_id=tenant_id)
+        self._apply_pricing_promotion_payload(record, payload)
+        self.session.add(record)
+        await self.session.commit()
+        await apply_tenant_context(self.session, subject)
+        return await self._list_pricing_promotions(tenant_id=tenant_id)
+
+    async def update_pricing_promotion(
+        self, subject: TokenSubject, promotion_id: str, payload: PortalPricingPromotionMutationRequest
+    ) -> list[PortalPricingPromotionResponse]:
+        """Update one pricing promotion for the authenticated internal tenant."""
+
+        await self._require_user(subject)
+        record = await self._require_pricing_promotion(tenant_id=str(subject.tenant_id), promotion_id=promotion_id)
+        self._apply_pricing_promotion_payload(record, payload)
+        await self.session.commit()
+        await apply_tenant_context(self.session, subject)
+        return await self._list_pricing_promotions(tenant_id=str(subject.tenant_id))
+
+    async def delete_pricing_promotion(self, subject: TokenSubject, promotion_id: str) -> list[PortalPricingPromotionResponse]:
+        """Delete one pricing promotion for the authenticated internal tenant."""
+
+        await self._require_user(subject)
+        record = await self._require_pricing_promotion(tenant_id=str(subject.tenant_id), promotion_id=promotion_id)
+        await self.session.delete(record)
+        await self.session.commit()
+        await apply_tenant_context(self.session, subject)
+        return await self._list_pricing_promotions(tenant_id=str(subject.tenant_id))
+
+    async def estimate_pricing_promotion_audience(
+        self, subject: TokenSubject, payload: PortalPricingPromotionAudienceEstimateRequest
+    ) -> PortalPricingPromotionAudienceEstimateResponse:
+        """Return how many active customers match a draft promotion's audience filters."""
+
+        await self._require_user(subject)
+        tenant_id = str(subject.tenant_id)
+        total_statement = select(func.count()).select_from(Customer).where(Customer.tenant_id == tenant_id, Customer.is_active.is_(True))
+        total_active_customers = int((await self.session.execute(total_statement)).scalar_one() or 0)
+        matching_customers = await estimate_audience_size(
+            self.session,
+            tenant_id=tenant_id,
+            min_age=payload.min_age,
+            max_age=payload.max_age,
+            regions=payload.regions,
+            device_types=payload.device_types,
+            marital_statuses=payload.marital_statuses,
+            min_children=payload.min_children,
+            max_children=payload.max_children,
+            customer_segment=payload.customer_segment,
+        )
+        return PortalPricingPromotionAudienceEstimateResponse(
+            matching_customers=matching_customers,
+            total_active_customers=total_active_customers,
+        )
 
     async def list_product_reviews(self, product_ref: str) -> PortalProductReviewCollectionResponse:
         """Return published reviews for one marketplace product reference."""
@@ -528,109 +860,96 @@ class PortalService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Coupon campaign not found.')
         return coupon
 
-    async def _resolve_public_tenant_id(self) -> str:
-        """Return one tenant that has marketplace-facing data."""
+    async def _require_pricing_promotion(self, *, tenant_id: str, promotion_id: str) -> PricingPromotion:
+        """Return one pricing promotion or fail with not found."""
 
-        statements = [
-            select(MarketplaceListing.tenant_id).where(MarketplaceListing.is_published.is_(True), MarketplaceListing.is_visible.is_(True)).order_by(MarketplaceListing.created_at.asc()).limit(1),
-            select(HealthService.tenant_id).where(HealthService.is_active.is_(True)).order_by(HealthService.created_at.asc()).limit(1),
-            select(DeliveryRoute.tenant_id).order_by(DeliveryRoute.created_at.asc()).limit(1),
-        ]
-        for statement in statements:
-            tenant_id = (await self.session.execute(statement)).scalar_one_or_none()
-            if tenant_id:
-                return str(tenant_id)
-        return ''
+        statement = select(PricingPromotion).where(PricingPromotion.tenant_id == tenant_id, PricingPromotion.id == promotion_id)
+        result = await self.session.execute(statement)
+        promotion = result.scalar_one_or_none()
+        if promotion is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Pricing promotion not found.')
+        return promotion
+
+    async def _resolve_public_tenant_id(self) -> str:
+        """Return the tenant that owns the public storefront.
+
+        Runs through the same SECURITY DEFINER lookup catalog_service uses
+        (app_private.resolve_public_marketplace_tenant_id): an anonymous caller has no
+        tenant context yet, so identifying which tenant to scope to is inherently a
+        cross-tenant read that must bypass RLS narrowly — it returns only a tenant id,
+        never any row data.
+        """
+
+        tenant_id = (await self.session.execute(text("SELECT app_private.resolve_public_marketplace_tenant_id()"))).scalar_one_or_none()
+        return str(tenant_id or '')
 
     async def _list_marketplace_categories(self, *, tenant_id: str | None) -> list[PortalCategoryResponse]:
-        """Return customer-facing categories derived from published listings."""
+        """Return every active category the admin has registered, one menu entry each.
 
-        statement = select(MarketplaceListing.category_name).where(MarketplaceListing.is_visible.is_(True), MarketplaceListing.is_published.is_(True))
-        if tenant_id:
-            statement = statement.where(MarketplaceListing.tenant_id == tenant_id)
-        result = await self.session.execute(statement)
-        raw_names = sorted({str(value or '').strip() for value in result.scalars().all() if str(value or '').strip()})
-        if not raw_names:
-            raw_names = ['Medicamentos']
+        Mirrors the Categoria admin screen 1:1 — id is a stable slug of the category
+        name (unique per tenant, per Category.uq_categories_tenant_name), the same slug
+        resolve_marketplace_category_id() assigns to each product's `cat` field in
+        marketplace_projection.py, so clicking a menu entry always finds the matching
+        products. A category shows up as soon as it's created, even with zero products
+        yet — deactivating it removes it immediately.
+        """
+
+        if not tenant_id:
+            return [PortalCategoryResponse(id="medicamentos", label="Medicamentos", description="Catálogo geral.", icon="pill")]
+        categories = [
+            category
+            for category in await CategoryRepository(self.session).list_categories(tenant_id=tenant_id, active_only=True)
+            if not category.is_discarded
+        ]
+        if not categories:
+            return [PortalCategoryResponse(id="medicamentos", label="Medicamentos", description="Catálogo geral.", icon="pill")]
         responses: list[PortalCategoryResponse] = []
         seen_ids: set[str] = set()
-        for name in raw_names:
-            category_id = self._slugify(name)
+        for category in categories:
+            category_id = resolve_marketplace_category_id(category.name)
             if category_id in seen_ids:
                 continue
             seen_ids.add(category_id)
-            responses.append(PortalCategoryResponse(id=category_id, label=name, description='Catálogo atualizado a partir da vitrine publicada.', icon=self._category_icon(category_id)))
+            responses.append(
+                PortalCategoryResponse(
+                    id=category_id,
+                    label=category.name,
+                    description=category.description or "Categoria do catálogo do marketplace.",
+                    icon=self._category_icon(category_id),
+                )
+            )
         return responses
 
     async def _list_store_snapshots(self, *, tenant_id: str | None) -> list[PortalStoreResponse]:
         """Return persisted physical store snapshots for portal chrome."""
 
-        route_statement = select(DeliveryRoute)
-        if tenant_id:
-            route_statement = route_statement.where(DeliveryRoute.tenant_id == tenant_id)
-        route_statement = route_statement.order_by(desc(DeliveryRoute.created_at))
-        route_result = await self.session.execute(route_statement)
-        routes = list(route_result.scalars().all())
-        stores: list[PortalStoreResponse] = []
-        seen_names: set[str] = set()
-        for route in routes:
-            store_name = str(route.origin_name or '').strip()
-            if not store_name or store_name in seen_names:
-                continue
-            seen_names.add(store_name)
-            stores.append(PortalStoreResponse(id=str(route.store_id or ''), name=store_name, address=str(route.origin_address or '').strip(), postal_code=self._extract_postal_code(str(route.origin_address or '')), district=self._extract_address_part(str(route.origin_address or ''), 1), city=self._extract_address_part(str(route.origin_address or ''), 2), state_code=self._extract_state_code(str(route.origin_address or '')), ready_minutes=20, open_status_label='Loja operando'))
-        if stores:
-            return await self._attach_hub_coordinates(stores)
-        appointment_statement = select(HealthServiceAppointment.store_id, HealthServiceAppointment.store_name_snapshot)
-        if tenant_id:
-            appointment_statement = appointment_statement.where(HealthServiceAppointment.tenant_id == tenant_id)
-        appointment_statement = appointment_statement.order_by(desc(HealthServiceAppointment.created_at))
-        appointment_result = await self.session.execute(appointment_statement)
-        for store_id, store_name in appointment_result.all():
-            normalized_name = str(store_name or '').strip()
-            if not normalized_name or normalized_name in seen_names:
-                continue
-            seen_names.add(normalized_name)
-            stores.append(PortalStoreResponse(id=str(store_id or ''), name=normalized_name, ready_minutes=20, open_status_label='Loja operando'))
-        return await self._attach_hub_coordinates(stores)
+        if not tenant_id:
+            return []
+        stores = await StoreRepository(self.session).list_stores(tenant_id=tenant_id, active_only=True)
+        return [
+            PortalStoreResponse(
+                id=store.id,
+                name=store.name,
+                address=store.address_line,
+                postal_code=store.postal_code,
+                district=store.district,
+                city=store.city,
+                state_code=store.state_code,
+                ready_minutes=20,
+                open_status_label='Loja operando',
+                latitude=store.latitude,
+                longitude=store.longitude,
+            )
+            for store in stores
+        ]
 
-    async def _attach_hub_coordinates(self, stores: list[PortalStoreResponse]) -> list[PortalStoreResponse]:
-        """Attach real store coordinates so the marketplace can render an accurate map pin.
+    async def _resolve_primary_pharmacist(self, *, tenant_id: str | None, include_contact: bool = True) -> PortalPharmacistResponse:
+        """Return the primary pharmacist display snapshot from persisted records.
 
-        Uses the same store_hub_address geocoded for delivery-distance pricing, so the
-        "store" a customer sees on the map is the same physical origin used for fees.
+        include_contact=False strips the staff email from the response — used for the
+        anonymous public bootstrap, which must never expose internal user information,
+        even as a defense-in-depth measure independent of what RLS currently allows.
         """
-
-        settings = get_settings()
-        hub_address = (settings.store_hub_address or '').strip()
-        if not hub_address:
-            return stores
-        hub_point = await asyncio.to_thread(GeocodingClient().geocode, hub_address)
-        if hub_point is None:
-            return stores
-        if not stores:
-            return [
-                PortalStoreResponse(
-                    id='hub',
-                    name=(settings.store_hub_name or '').strip() or 'Farmácia Farmaura',
-                    address=hub_address,
-                    ready_minutes=20,
-                    open_status_label='Loja operando',
-                    latitude=hub_point.latitude,
-                    longitude=hub_point.longitude,
-                )
-            ]
-        primary = stores[0]
-        if primary.latitude == Decimal('0.0000000') and primary.longitude == Decimal('0.0000000'):
-            stores[0] = primary.model_copy(update={
-                'latitude': hub_point.latitude,
-                'longitude': hub_point.longitude,
-                'address': primary.address or hub_address,
-            })
-        return stores
-
-    async def _resolve_primary_pharmacist(self, *, tenant_id: str | None) -> PortalPharmacistResponse:
-        """Return the primary pharmacist display snapshot from persisted records."""
 
         thread_statement = select(ChatThread).where(ChatThread.pharmacist_name_snapshot != '', ChatThread.is_active.is_(True))
         if tenant_id:
@@ -647,12 +966,12 @@ class PortalService:
         user = (await self.session.execute(user_statement)).scalars().first()
         if user is None:
             return PortalPharmacistResponse()
-        return await self._build_pharmacist_profile(user=user)
+        return await self._build_pharmacist_profile(user=user, include_contact=include_contact)
 
-    async def _build_pharmacist_profile(self, user: User) -> PortalPharmacistResponse:
+    async def _build_pharmacist_profile(self, user: User, *, include_contact: bool = True) -> PortalPharmacistResponse:
         """Build the display payload for one pharmacist or operator."""
 
-        return PortalPharmacistResponse(name=str(user.full_name or ''), role_label='Operação interna' if user.role != 'pharmacist' else 'Farmacêutica responsável', registration_code='', email=str(user.email or ''), avatar_initials=self._initials(str(user.full_name or '')))
+        return PortalPharmacistResponse(name=str(user.full_name or ''), role_label='Operação interna' if user.role != 'pharmacist' else 'Farmacêutica responsável', registration_code='', email=str(user.email or '') if include_contact else '', avatar_initials=self._initials(str(user.full_name or '')))
 
     async def _resolve_marketplace_meta(self, *, tenant_id: str | None) -> PortalMarketplaceMetaResponse:
         """Return marketplace institutional metadata resolved from settings and listings."""
@@ -666,6 +985,22 @@ class PortalService:
         merged = {**derived.model_dump(mode='json'), **stored_value}
         return PortalMarketplaceMetaResponse.model_validate(merged)
 
+    async def _resolve_pdv_discount_settings(self, *, tenant_id: str) -> PortalPdvDiscountSettingsResponse:
+        """Return the tenant's minimum average margin required to grant a PDV discount, defaulting to 20%."""
+
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_PDV_DISCOUNT_SETTINGS, default=None)
+        if not stored_value:
+            return PortalPdvDiscountSettingsResponse()
+        return PortalPdvDiscountSettingsResponse.model_validate(stored_value)
+
+    async def _resolve_cnae_settings(self, *, tenant_id: str) -> PortalCnaeSettingsResponse:
+        """Return the tenant's registered CNAEs and their pricing ICMS rates."""
+
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_CNAE_SETTINGS, default=None)
+        if not stored_value:
+            return PortalCnaeSettingsResponse()
+        return PortalCnaeSettingsResponse.model_validate(stored_value)
+
     async def _resolve_delivery_pricing(self, *, tenant_id: str) -> PortalDeliveryPricingResponse:
         """Return the tenant's delivery pricing configuration, defaulting to the legacy flat rule."""
 
@@ -673,6 +1008,37 @@ class PortalService:
         if not stored_value:
             return PortalDeliveryPricingResponse()
         return PortalDeliveryPricingResponse.model_validate(stored_value)
+
+    async def _resolve_delivery_areas(self, *, tenant_id: str) -> PortalDeliveryAreasResponse:
+        """Return the tenant's per-store delivery-area configuration, defaulting to zero-config (no restrictions)."""
+
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_DELIVERY_AREAS, default=None)
+        if not stored_value:
+            return PortalDeliveryAreasResponse()
+        try:
+            return PortalDeliveryAreasResponse.model_validate(stored_value)
+        except ValidationError:
+            return PortalDeliveryAreasResponse()
+
+    async def _resolve_marketplace_delivery_estimate(self, *, tenant_id: str | None) -> PortalMarketplaceDeliveryEstimateResponse:
+        """Return the primary store's free-shipping threshold and a base fee estimate, mirroring the checkout fee resolution priority."""
+
+        if not tenant_id:
+            return PortalMarketplaceDeliveryEstimateResponse()
+        areas = await self._resolve_delivery_areas(tenant_id=tenant_id)
+        pricing = await self._resolve_delivery_pricing(tenant_id=tenant_id)
+        primary_store_id = await InventoryRepository(self.session).get_primary_store_id(tenant_id=tenant_id)
+        store_config = next((entry for entry in areas.stores if entry.store_id == primary_store_id), None)
+        if store_config is not None and (store_config.neighborhoods or store_config.radius_tiers):
+            fixed_fees = [
+                entry.price.fixed_fee
+                for entry in (*store_config.neighborhoods, *store_config.radius_tiers)
+                if entry.is_active and entry.price.mode == 'fixed'
+            ]
+            base_fee = min(fixed_fees) if fixed_fees else pricing.fee_beyond_last_tier
+            return PortalMarketplaceDeliveryEstimateResponse(free_above_subtotal=store_config.free_above_subtotal, base_fee=base_fee)
+        base_fee = pricing.tiers[0].fee if pricing.tiers else pricing.fee_beyond_last_tier
+        return PortalMarketplaceDeliveryEstimateResponse(free_above_subtotal=pricing.free_above_subtotal, base_fee=base_fee)
 
     async def _derive_marketplace_meta_from_listing(self, *, tenant_id: str | None) -> PortalMarketplaceMetaResponse:
         """Return marketplace metadata derived from published listings."""
@@ -737,6 +1103,15 @@ class PortalService:
         campaigns = (await self.session.execute(statement)).scalars().all()
         return [self._serialize_coupon_campaign(item) for item in campaigns]
 
+    async def _list_pricing_promotions(self, *, tenant_id: str) -> list[PortalPricingPromotionResponse]:
+        """Return pricing promotions for one tenant."""
+
+        if not tenant_id:
+            return []
+        statement = select(PricingPromotion).where(PricingPromotion.tenant_id == tenant_id).order_by(desc(PricingPromotion.created_at))
+        promotions = (await self.session.execute(statement)).scalars().all()
+        return [self._serialize_pricing_promotion(item) for item in promotions]
+
     async def _resolve_financial_settings(self, *, tenant_id: str) -> PortalFinancialSettingsResponse:
         """Return tenant-scoped financial settings, defaulting missing months to zero."""
 
@@ -746,6 +1121,84 @@ class PortalService:
         if current_month_key not in stored_months:
             stored_months[current_month_key] = dict(ZERO_FINANCIAL_MONTH)
         return PortalFinancialSettingsResponse.model_validate({'months': stored_months})
+
+    async def _resolve_construction_costs(self, *, tenant_id: str) -> PortalConstructionCostsResponse:
+        """Return per-store construction cost entries merged with real-sales ROI figures."""
+
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_CONSTRUCTION_COSTS, default={'stores': {}})
+        stored_stores = dict(stored_value.get('stores', {}))
+
+        stores = await StoreRepository(self.session).list_stores(tenant_id=tenant_id, active_only=False)
+
+        orders_statement = select(Order.store_id, Order.total_amount, Order.created_at).where(
+            Order.tenant_id == tenant_id, Order.status.notin_(NON_REVENUE_ORDER_STATUSES),
+        )
+        pdv_statement = select(PdvSale.store_id, PdvSale.total_amount, PdvSale.created_at).where(
+            PdvSale.tenant_id == tenant_id, PdvSale.sale_status == 'completed',
+        )
+        order_rows = (await self.session.execute(orders_statement)).all()
+        pdv_rows = (await self.session.execute(pdv_statement)).all()
+        sales_by_store: dict[str, list[tuple[Decimal, datetime]]] = {}
+        for store_id, amount, created_at in [*order_rows, *pdv_rows]:
+            sales_by_store.setdefault(store_id, []).append((amount, created_at))
+
+        now = datetime.now(tz=UTC)
+        result_stores: dict[str, PortalStoreConstructionCostsResponse] = {}
+        for store in stores:
+            raw_entry = stored_stores.get(store.id) or {}
+            entry = PortalStoreConstructionCostsInput.model_validate(raw_entry)
+            total_invested = sum((item.amount for item in entry.items), Decimal('0.00'))
+            total_days = sum((item.days for item in entry.items), 0)
+
+            opened_at = self._parse_iso_date(entry.opened_at)
+            revenue_since_opening = Decimal('0.00')
+            sales_count = 0
+            months_since_opening = Decimal('0.00')
+            avg_monthly_revenue = Decimal('0.00')
+            estimated_profit_since_opening = Decimal('0.00')
+            roi_pct: Decimal | None = None
+            payback_months: Decimal | None = None
+            if opened_at is not None:
+                relevant = [amount for amount, created_at in sales_by_store.get(store.id, []) if created_at.astimezone().date() >= opened_at]
+                revenue_since_opening = sum(relevant, Decimal('0.00'))
+                sales_count = len(relevant)
+                days_elapsed = max((now.astimezone().date() - opened_at).days, 0)
+                months_since_opening = Decimal(max(days_elapsed, 1)) / Decimal('30.44')
+                avg_monthly_revenue = revenue_since_opening / months_since_opening
+                estimated_profit_since_opening = revenue_since_opening * entry.net_margin_pct / Decimal('100')
+                if total_invested > 0:
+                    roi_pct = (estimated_profit_since_opening - total_invested) / total_invested * Decimal('100')
+                monthly_profit = avg_monthly_revenue * entry.net_margin_pct / Decimal('100')
+                if total_invested > 0 and monthly_profit > 0:
+                    payback_months = total_invested / monthly_profit
+
+            result_stores[store.id] = PortalStoreConstructionCostsResponse(
+                opened_at=entry.opened_at,
+                construction_started_at=entry.construction_started_at,
+                net_margin_pct=entry.net_margin_pct,
+                items=entry.items,
+                total_invested=total_invested,
+                total_days=total_days,
+                revenue_since_opening=revenue_since_opening,
+                sales_count=sales_count,
+                months_since_opening=months_since_opening,
+                avg_monthly_revenue=avg_monthly_revenue,
+                estimated_profit_since_opening=estimated_profit_since_opening,
+                roi_pct=roi_pct,
+                payback_months=payback_months,
+            )
+        return PortalConstructionCostsResponse(stores=result_stores)
+
+    @staticmethod
+    def _parse_iso_date(value: str) -> date | None:
+        """Parse one 'YYYY-MM-DD' string into a date, or None when blank/invalid."""
+
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
 
     async def _build_chart_seed(self, *, tenant_id: str) -> dict[str, list[dict[str, int | str]]]:
         """Return hourly and weekly chart data derived from orders and PDV sales."""
@@ -814,6 +1267,7 @@ class PortalService:
             code=route.route_code,
             status=route.route_status,
             driver=route.driver_name_snapshot,
+            driver_user_id=route.driver_user_id or "",
             vehicle=route.vehicle_label,
             total_km=route.total_distance_km,
             total_min=route.estimated_duration_minutes,
@@ -911,6 +1365,79 @@ class PortalService:
             updated_at=self._serialize_datetime_iso(record.updated_at),
         )
 
+    def _serialize_pricing_promotion(self, record: PricingPromotion) -> PortalPricingPromotionResponse:
+        """Return one pricing promotion response payload."""
+
+        return PortalPricingPromotionResponse(
+            id=record.id,
+            name=record.name,
+            description=record.description,
+            active=bool(record.is_active),
+            discount_type=record.discount_type,
+            discount_value=Decimal(record.discount_value or 0),
+            max_discount_value=Decimal(record.max_discount_value) if record.max_discount_value is not None else None,
+            scope_type=record.scope_type,
+            target_categories=list(record.target_categories or []),
+            target_products=list(record.target_products or []),
+            starts_at=self._serialize_datetime_iso(record.starts_at),
+            ends_at=self._serialize_datetime_iso(record.ends_at),
+            daily_start_time=record.daily_start_time,
+            daily_end_time=record.daily_end_time,
+            days_of_week=list(record.days_of_week or []),
+            min_age=record.min_age,
+            max_age=record.max_age,
+            regions=list(record.regions or []),
+            device_types=list(record.device_types or []),
+            marital_statuses=list(record.marital_statuses or []),
+            min_children=record.min_children,
+            max_children=record.max_children,
+            customer_segment=record.customer_segment,
+            priority=int(record.priority or 0),
+            notes=record.notes,
+            created_at=self._serialize_datetime_iso(record.created_at),
+            updated_at=self._serialize_datetime_iso(record.updated_at),
+        )
+
+    def _apply_pricing_promotion_payload(self, record: PricingPromotion, payload: PortalPricingPromotionMutationRequest) -> None:
+        """Copy one mutation payload onto a pricing promotion record."""
+
+        record.name = payload.name.strip()
+        record.description = payload.description.strip()
+        record.is_active = payload.active
+        record.discount_type = payload.discount_type
+        record.discount_value = payload.discount_value
+        record.max_discount_value = payload.max_discount_value
+        record.scope_type = payload.scope_type
+        record.target_categories = list(payload.target_categories)
+        record.target_products = list(payload.target_products)
+        record.starts_at = self._parse_promotion_datetime(payload.starts_at)
+        record.ends_at = self._parse_promotion_datetime(payload.ends_at)
+        record.daily_start_time = payload.daily_start_time.strip()
+        record.daily_end_time = payload.daily_end_time.strip()
+        record.days_of_week = list(payload.days_of_week)
+        record.min_age = payload.min_age
+        record.max_age = payload.max_age
+        record.regions = list(payload.regions)
+        record.device_types = list(payload.device_types)
+        record.marital_statuses = list(payload.marital_statuses)
+        record.min_children = payload.min_children
+        record.max_children = payload.max_children
+        record.customer_segment = payload.customer_segment
+        record.priority = payload.priority
+        record.notes = payload.notes.strip()
+
+    def _parse_promotion_datetime(self, value: str) -> datetime | None:
+        """Return one timezone-aware datetime parsed from a datetime-local string, if any."""
+
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.astimezone()
+
     def _saved_product_ref(self, record: SavedProduct) -> str:
         """Return the product reference used by the frontend for one saved product."""
 
@@ -946,13 +1473,6 @@ class PortalService:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Coupon code is required.')
         return normalized[:24]
 
-    def _slugify(self, value: str) -> str:
-        """Return a stable slug-like identifier for display categories."""
-
-        normalized = ''.join(character.lower() if character.isalnum() else '-' for character in value.strip())
-        collapsed = '-'.join(part for part in normalized.split('-') if part)
-        return collapsed or 'medicamentos'
-
     def _category_icon(self, category_id: str) -> str:
         """Return the icon name for one normalized category identifier."""
 
@@ -963,34 +1483,6 @@ class PortalService:
         if 'higiene' in category_id or 'cuidado' in category_id or 'infantil' in category_id:
             return 'heart'
         return 'pill'
-
-    def _extract_postal_code(self, value: str) -> str:
-        """Return the postal code suffix from one address snapshot."""
-
-        chunks = [chunk.strip() for chunk in value.split(',') if chunk.strip()]
-        if not chunks:
-            return ''
-        last_chunk = chunks[-1]
-        if any(character.isdigit() for character in last_chunk):
-            return last_chunk.split()[-1]
-        return ''
-
-    def _extract_state_code(self, value: str) -> str:
-        """Return the state code or last address component when available."""
-
-        chunks = [chunk.strip() for chunk in value.split(',') if chunk.strip()]
-        if not chunks:
-            return ''
-        state_candidate = chunks[-1].split()[0]
-        return state_candidate[:2].upper() if state_candidate else ''
-
-    def _extract_address_part(self, value: str, index: int) -> str:
-        """Return one address component when present."""
-
-        chunks = [chunk.strip() for chunk in value.split(',') if chunk.strip()]
-        if index < 0 or index >= len(chunks):
-            return ''
-        return chunks[index]
 
     def _initials(self, value: str) -> str:
         """Return a short avatar-style initials string."""

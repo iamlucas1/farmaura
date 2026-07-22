@@ -21,15 +21,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
 import re
 
+from app.core.tenant_context import apply_tenant_context
 from app.domain.validators import is_valid_cpf, normalize_cpf
 from app.models.cart_item import CartItem
 from app.models.customer_address import CustomerAddress
 from app.models.customer_payment_method import CustomerPaymentMethod
+from app.models.product_availability_alert import ProductAvailabilityAlert
 from app.repositories.cart_repository import CartRepository
 from app.repositories.customer_address_repository import CustomerAddressRepository
 from app.repositories.customer_payment_method_repository import CustomerPaymentMethodRepository
 from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
+from app.repositories.product_availability_alert_repository import ProductAvailabilityAlertRepository
 from app.repositories.user_repository import UserRepository
 from app.services.asaas_client import AsaasClient, AsaasError
 from app.services.marketplace_projection import build_marketplace_catalog_groups
@@ -46,6 +49,8 @@ from app.schemas.customers import (
     CustomerPaymentMethodUpdateRequest,
     CustomerProfileResponse,
     CustomerProfileUpdateRequest,
+    ProductAvailabilityAlertCreateRequest,
+    ProductAvailabilityAlertResponse,
 )
 
 
@@ -67,6 +72,7 @@ class CustomerService:
         self.payment_method_repository = CustomerPaymentMethodRepository(session)
         self.cart_repository = CartRepository(session)
         self.inventory_repository = InventoryRepository(session)
+        self.availability_alert_repository = ProductAvailabilityAlertRepository(session)
 
     async def get_profile(self, subject: TokenSubject) -> CustomerProfileResponse:
         """Return a subject-derived customer profile."""
@@ -85,6 +91,7 @@ class CustomerService:
         customer.avatar_url = payload.avatar_url.strip()
         await self.customer_repository.save(customer)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         await self.session.refresh(customer)
         return self._build_profile_response(subject=subject, user=user, customer=customer)
 
@@ -109,8 +116,11 @@ class CustomerService:
         customer.phone = payload.phone.strip()
         customer.birth_date = payload.birth_date.strip()
         customer.gender = payload.gender.strip()
+        customer.marital_status = payload.marital_status.strip()
+        customer.children_count = payload.children_count
         await self.customer_repository.save(customer)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         await self.session.refresh(customer)
         return self._build_profile_response(subject=subject, user=user, customer=customer)
 
@@ -148,6 +158,7 @@ class CustomerService:
         )
         await self.address_repository.add(address)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self.list_addresses(subject)
 
     async def update_address(
@@ -174,6 +185,7 @@ class CustomerService:
         address.is_primary = payload.is_primary
         await self.address_repository.save(address)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self.list_addresses(subject)
 
     async def delete_address(self, subject: TokenSubject, address_id: str) -> list[CustomerAddressResponse]:
@@ -185,6 +197,7 @@ class CustomerService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endereço não encontrado.")
         await self.address_repository.delete(address)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self.list_addresses(subject)
 
     # ------------------------------------------------------------------------
@@ -220,6 +233,7 @@ class CustomerService:
         )
         await self.payment_method_repository.add(method)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self.list_payment_methods(subject)
 
     async def update_payment_method(
@@ -238,6 +252,7 @@ class CustomerService:
         method.is_primary = payload.is_primary
         await self.payment_method_repository.save(method)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self.list_payment_methods(subject)
 
     async def tokenize_and_save_card(
@@ -346,6 +361,7 @@ class CustomerService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cartão não encontrado.")
         await self.payment_method_repository.delete(method)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self.list_payment_methods(subject)
 
     # ------------------------------------------------------------------------
@@ -382,6 +398,7 @@ class CustomerService:
             )
             await self.cart_repository.add(item)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self.list_cart(subject)
 
     async def delete_cart_item(self, subject: TokenSubject, product_ref: str) -> list[CartItemResponse]:
@@ -392,6 +409,7 @@ class CustomerService:
         if existing is not None:
             await self.cart_repository.delete(existing)
             await self.session.commit()
+            await apply_tenant_context(self.session, subject)
         return await self.list_cart(subject)
 
     async def clear_cart(self, subject: TokenSubject) -> list[CartItemResponse]:
@@ -418,16 +436,97 @@ class CustomerService:
         )
 
     async def _require_marketplace_product(self, subject: TokenSubject, product_ref: str) -> None:
-        """Validate that one grouped marketplace product reference still exists."""
+        """Validate that one grouped marketplace product is currently in stock and purchasable.
+
+        Applies the same price filter and stock computation the customer-facing catalog
+        uses (unlike a plain existence check) — a product hidden from the precificador
+        contributes zero purchasable stock in build_marketplace_catalog_groups, so it can
+        never be added to the cart even from a stale cached catalog snapshot on the client,
+        without needing a separate visibility check here: the stock check below already
+        catches it the same way it catches a genuinely out-of-stock product.
+        """
 
         tenant_id = str(subject.tenant_id)
-        store_id = await self.inventory_repository.get_primary_store_id(tenant_id=tenant_id)
         inventory_items = await self.inventory_repository.list_items(
-            tenant_id=tenant_id, store_id=store_id, active_only=True,
+            tenant_id=tenant_id, store_id="", active_only=True,
         )
-        grouped = build_marketplace_catalog_groups(inventory_items)
-        if not any(str(group["id"]) == product_ref for group in grouped):
+        grouped = build_marketplace_catalog_groups([
+            item for item in inventory_items
+            if getattr(item, "sale_price", None) is not None
+            and item.sale_price > 0
+        ])
+        group = next((entry for entry in grouped if str(entry["id"]) == product_ref), None)
+        if group is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Produto não encontrado ou não está mais disponível.")
+        if int(str(group["stock"])) <= 0:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Produto sem estoque no momento.")
+
+    # ------------------------------------------------------------------------
+    # Product availability alerts
+    # ------------------------------------------------------------------------
+
+    async def list_availability_alerts(self, subject: TokenSubject) -> list[ProductAvailabilityAlertResponse]:
+        """Return every back-in-stock alert requested by the authenticated customer."""
+
+        customer = await self._resolve_customer(subject)
+        alerts = await self.availability_alert_repository.list_for_customer(customer_id=customer.id)
+        return [self._build_availability_alert_response(alert) for alert in alerts]
+
+    async def create_availability_alert(
+        self, subject: TokenSubject, product_ref: str, payload: ProductAvailabilityAlertCreateRequest,
+    ) -> list[ProductAvailabilityAlertResponse]:
+        """Register (or refresh) one back-in-stock alert for the authenticated customer."""
+
+        customer = await self._resolve_customer(subject)
+        product_name = await self._resolve_any_marketplace_product_name(str(subject.tenant_id), product_ref)
+        if product_name is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Produto não encontrado.")
+        existing = await self.availability_alert_repository.get_for_customer(customer_id=customer.id, product_ref=product_ref)
+        if existing is not None:
+            existing.notified_at = None
+            existing.product_name_snapshot = payload.product_name.strip() or product_name
+        else:
+            alert = ProductAvailabilityAlert(
+                id=str(uuid4()),
+                tenant_id=customer.tenant_id,
+                customer_id=customer.id,
+                product_ref=product_ref,
+                product_name_snapshot=payload.product_name.strip() or product_name,
+            )
+            await self.availability_alert_repository.add(alert)
+        await self.session.commit()
+        await apply_tenant_context(self.session, subject)
+        return await self.list_availability_alerts(subject)
+
+    async def delete_availability_alert(self, subject: TokenSubject, product_ref: str) -> list[ProductAvailabilityAlertResponse]:
+        """Remove one back-in-stock alert for the authenticated customer."""
+
+        customer = await self._resolve_customer(subject)
+        existing = await self.availability_alert_repository.get_for_customer(customer_id=customer.id, product_ref=product_ref)
+        if existing is not None:
+            await self.availability_alert_repository.delete(existing)
+            await self.session.commit()
+            await apply_tenant_context(self.session, subject)
+        return await self.list_availability_alerts(subject)
+
+    async def _resolve_any_marketplace_product_name(self, tenant_id: str, product_ref: str) -> str | None:
+        """Return one grouped product's display name even when hidden or out of stock, or None if it never existed."""
+
+        inventory_items = await self.inventory_repository.list_items(tenant_id=tenant_id, store_id="", active_only=True)
+        grouped = build_marketplace_catalog_groups([
+            item for item in inventory_items if getattr(item, "sale_price", None) is not None and item.sale_price > 0
+        ])
+        group = next((entry for entry in grouped if str(entry["id"]) == product_ref), None)
+        return str(group["name"]) if group is not None else None
+
+    def _build_availability_alert_response(self, alert: ProductAvailabilityAlert) -> ProductAvailabilityAlertResponse:
+        """Build one availability alert response payload."""
+
+        return ProductAvailabilityAlertResponse(
+            product_ref=alert.product_ref,
+            product_name=alert.product_name_snapshot,
+            notified=alert.notified_at is not None,
+        )
 
     def _build_address_response(self, address: CustomerAddress) -> CustomerAddressResponse:
         """Build one address response payload."""
@@ -492,6 +591,8 @@ class CustomerService:
             cpf=getattr(customer, "cpf", "") or "",
             birth_date=getattr(customer, "birth_date", "") or "",
             gender=getattr(customer, "gender", "") or "",
+            marital_status=getattr(customer, "marital_status", "") or "",
+            children_count=getattr(customer, "children_count", None),
             avatar_url=getattr(customer, "avatar_url", "") or "",
             two_factor_enabled=bool(getattr(user, "two_factor_enabled", False)),
             member_since_label=getattr(customer, "member_since_label", "") or "",

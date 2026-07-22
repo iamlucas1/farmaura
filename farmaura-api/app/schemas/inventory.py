@@ -15,9 +15,8 @@ Observations:
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
 
-from pydantic import Field, StringConstraints
+from pydantic import Field
 
 from app.schemas.common import StrictModel
 
@@ -25,9 +24,6 @@ from app.schemas.common import StrictModel
 # ============================================================================
 # INVENTORY STATUS
 # ============================================================================
-
-
-MarketplaceImageUrl = Annotated[str, StringConstraints(max_length=600_000)]
 
 
 class InventoryStatusResponse(StrictModel):
@@ -62,6 +58,8 @@ class InventoryItemResponse(StrictModel):
     """Represent an inventory item."""
 
     id: str
+    store_id: str
+    product_id: str
     sku: str
     name: str
     brand_name: str
@@ -81,23 +79,28 @@ class InventoryItemResponse(StrictModel):
     market_reference_price: Decimal
     promotional_discount_percent: Decimal
     is_controlled: bool
+    controlled_category: str = "none"
+    is_generic: bool = False
     is_active: bool
     is_marketplace_visible: bool
     marketplace_image_url: str
     marketplace_gallery_urls: list[str]
+    cnae_code: str = ""
+    is_subject_to_icms_st: bool | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class InventoryItemCreateRequest(StrictModel):
-    """Validate a new inventory item request."""
+    """Validate a new inventory item request.
 
-    sku: str = Field(default="", max_length=64)
-    name: str = Field(min_length=2, max_length=255)
-    brand_name: str = Field(default="", max_length=255)
-    category_name: str = Field(default="Medicamentos", max_length=120)
-    medication_class_name: str = Field(default="Geral", max_length=120)
-    ean_code: str = Field(default="", max_length=32)
+    Product identity/configuration (name, SKU, brand, category, therapeutic
+    class, EAN, controlled/generic flags, marketplace images) is created and
+    edited exclusively through /products; this only links an existing
+    product to a store with its store-scoped stock fields.
+    """
+
+    product_id: str = Field(min_length=1)
     storage_location_code: str = Field(min_length=2, max_length=64)
     batch_code: str = Field(default="", max_length=64)
     expiry_label: str = Field(default="", max_length=16)
@@ -110,19 +113,16 @@ class InventoryItemCreateRequest(StrictModel):
     acquisition_cost: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     market_reference_price: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     promotional_discount_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
-    is_controlled: bool = False
     note: str = Field(default="", max_length=500)
 
 
 class InventoryItemUpdateRequest(StrictModel):
-    """Validate an inventory item update request."""
+    """Validate an inventory item update request.
 
-    sku: str = Field(default="", max_length=64)
-    name: str = Field(min_length=2, max_length=255)
-    brand_name: str = Field(default="", max_length=255)
-    category_name: str = Field(default="Medicamentos", max_length=120)
-    medication_class_name: str = Field(default="Geral", max_length=120)
-    ean_code: str = Field(default="", max_length=32)
+    Only store-scoped operational fields are editable here; product
+    identity/configuration is edited through /products instead.
+    """
+
     storage_location_code: str = Field(min_length=2, max_length=64)
     batch_code: str = Field(default="", max_length=64)
     expiry_label: str = Field(default="", max_length=16)
@@ -134,11 +134,8 @@ class InventoryItemUpdateRequest(StrictModel):
     acquisition_cost: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     market_reference_price: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     promotional_discount_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
-    is_controlled: bool = False
     is_active: bool = True
     is_marketplace_visible: bool = True
-    marketplace_image_url: MarketplaceImageUrl = ""
-    marketplace_gallery_urls: list[MarketplaceImageUrl] = Field(default_factory=list, max_length=8)
     note: str = Field(default="", max_length=500)
 
 
@@ -158,11 +155,14 @@ class InventoryLocationResponse(StrictModel):
     """Represent an inventory storage location."""
 
     id: str
+    store_id: str
+    store_name: str = ""
     code: str
     name: str
     zone: str
     description: str
     temperature_range: str
+    location_type: str = "estoque"
     is_controlled_only: bool
     is_active: bool
     allocated_items: int
@@ -173,12 +173,32 @@ class InventoryLocationResponse(StrictModel):
 class InventoryLocationCreateRequest(StrictModel):
     """Validate a new inventory location request."""
 
+    store_id: str = Field(min_length=1, max_length=36)
     code: str = Field(min_length=2, max_length=64)
     name: str = Field(min_length=2, max_length=120)
     zone: str = Field(default="", max_length=80)
     description: str = Field(default="", max_length=255)
     temperature_range: str = Field(default="", max_length=64)
+    location_type: str = Field(default="estoque", pattern="^(estoque|prateleira|gondola|caixa|outro)$")
     is_controlled_only: bool = False
+
+
+class InventoryLocationUpdateRequest(StrictModel):
+    """Validate an inventory location update request."""
+
+    code: str = Field(min_length=2, max_length=64)
+    name: str = Field(min_length=2, max_length=120)
+    zone: str = Field(default="", max_length=80)
+    description: str = Field(default="", max_length=255)
+    temperature_range: str = Field(default="", max_length=64)
+    location_type: str = Field(default="estoque", pattern="^(estoque|prateleira|gondola|caixa|outro)$")
+    is_controlled_only: bool = False
+
+
+class InventoryLocationStatusUpdateRequest(StrictModel):
+    """Validate an inventory location activation toggle request."""
+
+    is_active: bool
 
 
 # ============================================================================
@@ -293,6 +313,8 @@ class InventoryInvoicePreviewLineResponse(StrictModel):
     suggested_market_reference_price: Decimal
     suggested_promotional_discount_percent: Decimal
     suggested_is_controlled: bool
+    suggested_tax_cost_amount: Decimal | None = None
+    suggested_is_subject_to_icms_st: bool | None = None
     match_candidates: list[InventoryInvoiceMatchCandidateResponse]
 
 
@@ -331,6 +353,8 @@ class InventoryInvoiceConfirmLineRequest(StrictModel):
     market_reference_price: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     promotional_discount_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
     is_controlled: bool = False
+    tax_cost_amount: Decimal | None = Field(default=None, ge=Decimal("0.00"))
+    is_subject_to_icms_st: bool | None = None
     note: str = Field(default="", max_length=500)
 
 
@@ -367,6 +391,43 @@ class InventoryInvoiceConfirmResponse(StrictModel):
 
 
 # ============================================================================
+# INVENTORY INVOICE RECORDS (STORED SUPPLIER INVOICES)
+# ============================================================================
+
+
+class InventoryInvoiceRecordResponse(StrictModel):
+    """Represent a stored supplier invoice (nota fiscal) attached to an inventory item."""
+
+    id: str
+    inventory_item_id: str
+    invoice_total_amount: Decimal
+    product_total_amount: Decimal
+    quantity: int
+    unit_cost: Decimal
+    file_name: str
+    content_type: str
+    size_bytes: int
+    uploaded_by_user_id: str
+    note: str
+    tax_cost_amount: Decimal | None = None
+    is_subject_to_icms_st: bool | None = None
+    created_at: datetime
+
+
+class InventoryInvoiceRecordListResponse(StrictModel):
+    """Represent the stored invoice history for one inventory item."""
+
+    items: list[InventoryInvoiceRecordResponse]
+
+
+class InventoryInvoiceApplyResponse(StrictModel):
+    """Represent the result of attaching a supplier invoice to an inventory item."""
+
+    item: InventoryItemResponse
+    invoice: InventoryInvoiceRecordResponse
+
+
+# ============================================================================
 # INVENTORY DASHBOARD AND EXPORT
 # ============================================================================
 
@@ -386,3 +447,43 @@ class InventoryExportResponse(StrictModel):
     filename: str
     content_type: str
     body: str
+
+
+# ============================================================================
+# INVENTORY AUDIT TRAIL
+# ============================================================================
+
+
+class InventoryAuditChangeResponse(StrictModel):
+    """Represent one changed field within an audit entry."""
+
+    field: str
+    old: str
+    new: str
+
+
+class InventoryAuditEntryResponse(StrictModel):
+    """Represent one audit trail entry (field edit, creation, or stock movement)."""
+
+    id: str
+    entity_type: str
+    entity_id: str
+    entity_label: str
+    action: str
+    changes: list[InventoryAuditChangeResponse]
+    actor_user_id: str
+    actor_name: str
+    actor_email: str
+    actor_role: str
+    ip_address: str
+    user_agent: str
+    created_at: datetime
+
+
+class InventoryAuditListResponse(StrictModel):
+    """Represent a paginated inventory audit trail response."""
+
+    items: list[InventoryAuditEntryResponse]
+    page: int
+    page_size: int
+    total: int

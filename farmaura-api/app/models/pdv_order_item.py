@@ -47,6 +47,11 @@ class PdvOrderItem(Base, UuidModel, TimestampedModel):
         index=True,
         nullable=True,
     )
+    source_store_id: Mapped[str | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
     item_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
     brand_name_snapshot: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     ean_code_snapshot: Mapped[str] = mapped_column(String(32), default="", nullable=False)

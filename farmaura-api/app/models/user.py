@@ -13,7 +13,7 @@ Observations:
 - tenant scope is mandatory for all user records;
 """
 
-from sqlalchemy import Boolean, CheckConstraint, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import AccessScope, UserRole
@@ -31,7 +31,7 @@ class User(Base, UuidModel, TimestampedModel):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('admin', 'customer', 'pharmacist', 'cashier')",
+            "role IN ('admin', 'customer', 'manager', 'pharmacist', 'cashier', 'driver')",
             name="users_role_allowed",
         ),
         CheckConstraint(
@@ -52,5 +52,7 @@ class User(Base, UuidModel, TimestampedModel):
     )
     two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     two_factor_secret: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     session_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    store_id: Mapped[str | None] = mapped_column(ForeignKey("stores.id", ondelete="SET NULL"), index=True, nullable=True)

@@ -22,9 +22,12 @@ from app.core.config import get_settings
 from app.models.base import Base
 from app.models import (
     audit_event,
+    brand,
+    brand_supplier,
     cashback_rule,
     cashback_transaction,
     cashback_transaction_line,
+    category,
     chat_message,
     chat_message_attachment,
     chat_thread,
@@ -39,6 +42,7 @@ from app.models import (
     health_service,
     health_service_appointment,
     inventory_item,
+    inventory_product,
     marketplace_listing,
     order,
     order_fulfillment,
@@ -52,10 +56,12 @@ from app.models import (
     prescription_check,
     prescription_file,
     prescription_item,
-    product,
     refresh_token,
     saved_product,
+    store,
     subscription,
+    supplier,
+    therapeutic_class,
     user,
 )
 

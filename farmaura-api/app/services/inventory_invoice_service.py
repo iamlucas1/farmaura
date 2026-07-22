@@ -39,6 +39,7 @@ from app.schemas.inventory import (
 )
 from app.services.ai_service import AiDocumentExecutionRequest, AiService
 from app.services.inventory_service import InventoryService
+from app.services.product_service import ProductService
 
 
 # ============================================================================
@@ -58,6 +59,7 @@ class InventoryInvoiceService:
         self.repository = InventoryRepository(session)
         self.ai_service = AiService(settings)
         self.inventory_service = InventoryService(session=session, subject=subject)
+        self.product_service = ProductService(session=session, subject=subject)
 
     async def preview_invoice_import(
         self,
@@ -126,6 +128,8 @@ class InventoryInvoiceService:
             suggested_market_reference_price = self._safe_decimal(raw_item.get("market_reference_price"), fallback=suggested_sale_price)
             suggested_discount = self._safe_decimal(raw_item.get("promotional_discount_percent"))
             suggested_controlled = self._safe_bool(raw_item.get("is_controlled"), fallback=bool(first_candidate.is_controlled) if first_candidate else False)
+            suggested_tax_cost_amount = self._safe_optional_decimal(raw_item.get("tax_cost_amount"))
+            suggested_is_subject_to_icms_st = self._safe_optional_bool(raw_item.get("is_subject_to_icms_st"))
             lines.append(
                 InventoryInvoicePreviewLineResponse(
                     line_id=f"line-{index}",
@@ -152,6 +156,8 @@ class InventoryInvoiceService:
                     suggested_market_reference_price=suggested_market_reference_price,
                     suggested_promotional_discount_percent=suggested_discount,
                     suggested_is_controlled=suggested_controlled,
+                    suggested_tax_cost_amount=suggested_tax_cost_amount,
+                    suggested_is_subject_to_icms_st=suggested_is_subject_to_icms_st,
                     match_candidates=[self._serialize_candidate(item) for item in candidates],
                 )
             )
@@ -172,7 +178,13 @@ class InventoryInvoiceService:
             items=lines,
         )
 
-    async def confirm_invoice_import(self, payload: InventoryInvoiceConfirmRequest) -> InventoryInvoiceConfirmResponse:
+    async def confirm_invoice_import(
+        self,
+        payload: InventoryInvoiceConfirmRequest,
+        *,
+        ip_address: str = "",
+        user_agent: str = "",
+    ) -> InventoryInvoiceConfirmResponse:
         """Persist confirmed invoice lines as inventory operations."""
 
         await self.inventory_service._get_store_id()
@@ -189,6 +201,7 @@ class InventoryInvoiceService:
                 if line.matched_item_id.strip() == "":
                     raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Matched inventory item is required for existing actions.")
                 item = await self.inventory_service._require_item(line.matched_item_id)
+                old_values = {field: getattr(item, field) for field in self.inventory_service._ITEM_AUDIT_FIELDS}
                 if line.storage_location_code.strip():
                     await self.inventory_service._ensure_location_exists(line.storage_location_code)
                     item.storage_location = line.storage_location_code
@@ -204,12 +217,27 @@ class InventoryInvoiceService:
                 item.low_stock_threshold = int(line.low_stock_threshold)
                 item.attention_stock_threshold = int(line.attention_stock_threshold)
                 item.normal_stock_threshold = int(line.normal_stock_threshold)
-                item.medication_class_name = line.medication_class_name or item.medication_class_name
+                if line.medication_class_name.strip():
+                    item.product.therapeutic_class_id = await self.product_service.resolve_or_create_therapeutic_class_id(
+                        line.medication_class_name,
+                    )
                 item.sale_price = line.sale_price
                 item.acquisition_cost = line.acquisition_cost
                 item.market_reference_price = line.market_reference_price
                 item.promotional_discount_percent = line.promotional_discount_percent
-                item.is_controlled = line.is_controlled
+                item.product.is_controlled = line.is_controlled
+                if line.is_subject_to_icms_st is not None:
+                    item.is_subject_to_icms_st = line.is_subject_to_icms_st
+                new_values = {field: getattr(item, field) for field in self.inventory_service._ITEM_AUDIT_FIELDS}
+                await self.inventory_service._write_audit_entry(
+                    entity_type="item",
+                    entity_id=item.id,
+                    entity_label=item.name,
+                    action="update",
+                    changes=self.inventory_service._diff_fields(old_values, new_values),
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
                 await self.repository.add_movement(
                     self.inventory_service._build_movement_model(
                         item_id=item.id,
@@ -240,13 +268,19 @@ class InventoryInvoiceService:
             if line.storage_location_code.strip() == "":
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Storage location is required for new invoice items.")
             await self.inventory_service._ensure_location_exists(line.storage_location_code)
-            create_payload = InventoryItemCreateRequest(
-                sku=line.sku,
+            product = await self.product_service.find_or_create_by_ean(
+                ean_code=line.ean_code,
                 name=line.name or line.ean_code or line.line_id,
                 brand_name=line.brand_name,
                 category_name=line.category_name or "Medicamentos",
                 medication_class_name=line.medication_class_name or "Geral",
-                ean_code=line.ean_code,
+                is_controlled=line.is_controlled,
+                controlled_category="none",
+                is_generic=False,
+                sku=line.sku,
+            )
+            create_payload = InventoryItemCreateRequest(
+                product_id=product.id,
                 storage_location_code=line.storage_location_code,
                 batch_code=line.batch_code,
                 expiry_label=line.expiry_label,
@@ -259,10 +293,20 @@ class InventoryInvoiceService:
                 acquisition_cost=line.acquisition_cost,
                 market_reference_price=line.market_reference_price,
                 promotional_discount_percent=line.promotional_discount_percent,
-                is_controlled=line.is_controlled,
                 note=self._build_line_note(payload.note, line.note, payload.supplier_name),
             )
-            item = await self.repository.add_item(self.inventory_service._build_item_model(create_payload))
+            item = await self.repository.add_item(await self.inventory_service._build_item_model(create_payload))
+            await self.inventory_service._write_audit_entry(
+                entity_type="item",
+                entity_id=item.id,
+                entity_label=item.name,
+                action="create",
+                changes=self.inventory_service._diff_fields(
+                    {}, {field: getattr(item, field) for field in self.inventory_service._ITEM_AUDIT_FIELDS}
+                ),
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
             if line.quantity > 0:
                 await self.repository.add_movement(
                     self.inventory_service._build_movement_model(
@@ -373,6 +417,8 @@ class InventoryInvoiceService:
                         "market_reference_price": 0,
                         "promotional_discount_percent": 0,
                         "is_controlled": False,
+                        "tax_cost_amount": 0,
+                        "is_subject_to_icms_st": False,
                     }
                 ],
             },
@@ -382,6 +428,9 @@ class InventoryInvoiceService:
             "Analise o arquivo de nota fiscal enviado e extraia um JSON com a estrutura exata: "
             + schema
             + ". Use numeros sem simbolos monetarios. Use expiry_label no formato MM/AAAA quando houver. "
+            + "tax_cost_amount e o valor unitario de imposto destacado na nota (ex.: ICMS-ST retido pelo "
+            + "fornecedor), quando existir. is_subject_to_icms_st indica se o item teve ICMS retido por "
+            + "substituicao tributaria nesta nota. "
             + "Considere o arquivo "
             + file_name
             + "."
@@ -475,3 +524,26 @@ class InventoryInvoiceService:
         if normalized in {"0", "false", "no", "nao", "não"}:
             return False
         return fallback
+
+    def _safe_optional_decimal(self, value: object) -> Decimal | None:
+        """Normalize an optional numeric value, keeping None when the AI didn't extract it."""
+
+        if value is None or str(value).strip() == "":
+            return None
+        try:
+            normalized = Decimal(str(value)).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+        return normalized if normalized >= Decimal("0.00") else None
+
+    def _safe_optional_bool(self, value: object) -> bool | None:
+        """Normalize an optional truthy value, keeping None when the AI didn't extract it."""
+
+        if isinstance(value, bool):
+            return value
+        normalized = str(value or "").strip().lower()
+        if normalized in {"1", "true", "yes", "sim"}:
+            return True
+        if normalized in {"0", "false", "no", "nao", "não"}:
+            return False
+        return None

@@ -51,6 +51,18 @@ INTERNAL_MODULES_BY_ROLE: dict[UserRole, tuple[str, ...]] = {
         "inventory",
         "pricing",
     ),
+    UserRole.MANAGER: (
+        "dashboard",
+        "pdv",
+        "orders",
+        "deliveries",
+        "prescriptions",
+        "chat",
+        "crm",
+        "analytics",
+        "inventory",
+        "pricing",
+    ),
     UserRole.PHARMACIST: (
         "dashboard",
         "pdv",
@@ -67,6 +79,9 @@ INTERNAL_MODULES_BY_ROLE: dict[UserRole, tuple[str, ...]] = {
         "dashboard",
         "pdv",
         "sales",
+    ),
+    UserRole.DRIVER: (
+        "driver_route",
     ),
     UserRole.CUSTOMER: (),
 }
@@ -86,7 +101,9 @@ def can_access_marketplace_portal(role: UserRole, access_scope: AccessScope) -> 
 def can_access_internal_portal(role: UserRole, access_scope: AccessScope) -> bool:
     """Return whether the actor can authenticate into the internal portal."""
 
-    return role in {UserRole.ADMIN, UserRole.PHARMACIST, UserRole.CASHIER} and access_scope in {
+    return role in {
+        UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST, UserRole.CASHIER, UserRole.DRIVER,
+    } and access_scope in {
         AccessScope.INTERNAL,
         AccessScope.HYBRID,
     }

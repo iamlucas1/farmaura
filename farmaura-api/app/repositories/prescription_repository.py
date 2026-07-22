@@ -76,3 +76,51 @@ class PrescriptionRepository:
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
+    async def list_by_ids(self, *, prescription_ids: list[str]) -> list[Prescription]:
+        """Return prescriptions by identifier, for denormalizing chat messages."""
+
+        if not prescription_ids:
+            return []
+        statement = select(Prescription).where(Prescription.id.in_(prescription_ids))
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def add(self, prescription: Prescription) -> Prescription:
+        """Persist one new prescription."""
+
+        self.session.add(prescription)
+        await self.session.flush()
+        return prescription
+
+    async def add_item(self, item: PrescriptionItem) -> PrescriptionItem:
+        """Persist one new prescription medication item."""
+
+        self.session.add(item)
+        await self.session.flush()
+        return item
+
+    async def get_latest_for_items(
+        self, *, tenant_id: str, customer_id: str, inventory_item_ids: list[str], source_channel: str = "pdv",
+    ) -> dict[str, Prescription]:
+        """Return the most recent prescription per inventory item for one customer, scoped to one channel."""
+
+        if not inventory_item_ids:
+            return {}
+        statement = (
+            select(Prescription, PrescriptionItem.inventory_item_id)
+            .join(PrescriptionItem, PrescriptionItem.prescription_id == Prescription.id)
+            .where(
+                Prescription.tenant_id == tenant_id,
+                Prescription.customer_id == customer_id,
+                Prescription.source_channel == source_channel,
+                PrescriptionItem.inventory_item_id.in_(inventory_item_ids),
+            )
+            .order_by(Prescription.created_at.desc())
+        )
+        result = await self.session.execute(statement)
+        latest: dict[str, Prescription] = {}
+        for prescription, inventory_item_id in result.all():
+            if inventory_item_id not in latest:
+                latest[inventory_item_id] = prescription
+        return latest
+

@@ -16,20 +16,23 @@ function SectionHead({ eyebrow, title, action, onAction }) {
   );
 }
 
-const QUICK_CATS = [
-  { id: 'qc-buscados',  label: 'Mais buscados',     glyph: 'search',   go: { name: 'discover' } },
-  { id: 'qc-salvos',    label: 'Produtos salvos',   glyph: 'heart',    go: { name: 'saved' } },
-  { id: 'qc-ofertas',   label: 'Ofertas',           glyph: 'percent',  go: { name: 'offers' } },
-  { id: 'qc-medic',     label: 'Medicamentos',      glyph: 'pillsolid', go: { name: 'category', cat: 'medicamentos' } },
-  { id: 'qc-perfum',    label: 'Perfumaria',        glyph: 'sparkle',  go: { name: 'category', cat: 'perfumaria' } },
-  { id: 'qc-cuidados',  label: 'Cuidados diários',  glyph: 'shield',   go: { name: 'category', cat: 'cuidados' } },
-  { id: 'qc-servicos',  label: 'Serviços de saúde', glyph: 'activity', go: { name: 'services' } },
-];
-
-function QuickCategories({ onNav }) {
+function QuickCategories({ cats, onNav }) {
+  const categoryShortcuts = (cats || []).map((cat) => ({
+    id: 'qc-cat-' + cat.id,
+    label: cat.label,
+    glyph: cat.glyph || 'pill',
+    go: { name: 'category', cat: cat.id },
+  }));
+  const shortcuts = [
+    { id: 'qc-buscados', label: 'Mais buscados', glyph: 'search', go: { name: 'discover' } },
+    { id: 'qc-salvos', label: 'Produtos salvos', glyph: 'heart', go: { name: 'saved' } },
+    { id: 'qc-ofertas', label: 'Ofertas', glyph: 'percent', go: { name: 'offers' } },
+    ...categoryShortcuts,
+    { id: 'qc-servicos', label: 'Serviços de saúde', glyph: 'activity', go: { name: 'services' } },
+  ];
   return (
     <nav className="fa-quickcats fa-noscroll" aria-label="Atalhos">
-      {QUICK_CATS.map((c) => (
+      {shortcuts.map((c) => (
         <button key={c.id} className="fa-quickcat" onClick={() => onNav(c.go)}>
           <span className="fa-quickcat-tile"><Icon name={c.glyph} size={26} stroke={2} /></span>
           <span className="fa-quickcat-label">{c.label}</span>
@@ -167,7 +170,7 @@ function Differentials({ ctx }) {
 }
 
 function HomeScreen({ ctx }) {
-  const { products, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, recent } = ctx;
+  const { products, cats, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, recent } = ctx;
   const offers = products.filter((product) => product.discount > 0).slice(0, 10);
   const bestsellers = products.filter((product) => product.tags.includes('mais-vendido'));
   const featuredFill = products.filter((product) => product.rating >= 4.7 && !bestsellers.includes(product));
@@ -175,13 +178,13 @@ function HomeScreen({ ctx }) {
   const recentProducts = (recent || []).map((id) => products.find((product) => product.id === id)).filter(Boolean);
   const fallback = products.filter((product) => product.reviews > 200 && !recentProducts.includes(product));
   const seen = [...recentProducts, ...fallback].filter((product, index, list) => list.indexOf(product) === index).slice(0, 10);
-  const personal = products.filter((product) => product.cat === 'perfumaria' || product.cat === 'cuidados').slice(0, 10);
-  const cardProps = { variant: cardVariant, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onFav: toggleFav };
-  const grid = (list) => <div className="fa-grid-5">{list.map((product) => <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} />)}</div>;
+  const personal = products.filter((product) => product.cat && product.cat !== 'medicamentos').slice(0, 10);
+  const cardProps = { variant: cardVariant, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onFav: toggleFav, onNotify: subscribeAvailabilityAlert };
+  const grid = (list) => <div className="fa-grid-5">{list.map((product) => <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />)}</div>;
 
   return (
     <div className="fa-wrap fa-fadein" style={{ paddingTop: 28, paddingBottom: 20, display: 'flex', flexDirection: 'column', gap: 44 }}>
-      <QuickCategories onNav={onNav} />
+      <QuickCategories cats={cats} onNav={onNav} />
       <BannerSlider onNav={onNav} onPrescription={openPrescription} />
       <Differentials ctx={ctx} />
       <div className="fa-feed">
@@ -206,4 +209,4 @@ function HomeScreen({ ctx }) {
   );
 }
 
-export { BANNER_SLIDES, BannerSlider, Differentials, HomeScreen, QUICK_CATS, QuickCategories, SectionHead };
+export { BANNER_SLIDES, BannerSlider, Differentials, HomeScreen, QuickCategories, SectionHead };

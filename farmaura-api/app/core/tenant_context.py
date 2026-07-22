@@ -36,7 +36,8 @@ async def apply_tenant_context(session: AsyncSession, subject: TokenSubject) -> 
                 set_config('app.current_tenant_id', :tenant_id, true),
                 set_config('app.current_user_id', :user_id, true),
                 set_config('app.current_user_role', :user_role, true),
-                set_config('app.current_access_scope', :access_scope, true)
+                set_config('app.current_access_scope', :access_scope, true),
+                set_config('app.current_store_id', :store_id, true)
             """
         ),
         {
@@ -44,7 +45,33 @@ async def apply_tenant_context(session: AsyncSession, subject: TokenSubject) -> 
             "user_id": str(subject.user_id),
             "user_role": subject.role.value,
             "access_scope": subject.access_scope.value,
+            "store_id": str(subject.store_id) if subject.store_id else "",
         },
+    )
+
+
+async def apply_authenticated_context(session: AsyncSession, *, tenant_id: str, user_id: str) -> None:
+    """Apply transaction-local tenant/user context for pre-session-token auth flows.
+
+    Covers login, 2FA verification, password-reset completion, and refresh/logout
+    token rotation — all of which read or write the users/refresh_tokens rows for
+    one already-identified account before a full TokenSubject (with role, access
+    scope, store) exists. Ordinary authenticated requests get this from
+    apply_tenant_context via get_subject_session instead; these flows run over a
+    plain get_session dependency because there is no bearer token yet to decode.
+    """
+
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+    await session.execute(
+        text(
+            """
+            SELECT
+                set_config('app.current_tenant_id', :tenant_id, true),
+                set_config('app.current_user_id', :user_id, true)
+            """
+        ),
+        {"tenant_id": tenant_id, "user_id": user_id},
     )
 
 
@@ -60,6 +87,55 @@ async def apply_login_context(session: AsyncSession, email: str) -> None:
             """
         ),
         {"login_email": email.strip().lower()},
+    )
+
+
+async def apply_first_access_context(session: AsyncSession, email: str) -> None:
+    """Apply transaction-local context for one unauthenticated marketplace account-provisioning request.
+
+    Covers both the PDV first-access flow (issuing a temporary password for
+    an existing customer) and self-service registration (creating a brand
+    new customer and user). Scoped narrowly to the single e-mail address the
+    caller already claimed ownership of by submitting the form, mirroring
+    the current_login_email carve-out: it grants read/write access to the
+    matching customer row and read/write access to the matching user row
+    only, never cross-tenant or cross-account access.
+    """
+
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+    await session.execute(
+        text(
+            """
+            SELECT set_config('app.current_first_access_email', :first_access_email, true)
+            """
+        ),
+        {"first_access_email": email.strip().lower()},
+    )
+
+
+async def apply_public_marketplace_context(session: AsyncSession, tenant_id: str) -> None:
+    """Apply transaction-local context for one anonymous public catalog read.
+
+    Scoped to a single tenant id already resolved through the narrow
+    SECURITY DEFINER lookup app_private.resolve_public_marketplace_tenant_id
+    (which bypasses RLS only to identify which tenant owns the public storefront,
+    never to read product data itself). Sets the 'customer' role so the existing
+    customer read carve-out on inventory_items_access_policy applies — the same
+    access an authenticated shopper already has, extended to pre-login browsing.
+    """
+
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+    await session.execute(
+        text(
+            """
+            SELECT
+                set_config('app.current_tenant_id', :tenant_id, true),
+                set_config('app.current_user_role', 'customer', true)
+            """
+        ),
+        {"tenant_id": tenant_id},
     )
 
 

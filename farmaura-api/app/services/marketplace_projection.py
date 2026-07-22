@@ -23,99 +23,21 @@ from decimal import Decimal, ROUND_HALF_UP
 # ============================================================================
 
 
-MARKETPLACE_CATEGORY_MAP: dict[str, str] = {
-    "medicamentos": "medicamentos",
-    "medicamento": "medicamentos",
-    "remedios": "medicamentos",
-    "remedio": "medicamentos",
-    "perfumaria": "perfumaria",
-    "beleza": "perfumaria",
-    "cosmeticos": "perfumaria",
-    "cosmetico": "perfumaria",
-    "dermocosmeticos": "perfumaria",
-    "suplementos": "bem-estar",
-    "vitaminas": "bem-estar",
-    "vitamina": "bem-estar",
-    "bemestar": "bem-estar",
-    "bem-estar": "bem-estar",
-    "higiene": "cuidados",
-    "cuidados": "cuidados",
-    "infantil": "cuidados",
-    "mamaebebe": "cuidados",
-    "mamaeebebe": "cuidados",
-}
-
-MARKETPLACE_CLASS_PLACEHOLDER_MAP: dict[str, str] = {
-    "antibiotico": "PlaceHolder-generico.png",
-    "analgesico": "PlaceHolder-generico.png",
-    "antiinflamatorio": "PlaceHolder-generico.png",
-    "antialergico": "PlaceHolder-generico.png",
-    "antigripal": "PlaceHolder-generico.png",
-    "hipertensao": "PlaceHolder-generico.png",
-    "pressaoarterial": "PlaceHolder-generico.png",
-    "cardiovascular": "PlaceHolder-generico.png",
-    "diabetes": "PlaceHolder-generico.png",
-    "vitamina": "PlaceHolder-generico.png",
-    "vitaminas": "PlaceHolder-generico.png",
-    "suplemento": "PlaceHolder-generico.png",
-    "suplementos": "PlaceHolder-generico.png",
-    "dermocosmetico": "PlaceHolder.png",
-    "dermocosmeticos": "PlaceHolder.png",
-    "higiene": "PlaceHolder.png",
-    "infantil": "PlaceHolder.png",
-}
-
-MARKETPLACE_CATEGORY_PLACEHOLDER_MAP: dict[str, str] = {
-    "medicamentos": "PlaceHolder-generico.png",
-    "perfumaria": "PlaceHolder.png",
-    "bem-estar": "PlaceHolder.png",
-    "cuidados": "PlaceHolder.png",
-}
-
 MARKETPLACE_RESTRICTED_IMAGE_POLICY = "prescription_restricted"
 MARKETPLACE_BRAND_IMAGE_POLICY = "brand_or_placeholder"
 MARKETPLACE_PLACEHOLDER_IMAGE_POLICY = "placeholder_only"
 MARKETPLACE_RESTRICTED_IMAGE_ALT = "Imagem padrao de restricao sanitaria para medicamento sujeito a prescricao."
+MARKETPLACE_RESTRICTED_CONTROLLED_CATEGORIES = frozenset({
+    "prescription",
+    "prescription_retention",
+    "special_control",
+    "black_stripe",
+})
 
 
 # ============================================================================
 # MARKETPLACE PROJECTION HELPERS
 # ============================================================================
-
-
-def normalize_marketplace_text(value: str | None) -> str:
-    """Return a normalized lowercase string without separators."""
-
-    text = str(value or "")
-    replacements = str.maketrans(
-        {
-            "á": "a",
-            "à": "a",
-            "ã": "a",
-            "â": "a",
-            "ä": "a",
-            "é": "e",
-            "è": "e",
-            "ê": "e",
-            "ë": "e",
-            "í": "i",
-            "ì": "i",
-            "î": "i",
-            "ï": "i",
-            "ó": "o",
-            "ò": "o",
-            "õ": "o",
-            "ô": "o",
-            "ö": "o",
-            "ú": "u",
-            "ù": "u",
-            "û": "u",
-            "ü": "u",
-            "ç": "c",
-        }
-    )
-    cleaned = text.strip().lower().translate(replacements)
-    return "".join(character for character in cleaned if character.isalnum())
 
 
 def slug_marketplace_value(value: str | None) -> str:
@@ -164,14 +86,15 @@ def slug_marketplace_value(value: str | None) -> str:
     return slug[:64]
 
 
-def resolve_marketplace_category(*values: str | None) -> str:
-    """Return the customer-facing marketplace category for the given values."""
+def resolve_marketplace_category_id(category_name: str | None) -> str:
+    """Return the stable category identifier for one product's real category.
 
-    for value in values:
-        normalized = normalize_marketplace_text(value)
-        if normalized and normalized in MARKETPLACE_CATEGORY_MAP:
-            return MARKETPLACE_CATEGORY_MAP[normalized]
-    return "medicamentos"
+    A 1:1 slug of Category.name (unique per tenant), so a product's `cat` always
+    matches the id the Categoria admin screen manages — no bucketing into a fixed
+    taxonomy, since that hid new/renamed categories from the marketplace menu.
+    """
+
+    return slug_marketplace_value(category_name) or "medicamentos"
 
 
 def quantize_money(value: Decimal | int | float | str) -> Decimal:
@@ -204,52 +127,60 @@ def build_marketplace_asset_url(asset_name: str) -> str:
     return "/static/marketplace/placeholders/" + asset_name
 
 
-def resolve_marketplace_placeholder_asset(category: str | None, medication_class: str | None) -> str:
-    """Return the placeholder asset filename that matches the catalog classification."""
+def resolve_marketplace_placeholder_asset(is_generic: bool) -> str:
+    """Return the default placeholder asset, driven strictly by the product's generic flag."""
 
-    normalized_class = normalize_marketplace_text(medication_class)
-    if normalized_class and normalized_class in MARKETPLACE_CLASS_PLACEHOLDER_MAP:
-        return MARKETPLACE_CLASS_PLACEHOLDER_MAP[normalized_class]
-    normalized_category = resolve_marketplace_category(category, medication_class)
-    return MARKETPLACE_CATEGORY_PLACEHOLDER_MAP.get(normalized_category, "PlaceHolder-generico.png")
+    return "PlaceHolder-generico.png" if is_generic else "PlaceHolder.png"
 
 
 def resolve_marketplace_prescription_placeholder_asset(
-    name: str | None,
-    category: str | None,
-    medication_class: str | None,
+    controlled_category: str | None,
+    is_generic: bool,
 ) -> str:
-    """Return the restrictive placeholder asset for prescription medicines."""
+    """Return the regulatory placeholder defined by inventory control fields."""
 
-    normalized_name = normalize_marketplace_text(name)
-    normalized_category = normalize_marketplace_text(category)
-    normalized_class = normalize_marketplace_text(medication_class)
-    joined = " ".join([normalized_name, normalized_category, normalized_class])
-    if "tarjapreta" in joined or "controladoespecial" in joined or "psicotropico" in joined:
-        if "retencao" in joined or "receita" in joined:
-            return "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png"
-        return "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.png"
-    if "retencao" in joined or "receita" in joined:
-        if "generico" in joined:
-            return "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.png"
-        return "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png"
-    if "generico" in joined:
-        return "PlaceHolder-venda-sob-prescricao-medica-generico.png"
-    return "PlaceHolder-venda-sob-prescricao-medica.png"
+    category = str(controlled_category or "none").strip().lower()
+    if category == "black_stripe":
+        return (
+            "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.png"
+            if is_generic
+            else "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png"
+        )
+    if category in {"prescription_retention", "special_control"}:
+        return (
+            "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.png"
+            if is_generic
+            else "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png"
+        )
+    return (
+        "PlaceHolder-venda-sob-prescricao-medica-generico.png"
+        if is_generic
+        else "PlaceHolder-venda-sob-prescricao-medica.png"
+    )
+
+
+def is_marketplace_image_restricted(item: object) -> bool:
+    """Return whether marketplace product images are prohibited for one inventory item."""
+
+    controlled_category = str(getattr(item, "controlled_category", "") or "").strip().lower()
+    return controlled_category in MARKETPLACE_RESTRICTED_CONTROLLED_CATEGORIES
 
 
 def build_marketplace_image_payload(
     *,
     item: object,
     name: str,
-    category: str | None,
-    medication_class: str | None,
     requires_prescription: bool,
+    controlled_category: str | None,
+    is_generic: bool,
 ) -> dict[str, str]:
     """Return the image payload allowed for one marketplace item."""
 
     if requires_prescription:
-        asset_name = resolve_marketplace_prescription_placeholder_asset(name, category, medication_class)
+        asset_name = resolve_marketplace_prescription_placeholder_asset(
+            controlled_category,
+            is_generic,
+        )
         return {
             "image_url": build_marketplace_asset_url(asset_name),
             "image_alt": MARKETPLACE_RESTRICTED_IMAGE_ALT,
@@ -262,7 +193,7 @@ def build_marketplace_image_payload(
             "image_alt": name,
             "image_policy": MARKETPLACE_BRAND_IMAGE_POLICY,
         }
-    asset_name = resolve_marketplace_placeholder_asset(category, medication_class)
+    asset_name = resolve_marketplace_placeholder_asset(is_generic)
     return {
         "image_url": build_marketplace_asset_url(asset_name),
         "image_alt": name,
@@ -271,7 +202,15 @@ def build_marketplace_image_payload(
 
 
 def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, object]]:
-    """Return grouped marketplace products from active inventory items."""
+    """Return grouped marketplace products from active inventory items.
+
+    A component hidden from the marketplace (`is_marketplace_visible=False`) still forms
+    part of its product's group — the product must keep showing up in the catalog, never
+    disappear — but contributes zero purchasable stock. A product hidden in every store it
+    exists in therefore lands on `is_available=False` (shown as "indisponível") exactly like
+    a genuinely out-of-stock one, reusing the same unavailable-state handling everywhere
+    (listing, product page, cart, checkout) instead of a separate "hidden" concept.
+    """
 
     grouped: dict[str, dict[str, object]] = {}
     for item in items:
@@ -282,16 +221,19 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
         base_price = quantize_money(getattr(item, "sale_price", Decimal("0.00")) or Decimal("0.00"))
         promo = quantize_money(getattr(item, "promotional_discount_percent", Decimal("0.00")) or Decimal("0.00"))
         effective_price = compute_effective_price(base_price, promo)
-        available_stock = max(0, int(getattr(item, "quantity", 0) or 0))
+        is_visible = bool(getattr(item, "is_marketplace_visible", True))
+        available_stock = max(0, int(getattr(item, "quantity", 0) or 0)) if is_visible else 0
         category = str(getattr(item, "category_name", "") or "Medicamentos")
         medication_class = str(getattr(item, "medication_class_name", "") or category or "Medicamentos")
-        requires_prescription = bool(getattr(item, "is_controlled", False))
+        controlled_category = str(getattr(item, "controlled_category", "") or "none")
+        is_generic = bool(getattr(item, "is_generic", False))
+        requires_prescription = is_marketplace_image_restricted(item)
         image_payload = build_marketplace_image_payload(
             item=item,
             name=name,
-            category=category,
-            medication_class=medication_class,
             requires_prescription=requires_prescription,
+            controlled_category=controlled_category,
+            is_generic=is_generic,
         )
         gallery = [] if requires_prescription else [
             str(url).strip() for url in (getattr(item, "marketplace_gallery_urls", None) or []) if str(url).strip()
@@ -326,7 +268,7 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
                 "brand": brand,
                 "sku": sku,
                 "ean": ean,
-                "cat": resolve_marketplace_category(category, medication_class, name),
+                "cat": resolve_marketplace_category_id(category),
                 "sub": medication_class or category or "Medicamentos",
                 "description": name,
                 "info": "Disponivel no marketplace Farmaura",
@@ -354,7 +296,10 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
         current["requires_prescription"] = bool(current["requires_prescription"] or component["is_controlled"])
         if current["requires_prescription"]:
             current["image_url"] = build_marketplace_asset_url(
-                resolve_marketplace_prescription_placeholder_asset(current["name"], current["cat"], current["sub"])
+                resolve_marketplace_prescription_placeholder_asset(
+                    str(current["components"][0]["item"].controlled_category),
+                    bool(getattr(current["components"][0]["item"], "is_generic", False)),
+                )
             )
             current["image_alt"] = MARKETPLACE_RESTRICTED_IMAGE_ALT
             current["image_policy"] = MARKETPLACE_RESTRICTED_IMAGE_POLICY
@@ -376,7 +321,7 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
         if should_replace_primary:
             current["sku"] = sku or current["sku"]
             current["ean"] = ean or current["ean"]
-            current["cat"] = resolve_marketplace_category(category, medication_class, name)
+            current["cat"] = resolve_marketplace_category_id(category)
             current["sub"] = medication_class or category or current["sub"]
             current["price"] = effective_price
             current["old_price"] = base_price if promo > 0 else None

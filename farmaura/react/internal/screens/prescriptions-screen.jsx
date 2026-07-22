@@ -18,7 +18,7 @@ function RxScreen({ ctx }) {
 
   return (
     <>
-      <Topbar title="Receitas digitais" sub={prescriptions.filter((entry) => entry.status === 'pending').length + ' aguardando validação farmacêutica'} onLogout={onLogout} />
+      <Topbar title="Receitas digitais" sub={prescriptions.filter((entry) => entry.status === 'pending').length + ' aguardando validação farmacêutica'} onLogout={onLogout} ctx={ctx} />
       <div className="ph-content ph-content-wide">
         <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18, alignItems: 'start' }} className="ph-rx-grid">
           <div className="fa-card" style={{ padding: 8, alignSelf: 'stretch' }}>

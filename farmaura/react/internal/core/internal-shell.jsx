@@ -12,6 +12,8 @@ const OC_STATUS = {
   separating: { label: 'Em separação', short: 'Separando', color: 'var(--fa-warn)', cls: 'fa-badge-warn', icon: 'box' },
   ready:      { label: 'Pronto', short: 'Prontos', color: 'var(--fa-success)', cls: 'fa-badge-health', icon: 'check' },
   dispatched: { label: 'Despachado', short: 'Despachados', color: 'var(--fa-ink-3)', cls: 'fa-badge-mist', icon: 'truck' },
+  delivered:  { label: 'Entregue', short: 'Entregues', color: 'var(--fa-success)', cls: 'fa-badge-health', icon: 'check' },
+  cancelled:  { label: 'Cancelado', short: 'Cancelados', color: 'var(--fa-error)', cls: 'fa-badge-vital', icon: 'close' },
   unknown:    { label: 'Em análise', short: 'Em análise', color: 'var(--fa-ink-2)', cls: 'fa-badge-mist', icon: 'clock' },
 };
 const OC_FLOW = ['new', 'separating', 'ready', 'dispatched'];
@@ -235,8 +237,10 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
       { id: 'pdv', label: 'Balcão (PDV)', icon: 'receipt', count: counts.pdv },
       { id: 'orders', label: 'Pedidos online', icon: 'bag', count: counts.activeOrders },
       { id: 'deliveries', label: 'Entregas & rota', icon: 'route', count: counts.deliveries },
+      { id: 'driver-route', label: 'Minhas entregas', icon: 'truck', count: counts.myDeliveryStops },
       { id: 'rx', label: 'Receitas', icon: 'rx', count: counts.pendingRx },
       { id: 'chat', label: 'Conversas', icon: 'chat', count: counts.unread },
+      { id: 'team', label: 'Equipe', icon: 'user' },
     ]},
     { label: 'Relacionamento', items: [
       { id: 'crm', label: 'Clientes (CRM)', icon: 'user' },
@@ -246,11 +250,27 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
       { id: 'analytics', label: 'Análises', icon: 'chart' },
     ]},
     { label: 'Catálogo', items: [
+      { id: 'products', label: 'Produtos', icon: 'capsule' },
       { id: 'inventory', label: 'Estoque', icon: 'boxes', count: counts.lowStock, alert: true },
+      { id: 'brands', label: 'Marcas', icon: 'tag' },
+      { id: 'categories', label: 'Categorias', icon: 'grid' },
+      { id: 'therapeutic-classes', label: 'Classes terapêuticas', icon: 'pill' },
+      { id: 'locations', label: 'Localizações', icon: 'pin' },
+      { id: 'suppliers', label: 'Fornecedores', icon: 'truck' },
+      { id: 'stores', label: 'Lojas', icon: 'bag' },
+      { id: 'product-trace', label: 'Rastreabilidade', icon: 'search' },
+      { id: 'inventory-audit', label: 'Auditoria', icon: 'shield' },
+      { id: 'acquisition-costs', label: 'Custos de Aquisição', icon: 'receipt' },
+      { id: 'construction-costs', label: 'Custo de Construção', icon: 'store' },
     ]},
     { label: 'Marketplace', items: [
       { id: 'pricing', label: 'Precificador', icon: 'tag', count: counts.lowMargin, alert: true },
       { id: 'coupons', label: 'Cupons', icon: 'gift', count: counts.activeCoupons },
+      { id: 'promotions', label: 'Promoções', icon: 'sparkle', count: counts.activePromotions },
+      { id: 'delivery-zones', label: 'Áreas & Frete', icon: 'pin', count: counts.deliveryAreas },
+    ]},
+    { label: 'Sistema', items: [
+      { id: 'settings', label: 'Configurações', icon: 'bank' },
     ]},
   ];
   const visibleRoutes = new Set(window.FA_ACCESS.getVisibleInternalRoutes(user));
@@ -303,7 +323,6 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
             </div>
             {[['user', 'Minha conta', () => { onAccount('profile'); setMenuOpen(false); }],
               ['cog', 'Configurações', () => { onAccount('settings'); setMenuOpen(false); }],
-              ['store', 'Trocar de loja', () => { onAccount('store'); setMenuOpen(false); }],
               ['shield', 'Segurança & acesso', () => { onAccount('security'); setMenuOpen(false); }]].map(([ic, l, fn]) => (
               <button key={l} className="ph-user-menu-item" onClick={fn}><Icon name={ic} size={17} />{l}</button>
             ))}
@@ -317,7 +336,9 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
 }
 
 /* ===================== TOPBAR ===================== */
-function Topbar({ title, sub, onLogout, children }) {
+function Topbar({ title, sub, onLogout, children, ctx }) {
+  const isAdmin = !!(ctx && ctx.user && ctx.user.role === window.FA_ACCESS.ROLE.ADMIN);
+  const stores = (ctx && ctx.stores) || [];
   return (
     <header className="ph-topbar">
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -325,6 +346,19 @@ function Topbar({ title, sub, onLogout, children }) {
         {sub && <div className="ph-topbar-sub">{sub}</div>}
       </div>
       {children}
+      {isAdmin && stores.length > 0 && (
+        <select
+          className="fa-select"
+          style={{ maxWidth: 220, flex: '0 0 auto' }}
+          value={ctx.selectedStoreId || ''}
+          onChange={(e) => ctx.setSelectedStoreId && ctx.setSelectedStoreId(e.target.value)}
+          title="Loja exibida no console"
+          aria-label="Loja exibida no console"
+        >
+          <option value="">Todas as lojas</option>
+          {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+        </select>
+      )}
       <button className="fa-iconbtn" title="Atualizar" aria-label="atualizar"><Icon name="refresh" size={18} /></button>
       <button className="fa-iconbtn" title="Sair" aria-label="sair" onClick={onLogout}><Icon name="logout" size={18} /></button>
     </header>
@@ -332,12 +366,13 @@ function Topbar({ title, sub, onLogout, children }) {
 }
 
 /* ===================== MODAL DE CONTA / CONFIGURAÇÕES ===================== */
-function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwoFactorEnable, onTwoFactorDisable, onTwoFactorStatusChange }) {
+function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwoFactorEnable, onTwoFactorDisable, onTwoFactorStatusChange, stores, selectedStoreId }) {
   const P = user;
+  const isAdmin = P.role === window.FA_ACCESS.ROLE.ADMIN;
   const [active, setActive] = useState(tab || 'profile');
   const [twoFactorModalMode, setTwoFactorModalMode] = useState('');
   useEffect(() => { if (tab) setActive(tab); }, [tab]);
-  const tabs = [['profile', 'Perfil', 'user'], ['settings', 'Preferências', 'cog'], ['store', 'Loja', 'store'], ['security', 'Segurança', 'shield']];
+  const tabs = [['profile', 'Perfil', 'user'], ['settings', 'Preferências', 'cog'], ['security', 'Segurança', 'shield']];
   const Row = ({ label, children }) => (
     <div className="fa-field" style={{ marginBottom: 14 }}><label>{label}</label>{children}</div>
   );
@@ -353,7 +388,17 @@ function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwo
       {active === 'profile' && (
         <div><Row label="Nome"><input className="fa-input" defaultValue={P.name} /></Row>
           <Row label="E-mail corporativo"><input className="fa-input" defaultValue={P.email} /></Row>
-          <Row label="CRF / Registro profissional"><input className="fa-input" defaultValue={P.crf} /></Row></div>
+          <Row label="CRF / Registro profissional"><input className="fa-input" defaultValue={P.crf} /></Row>
+          <Row label="Loja">
+            <input
+              className="fa-input"
+              disabled
+              value={isAdmin
+                ? (selectedStoreId ? ((stores || []).find((store) => store.id === selectedStoreId) || {}).name || 'Loja selecionada' : 'Todas as lojas (use o seletor no topo para filtrar)')
+                : (((stores || [])[0] || {}).name || 'Loja nao atribuida')}
+            />
+          </Row>
+        </div>
       )}
       {active === 'settings' && (
         <div>
@@ -361,10 +406,6 @@ function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwo
             <div className="fa-row" key={l}><div className="fa-row-main"><div className="fa-row-label">{l}</div></div><Toggle on={on} onChange={() => {}} ariaLabel={l} /></div>
           ))}
         </div>
-      )}
-      {active === 'store' && (
-        <div><Row label="Loja vinculada"><select className="fa-select" defaultValue="ponte-alta-norte"><option value="ponte-alta-norte">Farmaura Ponte Alta Norte — Avenida São Francisco</option></select></Row>
-          <Row label="Turno"><select className="fa-select"><option>Manhã (08h–14h)</option><option>Tarde (14h–20h)</option><option>Integral (08h–20h)</option></select></Row></div>
       )}
       {active === 'security' && (
         <div><Row label="Senha"><input className="fa-input" type="password" defaultValue="••••••••••" /></Row>

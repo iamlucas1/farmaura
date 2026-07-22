@@ -154,7 +154,7 @@ function HealthServices({ ctx }) {
 
 /* ============== PRODUTOS SALVOS ============== */
 function SavedProducts({ ctx }) {
-  const { products, fav, toggleFav, addToCart, onNav } = ctx;
+  const { products, fav, toggleFav, addToCart, onNav, availabilityAlerts, subscribeAvailabilityAlert } = ctx;
   const saved = products.filter((p) => fav.includes(p.id));
 
   return (
@@ -175,7 +175,8 @@ function SavedProducts({ ctx }) {
           {saved.map((p) => (
             <ProductCard key={p.id} product={p} variant="standard"
               onOpen={(pr) => onNav({ name: 'product', id: pr.id })}
-              onAdd={(pr) => addToCart(pr)} fav={true} onFav={toggleFav} />
+              onAdd={(pr) => addToCart(pr)} fav={true} onFav={toggleFav}
+              notified={availabilityAlerts.includes(p.id)} onNotify={subscribeAvailabilityAlert} />
           ))}
         </div>
       )}
@@ -191,11 +192,19 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
 
   const statusMeta = resolveOrderStatusMeta(statusMap, order) || { label: order.rawStatus || 'Em processamento', cls: 'fa-badge-mist', icon: 'clock', step: 0 };
   const pickup = order.fulfillment === 'pickup';
+  const shipping = order.fulfillment === 'shipping';
+  const cancelled = order.status === 'cancelled';
   const destinationLabel = pickup ? (order.store || 'Loja Farmaura') : (order.address || 'Endereço não informado');
-  const validationCode = pickup ? String(order.pickupCode || '').trim() : String(order.code || order.id || '').trim();
-  const validationLabel = pickup ? 'Codigo de validacao da retirada' : 'Codigo de validacao da entrega';
+  const validationCode = !cancelled && (
+    pickup ? String(order.pickupCode || '').trim()
+    : shipping ? String(order.trackingCode || '').trim()
+    : String(order.code || order.id || '').trim()
+  );
+  const validationLabel = pickup ? 'Codigo de validacao da retirada' : shipping ? 'Código de rastreio' : 'Codigo de validacao da entrega';
   const validationHelp = pickup
     ? 'Informe este código ao farmacêutico para validação no sistema.'
+    : shipping
+    ? (order.carrierName ? `Rastreie sua encomenda pela ${order.carrierName}.` : 'Rastreie sua encomenda pela transportadora.')
     : 'Use este código como referência da entrega no atendimento e na conferência do pedido.';
 
   const drawerNode = (
@@ -205,7 +214,7 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
               <span className={'fa-badge ' + statusMeta.cls}><Icon name={statusMeta.icon} size={12} stroke={2.2} />{statusMeta.label}</span>
-              <span className="fa-badge fa-badge-outline"><Icon name={pickup ? 'bag' : 'truck'} size={12} />{pickup ? 'Retirada na loja' : 'Entrega em domicílio'}</span>
+              <span className="fa-badge fa-badge-outline"><Icon name={pickup ? 'bag' : shipping ? 'nav' : 'truck'} size={12} />{pickup ? 'Retirada na loja' : shipping ? 'Envio por transportadora' : 'Entrega em domicílio'}</span>
             </div>
             <h2 className="fa-h3" style={{ fontSize: 20 }}>Pedido <span className="fa-mono">#{order.id}</span></h2>
             <p className="fa-muted" style={{ fontSize: 13.5, marginTop: 6 }}>{order.date} · {order.items.length} {order.items.length === 1 ? 'item' : 'itens'}</p>
@@ -219,9 +228,11 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
               <Icon name={pickup ? 'bag' : 'truck'} size={17} />
               {pickup ? 'Acompanhe sua retirada' : 'Acompanhe sua entrega'}
             </div>
-            <OrderTracker step={statusMeta.step} fulfillment={order.fulfillment} />
+            {!cancelled && <OrderTracker step={statusMeta.step} fulfillment={order.fulfillment} />}
             <div className="fa-muted" style={{ fontSize: 13, marginTop: 14, lineHeight: 1.5 }}>
-              {order.status === 'delivered'
+              {cancelled
+                ? 'Este pedido foi cancelado.'
+                : order.status === 'delivered'
                 ? (pickup ? 'Pedido retirado com sucesso.' : 'Pedido concluído com sucesso.')
                 : (order.eta || (pickup ? 'Aguardando liberação para retirada.' : 'Aguardando nova atualização de entrega.'))}
             </div>

@@ -1,5 +1,5 @@
 services:
-  farmaura-api:
+  farmaura:
     networks:
       - lumos_gateway
 

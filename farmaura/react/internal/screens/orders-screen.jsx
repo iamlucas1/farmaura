@@ -6,9 +6,11 @@ import { OC_STATUS, SLA_TARGET, Topbar, fmtDur, minsSince, slaState } from "../c
 /* FARMAURA Console — Pedidos online: board operacional por status. */
 
 function OrderTypeBadge({ fulfillment, label }) {
+  const icon = fulfillment === 'pickup' ? 'store' : fulfillment === 'shipping' ? 'nav' : 'truck';
+  const defaultLabel = fulfillment === 'pickup' ? 'Retirada na loja' : fulfillment === 'shipping' ? 'Envio por transportadora' : 'Entrega em domicilio';
   return (
     <span className="fa-badge" style={{ background: fulfillment === 'pickup' ? 'var(--fa-info-soft)' : 'var(--fa-rose-soft)', color: fulfillment === 'pickup' ? 'var(--fa-info)' : 'var(--fa-primary)' }}>
-      <Icon name={fulfillment === 'pickup' ? 'store' : 'truck'} size={11} />{label || (fulfillment === 'pickup' ? 'Retirada na loja' : 'Entrega em domicilio')}
+      <Icon name={icon} size={11} />{label || defaultLabel}
     </span>
   );
 }
@@ -86,7 +88,7 @@ function OrdersScreen({ ctx }) {
 
   return (
     <>
-      <Topbar title="Pedidos online" sub="Kanban por etapa operacional com retirada e despacho em colunas separadas" onLogout={onLogout}>
+      <Topbar title="Pedidos online" sub="Kanban por etapa operacional com retirada e despacho em colunas separadas" onLogout={onLogout} ctx={ctx}>
         <div className="ph-topsearch"><Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} /><input placeholder="Buscar pedido ou cliente" /></div>
       </Topbar>
       <div className="ph-content ph-content-wide">
@@ -113,25 +115,39 @@ function OrdersScreen({ ctx }) {
 }
 
 function OrderDrawer({ ctx }) {
-  const { orders, drawerOrder, closeDrawer, advanceOrder, confirmPickupCode, updateOrderItemLocation, inventoryLocations = [], openChatFor, onNav, nowLabel } = ctx;
+  const { orders, drawerOrder, closeDrawer, advanceOrder, confirmPickupCode, updateOrderItemLocation, toggleOrderItemPicked, dispatchShippingOrder, inventoryLocations = [], openChatFor, onNav, nowLabel } = ctx;
   const o = orders.find((x) => x.id === drawerOrder);
-  const [picked, setPicked] = useState({});
   const [pickupCode, setPickupCode] = useState('');
   const [updatingItemId, setUpdatingItemId] = useState('');
+  const [togglingItemId, setTogglingItemId] = useState('');
   const [pickupBusy, setPickupBusy] = useState(false);
+  const [dispatchingShipping, setDispatchingShipping] = useState(false);
   useEffect(() => {
-    setPicked({});
     setPickupCode('');
     setUpdatingItemId('');
+    setTogglingItemId('');
     setPickupBusy(false);
+    setDispatchingShipping(false);
   }, [drawerOrder]);
   if (!o) return null;
 
   const st = OC_STATUS[o.status];
   const blockRx = o.rx && o.rxStatus === 'pending';
-  const allPicked = o.items.every((it) => picked[it.id]);
+  const allPicked = o.items.every((it) => it.picked);
   const locationOptions = inventoryLocations.filter((location) => location.active && (!location.controlledOnly || o.rx));
   const nextLabel = { new: 'Iniciar separação', separating: 'Marcar como pronto', ready: 'Despachar para entrega' }[o.status];
+
+  const handleTogglePicked = async (itemId, nextPicked) => {
+    if (!o.recordId) {
+      return;
+    }
+    setTogglingItemId(itemId);
+    try {
+      await toggleOrderItemPicked(o.recordId, itemId, nextPicked);
+    } finally {
+      setTogglingItemId('');
+    }
+  };
 
   const handleLocationChange = async (itemId, locationCode) => {
     if (!locationCode || !o.recordId) {
@@ -230,13 +246,13 @@ function OrderDrawer({ ctx }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>Separação · {o.items.length} {o.items.length === 1 ? 'item' : 'itens'}</span>
-              <span className="ph-cell-sub">{Object.values(picked).filter(Boolean).length}/{o.items.length} conferidos</span>
+              <span className="ph-cell-sub">{o.items.filter((it) => it.picked).length}/{o.items.length} conferidos</span>
             </div>
             <div className="fa-card" style={{ padding: '4px 16px' }}>
               {o.items.map((it) => (
-                <div className="ph-pickrow" key={it.id} data-done={picked[it.id] ? '1' : '0'} style={{ alignItems: 'center' }}>
-                  <button className="ph-pickbox" onClick={() => setPicked((p) => ({ ...p, [it.id]: !p[it.id] }))} aria-label="conferir item">
-                    {picked[it.id] && <Icon name="check" size={14} stroke={2.8} />}
+                <div className="ph-pickrow" key={it.id} data-done={it.picked ? '1' : '0'} style={{ alignItems: 'center' }}>
+                  <button className="ph-pickbox" disabled={togglingItemId === it.id} onClick={() => handleTogglePicked(it.id, !it.picked)} aria-label="conferir item">
+                    {it.picked && <Icon name="check" size={14} stroke={2.8} />}
                   </button>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="ph-pick-name" style={{ fontWeight: 600, fontSize: 13.5 }}>{it.name}</div>
@@ -279,6 +295,16 @@ function OrderDrawer({ ctx }) {
           {o.status !== 'dispatched' && o.fulfillment === 'pickup' && o.status !== 'ready' && (
             <button className="fa-btn fa-btn-primary" style={{ flex: 1 }} disabled={(o.status === 'separating' && (!allPicked || blockRx)) || (o.status === 'new' && blockRx)} onClick={() => advanceOrder(o.id).catch(() => {})}>
               <Icon name="arrowR" size={17} />{nextLabel || 'Avançar pedido'}
+            </button>
+          )}
+          {o.status !== 'dispatched' && o.fulfillment === 'shipping' && o.status !== 'ready' && (
+            <button className="fa-btn fa-btn-primary" style={{ flex: 1 }} disabled={(o.status === 'separating' && (!allPicked || blockRx)) || (o.status === 'new' && blockRx)} onClick={() => advanceOrder(o.id).catch(() => {})}>
+              <Icon name="arrowR" size={17} />{nextLabel || 'Avançar pedido'}
+            </button>
+          )}
+          {o.status === 'ready' && o.fulfillment === 'shipping' && (
+            <button className="fa-btn fa-btn-primary" style={{ flex: 1 }} disabled={dispatchingShipping} onClick={() => { setDispatchingShipping(true); dispatchShippingOrder(o.recordId).finally(() => setDispatchingShipping(false)); }}>
+              <Icon name="nav" size={17} />{dispatchingShipping ? 'Gerando etiqueta...' : 'Gerar etiqueta e despachar'}
             </button>
           )}
           {o.status === 'dispatched' && <div style={{ flex: 1, textAlign: 'center', color: 'var(--fa-success)', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><Icon name="check" size={17} />Pedido concluido</div>}

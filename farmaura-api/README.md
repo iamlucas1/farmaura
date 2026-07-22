@@ -29,8 +29,8 @@ Base inicial da API da Farmaura em Python com FastAPI, SQLAlchemy 2.x e arquitet
 
 O compose do backend:
 
-- sobe `farmaura-web`, `farmaura-api`, `farmaura-postgres` e `farmaura-redis`;
-- mantém PostgreSQL e Redis somente na rede privada `farmaura_private`;
+- sobe `farmaura-web`, `farmaura-api`, `farmaura-postgres` e `farmaura-valkey`;
+- mantém PostgreSQL e Valkey somente na rede privada `farmaura_private`;
 - por padrão não depende do `lumos_gateway` localmente;
 - publica a camada web em `127.0.0.1:3000`;
 - expõe a API localmente em `127.0.0.1:8080` para desenvolvimento;

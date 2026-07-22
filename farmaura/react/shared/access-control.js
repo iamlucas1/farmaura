@@ -14,8 +14,10 @@ Observations:
 (function attachAccessControl(globalObject) {
   const ROLE = {
     ADMIN: 'admin',
+    MANAGER: 'manager',
     PHARMACIST: 'pharmacist',
     CASHIER: 'cashier',
+    DRIVER: 'driver',
     CUSTOMER: 'customer',
   };
 
@@ -26,16 +28,20 @@ Observations:
   };
 
   const INTERNAL_ROUTE_ACCESS = {
-    [ROLE.ADMIN]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'sales', 'analytics', 'inventory', 'pricing', 'coupons'],
-    [ROLE.PHARMACIST]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'analytics', 'inventory', 'pricing', 'coupons'],
+    [ROLE.ADMIN]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'sales', 'analytics', 'products', 'inventory', 'inventory-audit', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'stores', 'product-trace', 'acquisition-costs', 'construction-costs', 'pricing', 'coupons', 'promotions', 'delivery-zones', 'team', 'settings'],
+    [ROLE.MANAGER]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'analytics', 'products', 'inventory', 'inventory-audit', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'pricing', 'coupons', 'promotions', 'delivery-zones'],
+    [ROLE.PHARMACIST]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'analytics', 'products', 'inventory', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'pricing', 'coupons', 'promotions', 'delivery-zones'],
     [ROLE.CASHIER]: ['dash', 'pdv', 'sales'],
+    [ROLE.DRIVER]: ['driver-route'],
     [ROLE.CUSTOMER]: [],
   };
 
   const INTERNAL_ROLE_LABEL = {
     [ROLE.ADMIN]: 'Administrador',
+    [ROLE.MANAGER]: 'Gerente',
     [ROLE.PHARMACIST]: 'Farmacêutico',
     [ROLE.CASHIER]: 'Caixa',
+    [ROLE.DRIVER]: 'Entregador',
     [ROLE.CUSTOMER]: 'Cliente',
   };
 
@@ -74,6 +80,7 @@ Observations:
       email: source.email || '',
       role: subject.role || ROLE.CUSTOMER,
       accessScope: subject.access_scope || ACCESS_SCOPE.MARKETPLACE,
+      store: subject.store_id || null,
       avatar: buildAvatarLabel(source.full_name || source.email || ''),
       twoFactorEnabled: !!source.two_factor_enabled,
     });
@@ -106,7 +113,7 @@ Observations:
   }
 
   function canAccessInternal(user) {
-    return !!user && [ROLE.ADMIN, ROLE.PHARMACIST, ROLE.CASHIER].includes(user.role)
+    return !!user && [ROLE.ADMIN, ROLE.MANAGER, ROLE.PHARMACIST, ROLE.CASHIER, ROLE.DRIVER].includes(user.role)
       && [ACCESS_SCOPE.INTERNAL, ACCESS_SCOPE.HYBRID].includes(user.accessScope);
   }
 

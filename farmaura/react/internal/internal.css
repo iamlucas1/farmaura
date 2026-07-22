@@ -181,6 +181,18 @@
 .ph-stockbar { height: 6px; border-radius: 99px; background: var(--fa-mist); overflow: hidden; width: 90px; margin-top: 5px; }
 .ph-stockbar > i { display: block; height: 100%; border-radius: 99px; }
 
+/* ---------- Lot stack cell (Estoque › Itens: colunas Local / Lote / Validade) ----------
+   Cada coluna é uma pilha vertical de um único tipo de dado — uma linha por lote.
+   As três colunas usam a mesma altura de linha (24px) para os lotes alinharem entre si. */
+.inv-lotstack { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.inv-lotstack-loc { display: inline-flex; align-items: center; align-self: flex-start; max-width: 100%; height: 24px; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-lotstack-batch, .inv-lotstack-date { display: flex; align-items: center; height: 24px; box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-lotstack-batch { font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2); }
+.inv-lotstack-date { font-size: 12.5px; color: var(--fa-ink-3); }
+
+/* ---------- Row actions (tabelas do Estoque) ---------- */
+.ph-row-actions { display: inline-flex; align-items: center; gap: 8px; }
+
 /* ---------- Detail drawer (pedido / receita) ---------- */
 .ph-drawer-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(43,26,26,.42); backdrop-filter: blur(3px); animation: faOverlay .18s ease both; }
 .ph-drawer {
@@ -471,6 +483,12 @@
 /* ============================================================
    Precificador — tabela, taxas, drawer de precificação
    ============================================================ */
+/* KPIs do precificador — reaproveita o cartão .inv-kpi do Estoque em grade de 4 colunas
+   (seletor composto para vencer .inv-kpis independente da ordem no arquivo) */
+.inv-kpis.prc-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1180px) { .inv-kpis.prc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .inv-kpis.prc-kpis { grid-template-columns: 1fr; } }
+
 /* tabela */
 .prc-table tbody td { vertical-align: middle; }
 .prc-bar { height: 6px; border-radius: 99px; background: var(--fa-mist); overflow: hidden; width: 92px; margin-top: 6px; }
@@ -481,15 +499,75 @@
 }
 
 /* card de taxas da vitrine */
-.prc-fees { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 26px; }
-.prc-fee { display: flex; align-items: center; gap: 12px; }
+.prc-fees { display: flex; flex-direction: column; }
+.prc-fee { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--fa-mist); }
+.prc-fee:last-child { border-bottom: none; }
 .prc-fee .pr-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--fa-rose-soft); color: var(--fa-primary); }
 .prc-fee .pr-lab { font-weight: 700; font-size: 13.5px; min-width: 0; }
 .prc-fee .pr-lab small { display: block; font-weight: 600; font-size: 11.5px; color: var(--fa-ink-3); margin-top: 1px; }
-@media (max-width: 720px) { .prc-fees { grid-template-columns: 1fr; } }
+
+/* coluna "Publicação" da tabela — status da vitrine + selo de promoção, separados do nome do produto */
+.prc-pub { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.prc-pub .fa-badge { font-size: 11px; }
+
+/* Áreas & Frete — bairros/raios de entrega */
+.dz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; margin-bottom: 18px; }
+@media (max-width: 980px) { .dz-grid { grid-template-columns: 1fr; } }
+
+.dz-addrow { display: flex; gap: 10px; margin-bottom: 8px; }
+.dz-addrow .fa-input { flex: 1; }
+.dz-error { display: flex; align-items: center; gap: 6px; color: var(--fa-error); font-size: 12.5px; font-weight: 600; margin-bottom: 10px; }
+
+.dz-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.dz-empty { font-size: 13px; padding: 10px 2px; }
+
+.dz-row { border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); background: var(--fa-bg); overflow: hidden; transition: opacity .15s; }
+.dz-row[data-open="1"] { border-color: var(--fa-primary); }
+.dz-row[data-active="0"] { opacity: .55; }
+.dz-row-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.dz-row-head-btn {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0;
+  background: transparent; border: none; cursor: pointer; text-align: left; color: inherit; font: inherit;
+}
+.dz-row-title { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+.dz-row-name { font-weight: 700; font-size: 13.5px; }
+.dz-row-sub { font-size: 11.5px; color: var(--fa-ink-3); font-weight: 600; }
+.dz-row-cep { font-variant-numeric: tabular-nums; }
+.dz-row-body { padding: 4px 14px 16px; display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--fa-mist); padding-top: 12px; }
+
+.dz-search-wrap { position: relative; }
+.dz-dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20;
+  background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card);
+  box-shadow: var(--fa-shadow-lg); max-height: 320px; overflow-y: auto; padding: 6px;
+}
+.dz-dropdown-empty { padding: 16px 10px; font-size: 12.5px; color: var(--fa-ink-3); text-align: center; }
+.dz-dropdown-item {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px;
+  background: transparent; border: none; cursor: pointer; text-align: left; color: inherit; font: inherit;
+  transition: background .12s;
+}
+.dz-dropdown-item:hover { background: var(--fa-rose-soft); }
+.dz-dropdown-item + .dz-dropdown-item { margin-top: 2px; }
+
+.dz-savebar {
+  display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin: 4px 0 18px;
+  padding: 14px 16px; background: var(--fa-mist-2); border-radius: var(--fa-r-card);
+}
+.dz-savebar .ph-cell-sub { flex: 1; }
+
+.dz-price-rule { display: flex; flex-direction: column; gap: 12px; }
+.dz-fee-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dz-fee-label { font-weight: 700; font-size: 12.5px; color: var(--fa-ink-2); display: inline-flex; align-items: center; gap: 6px; min-width: 130px; }
+.dz-fuel-grid { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--fa-mist-2); border-radius: var(--fa-r-input); }
+.dz-fuel-hint { padding-top: 2px; }
+.dz-variations { display: flex; flex-direction: column; gap: 10px; }
 
 /* drawer de precificação */
 .prc-drawer { width: min(560px, 96vw); }
+.prc-settings-drawer { width: min(620px, 96vw); }
+.prc-settings-drawer .ph-drawer-body { gap: 22px; }
+.prc-settings-drawer .fa-card { box-shadow: none; }
 .prc-flabel { font-weight: 800; color: var(--fa-ink-2); text-transform: uppercase; letter-spacing: .06em; font-size: 11px; margin-bottom: 10px; }
 .prc-input-row { display: flex; align-items: center; gap: 10px; }
 .prc-input-row .fin-prem-pre { font-size: 14px; }
@@ -516,6 +594,11 @@
 .prc-bd-v { font-weight: 700; font-size: 13.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .prc-bd-v.is-strong { font-weight: 800; font-size: 15px; }
 .prc-bd-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 2px solid var(--fa-mist); margin-top: 10px; padding-top: 13px; }
+
+/* desdobramento IRPJ/CSLL/COFINS/PIS/CPP/ICMS do Simples Nacional — transparência do cálculo, sem competir com o total */
+.prc-tax-breakdown { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 16px; padding: 2px 0 6px; }
+.prc-tax-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--fa-ink-3); }
+.prc-tax-row[data-excluded="1"] { text-decoration: line-through; opacity: .55; }
 
 /* competitividade */
 .prc-compete { border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 16px 18px; }
@@ -780,4 +863,141 @@
   .cpn-kpis {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============================================================
+   Estoque — redesign visual (escopado em .inv-screen / .inv-modal
+   para não vazar para as demais telas do console).
+   ============================================================ */
+
+/* ---------- KPIs clicáveis (dobram como filtro de status) ---------- */
+.inv-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.inv-kpi {
+  display: flex; align-items: center; gap: 12px; text-align: left; font: inherit; color: inherit;
+  padding: 14px 15px; border-radius: var(--fa-r-card); border: 1.5px solid var(--fa-mist);
+  background: var(--fa-surface); box-shadow: var(--fa-shadow-sm); cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, transform .12s;
+}
+.inv-kpi:hover { transform: translateY(-1px); box-shadow: var(--fa-shadow-md); }
+.inv-kpi:active { transform: translateY(0); }
+.inv-kpi[data-active="1"] { border-color: var(--kpi-fg); box-shadow: 0 0 0 3px var(--kpi-bg); }
+.inv-kpi-ic { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; flex: none; background: var(--kpi-bg); color: var(--kpi-fg); }
+.inv-kpi-body { min-width: 0; }
+.inv-kpi-val { font-weight: 800; font-size: 22px; line-height: 1; letter-spacing: -.02em; }
+.inv-kpi-label { font-size: 11.5px; font-weight: 700; color: var(--fa-ink-3); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Toolbar: linhas separadas (views/ações, filtros) ---------- */
+.inv-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.inv-toolbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inv-toolbar-row.is-filters { padding: 12px 14px; background: var(--fa-mist-2); border-radius: var(--fa-r-card); }
+.inv-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.inv-actions-sep { width: 1px; height: 22px; background: var(--fa-mist); margin: 0 2px; flex: none; }
+.inv-filter-field { display: flex; flex-direction: column; gap: 5px; }
+.inv-filter-field label { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); padding-left: 1px; }
+.inv-filter-clear { margin-left: auto; }
+
+/* ---------- Card com cabeçalho (envelope das tabelas) ---------- */
+.inv-card { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-sm); overflow: hidden; }
+.inv-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--fa-mist); background: var(--fa-bg); flex-wrap: wrap; }
+.inv-card-head-title { font-weight: 800; font-size: 13.5px; }
+.inv-card-head-sub { font-size: 12px; color: var(--fa-ink-3); margin-top: 2px; }
+.inv-card-head-actions { display: flex; gap: 8px; }
+.inv-card .ph-table-wrap { border: none; border-radius: 0; box-shadow: none; }
+
+/* ---------- Refinos tipográficos da tabela (só nesta tela) ---------- */
+.inv-screen .ph-table thead th { font-size: 10.5px; letter-spacing: .07em; }
+.inv-screen .ph-table tbody td { padding: 14px 16px; }
+
+/* Larguras de coluna estáveis na tabela de Itens — impede que o conteúdo de uma
+   célula (ex.: vários lotes empilhados) empurre e quebre as demais colunas. */
+.inv-items-table { table-layout: fixed; }
+.inv-items-table > tbody > tr > td { overflow: hidden; }
+.inv-items-table > tbody > tr > td.inv-actions-td { overflow: visible; }
+.inv-items-table .ph-row-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+
+/* Célula de produto com ícone tonal */
+.inv-prod { display: flex; align-items: flex-start; gap: 10px; }
+.inv-prod-ic { width: 34px; height: 34px; border-radius: 10px; background: var(--fa-rose-soft); color: var(--fa-primary); display: grid; place-items: center; flex: none; margin-top: 1px; }
+.inv-prod-name { font-weight: 700; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; color: var(--fa-ink); }
+
+/* Faixa de categoria clicável (chevron rotativo) */
+.inv-cat-row td { padding: 0 !important; }
+.inv-cat-btn {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border: none; background: var(--fa-mist-2); cursor: pointer; font: inherit; color: var(--fa-ink);
+  transition: background .12s; text-align: left;
+}
+.inv-cat-btn:hover { background: var(--fa-mist); }
+.inv-cat-name { font-weight: 800; font-size: 13px; }
+.inv-cat-count { font-size: 11px; font-weight: 800; color: var(--fa-ink-3); background: var(--fa-surface); padding: 2px 9px; border-radius: 999px; flex: none; }
+.inv-cat-chev { margin-left: auto; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--fa-surface); color: var(--fa-ink-2); transition: transform .18s; flex: none; }
+.inv-cat-btn[data-open="0"] .inv-cat-chev { transform: rotate(-90deg); }
+
+/* Barra de estoque com marcações de limiar */
+.inv-stockbar { position: relative; height: 7px; border-radius: 99px; background: var(--fa-mist); width: 100%; max-width: 92px; margin-top: 6px; }
+.inv-stockbar > i { display: block; height: 100%; border-radius: 99px; position: relative; z-index: 1; }
+.inv-stockbar .tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: rgba(43, 26, 26, .18); z-index: 2; border-radius: 2px; }
+
+/* Badge de status com dot */
+.inv-status-dot { width: 7px; height: 7px; border-radius: 99px; background: currentColor; flex: none; }
+
+/* ---------- Cards de eventos (Movimentações / Armazenamentos) ---------- */
+.inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.inv-event-card { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-left: 4px solid var(--evt-color, var(--fa-mist)); border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-sm); padding: 16px; }
+.inv-event-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.inv-event-title { font-weight: 800; font-size: 14px; }
+.inv-event-sub { font-size: 12px; color: var(--fa-ink-3); margin-top: 2px; }
+.inv-kv2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; font-size: 12.5px; margin: 0; }
+.inv-kv2 dt { color: var(--fa-ink-3); font-weight: 600; margin: 0; }
+.inv-kv2 dd { margin: 2px 0 0; font-weight: 700; color: var(--fa-ink); }
+
+/* ---------- Seções dentro dos modais ---------- */
+.inv-modal .inv-section { margin-bottom: 20px; }
+.inv-modal .inv-section:last-child { margin-bottom: 0; }
+.inv-section-head { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; padding-bottom: 9px; border-bottom: 1px solid var(--fa-mist); }
+.inv-section-ic { width: 26px; height: 26px; border-radius: 8px; background: var(--fa-rose-soft); color: var(--fa-primary); display: grid; place-items: center; flex: none; }
+.inv-section-title { font-weight: 800; font-size: 12px; letter-spacing: .04em; color: var(--fa-ink-2); text-transform: uppercase; }
+
+@media (max-width: 1180px) {
+  .inv-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .inv-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inv-actions { margin-left: 0; width: 100%; }
+}
+
+/* ============================================================
+   Auditoria (Estoque + Precificador) — tela admin-only.
+   Todo o CSS abaixo é escopado em .audit-* para não vazar
+   para outras telas do console.
+   ============================================================ */
+.audit-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; padding: 12px 14px; background: var(--fa-mist-2); border-radius: var(--fa-r-card); }
+.audit-filter-field { display: flex; flex-direction: column; gap: 5px; }
+.audit-filter-field label { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); padding-left: 1px; }
+.audit-filter-field .fa-input, .audit-filter-field .fa-select { min-width: 160px; }
+.audit-refresh-btn { margin-left: auto; }
+
+.audit-list { display: flex; flex-direction: column; gap: 12px; }
+.audit-card { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-sm); padding: 16px 18px; }
+.audit-card-head { display: flex; align-items: center; gap: 12px; }
+.audit-card-title { flex: 1; min-width: 0; }
+.audit-card-entity { font-weight: 800; font-size: 14.5px; }
+.audit-card-when { font-size: 12px; color: var(--fa-ink-3); white-space: nowrap; flex: none; }
+
+.audit-card-actor { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--fa-mist); color: var(--fa-ink-2); font-size: 12.5px; }
+.audit-actor-name { font-weight: 700; }
+.audit-actor-ip { font-size: 11.5px; color: var(--fa-ink-3); margin-left: auto; }
+
+.audit-changes { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; padding: 12px 14px; background: var(--fa-bg); border-radius: var(--fa-r-input); }
+.audit-change-row { display: grid; grid-template-columns: minmax(120px, 0.9fr) 1fr auto 1fr; align-items: center; gap: 10px; font-size: 12.5px; }
+.audit-change-field { font-weight: 700; color: var(--fa-ink-2); }
+.audit-change-old { color: var(--fa-error); text-decoration: line-through; text-decoration-color: rgba(179, 38, 30, .35); overflow-wrap: anywhere; }
+.audit-change-new { color: var(--fa-success); font-weight: 700; overflow-wrap: anywhere; }
+.audit-change-row svg { color: var(--fa-ink-3); flex: none; }
+
+.audit-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; }
+
+@media (max-width: 780px) {
+  .audit-change-row { grid-template-columns: 1fr; row-gap: 2px; }
+  .audit-refresh-btn { margin-left: 0; width: 100%; }
 }

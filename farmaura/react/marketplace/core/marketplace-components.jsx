@@ -8,65 +8,21 @@ import { Icon } from "./marketplace-icons.jsx";
 
 const brl = (n) => 'R$ ' + n.toFixed(2).replace('.', ',');
 
-const MARKETPLACE_CATEGORY_PLACEHOLDER_MAP = {
-  medicamentos: 'PlaceHolder-generico.png',
-  perfumaria: 'PlaceHolder.png',
-  'bem-estar': 'PlaceHolder.png',
-  cuidados: 'PlaceHolder.png',
-};
-
-function normalizeMarketplaceImageText(value) {
-  return String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
-
-function resolveMarketplacePlaceholderAssetName(product) {
-  const category = normalizeMarketplaceImageText(product && product.cat);
-  const name = normalizeMarketplaceImageText(product && product.name);
-  const brand = normalizeMarketplaceImageText(product && product.brand);
-  const sub = normalizeMarketplaceImageText(product && product.sub);
-  const joined = [name, brand, sub].join(' ');
-  const isGeneric = joined.includes('generico');
-  const hasPrescription = !!(product && product.rx);
-  const hasBlackStripe = joined.includes('tarja preta') || joined.includes('tarjapreta') || joined.includes('psicotrop');
-  const hasRetention = joined.includes('retencao') || joined.includes('receita');
-
-  if (hasPrescription) {
-    if (hasBlackStripe) {
-      return hasRetention
-        ? 'PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png'
-        : 'PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.png';
-    }
-    if (hasRetention) {
-      return isGeneric
-        ? 'PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.png'
-        : 'PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png';
-    }
-    return isGeneric
-      ? 'PlaceHolder-venda-sob-prescricao-medica-generico.png'
-      : 'PlaceHolder-venda-sob-prescricao-medica.png';
-  }
-
-  if (isGeneric) {
-    return 'PlaceHolder-generico.png';
-  }
-
-  return MARKETPLACE_CATEGORY_PLACEHOLDER_MAP[category] || 'PlaceHolder.png';
-}
-
-function resolveMarketplacePlaceholderImageUrl(product) {
-  return resolveMarketplaceAssetUrl(resolveMarketplacePlaceholderAssetName(product));
-}
-
 function ProductVisual({ product: p, label = '', glyph, style, imageUrl = '' }) {
-  const imagePolicy = p && p.imagePolicy ? p.imagePolicy : 'placeholder_only';
-  const allowsBrandImage = imagePolicy === 'brand_image';
-  const brandImageUrl = imageUrl || (p && p.imageUrl ? p.imageUrl : '');
-  const fallbackImageUrl = resolveMarketplacePlaceholderImageUrl(p);
-  const [currentImageUrl, setCurrentImageUrl] = React.useState(allowsBrandImage && brandImageUrl ? brandImageUrl : fallbackImageUrl);
+  // The backend already resolves the correct image for every policy (custom brand photo,
+  // regulatory placeholder for prescription-restricted items, or the generic/default
+  // placeholder driven by the product's is_generic flag) — see
+  // build_marketplace_image_payload in marketplace_projection.py. Re-deriving the
+  // placeholder here from the product's name/category text was redundant and drifted out
+  // of sync with that flag-driven logic, so this only trusts server output now and keeps a
+  // single local fallback for a genuinely broken/missing image URL.
+  const primaryImageUrl = imageUrl || (p && p.imageUrl ? p.imageUrl : '');
+  const fallbackImageUrl = resolveMarketplaceAssetUrl('PlaceHolder.png');
+  const [currentImageUrl, setCurrentImageUrl] = React.useState(primaryImageUrl || fallbackImageUrl);
 
   React.useEffect(() => {
-    setCurrentImageUrl(allowsBrandImage && brandImageUrl ? brandImageUrl : fallbackImageUrl);
-  }, [p && p.id, allowsBrandImage, brandImageUrl, fallbackImageUrl, imagePolicy]);
+    setCurrentImageUrl(primaryImageUrl || fallbackImageUrl);
+  }, [p && p.id, primaryImageUrl, fallbackImageUrl]);
 
   return (
     <div className="fa-ph" data-cat={p && p.cat} style={{ ...style, overflow: 'hidden', padding: 0 }}>
@@ -116,9 +72,18 @@ function QtyStepper({ value, onChange, min = 1, max = 99 }) {
 }
 
 // ---- Product card. variant: 'standard' | 'image' | 'list' ----
-function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onFav }) {
+function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onFav, notified, onNotify }) {
   const discount = p.discount > 0;
   const outOfStock = Number(p.stock || 0) <= 0;
+  const notifyBtn = (
+    <button
+      className="fa-btn fa-btn-soft fa-btn-sm"
+      disabled={!!notified}
+      onClick={(e) => { e.stopPropagation(); if (!notified && onNotify) onNotify(p.id, p.name); }}
+    >
+      <Icon name="bell" size={15} stroke={2.1} />{notified ? 'Vamos te avisar' : 'Avise-me quando chegar'}
+    </button>
+  );
   const flags = (
     <div className="fa-pc-flags">
       {discount && <span className="fa-badge fa-badge-vital">-{p.discount}%</span>}
@@ -150,9 +115,11 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-          <button className="fa-btn fa-btn-primary" disabled={outOfStock} onClick={(e) => { e.stopPropagation(); if (!outOfStock) onAdd(p); }}>
-            <Icon name={outOfStock ? 'minus' : 'plus'} size={16} stroke={2.2} />{outOfStock ? 'Sem estoque' : 'Adicionar'}
-          </button>
+          {outOfStock ? notifyBtn : (
+            <button className="fa-btn fa-btn-primary" onClick={(e) => { e.stopPropagation(); onAdd(p); }}>
+              <Icon name="plus" size={16} stroke={2.2} />Adicionar
+            </button>
+          )}
         </div>
       </div>
     );
@@ -168,9 +135,11 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
         {p.old && <span className="fa-price-old">{brl(p.old)}</span>}
       </div>
       <div className="fa-pc-foot">
-        <button className="fa-btn fa-btn-primary fa-btn-sm" disabled={outOfStock} onClick={(e) => { e.stopPropagation(); if (!outOfStock) onAdd(p); }}>
-          <Icon name={outOfStock ? 'minus' : 'cart'} size={16} stroke={2} />{outOfStock ? 'Sem estoque' : 'Adicionar'}
-        </button>
+        {outOfStock ? notifyBtn : (
+          <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={(e) => { e.stopPropagation(); onAdd(p); }}>
+            <Icon name="cart" size={16} stroke={2} />Adicionar
+          </button>
+        )}
       </div>
     </>
   );
@@ -253,7 +222,6 @@ function AuraLayer({ tone = 'rgba(122,13,22,1)' }) {
 
 export {
   brl,
-  MARKETPLACE_CATEGORY_PLACEHOLDER_MAP,
   AuraLayer,
   FlagBadge,
   Modal,
@@ -263,7 +231,4 @@ export {
   QtyStepper,
   Stars,
   Toggle,
-  normalizeMarketplaceImageText,
-  resolveMarketplacePlaceholderAssetName,
-  resolveMarketplacePlaceholderImageUrl,
 };

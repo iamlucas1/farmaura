@@ -46,6 +46,31 @@ class UserRepository:
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def list_by_tenant_roles(self, *, tenant_id: str, roles: list[str]) -> list[User]:
+        """Return active tenant users restricted to the given roles, ordered by name."""
+
+        statement = (
+            select(User)
+            .where(User.tenant_id == tenant_id, User.role.in_(roles), User.is_active.is_(True))
+            .order_by(User.full_name.asc())
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def get_by_id_for_tenant(self, *, tenant_id: str, user_id: str) -> User | None:
+        """Return one active tenant user by identifier, scoped to the tenant."""
+
+        statement = select(User).where(User.id == user_id, User.tenant_id == tenant_id, User.is_active.is_(True))
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def add(self, user: User) -> User:
+        """Persist one new user account."""
+
+        self.session.add(user)
+        await self.session.flush()
+        return user
+
     async def save(self, user: User) -> User:
         """Persist user field updates inside the current transaction."""
 

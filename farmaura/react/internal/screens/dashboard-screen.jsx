@@ -77,7 +77,7 @@ function Dashboard({ ctx }) {
 
   return (
     <>
-      <Topbar title="Painel" sub={'Bom dia, ' + pharmacistFirstName + ' · ' + pharmacist.store} onLogout={onLogout} />
+      <Topbar title="Painel" sub={'Bom dia, ' + pharmacistFirstName + ' · ' + pharmacist.store} onLogout={onLogout} ctx={ctx} />
       <div className="ph-content ph-content-wide">
         <div className="ph-stats">
           <StatCard icon="bag" value={active.length} label="Pedidos em aberto" trend="+3 hoje" trendDir="up" />

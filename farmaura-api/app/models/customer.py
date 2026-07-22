@@ -13,9 +13,10 @@ Observations:
 - several CRM-oriented fields are stored as denormalized profile data for the current prototype scope;
 """
 
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampedModel, UuidModel
@@ -35,6 +36,7 @@ class Customer(Base, UuidModel, TimestampedModel):
         CheckConstraint("orders_count >= 0", name="customers_orders_count_non_negative"),
         CheckConstraint("total_spent >= 0", name="customers_total_spent_non_negative"),
         CheckConstraint("average_ticket >= 0", name="customers_average_ticket_non_negative"),
+        CheckConstraint("children_count IS NULL OR children_count >= 0", name="customers_children_count_non_negative"),
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
@@ -69,3 +71,7 @@ class Customer(Base, UuidModel, TimestampedModel):
     marketing_program_preferences: Mapped[list[dict[str, bool | str]]] = mapped_column(JSON, default=list, nullable=False)
     communication_channel_preferences: Mapped[list[dict[str, bool | str]]] = mapped_column(JSON, default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    marital_status: Mapped[str] = mapped_column(String(16), default="", nullable=False)
+    children_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_device_type: Mapped[str] = mapped_column(String(16), default="", nullable=False)
+    last_device_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

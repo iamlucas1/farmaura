@@ -36,7 +36,7 @@ class CheckoutOrderItemRequest(StrictModel):
 class CheckoutDeliveryRequest(StrictModel):
     """Validate marketplace fulfillment input."""
 
-    method: str = Field(pattern="^(express|standard|pickup)$")
+    method: str = Field(pattern="^(express|standard|pickup|shipping)$")
     recipient_name: str = Field(default="", max_length=255)
     recipient_phone: str = Field(default="", max_length=32)
     postal_code: str = Field(default="", max_length=12)
@@ -49,6 +49,18 @@ class CheckoutDeliveryRequest(StrictModel):
     reference_note: str = Field(default="", max_length=500)
     store_id: str = Field(default="", max_length=64)
     store_name: str = Field(default="", max_length=255)
+
+
+class DeliveryCoverageResponse(StrictModel):
+    """Represent a best-effort delivery-coverage preview for one typed address."""
+
+    configured: bool = False
+    covered: bool = True
+    match_kind: str = ""
+    match_label: str = ""
+    estimated_distance_km: Decimal | None = None
+    requires_shipping: bool = False
+    nearest_store_name: str = ""
 
 
 class CheckoutPaymentRequest(StrictModel):
@@ -108,6 +120,8 @@ class MarketplaceOrderResponse(StrictModel):
     address: str = ""
     store: str = ""
     pickup_code: str = ""
+    tracking_code: str = ""
+    carrier_name: str = ""
     rx_status: str = "none"
     items: list[MarketplaceOrderItemResponse]
     fiscal_document: FiscalDocumentResponse | None = None
@@ -167,6 +181,7 @@ class InternalOrderItemResponse(StrictModel):
     qty: int
     loc: str
     rx: bool
+    picked: bool = False
 
 
 class InternalOrderResponse(StrictModel):
@@ -191,6 +206,9 @@ class InternalOrderResponse(StrictModel):
     store: str = ""
     pickup_code: str = ""
     pickup_code_required: bool = False
+    tracking_code: str = ""
+    carrier_name: str = ""
+    shipping_dispatch_required: bool = False
     note: str = ""
     rx: bool = False
     rx_status: str = "none"
@@ -229,6 +247,12 @@ class OrderItemLocationUpdateRequest(StrictModel):
     """Validate a picked item source-location change."""
 
     location_code: str = Field(min_length=1, max_length=64)
+
+
+class OrderItemPickRequest(StrictModel):
+    """Validate a picking-checklist toggle for one order item."""
+
+    picked: bool
 
 
 class PickupCodeConfirmRequest(StrictModel):
