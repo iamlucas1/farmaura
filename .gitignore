@@ -17,7 +17,9 @@ vendor/
 dist/
 dist-debug/
 build/
-storage/
+storage/*
+!storage/*/
+!storage/**/.gitkeep
 *.sqlite3
 .DS_Store
 
