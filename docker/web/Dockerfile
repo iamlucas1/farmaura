@@ -26,7 +26,6 @@ RUN npm run build
 FROM nginx:1.29.1-alpine AS runtime
 
 COPY ["docker/web/nginx.conf", "/etc/nginx/conf.d/default.conf"]
-COPY ["docker/web/index.html", "/usr/share/nginx/html/index.html"]
 COPY --from=frontend-build ["/app/farmaura/dist/", "/usr/share/nginx/html/"]
 
 EXPOSE 80

@@ -104,7 +104,7 @@ class AuthService:
             lockout = await register_failed_attempt(normalized_email)
             if lockout is not None and user is not None:
                 unlock_token, lockout_seconds = lockout
-                unlock_url = f"{self.settings.marketplace_base_url.rstrip('/')}/marketplace/unlock-account?token={unlock_token}"
+                unlock_url = f"{self.settings.marketplace_base_url.rstrip('/')}/unlock-account?token={unlock_token}"
                 NotificationService().send_account_locked_email(
                     email=user.email,
                     full_name=user.full_name,

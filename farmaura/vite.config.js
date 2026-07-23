@@ -33,9 +33,10 @@ const repositoryRoot = resolve(configDirectory, "..");
 // Vite's own middlewares run — mirroring what nginx does in production.
 function portalDeepLinkFallback() {
   const rewrite = (req) => {
-    if (req.url.startsWith("/internal")) {
+    const [path] = req.url.split("?");
+    if (path.startsWith("/miaura")) {
       req.url = "/farmaura/internal.html";
-    } else if (req.url.startsWith("/marketplace")) {
+    } else if (!path.startsWith("/farmaura/") && !path.startsWith("/@") && !path.includes(".")) {
       req.url = "/farmaura/marketplace.html";
     }
   };

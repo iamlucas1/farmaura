@@ -3624,7 +3624,7 @@ export { PharmApp };
 
 function InternalAppRouter() {
   return (
-    <BrowserRouter basename="/internal">
+    <BrowserRouter basename="/miaura">
       <Routes>
         <Route path="/*" element={<PharmApp />} />
       </Routes>

@@ -1696,7 +1696,7 @@ export {
 
 function MarketplaceAppRouter() {
   return (
-    <BrowserRouter basename="/marketplace">
+    <BrowserRouter basename="/">
       <Routes>
         <Route path="/*" element={<App />} />
       </Routes>
