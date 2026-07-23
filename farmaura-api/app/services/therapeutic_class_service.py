@@ -20,6 +20,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import invalidate_cache_scope
+from app.core.tenant_context import apply_tenant_context
 from app.models.therapeutic_class import TherapeuticClass
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.therapeutic_class_repository import TherapeuticClassRepository
@@ -75,6 +76,11 @@ class TherapeuticClassService:
         )
         therapeutic_class = await self.repository.add_therapeutic_class(therapeutic_class)
         await self.session.commit()
+        # category_name is a property that reads the .category relationship,
+        # which this brand-new object never loaded — reapply RLS context
+        # first (commit() clears the transaction-local set_config from
+        # apply_tenant_context, see app/core/tenant_context.py) then refresh.
+        await apply_tenant_context(self.session, self.subject)
         await self.session.refresh(therapeutic_class)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(therapeutic_class)
@@ -93,6 +99,10 @@ class TherapeuticClassService:
         therapeutic_class.description = payload.description
         therapeutic_class.category_id = payload.category_id
         await self.session.commit()
+        # category_id just changed above, so the previously-loaded .category
+        # relationship object (if any) is stale and must be reloaded — same
+        # RLS-context reapplication as create_therapeutic_class() above.
+        await apply_tenant_context(self.session, self.subject)
         await self.session.refresh(therapeutic_class)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(therapeutic_class)
@@ -114,7 +124,6 @@ class TherapeuticClassService:
         therapeutic_class = await self._require_therapeutic_class(therapeutic_class_id)
         therapeutic_class.is_active = payload.is_active
         await self.session.commit()
-        await self.session.refresh(therapeutic_class)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(therapeutic_class)
 
@@ -126,7 +135,6 @@ class TherapeuticClassService:
         therapeutic_class = await self._require_therapeutic_class(therapeutic_class_id)
         therapeutic_class.is_discarded = payload.is_discarded
         await self.session.commit()
-        await self.session.refresh(therapeutic_class)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(therapeutic_class)
 

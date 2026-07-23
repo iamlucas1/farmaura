@@ -109,7 +109,6 @@ class SupplierService:
         supplier.payment_terms = payload.payment_terms
         supplier.notes = payload.notes
         await self.session.commit()
-        await self.session.refresh(supplier)
         return self._serialize(supplier)
 
     async def update_supplier_status(self, supplier_id: str, payload: SupplierStatusUpdateRequest) -> SupplierResponse:
@@ -118,7 +117,6 @@ class SupplierService:
         supplier = await self._require_supplier(supplier_id)
         supplier.is_active = payload.is_active
         await self.session.commit()
-        await self.session.refresh(supplier)
         return self._serialize(supplier)
 
     async def _require_supplier(self, supplier_id: str) -> Supplier:

@@ -81,7 +81,6 @@ class CategoryService:
         category.name = payload.name
         category.description = payload.description
         await self.session.commit()
-        await self.session.refresh(category)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(category)
 
@@ -91,7 +90,6 @@ class CategoryService:
         category = await self._require_category(category_id)
         category.is_active = payload.is_active
         await self.session.commit()
-        await self.session.refresh(category)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(category)
 
@@ -101,7 +99,6 @@ class CategoryService:
         category = await self._require_category(category_id)
         category.is_discarded = payload.is_discarded
         await self.session.commit()
-        await self.session.refresh(category)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(category)
 

@@ -23,6 +23,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import invalidate_cache_scope
+from app.core.tenant_context import apply_tenant_context
 from app.domain.enums import UserRole
 from app.repositories.cashback_repository import CashbackRepository
 from app.repositories.customer_payment_method_repository import CustomerPaymentMethodRepository
@@ -524,6 +525,11 @@ class PdvService:
         order.cashier_user_id = str(self.subject.user_id)
         order.claimed_at_label = "agora"
         await self.session.commit()
+        # list_queue() below issues fresh queries (and can mutate expired
+        # reservations) — reapply RLS context first, since commit() cleared
+        # the transaction-local set_config from apply_tenant_context()
+        # (see app/core/tenant_context.py).
+        await apply_tenant_context(self.session, self.subject)
         queue = await self.list_queue()
         match = next((item for item in queue.items if item.id == order_id), None)
         if match is None:
@@ -882,7 +888,6 @@ class PdvService:
         draft.started_at_ms = payload.started_at_ms or 0
         draft.operator = payload.operator
         await self.session.commit()
-        await self.session.refresh(draft)
         return self._serialize_draft(draft)
 
     async def delete_draft_session(self, draft_id: str) -> None:

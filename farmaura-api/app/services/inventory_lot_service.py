@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.tenant_context import apply_tenant_context
 from app.domain.enums import UserRole
 from app.models.inventory_lot_movement import InventoryLotMovement
 from app.models.inventory_movement import InventoryMovement
@@ -183,7 +184,12 @@ class InventoryLotService:
             )
         )
         await self.session.commit()
-        await self.session.refresh(lot)
+        # lot's own fields are already correct in memory (set above), but
+        # _serialize_lot() below issues fresh location/supplier lookups —
+        # reapply RLS context first, since commit() cleared the
+        # transaction-local set_config from apply_tenant_context()
+        # (see app/core/tenant_context.py).
+        await apply_tenant_context(self.session, self.subject)
         return await self._serialize_lot(lot)
 
     async def transfer_lot(self, lot_id: str, payload: LotTransferRequest, *, requested_store_id: str = "") -> StockLotListResponse:
@@ -283,8 +289,7 @@ class InventoryLotService:
             )
         )
         await self.session.commit()
-        await self.session.refresh(source_lot)
-        await self.session.refresh(destination_lot)
+        await apply_tenant_context(self.session, self.subject)
         return StockLotListResponse(
             items=[await self._serialize_lot(source_lot), await self._serialize_lot(destination_lot)],
         )
@@ -358,7 +363,7 @@ class InventoryLotService:
             )
         )
         await self.session.commit()
-        await self.session.refresh(lot)
+        await apply_tenant_context(self.session, self.subject)
         return await self._serialize_lot(lot)
 
     async def search_candidates(self, query: str) -> TraceCandidateListResponse:

@@ -20,6 +20,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import invalidate_cache_scope
+from app.core.tenant_context import apply_tenant_context
 from app.models.brand import Brand
 from app.repositories.brand_repository import BrandRepository
 from app.repositories.supplier_repository import SupplierRepository
@@ -77,6 +78,12 @@ class BrandService:
             tenant_id=str(self.subject.tenant_id), brand_id=brand.id, supplier_ids=payload.supplier_ids,
         )
         await self.session.commit()
+        # replace_suppliers() rewrites the join table directly, bypassing the
+        # ORM relationship, so brand.suppliers needs an explicit reload — and
+        # RLS context must be reapplied first: apply_tenant_context() sets
+        # Postgres session variables as transaction-local, so commit() above
+        # silently cleared them (see app/core/tenant_context.py).
+        await apply_tenant_context(self.session, self.subject)
         await self.session.refresh(brand, attribute_names=["suppliers"])
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(brand)
@@ -96,6 +103,7 @@ class BrandService:
             tenant_id=str(self.subject.tenant_id), brand_id=brand.id, supplier_ids=payload.supplier_ids,
         )
         await self.session.commit()
+        await apply_tenant_context(self.session, self.subject)
         await self.session.refresh(brand, attribute_names=["suppliers"])
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(brand)
@@ -106,7 +114,6 @@ class BrandService:
         brand = await self._require_brand(brand_id)
         brand.is_active = payload.is_active
         await self.session.commit()
-        await self.session.refresh(brand)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(brand)
 
@@ -116,7 +123,6 @@ class BrandService:
         brand = await self._require_brand(brand_id)
         brand.is_discarded = payload.is_discarded
         await self.session.commit()
-        await self.session.refresh(brand)
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
         return self._serialize(brand)
 
