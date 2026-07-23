@@ -1368,6 +1368,7 @@ function PharmApp() {
   const _teamMemberFromResponse = (item) => ({
     id: item.id, name: item.name || '', email: item.email || '', role: item.role || '',
     storeId: item.store_id || null, storeName: item.store_name || '',
+    active: item.is_active == null ? true : !!item.is_active,
   });
   // Lista farmacêuticos, caixas e admins do tenant, com a loja atribuída a cada um.
   const fetchTeamMembers = async () => {
@@ -1378,6 +1379,41 @@ function PharmApp() {
     } catch (error) {
       return [];
     }
+  };
+  // Cria um novo membro de equipe (farmacêutico, caixa, gerente, entregador ou admin).
+  const addTeamMember = async (payload) => {
+    const response = await authClient.request('/team/members', {
+      method: 'POST',
+      body: JSON.stringify({
+        full_name: payload.name,
+        email: payload.email,
+        role: payload.role,
+        password: payload.password,
+        store_id: payload.storeId || null,
+      }),
+    });
+    return _teamMemberFromResponse(response);
+  };
+  // Atualiza nome, e-mail, cargo e loja de um membro de equipe existente.
+  const updateTeamMember = async (userId, payload) => {
+    const response = await authClient.request('/team/members/' + userId, {
+      method: 'PUT',
+      body: JSON.stringify({
+        full_name: payload.name,
+        email: payload.email,
+        role: payload.role,
+        store_id: payload.storeId || null,
+      }),
+    });
+    return _teamMemberFromResponse(response);
+  };
+  // Ativa ou desativa (nunca exclui) um membro de equipe.
+  const setTeamMemberActive = async (userId, isActive) => {
+    const response = await authClient.request('/team/members/' + userId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ is_active: !!isActive }),
+    });
+    return _teamMemberFromResponse(response);
   };
   // Atribui (ou remove) a loja em que um membro da equipe atua.
   const updateTeamMemberStore = async (userId, storeId) => {
@@ -3510,7 +3546,7 @@ function PharmApp() {
     openCustomer: (name) => { setCrmFocus(name); goTo('crm'); setDrawerOrder(null); },
     crmFocus,
     pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, pdvCreateReservation, fetchPdvPrescriptionStatus, createPdvPrescription, finalizeSale,
-    fetchTeamMembers, updateTeamMemberStore,
+    fetchTeamMembers, addTeamMember, updateTeamMember, setTeamMemberActive, updateTeamMemberStore,
     suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive,
     products, refreshProducts, addProduct, updateProduct, setProductActive, setProductDiscarded, fetchProductStoreLinks, linkProductToStore,
     brands, refreshBrands, addBrand, updateBrand, setBrandActive, setBrandDiscarded,
