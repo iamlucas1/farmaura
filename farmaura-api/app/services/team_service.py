@@ -19,6 +19,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.password_hashing import hash_password
+from app.core.tenant_context import apply_tenant_context
 from app.domain.enums import AccessScope, UserRole
 from app.domain.validators import is_valid_email
 from app.models.user import User
@@ -116,7 +117,6 @@ class TeamService:
         )
         member.store_id = payload.store_id
         await self.session.commit()
-        await self.session.refresh(member)
         return self._serialize(member, await self._store_names())
 
     async def update_member_store(self, user_id: str, payload: TeamMemberStoreUpdateRequest) -> TeamMemberResponse:
@@ -154,7 +154,6 @@ class TeamService:
                     )
         member.is_active = payload.is_active
         await self.session.commit()
-        await self.session.refresh(member)
         return self._serialize(member, await self._store_names())
 
     async def _require_member(self, user_id: str) -> User:
@@ -175,8 +174,17 @@ class TeamService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Store not found.")
 
     async def _store_names(self) -> dict[str, str]:
-        """Return every tenant store name keyed by id, for response serialization."""
+        """Return every tenant store name keyed by id, for response serialization.
 
+        Re-applies RLS tenant context first: every caller of this helper runs
+        it right after `session.commit()`, and `apply_tenant_context` sets
+        Postgres session variables as transaction-local (`set_config(..., true)`
+        — see app/core/tenant_context.py), so a commit silently clears them.
+        Without this, the query below would come back empty under real RLS
+        instead of raising, since RLS filters rows rather than erroring.
+        """
+
+        await apply_tenant_context(self.session, self.subject)
         stores = await self.store_repository.list_stores(tenant_id=str(self.subject.tenant_id), active_only=False)
         return {store.id: store.name for store in stores}
 
