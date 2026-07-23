@@ -15,6 +15,8 @@ dependencies = [
     "psycopg[binary]==3.3.4",
     "pwdlib[argon2]==0.3.0",
     "python-multipart==0.0.32",
+    "openpyxl==3.1.5",
+    "python-docx==1.1.2",
     "valkey==6.1.1",
     "sqlalchemy==2.0.50",
     "structlog==26.1.0",
@@ -47,6 +49,10 @@ testpaths = ["app/tests"]
 python_version = "3.13"
 strict = true
 packages = ["app"]
+
+[[tool.mypy.overrides]]
+module = "openpyxl.*"
+ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

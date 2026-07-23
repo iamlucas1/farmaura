@@ -79,6 +79,9 @@ from app.models.prescription import Prescription
 from app.models.prescription_check import PrescriptionCheck
 from app.models.prescription_file import PrescriptionFile
 from app.models.prescription_item import PrescriptionItem
+from app.models.purchase_quote import PurchaseQuote
+from app.models.purchase_quote_item import PurchaseQuoteItem
+from app.models.purchase_quote_payment_term import PurchaseQuotePaymentTerm
 from app.models.refresh_token import RefreshToken
 from app.models.saved_product import SavedProduct
 from app.models.store import Store
@@ -1743,6 +1746,522 @@ def build_brand_suppliers(catalog: dict[str, dict[str, object]], suppliers: dict
                 )
             )
     return links
+
+
+def build_purchase_quotes(
+    catalog: dict[str, dict[str, object]],
+    suppliers: dict[str, Supplier],
+    users: dict[str, User],
+) -> dict[str, list[object]]:
+    """Build sample purchase quotes (orçamentos) for the Orçamentos module.
+
+    Covers, deliberately: several products quoted by 2-3 different suppliers at
+    different prices (Amoxicilina and Vitamina D3 by 3 suppliers each; Losartana,
+    Dipirona, Paracetamol, Ibuprofeno and Whey Protein by 2 each) so the compare
+    screen has real overlap to search by product or by brand; a supplier not
+    registered in `suppliers` ("avulso", supplier_id left null); an item in
+    comodato not linked to any catalog product (Red Bull fridge, the module's
+    original motivating example — quotes never create catalog products, so an
+    unlinked item is the normal case for something not sold yet); and a mix of
+    payment methods/freight types/validity so the list, compare, and ABC/XYZ
+    panel screens all have representative data to render. `brand_name` on every
+    overlapping item intentionally matches the real registered `Brand.name` for
+    that product (see `spec["brand"]` in `build_catalog`), so brand-based
+    comparison also has consistent data to match against.
+    """
+
+    products = catalog["inventory_products"]
+    admin_id = users["admin"].id
+
+    quotes = [
+        PurchaseQuote(
+            id=seed_uuid("purchase-quote-central-01"),
+            tenant_id=TENANT_ID,
+            supplier_id=suppliers["central"].id,
+            supplier_name_snapshot=suppliers["central"].legal_name,
+            supplier_document_snapshot=suppliers["central"].cnpj,
+            quote_date=(SEED_NOW - timedelta(days=5)).date(),
+            valid_until=(SEED_NOW + timedelta(days=45)).date(),
+            status="confirmed",
+            freight_type="CIF",
+            freight_cost=Decimal("45.00"),
+            delivery_time_days=5,
+            source_provider="",
+            source_model="",
+            file_name="",
+            content_type="",
+            size_bytes=None,
+            storage_key="",
+            notes="Cotação mensal do fornecedor principal.",
+            created_by_user_id=admin_id,
+        ),
+        PurchaseQuote(
+            id=seed_uuid("purchase-quote-farmalink-01"),
+            tenant_id=TENANT_ID,
+            supplier_id=suppliers["farmalink"].id,
+            supplier_name_snapshot=suppliers["farmalink"].legal_name,
+            supplier_document_snapshot=suppliers["farmalink"].cnpj,
+            quote_date=(SEED_NOW - timedelta(days=12)).date(),
+            valid_until=None,
+            status="confirmed",
+            freight_type="FOB",
+            freight_cost=None,
+            delivery_time_days=3,
+            source_provider="",
+            source_model="",
+            file_name="",
+            content_type="",
+            size_bytes=None,
+            storage_key="",
+            notes="Segunda fonte — usada para comparar preço com a Central.",
+            created_by_user_id=admin_id,
+        ),
+        PurchaseQuote(
+            id=seed_uuid("purchase-quote-belezapura-01"),
+            tenant_id=TENANT_ID,
+            supplier_id=suppliers["belezapura"].id,
+            supplier_name_snapshot=suppliers["belezapura"].legal_name,
+            supplier_document_snapshot=suppliers["belezapura"].cnpj,
+            quote_date=(SEED_NOW - timedelta(days=2)).date(),
+            valid_until=(SEED_NOW + timedelta(days=60)).date(),
+            status="confirmed",
+            freight_type="CIF",
+            freight_cost=Decimal("35.00"),
+            delivery_time_days=7,
+            source_provider="",
+            source_model="",
+            file_name="",
+            content_type="",
+            size_bytes=None,
+            storage_key="",
+            notes="Inclui item em comodato (geladeira expositora).",
+            created_by_user_id=admin_id,
+        ),
+        PurchaseQuote(
+            id=seed_uuid("purchase-quote-avulso-01"),
+            tenant_id=TENANT_ID,
+            supplier_id=None,
+            supplier_name_snapshot="Distribuidora Saude Vida Ltda",
+            supplier_document_snapshot="98765432000110",
+            quote_date=(SEED_NOW - timedelta(days=1)).date(),
+            valid_until=None,
+            status="confirmed",
+            freight_type="",
+            freight_cost=None,
+            delivery_time_days=None,
+            source_provider="",
+            source_model="",
+            file_name="",
+            content_type="",
+            size_bytes=None,
+            storage_key="",
+            notes="Fornecedor avulso, ainda não cadastrado em Fornecedores.",
+            created_by_user_id=admin_id,
+        ),
+    ]
+    quote_by_key = {
+        "central": quotes[0],
+        "farmalink": quotes[1],
+        "belezapura": quotes[2],
+        "avulso": quotes[3],
+    }
+
+    payment_terms = [
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-central-pix"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["central"].id,
+            method="pix",
+            discount_percent=Decimal("6.00"),
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=None,
+            notes="",
+        ),
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-central-boleto"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["central"].id,
+            method="boleto_prazo",
+            discount_percent=None,
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=30,
+            notes="",
+        ),
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-farmalink-boleto"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            method="boleto_avista",
+            discount_percent=None,
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=None,
+            notes="",
+        ),
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-farmalink-cartao"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            method="cartao_credito",
+            discount_percent=None,
+            surcharge_percent=Decimal("2.50"),
+            installment_count=3,
+            days_to_pay=None,
+            notes="3x sem juros no cartão da distribuidora.",
+        ),
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-belezapura-pix"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["belezapura"].id,
+            method="pix",
+            discount_percent=Decimal("5.00"),
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=None,
+            notes="",
+        ),
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-belezapura-boleto"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["belezapura"].id,
+            method="boleto_prazo",
+            discount_percent=None,
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=45,
+            notes="",
+        ),
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-avulso-pix"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["avulso"].id,
+            method="pix",
+            discount_percent=Decimal("4.00"),
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=None,
+            notes="",
+        ),
+    ]
+
+    items = [
+        # Central — mesma Amoxicilina que a Farmalink cota mais cara abaixo.
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-central-amoxicillin"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["central"].id,
+            product_id=products["amoxicillin"].id,
+            description=products["amoxicillin"].name,
+            brand_name="EMS",
+            sku_snapshot=products["amoxicillin"].sku,
+            ean_code_snapshot=products["amoxicillin"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("50"),
+            unit_price=Decimal("21.50"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-central-losartan"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["central"].id,
+            product_id=products["losartan"].id,
+            description=products["losartan"].name,
+            brand_name="Genfar",
+            sku_snapshot=products["losartan"].sku,
+            ean_code_snapshot=products["losartan"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("40"),
+            unit_price=Decimal("14.20"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-central-dipyrone"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["central"].id,
+            product_id=products["dipyrone"].id,
+            description=products["dipyrone"].name,
+            brand_name="",
+            sku_snapshot=products["dipyrone"].sku,
+            ean_code_snapshot=products["dipyrone"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("60"),
+            unit_price=Decimal("6.80"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        # Central — também cota Vitamina D3 e Paracetamol, para comparar com Farmalink/Avulso.
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-central-vitamind3"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["central"].id,
+            product_id=products["vitamin_d3"].id,
+            description=products["vitamin_d3"].name,
+            brand_name="Sundown",
+            sku_snapshot=products["vitamin_d3"].sku,
+            ean_code_snapshot=products["vitamin_d3"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("25"),
+            unit_price=Decimal("18.90"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-central-paracetamol"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["central"].id,
+            product_id=products["paracetamol"].id,
+            description=products["paracetamol"].name,
+            brand_name="Medley",
+            sku_snapshot=products["paracetamol"].sku,
+            ean_code_snapshot=products["paracetamol"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("70"),
+            unit_price=Decimal("5.10"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        # Farmalink — mesma Amoxicilina da Central, preço pior (demonstra o comparativo).
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-farmalink-amoxicillin"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            product_id=products["amoxicillin"].id,
+            description=products["amoxicillin"].name,
+            brand_name="EMS",
+            sku_snapshot=products["amoxicillin"].sku,
+            ean_code_snapshot=products["amoxicillin"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("50"),
+            unit_price=Decimal("22.90"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-farmalink-vitamind3"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            product_id=products["vitamin_d3"].id,
+            description=products["vitamin_d3"].name,
+            brand_name="Sundown",
+            sku_snapshot=products["vitamin_d3"].sku,
+            ean_code_snapshot=products["vitamin_d3"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("30"),
+            unit_price=Decimal("17.50"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-farmalink-whey"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            product_id=products["whey_protein"].id,
+            description=products["whey_protein"].name,
+            brand_name="Growth",
+            sku_snapshot=products["whey_protein"].sku,
+            ean_code_snapshot=products["whey_protein"].ean_code,
+            unit="un",
+            quantity_reference=Decimal("20"),
+            unit_price=Decimal("74.00"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        # Farmalink — também cota Losartana e Ibuprofeno, para comparar com Central/Avulso.
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-farmalink-losartan"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            product_id=products["losartan"].id,
+            description=products["losartan"].name,
+            brand_name="Genfar",
+            sku_snapshot=products["losartan"].sku,
+            ean_code_snapshot=products["losartan"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("35"),
+            unit_price=Decimal("15.60"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-farmalink-ibuprofen"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            product_id=products["ibuprofen"].id,
+            description=products["ibuprofen"].name,
+            brand_name="EMS",
+            sku_snapshot=products["ibuprofen"].sku,
+            ean_code_snapshot=products["ibuprofen"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("45"),
+            unit_price=Decimal("7.60"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        # Beleza Pura — dermocosméticos + item em comodato (não existe no catálogo ainda).
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-belezapura-nightcream"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["belezapura"].id,
+            product_id=products["night_cream"].id,
+            description=products["night_cream"].name,
+            brand_name="Vichy",
+            sku_snapshot=products["night_cream"].sku,
+            ean_code_snapshot=products["night_cream"].ean_code,
+            unit="un",
+            quantity_reference=Decimal("15"),
+            unit_price=Decimal("68.00"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-belezapura-moisturizer"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["belezapura"].id,
+            product_id=products["facial_moisturizer"].id,
+            description=products["facial_moisturizer"].name,
+            brand_name="La Roche-Posay",
+            sku_snapshot=products["facial_moisturizer"].sku,
+            ean_code_snapshot=products["facial_moisturizer"].ean_code,
+            unit="un",
+            quantity_reference=Decimal("15"),
+            unit_price=Decimal("44.00"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-belezapura-redbull"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["belezapura"].id,
+            product_id=None,
+            description="Red Bull Energy Drink 250ml",
+            brand_name="Red Bull",
+            sku_snapshot="",
+            ean_code_snapshot="",
+            unit="un",
+            quantity_reference=Decimal("240"),
+            unit_price=Decimal("7.90"),
+            is_comodato=True,
+            comodato_notes="Geladeira expositora cedida em comodato pelo fornecedor, mediante reposição mínima de 10 caixas/mês.",
+            notes="Produto ainda não cadastrado no catálogo — orçamento não cria produto à venda.",
+        ),
+        # Beleza Pura — também cota Vitamina D3 e Whey Protein (bem-estar), para comparar preços.
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-belezapura-vitamind3"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["belezapura"].id,
+            product_id=products["vitamin_d3"].id,
+            description=products["vitamin_d3"].name,
+            brand_name="Sundown",
+            sku_snapshot=products["vitamin_d3"].sku,
+            ean_code_snapshot=products["vitamin_d3"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("20"),
+            unit_price=Decimal("19.80"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-belezapura-whey"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["belezapura"].id,
+            product_id=products["whey_protein"].id,
+            description=products["whey_protein"].name,
+            brand_name="Growth",
+            sku_snapshot=products["whey_protein"].sku,
+            ean_code_snapshot=products["whey_protein"].ean_code,
+            unit="un",
+            quantity_reference=Decimal("15"),
+            unit_price=Decimal("71.50"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        # Fornecedor avulso — dois itens simples, sem vínculo prévio em Fornecedores.
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-avulso-paracetamol"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["avulso"].id,
+            product_id=products["paracetamol"].id,
+            description=products["paracetamol"].name,
+            brand_name="Medley",
+            sku_snapshot=products["paracetamol"].sku,
+            ean_code_snapshot=products["paracetamol"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("80"),
+            unit_price=Decimal("5.40"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-avulso-ibuprofen"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["avulso"].id,
+            product_id=products["ibuprofen"].id,
+            description=products["ibuprofen"].name,
+            brand_name="EMS",
+            sku_snapshot=products["ibuprofen"].sku,
+            ean_code_snapshot=products["ibuprofen"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("50"),
+            unit_price=Decimal("7.10"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        # Avulso — também cota Amoxicilina (vira comparação de 3 fornecedores) e Dipirona.
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-avulso-amoxicillin"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["avulso"].id,
+            product_id=products["amoxicillin"].id,
+            description=products["amoxicillin"].name,
+            brand_name="EMS",
+            sku_snapshot=products["amoxicillin"].sku,
+            ean_code_snapshot=products["amoxicillin"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("40"),
+            unit_price=Decimal("20.90"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-avulso-dipyrone"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["avulso"].id,
+            product_id=products["dipyrone"].id,
+            description=products["dipyrone"].name,
+            brand_name="",
+            sku_snapshot=products["dipyrone"].sku,
+            ean_code_snapshot=products["dipyrone"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("55"),
+            unit_price=Decimal("6.40"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+    ]
+
+    return {"quotes": quotes, "payment_terms": payment_terms, "items": items}
 
 
 def parse_expiry_label_to_date(expiry_label: str) -> date | None:
@@ -4817,6 +5336,7 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     catalog = build_catalog()
     suppliers = build_suppliers()
     brand_suppliers = build_brand_suppliers(catalog, suppliers)
+    purchase_quotes = build_purchase_quotes(catalog, suppliers, users)
     customer_assets = build_customer_assets(customers)
     daily = build_daily_operations(users, customers, catalog, customer_assets)
     inventory_operations = build_inventory_operations(catalog, suppliers, users, daily_sold=daily["sold_today"])
@@ -4838,12 +5358,16 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
         await upsert_many(session, list(users.values()))
         await upsert_many(session, list(customers.values()))
         await upsert_many(session, list(suppliers.values()))
+        await upsert_many(session, purchase_quotes["quotes"])
         await upsert_many(session, inventory_operations["locations"])
         await upsert_many(session, list(catalog["brands"].values()))
         await upsert_many(session, brand_suppliers)
         await upsert_many(session, list(catalog["categories"].values()))
         await upsert_many(session, list(catalog["therapeutic_classes"].values()))
         await upsert_many(session, list(catalog["inventory_products"].values()))
+        # purchase_quote_items links to inventory_products (optional cross-reference), so it
+        # must be inserted only after the catalog products above exist.
+        await upsert_many(session, purchase_quotes["payment_terms"] + purchase_quotes["items"])
         await upsert_many(session, list(catalog["inventory"].values()))
         await upsert_many(session, inventory_operations["movements"])
         await upsert_many(session, inventory_operations["stock_lots"])
@@ -4902,6 +5426,8 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     print("Segredo TOTP para contas com 2FA:", MFA_SECRET)
     print("Produtos unicos cadastrados:", len(catalog["inventory_products"]))
     print("Itens de estoque (todas as lojas):", len(catalog["inventory"]))
+    print("Orcamentos cadastrados:", len(purchase_quotes["quotes"]))
+    print("Itens cotados nos orcamentos:", len(purchase_quotes["items"]))
     print("Clientes cadastrados:", len(customers))
     print("Vendas PDV geradas para hoje:", len(daily["pdv_orders"]))
     print("Pedidos online gerados para hoje:", len(daily["online_orders"]))

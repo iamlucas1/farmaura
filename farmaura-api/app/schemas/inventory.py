@@ -315,6 +315,7 @@ class InventoryInvoicePreviewLineResponse(StrictModel):
     suggested_is_controlled: bool
     suggested_tax_cost_amount: Decimal | None = None
     suggested_is_subject_to_icms_st: bool | None = None
+    is_comodato: bool = False
     match_candidates: list[InventoryInvoiceMatchCandidateResponse]
 
 

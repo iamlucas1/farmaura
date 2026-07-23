@@ -31,6 +31,10 @@ import { SalesScreen } from "../screens/sales-screen.jsx";
 import { SettingsScreen } from "../screens/settings-screen.jsx";
 import { StoresScreen } from "../screens/stores-screen.jsx";
 import { SuppliersScreen } from "../screens/suppliers-screen.jsx";
+import { QuotesScreen } from "../screens/quotes-screen.jsx";
+import { QuotesCompareScreen } from "../screens/quotes-compare-screen.jsx";
+import { PurchaseAnalyticsScreen } from "../screens/purchase-analytics-screen.jsx";
+import { PurchaseReceivingScreen } from "../screens/purchase-receiving-screen.jsx";
 import { TeamScreen } from "../screens/team-screen.jsx";
 import { TherapeuticClassesScreen } from "../screens/therapeutic-classes-screen.jsx";
 
@@ -577,6 +581,7 @@ function PharmApp() {
       suggestedIsControlled: !!item.suggested_is_controlled,
       suggestedTaxCostAmount: item.suggested_tax_cost_amount == null ? null : Number(item.suggested_tax_cost_amount),
       suggestedIsSubjectToIcmsSt: item.suggested_is_subject_to_icms_st == null ? null : !!item.suggested_is_subject_to_icms_st,
+      isComodato: !!item.is_comodato,
       matchCandidates: Array.isArray(item.match_candidates) ? item.match_candidates.map((candidate) => ({
         id: candidate.id,
         sku: candidate.sku || '',
@@ -610,6 +615,183 @@ function PharmApp() {
     taxCostAmount: record.tax_cost_amount == null ? null : Number(record.tax_cost_amount),
     isSubjectToIcmsSt: record.is_subject_to_icms_st == null ? null : !!record.is_subject_to_icms_st,
     createdAt: record.created_at || '',
+  });
+  const _purchaseQuotePaymentTermFromResponse = (term) => ({
+    id: term.id || '',
+    method: term.method || 'outro',
+    discountPercent: term.discount_percent == null ? null : Number(term.discount_percent),
+    surchargePercent: term.surcharge_percent == null ? null : Number(term.surcharge_percent),
+    installmentCount: term.installment_count == null ? null : Number(term.installment_count),
+    daysToPay: term.days_to_pay == null ? null : Number(term.days_to_pay),
+    notes: term.notes || '',
+  });
+  const _purchaseQuoteItemFromResponse = (item) => ({
+    id: item.id || '',
+    productId: item.product_id || '',
+    description: item.description || '',
+    brandName: item.brand_name || '',
+    skuSnapshot: item.sku_snapshot || '',
+    eanCodeSnapshot: item.ean_code_snapshot || '',
+    unit: item.unit || 'un',
+    quantityReference: item.quantity_reference == null ? null : Number(item.quantity_reference),
+    unitPrice: Number(item.unit_price || 0),
+    isComodato: !!item.is_comodato,
+    comodatoNotes: item.comodato_notes || '',
+    notes: item.notes || '',
+  });
+  const _purchaseQuoteFromResponse = (quote) => ({
+    id: quote.id,
+    supplierId: quote.supplier_id || '',
+    supplierName: quote.supplier_name_snapshot || '',
+    supplierDocument: quote.supplier_document_snapshot || '',
+    quoteDate: quote.quote_date || '',
+    validUntil: quote.valid_until || '',
+    status: quote.status || 'confirmed',
+    freightType: quote.freight_type || '',
+    freightCost: quote.freight_cost == null ? null : Number(quote.freight_cost),
+    deliveryTimeDays: quote.delivery_time_days == null ? null : Number(quote.delivery_time_days),
+    sourceProvider: quote.source_provider || '',
+    sourceModel: quote.source_model || '',
+    fileName: quote.file_name || '',
+    hasFile: !!quote.has_file,
+    notes: quote.notes || '',
+    createdAt: quote.created_at || '',
+    updatedAt: quote.updated_at || '',
+    paymentTerms: Array.isArray(quote.payment_terms) ? quote.payment_terms.map(_purchaseQuotePaymentTermFromResponse) : [],
+    items: Array.isArray(quote.items) ? quote.items.map(_purchaseQuoteItemFromResponse) : [],
+  });
+  const _purchaseQuoteImportPreviewFromResponse = (payload) => ({
+    provider: payload.provider || '',
+    model: payload.model || '',
+    sourceFileName: payload.source_file_name || '',
+    header: {
+      supplierName: payload.header && payload.header.supplier_name || '',
+      supplierDocument: payload.header && payload.header.supplier_document || '',
+      matchedSupplierId: payload.header && payload.header.matched_supplier_id || '',
+      quoteDate: payload.header && payload.header.quote_date || '',
+      validUntil: payload.header && payload.header.valid_until || '',
+      freightType: payload.header && payload.header.freight_type || '',
+      freightCost: payload.header && payload.header.freight_cost == null ? null : Number(payload.header.freight_cost),
+      deliveryTimeDays: payload.header && payload.header.delivery_time_days == null ? null : Number(payload.header.delivery_time_days),
+      notes: payload.header && payload.header.notes || '',
+    },
+    paymentTerms: Array.isArray(payload.payment_terms) ? payload.payment_terms.map(_purchaseQuotePaymentTermFromResponse) : [],
+    items: Array.isArray(payload.items) ? payload.items.map((item, index) => ({
+      lineId: item.line_id || 'line-' + (index + 1),
+      description: item.description || '',
+      brandName: item.brand_name || '',
+      sku: item.sku || '',
+      eanCode: item.ean_code || '',
+      unit: item.unit || 'un',
+      quantityReference: item.quantity_reference == null ? null : Number(item.quantity_reference),
+      unitPrice: Number(item.unit_price || 0),
+      isComodato: !!item.is_comodato,
+      comodatoNotes: item.comodato_notes || '',
+      matchCandidates: Array.isArray(item.match_candidates) ? item.match_candidates.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name || '',
+        brandName: candidate.brand_name || '',
+        sku: candidate.sku || '',
+        eanCode: candidate.ean_code || '',
+      })) : [],
+    })) : [],
+  });
+  const _purchaseQuoteCompareFromResponse = (payload) => ({
+    query: payload.query || '',
+    entries: Array.isArray(payload.entries) ? payload.entries.map((entry) => ({
+      quoteId: entry.quote_id,
+      quoteItemId: entry.quote_item_id,
+      supplierId: entry.supplier_id || '',
+      supplierName: entry.supplier_name || '',
+      quoteDate: entry.quote_date || '',
+      validUntil: entry.valid_until || '',
+      productId: entry.product_id || '',
+      itemDescription: entry.item_description || '',
+      brandName: entry.brand_name || '',
+      unit: entry.unit || 'un',
+      quantityReference: entry.quantity_reference == null ? null : Number(entry.quantity_reference),
+      unitPrice: Number(entry.unit_price || 0),
+      bestEffectivePrice: Number(entry.best_effective_price || 0),
+      bestPaymentMethod: entry.best_payment_method || '',
+      bestPaymentDiscountPercent: Number(entry.best_payment_discount_percent || 0),
+      paymentMethods: Array.isArray(entry.payment_methods) ? entry.payment_methods : [],
+      freightType: entry.freight_type || '',
+      freightCost: entry.freight_cost == null ? null : Number(entry.freight_cost),
+      deliveryTimeDays: entry.delivery_time_days == null ? null : Number(entry.delivery_time_days),
+      isComodato: !!entry.is_comodato,
+      comodatoNotes: entry.comodato_notes || '',
+    })) : [],
+  });
+  const _purchaseAnalyticsFromResponse = (payload) => ({
+    summary: {
+      months: Number(payload.summary && payload.summary.months || 0),
+      monthsWithData: Number(payload.summary && payload.summary.months_with_data || 0),
+      totalProductsWithSales: Number(payload.summary && payload.summary.total_products_with_sales || 0),
+      classACount: Number(payload.summary && payload.summary.class_a_count || 0),
+      classBCount: Number(payload.summary && payload.summary.class_b_count || 0),
+      classCCount: Number(payload.summary && payload.summary.class_c_count || 0),
+      classAWithoutOfferCount: Number(payload.summary && payload.summary.class_a_without_offer_count || 0),
+      totalRevenueAnalyzed: Number(payload.summary && payload.summary.total_revenue_analyzed || 0),
+    },
+    items: Array.isArray(payload.items) ? payload.items.map((item) => ({
+      productId: item.product_id,
+      name: item.name || '',
+      brandName: item.brand_name || '',
+      categoryName: item.category_name || '',
+      abcClass: item.abc_class || '',
+      xyzClass: item.xyz_class || '',
+      monthsWithSales: Number(item.months_with_sales || 0),
+      totalQuantity: Number(item.total_quantity || 0),
+      totalRevenue: Number(item.total_revenue || 0),
+      averageMonthlyQuantity: Number(item.average_monthly_quantity || 0),
+      currentStock: Number(item.current_stock || 0),
+      coverageDays: item.coverage_days == null ? null : Number(item.coverage_days),
+      suggestedPurchaseQuantity: Number(item.suggested_purchase_quantity || 0),
+      bestOffer: item.best_offer ? {
+        quoteId: item.best_offer.quote_id,
+        supplierName: item.best_offer.supplier_name || '',
+        effectivePrice: Number(item.best_offer.effective_price || 0),
+        paymentMethod: item.best_offer.payment_method || '',
+        freightType: item.best_offer.freight_type || '',
+        freightCost: item.best_offer.freight_cost == null ? null : Number(item.best_offer.freight_cost),
+        deliveryTimeDays: item.best_offer.delivery_time_days == null ? null : Number(item.best_offer.delivery_time_days),
+        quoteDate: item.best_offer.quote_date || '',
+      } : null,
+    })) : [],
+  });
+  const _purchaseQuotePaymentTermToPayload = (term) => ({
+    method: term.method,
+    discount_percent: term.discountPercent === '' || term.discountPercent == null ? null : Number(term.discountPercent),
+    surcharge_percent: term.surchargePercent === '' || term.surchargePercent == null ? null : Number(term.surchargePercent),
+    installment_count: term.installmentCount === '' || term.installmentCount == null ? null : Number(term.installmentCount),
+    days_to_pay: term.daysToPay === '' || term.daysToPay == null ? null : Number(term.daysToPay),
+    notes: term.notes || '',
+  });
+  const _purchaseQuoteItemToPayload = (item) => ({
+    product_id: item.productId || '',
+    description: item.description,
+    brand_name: item.brandName || '',
+    sku_snapshot: item.skuSnapshot || '',
+    ean_code_snapshot: item.eanCodeSnapshot || '',
+    unit: item.unit || 'un',
+    quantity_reference: item.quantityReference === '' || item.quantityReference == null ? null : Number(item.quantityReference),
+    unit_price: Number(item.unitPrice || 0),
+    is_comodato: !!item.isComodato,
+    comodato_notes: item.comodatoNotes || '',
+    notes: item.notes || '',
+  });
+  const _purchaseQuoteHeaderToPayload = (payload) => ({
+    supplier_id: payload.supplierId || '',
+    supplier_name: payload.supplierName,
+    supplier_document: payload.supplierDocument || '',
+    quote_date: payload.quoteDate,
+    valid_until: payload.validUntil || null,
+    freight_type: payload.freightType || '',
+    freight_cost: payload.freightCost === '' || payload.freightCost == null ? null : Number(payload.freightCost),
+    delivery_time_days: payload.deliveryTimeDays === '' || payload.deliveryTimeDays == null ? null : Number(payload.deliveryTimeDays),
+    notes: payload.notes || '',
+    payment_terms: (payload.paymentTerms || []).map(_purchaseQuotePaymentTermToPayload),
+    items: (payload.items || []).map(_purchaseQuoteItemToPayload),
   });
 
   const normalizeCrmCustomer = (item) => ({
@@ -811,6 +993,7 @@ function PharmApp() {
   const route = (urlParams['*'] || '').split('/')[0] || 'dash';
   const goTo = (name) => navigate(name === 'dash' ? '/' : '/' + name);
   const [loginError, setLoginError] = useState('');
+  const [pendingPurchaseQuoteId, setPendingPurchaseQuoteId] = useState('');
   useEffect(() => {
     let active = true;
 
@@ -3271,6 +3454,111 @@ function PharmApp() {
     };
   };
 
+  // Orçamentos (cotações de compra): listagem/CRUD manual, importação com IA e comparativo de fornecedores.
+  const fetchPurchaseQuotes = async ({
+    supplierId = '', productQuery = '', dateFrom = '', dateTo = '', paymentMethod = '', freightType = '', status = '',
+  } = {}) => {
+    const params = new URLSearchParams();
+    if (supplierId) params.set('supplier_id', supplierId);
+    if (productQuery) params.set('product_query', productQuery);
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    if (paymentMethod) params.set('payment_method', paymentMethod);
+    if (freightType) params.set('freight_type', freightType);
+    if (status) params.set('status', status);
+    const query = params.toString();
+    const payload = await authClient.request('/purchase-quotes' + (query ? '?' + query : ''), { method: 'GET' });
+    return Array.isArray(payload.items) ? payload.items.map(_purchaseQuoteFromResponse) : [];
+  };
+  const fetchPurchaseQuote = async (quoteId) => {
+    const payload = await authClient.request('/purchase-quotes/' + quoteId, { method: 'GET' });
+    return _purchaseQuoteFromResponse(payload);
+  };
+  const createPurchaseQuote = async (formPayload) => {
+    const payload = await authClient.request('/purchase-quotes', {
+      method: 'POST',
+      body: JSON.stringify(_purchaseQuoteHeaderToPayload(formPayload)),
+    });
+    showToast('Orçamento cadastrado', 'success');
+    return _purchaseQuoteFromResponse(payload);
+  };
+  const updatePurchaseQuote = async (quoteId, formPayload) => {
+    const payload = await authClient.request('/purchase-quotes/' + quoteId, {
+      method: 'PUT',
+      body: JSON.stringify(_purchaseQuoteHeaderToPayload(formPayload)),
+    });
+    showToast('Orçamento atualizado', 'success');
+    return _purchaseQuoteFromResponse(payload);
+  };
+  const updatePurchaseQuoteStatus = async (quoteId, status) => {
+    const payload = await authClient.request('/purchase-quotes/' + quoteId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    return _purchaseQuoteFromResponse(payload);
+  };
+  const downloadPurchaseQuoteFile = async (quoteId, fallbackFileName) => {
+    const result = await authClient.download('/purchase-quotes/' + quoteId + '/file', { method: 'GET' });
+    const blobUrl = URL.createObjectURL(result.blob);
+    const link = document.createElement('a');
+    const match = /filename=\"?([^\";]+)\"?/i.exec(result.filename || '');
+    link.href = blobUrl;
+    link.download = match && match[1] ? match[1] : (fallbackFileName || 'orcamento');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(blobUrl);
+  };
+  const previewPurchaseQuoteImport = async ({ file, provider, model }) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (provider) form.append('provider', provider);
+    if (model) form.append('model', model);
+    const payload = await authClient.request('/purchase-quotes/import-preview', {
+      method: 'POST',
+      body: form,
+      skipJsonContentType: true,
+    });
+    return _purchaseQuoteImportPreviewFromResponse(payload);
+  };
+  const confirmPurchaseQuoteImport = async ({ file, ...formPayload }) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('payload', JSON.stringify({
+      ..._purchaseQuoteHeaderToPayload(formPayload),
+      source_provider: formPayload.sourceProvider || '',
+      source_model: formPayload.sourceModel || '',
+    }));
+    const payload = await authClient.request('/purchase-quotes/import-confirm', {
+      method: 'POST',
+      body: form,
+      skipJsonContentType: true,
+    });
+    showToast('Orçamento importado e salvo', 'success');
+    return _purchaseQuoteFromResponse(payload);
+  };
+  const fetchPurchaseQuoteCompare = async ({ productId = '', brandName = '', productQuery = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (productId) params.set('product_id', productId);
+    if (brandName) params.set('brand_name', brandName);
+    if (productQuery) params.set('product_query', productQuery);
+    const payload = await authClient.request('/purchase-quotes/compare?' + params.toString(), { method: 'GET' });
+    return _purchaseQuoteCompareFromResponse(payload);
+  };
+  const previewPurchaseQuoteReceiving = async (quoteId) => {
+    const payload = await authClient.request('/purchase-quotes/' + quoteId + '/purchase-preview', { method: 'GET' });
+    return normalizeInventoryInvoicePreview(payload);
+  };
+  const fetchPurchaseAnalytics = async ({ months = 12, categoryId = '', abcClass = '', xyzClass = '' } = {}) => {
+    const params = new URLSearchParams();
+    params.set('months', String(months));
+    if (categoryId) params.set('category_id', categoryId);
+    if (abcClass) params.set('abc_class', abcClass);
+    if (xyzClass) params.set('xyz_class', xyzClass);
+    const payload = await authClient.request('/purchase-analytics?' + params.toString(), { method: 'GET' });
+    return _purchaseAnalyticsFromResponse(payload);
+  };
+
   const confirmInventoryInvoice = async (payload) => {
     const response = await authClient.request('/inventory/invoice-confirm', {
       method: 'POST',
@@ -3310,7 +3598,7 @@ function PharmApp() {
       }),
     });
     await refreshInventory();
-    showToast('Nota fiscal importada para o estoque', 'success');
+    showToast('Itens registrados no estoque', 'success');
     return response;
   };
 
@@ -3548,6 +3836,10 @@ function PharmApp() {
     pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, pdvCreateReservation, fetchPdvPrescriptionStatus, createPdvPrescription, finalizeSale,
     fetchTeamMembers, addTeamMember, updateTeamMember, setTeamMemberActive, updateTeamMemberStore,
     suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive,
+    fetchPurchaseQuotes, fetchPurchaseQuote, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
+    downloadPurchaseQuoteFile, previewPurchaseQuoteImport, confirmPurchaseQuoteImport, fetchPurchaseQuoteCompare,
+    fetchPurchaseAnalytics,
+    previewPurchaseQuoteReceiving, pendingPurchaseQuoteId, setPendingPurchaseQuoteId,
     products, refreshProducts, addProduct, updateProduct, setProductActive, setProductDiscarded, fetchProductStoreLinks, linkProductToStore,
     brands, refreshBrands, addBrand, updateBrand, setBrandActive, setBrandDiscarded,
     categories, refreshCategories, addCategory, updateCategory, setCategoryActive, setCategoryDiscarded,
@@ -3595,6 +3887,10 @@ function PharmApp() {
       case 'analytics': return <AnalyticsScreen ctx={ctx} />;
       case 'team': return <TeamScreen ctx={ctx} />;
       case 'suppliers': return <SuppliersScreen ctx={ctx} />;
+      case 'quotes': return <QuotesScreen ctx={ctx} />;
+      case 'quotes-compare': return <QuotesCompareScreen ctx={ctx} />;
+      case 'purchase-analytics': return <PurchaseAnalyticsScreen ctx={ctx} />;
+      case 'purchase-receiving': return <PurchaseReceivingScreen ctx={ctx} />;
       case 'products': return <ProductsScreen ctx={ctx} />;
       case 'brands': return <BrandsScreen ctx={ctx} />;
       case 'categories': return <CategoriesScreen ctx={ctx} />;

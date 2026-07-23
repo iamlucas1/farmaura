@@ -249,6 +249,12 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
       { id: 'sales', label: 'Vendas & Notas', icon: 'money', count: counts.salesPending, alert: true },
       { id: 'analytics', label: 'Análises', icon: 'chart' },
     ]},
+    { label: 'Orçamentos', items: [
+      { id: 'quotes', label: 'Cotações', icon: 'card' },
+      { id: 'quotes-compare', label: 'Comparar fornecedores', icon: 'activity' },
+      { id: 'purchase-analytics', label: 'Painel de Compras', icon: 'gauge' },
+      { id: 'purchase-receiving', label: 'Confirmar Compra', icon: 'plusCircle' },
+    ]},
     { label: 'Catálogo', items: [
       { id: 'products', label: 'Produtos', icon: 'capsule' },
       { id: 'inventory', label: 'Estoque', icon: 'boxes', count: counts.lowStock, alert: true },

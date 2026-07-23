@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.file_validation import validate_upload
+from app.models.purchase_quote import PurchaseQuote
 from app.repositories.inventory_repository import InventoryRepository
 from app.schemas.auth import TokenSubject
 from app.schemas.inventory import (
@@ -174,6 +175,79 @@ class InventoryInvoiceService:
                 issue_date=self._safe_text(header_payload.get("issue_date")),
                 total_amount=self._safe_decimal(header_payload.get("total_amount")),
                 notes=self._safe_text(header_payload.get("notes")),
+            ),
+            items=lines,
+        )
+
+    async def preview_from_purchase_quote(
+        self, quote: PurchaseQuote
+    ) -> InventoryInvoicePreviewResponse:
+        """Build a review payload from a purchase quote's items, for the "Confirmar Compra" flow.
+
+        Mirrors `preview_invoice_import`, but the source is a purchase quote's already-persisted
+        items instead of an AI extraction — same candidate matching, same response shape, so the
+        confirm step (`confirm_invoice_import`) needs no changes at all.
+        """
+
+        store_id = await self.repository.get_primary_store_id(tenant_id=str(self.subject.tenant_id))
+        default_location = await self._resolve_default_location(store_id)
+        lines: list[InventoryInvoicePreviewLineResponse] = []
+        for index, item in enumerate(quote.items, start=1):
+            candidates = await self.repository.search_candidate_items(
+                tenant_id=str(self.subject.tenant_id),
+                store_id=store_id,
+                ean_code=item.ean_code_snapshot,
+                query=(item.description + " " + item.brand_name).strip(),
+                limit=6,
+            )
+            fc = candidates[0] if candidates else None
+            quantity = self._safe_int(item.quantity_reference, minimum=0)
+            lines.append(
+                InventoryInvoicePreviewLineResponse(
+                    line_id=f"line-{index}",
+                    description=item.description,
+                    brand_name=item.brand_name,
+                    ean_code=item.ean_code_snapshot,
+                    batch_code="",
+                    expiry_label="",
+                    quantity=quantity,
+                    unit_cost=item.unit_price,
+                    total_cost=item.unit_price * Decimal(max(quantity, 1)),
+                    suggested_sku=item.sku_snapshot,
+                    suggested_name=item.description,
+                    suggested_brand_name=item.brand_name or (fc.brand_name if fc else ""),
+                    suggested_category_name=fc.category_name if fc else "Medicamentos",
+                    suggested_medication_class_name=fc.medication_class_name if fc else "Geral",
+                    suggested_storage_location_code=fc.storage_location if fc else default_location,
+                    suggested_minimum_quantity=fc.minimum_quantity if fc else 0,
+                    suggested_low_stock_threshold=fc.low_stock_threshold if fc else 0,
+                    suggested_attention_stock_threshold=fc.attention_stock_threshold if fc else 0,
+                    suggested_normal_stock_threshold=fc.normal_stock_threshold if fc else 0,
+                    suggested_sale_price=item.unit_price,
+                    suggested_acquisition_cost=item.unit_price,
+                    suggested_market_reference_price=item.unit_price,
+                    suggested_promotional_discount_percent=Decimal("0.00"),
+                    suggested_is_controlled=bool(fc.is_controlled) if fc else False,
+                    suggested_tax_cost_amount=None,
+                    suggested_is_subject_to_icms_st=None,
+                    is_comodato=item.is_comodato,
+                    match_candidates=[
+                        self._serialize_candidate(candidate) for candidate in candidates
+                    ],
+                )
+            )
+        return InventoryInvoicePreviewResponse(
+            provider="",
+            model="",
+            source_file_name=quote.file_name or ("Orcamento " + quote.quote_date.isoformat()),
+            header=InventoryInvoiceHeaderResponse(
+                supplier_name=quote.supplier_name_snapshot,
+                supplier_document=quote.supplier_document_snapshot,
+                invoice_number="",
+                invoice_series="",
+                issue_date=quote.quote_date.isoformat(),
+                total_amount=Decimal("0.00"),
+                notes=quote.notes,
             ),
             items=lines,
         )

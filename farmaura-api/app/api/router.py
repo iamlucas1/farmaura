@@ -36,13 +36,14 @@ from app.api.v1 import (
     portal,
     prescriptions,
     products,
+    purchase_analytics,
+    purchase_quotes,
     stores,
     suppliers,
     team,
     therapeutic_classes,
     uploads,
 )
-
 
 # ============================================================================
 # ROUTER COMPOSITION
@@ -60,9 +61,17 @@ api_router.include_router(orders.router, prefix="/orders", tags=["orders"])
 api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(prescriptions.router, prefix="/prescriptions", tags=["prescriptions"])
 api_router.include_router(products.router, prefix="/products", tags=["products"])
+api_router.include_router(
+    purchase_quotes.router, prefix="/purchase-quotes", tags=["purchase-quotes"]
+)
+api_router.include_router(
+    purchase_analytics.router, prefix="/purchase-analytics", tags=["purchase-analytics"]
+)
 api_router.include_router(brands.router, prefix="/brands", tags=["brands"])
 api_router.include_router(categories.router, prefix="/categories", tags=["categories"])
-api_router.include_router(therapeutic_classes.router, prefix="/therapeutic-classes", tags=["therapeutic-classes"])
+api_router.include_router(
+    therapeutic_classes.router, prefix="/therapeutic-classes", tags=["therapeutic-classes"]
+)
 api_router.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(inventory_lots.router, prefix="/inventory", tags=["inventory-lots"])
 api_router.include_router(deliveries.router, prefix="/deliveries", tags=["deliveries"])
@@ -75,4 +84,3 @@ api_router.include_router(stores.router, prefix="/stores", tags=["stores"])
 api_router.include_router(suppliers.router, prefix="/suppliers", tags=["suppliers"])
 api_router.include_router(team.router, prefix="/team", tags=["team"])
 api_router.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
-

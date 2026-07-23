@@ -28,8 +28,8 @@ Observations:
   };
 
   const INTERNAL_ROUTE_ACCESS = {
-    [ROLE.ADMIN]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'sales', 'analytics', 'products', 'inventory', 'inventory-audit', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'stores', 'product-trace', 'acquisition-costs', 'construction-costs', 'pricing', 'coupons', 'promotions', 'delivery-zones', 'team', 'settings'],
-    [ROLE.MANAGER]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'analytics', 'products', 'inventory', 'inventory-audit', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'pricing', 'coupons', 'promotions', 'delivery-zones'],
+    [ROLE.ADMIN]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'sales', 'analytics', 'quotes', 'quotes-compare', 'purchase-analytics', 'purchase-receiving', 'products', 'inventory', 'inventory-audit', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'stores', 'product-trace', 'acquisition-costs', 'construction-costs', 'pricing', 'coupons', 'promotions', 'delivery-zones', 'team', 'settings'],
+    [ROLE.MANAGER]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'analytics', 'quotes', 'quotes-compare', 'purchase-analytics', 'purchase-receiving', 'products', 'inventory', 'inventory-audit', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'pricing', 'coupons', 'promotions', 'delivery-zones'],
     [ROLE.PHARMACIST]: ['dash', 'pdv', 'orders', 'deliveries', 'rx', 'chat', 'crm', 'analytics', 'products', 'inventory', 'brands', 'categories', 'therapeutic-classes', 'locations', 'suppliers', 'pricing', 'coupons', 'promotions', 'delivery-zones'],
     [ROLE.CASHIER]: ['dash', 'pdv', 'sales'],
     [ROLE.DRIVER]: ['driver-route'],

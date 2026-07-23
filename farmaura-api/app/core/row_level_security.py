@@ -23,7 +23,6 @@ Observations:
 
 from sqlalchemy import Connection
 
-
 # ============================================================================
 # RLS STATEMENTS
 # ============================================================================
@@ -1380,6 +1379,63 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 tenant_id = app_private.current_tenant_id()
                 AND driver_user_id = app_private.current_user_id()
             );
+    """,
+    """
+    ALTER TABLE purchase_quotes ENABLE ROW LEVEL SECURITY
+    """,
+    """
+    ALTER TABLE purchase_quotes FORCE ROW LEVEL SECURITY
+    """,
+    """
+    DROP POLICY IF EXISTS purchase_quotes_access_policy ON purchase_quotes;
+    CREATE POLICY purchase_quotes_access_policy
+            ON purchase_quotes
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+            )
+    """,
+    """
+    ALTER TABLE purchase_quote_payment_terms ENABLE ROW LEVEL SECURITY
+    """,
+    """
+    ALTER TABLE purchase_quote_payment_terms FORCE ROW LEVEL SECURITY
+    """,
+    """
+    DROP POLICY IF EXISTS purchase_quote_payment_terms_access_policy ON purchase_quote_payment_terms;
+    CREATE POLICY purchase_quote_payment_terms_access_policy
+            ON purchase_quote_payment_terms
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+            )
+    """,
+    """
+    ALTER TABLE purchase_quote_items ENABLE ROW LEVEL SECURITY
+    """,
+    """
+    ALTER TABLE purchase_quote_items FORCE ROW LEVEL SECURITY
+    """,
+    """
+    DROP POLICY IF EXISTS purchase_quote_items_access_policy ON purchase_quote_items;
+    CREATE POLICY purchase_quote_items_access_policy
+            ON purchase_quote_items
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('admin', 'manager')
+            )
     """,
 )
 
