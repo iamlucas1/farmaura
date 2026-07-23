@@ -78,10 +78,11 @@ Available prompts:
 This repository is currently a development environment, not a live production deployment. That changes a few defaults from what a mature production codebase would do:
 
 - do not preserve legacy code paths, deprecated fields, backward-compatibility shims, feature flags for old behavior, or "just in case" fallbacks — when a design changes, change it everywhere it applies and delete what it replaces in the same change set, across `farmaura/`, `farmaura-api/`, `lumos-api/`, and `lumosmed/` alike;
-- do not create database migrations (Alembic in `farmaura-api/`, or any equivalent in `lumos-api/`/`lumosmed/`) for schema changes made during this development phase — change the ORM models directly and apply the schema through the project's existing dev bootstrap path (e.g. `farmaura-api/scripts/bootstrap_database.py`, `lumos-api/database/runtime_bootstrap.py` and `schema_updates.py`) instead of hand-writing a migration file; this overrides the "Migrations and Seed Data" section below, which describes the eventual production-grade posture, not the current one;
+- `farmaura-api/` is live in production (see "Existing Infrastructure Constraint" below) — all schema changes there must go through Alembic migrations (`alembic revision --autogenerate` + review + `alembic upgrade head`), never by hand-editing the database or relying on bootstrap scripts to reconcile schema drift; a missed or hand-rolled migration risks losing real customer/order data; see "Migrations and Seed Data" below, which now applies to `farmaura-api/`;
+- do not create database migrations for schema changes in `lumos-api/`/`lumosmed/` (any equivalent to Alembic) while those remain in this development phase — change the ORM models directly and apply the schema through the project's existing dev bootstrap path (e.g. `lumos-api/database/runtime_bootstrap.py` and `schema_updates.py`) instead of hand-writing a migration file;
 - always apply the applicable executable skills in `dev-obsidian/_Compartilhado/Skills/` while implementing anything touching authentication, authorization, request handling, file uploads, backend business logic, cross-service communication, UI behavior, or testing — treat them as required steps in the workflow, not optional references.
 
-None of this relaxes the Security-First Rules below: skipping migrations and legacy compatibility is about development velocity, not about weakening tenant isolation, input validation, authorization, or any other control in this document.
+None of this relaxes the Security-First Rules below: requiring migrations for `farmaura-api/`, skipping them for `lumos-api/`/`lumosmed/`, and skipping legacy compatibility everywhere are about matching each project's actual deployment stage, not about weakening tenant isolation, input validation, authorization, or any other control in this document.
 
 ## Existing Infrastructure Constraint
 
@@ -900,9 +901,9 @@ Provide a complete `.env.example`.
 
 ## Migrations and Seed Data
 
-This section describes the eventual production-grade posture for schema changes. It does not apply while this repository is in the development phase — see "Development Environment Policy" above, which currently overrides it: apply schema changes directly to the models and the dev bootstrap scripts, with no migration files.
+`farmaura-api/` is in production (see "Development Environment Policy" above): all schema changes there must be implemented through Alembic migrations, generated alongside the model change and reviewed before `alembic upgrade head` runs against the production database.
 
-Once the project moves toward production, all schema changes must be implemented through Alembic migrations.
+`lumos-api/`/`lumosmed/` remain in the development phase — apply schema changes directly to the models and the dev bootstrap scripts there, with no migration files, until they too move toward production.
 
 Also provide:
 
@@ -1000,7 +1001,7 @@ When implementing:
 
 - create complete files;
 - wire routes end-to-end;
-- apply schema changes directly to the models and dev bootstrap path (no migration files, per "Development Environment Policy");
+- apply `farmaura-api/` schema changes through an Alembic migration alongside the model change, per "Development Environment Policy"; `lumos-api/`/`lumosmed/` schema changes still go directly to the models and dev bootstrap path, no migration files;
 - add tests for the implemented behavior;
 - update documentation in the same change set;
 - include security controls in the first implementation of each feature, not later.

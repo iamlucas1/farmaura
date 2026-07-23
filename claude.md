@@ -80,10 +80,11 @@ Available prompts:
 This repository is currently a development environment, not a live production deployment. That changes a few defaults from what a mature production codebase would do:
 
 - do not preserve legacy code paths, deprecated fields, backward-compatibility shims, feature flags for old behavior, or "just in case" fallbacks — when a design changes, change it everywhere it applies and delete what it replaces in the same change set, across `farmaura/`, `farmaura-api/`, `lumos-api/`, and `lumosmed/` alike;
-- do not create database migrations (Alembic in `farmaura-api/`, or any equivalent in `lumos-api/`/`lumosmed/`) for schema changes made during this development phase — change the ORM models directly and apply the schema through the project's existing dev bootstrap path (e.g. `farmaura-api/scripts/bootstrap_database.py`, `lumos-api/database/runtime_bootstrap.py` and `schema_updates.py`) instead of hand-writing a migration file; this overrides the "Local Development Standard", "Seed Data Standard", and "Implementation Sequence" sections below wherever they mention migrations, since those describe the eventual production-grade posture, not the current one;
+- `farmaura-api/` is live in production (see "Existing Gateway Constraint" below) — all schema changes there must go through Alembic migrations (`alembic revision --autogenerate` + review + `alembic upgrade head`), never by hand-editing the database or relying on bootstrap scripts to reconcile schema drift; a missed or hand-rolled migration risks losing real customer/order data;
+- do not create database migrations for schema changes in `lumos-api/`/`lumosmed/` (any equivalent to Alembic) while those remain in this development phase — change the ORM models directly and apply the schema through the project's existing dev bootstrap path (e.g. `lumos-api/database/runtime_bootstrap.py` and `schema_updates.py`) instead of hand-writing a migration file; this overrides the "Local Development Standard", "Seed Data Standard", and "Implementation Sequence" sections below wherever they mention migrations for those two projects, since those describe the eventual production-grade posture, not the current one;
 - always apply the applicable executable skills in `dev-obsidian/_Compartilhado/Skills/` while implementing anything touching authentication, authorization, request handling, file uploads, backend business logic, cross-service communication, UI behavior, or testing — treat them as required steps in the workflow, not optional references.
 
-None of this relaxes the Security Baseline below: skipping migrations and legacy compatibility is about development velocity, not about weakening tenant isolation, input validation, authorization, or any other control in this document.
+None of this relaxes the Security Baseline below: requiring migrations for `farmaura-api/`, skipping them for `lumos-api/`/`lumosmed/`, and skipping legacy compatibility everywhere are about matching each project's actual deployment stage, not about weakening tenant isolation, input validation, authorization, or any other control in this document.
 
 ## Existing Gateway Constraint
 
@@ -789,7 +790,7 @@ Required developer commands:
 
 - install dependencies;
 - run API server;
-- apply the schema through the dev bootstrap path (no migrations while in the development phase — see "Development Environment Policy");
+- apply the schema through Alembic migrations (`alembic upgrade head`) — see "Development Environment Policy";
 - seed development data;
 - run tests;
 - run lint and type checks.
@@ -872,7 +873,7 @@ When producing code:
 
 - create complete files;
 - wire imports and registrations fully;
-- apply schema changes directly to the models and dev bootstrap path (no migration files, per "Development Environment Policy");
+- apply `farmaura-api/` schema changes through an Alembic migration alongside the model change, per "Development Environment Policy"; `lumos-api/`/`lumosmed/` schema changes still go directly to the models and dev bootstrap path, no migration files;
 - add or update tests in the same change;
 - avoid placeholder stubs unless explicitly requested;
 - keep names explicit and consistent;

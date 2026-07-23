@@ -32,19 +32,20 @@ Cada domínio tem seu módulo de rota em `app/api/v1/`, serviço em `app/service
 - **Portal/config interna** — `portal.py` / `portal_service.py`
 - **Auth** — `auth.py` / `auth_service.py` (e-mail transacional de primeiro acesso via [[05_Integracoes_Infra/SMTP|SMTP]])
 - **Lojas, fornecedores, equipe** — `stores.py`, `suppliers.py`, `team.py`
+- **Orçamentos** (cotações de compra, comparativo de fornecedores, painel ABC/XYZ) — `purchase_quotes.py`, `purchase_analytics.py` / `purchase_quote_service.py`, `purchase_quote_ai_service.py`, `purchase_analytics_service.py` — ver [[02_Documentacao/Modulo_Orcamentos|Modulo_Orcamentos]]
 
 ## Dependências de Infraestrutura Compartilhada
 
 - `lumos-gateway`: gateway Nginx compartilhado (TLS, GeoIP, Fail2ban) que também serve o ecossistema Lumos. Farmaura entra como upstream, nunca exposto direto. Documentação própria desse stack fica no cofre `lumos-obsidian` (`~/Documentos/desenvolvimento-lumos/lumos-obsidian`), não aqui.
-- Ambiente de desenvolvimento (não produção): sem migrations Alembic durante esta fase — mudanças de schema vão direto no ORM + bootstrap (`farmaura-api/scripts/bootstrap_database.py`). Ver `claude.md` para o racional completo.
+- Farmaura está em produção desde 2026-07-22 (`drogariafarmaura.com.br`, servidor `lumos-prd`) — mudanças de schema agora exigem migrations Alembic (`alembic revision --autogenerate` + revisão + `alembic upgrade head`), não mais direto no ORM + bootstrap. `farmaura-api/scripts/bootstrap_database.py` segue cuidando só de RLS idempotente e seed inicial. Ver `claude.md` para o racional completo e [[00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|a decisão registrada]] para o histórico Alembic concreto (baseline + primeira migration real).
 
 ## Navegação
 
 - Visão geral / arquitetura: [[02_Documentacao/Visao_Geral|Visão Geral]]
-- Decisões (ADRs): `00_Decisoes/` — cadeia de decisões de pagamento: [[00_Decisoes/2026-07-12-restringir-checkout-pix-cartao|restringir checkout]] → [[00_Decisoes/2026-07-12-tokenizacao-cartao-real-asaas|tokenização]] → [[00_Decisoes/2026-07-12-pagamentos-pix-cartao-via-asaas|pagamento real]] → [[00_Decisoes/2026-07-12-diferir-emissao-fiscal-7-dias|diferimento fiscal]]; ver também [[00_Decisoes/2026-07-12-precificacao-entrega-por-distancia|precificação de entrega por distância]]
+- Decisões (ADRs): `00_Decisoes/` — cadeia de decisões de pagamento: [[00_Decisoes/2026-07-12-restringir-checkout-pix-cartao|restringir checkout]] → [[00_Decisoes/2026-07-12-tokenizacao-cartao-real-asaas|tokenização]] → [[00_Decisoes/2026-07-12-pagamentos-pix-cartao-via-asaas|pagamento real]] → [[00_Decisoes/2026-07-12-diferir-emissao-fiscal-7-dias|diferimento fiscal]]; ver também [[00_Decisoes/2026-07-12-precificacao-entrega-por-distancia|precificação de entrega por distância]], [[00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|adoção de Alembic em produção]] e [[00_Decisoes/2026-07-23-confirmar-compra-cruza-orcamentos-e-estoque|Confirmar Compra cruza orçamentos e estoque]]
 - Contexto de negócio (só o usuário escreve): `01_Contexto_Usuario/`
 - Padrões, políticas, premissas e regras de negócio não cobertas pelo `claude.md`/`agent.md`: `03_Padroes_Politicas/`
 - Segurança, vulnerabilidades e registro de riscos: `04_Seguranca_Riscos/` — principais gaps abertos: [[04_Seguranca_Riscos/rate-limiting-nao-aplicado|rate limiting]], [[04_Seguranca_Riscos/idempotencia-sem-persistencia|idempotência]] e [[04_Seguranca_Riscos/upload-sem-validacao-magic-bytes|upload sem magic bytes]]
 - APIs, integrações, bancos de dados e infra: `05_Integracoes_Infra/`
-- Pendências e débito técnico: `06_Pendencias/`
-- POPs e processos: `07_POPs_Processos/` — ver [[07_POPs_Processos/resetar-e-re-semear-dados-locais|resetar e re-semear dados locais]]
+- Pendências e débito técnico: `06_Pendencias/` — prioridade alta em aberto: [[06_Pendencias/aplicar-migration-orcamentos-em-producao|aplicar migration do módulo Orçamentos em produção]]
+- POPs e processos: `07_POPs_Processos/` — ver [[07_POPs_Processos/resetar-e-re-semear-dados-locais|resetar e re-semear dados locais]] e [[07_POPs_Processos/aplicar-migration-alembic-producao|aplicar migration Alembic em produção]]
