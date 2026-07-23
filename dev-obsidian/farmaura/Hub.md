@@ -47,5 +47,5 @@ Cada domínio tem seu módulo de rota em `app/api/v1/`, serviço em `app/service
 - Padrões, políticas, premissas e regras de negócio não cobertas pelo `claude.md`/`agent.md`: `03_Padroes_Politicas/`
 - Segurança, vulnerabilidades e registro de riscos: `04_Seguranca_Riscos/` — principais gaps abertos: [[04_Seguranca_Riscos/rate-limiting-nao-aplicado|rate limiting]], [[04_Seguranca_Riscos/idempotencia-sem-persistencia|idempotência]] e [[04_Seguranca_Riscos/upload-sem-validacao-magic-bytes|upload sem magic bytes]]
 - APIs, integrações, bancos de dados e infra: `05_Integracoes_Infra/`
-- Pendências e débito técnico: `06_Pendencias/` — prioridade alta em aberto: [[06_Pendencias/aplicar-migration-orcamentos-em-producao|aplicar migration do módulo Orçamentos em produção]]
+- Pendências e débito técnico: `06_Pendencias/`
 - POPs e processos: `07_POPs_Processos/` — ver [[07_POPs_Processos/resetar-e-re-semear-dados-locais|resetar e re-semear dados locais]] e [[07_POPs_Processos/aplicar-migration-alembic-producao|aplicar migration Alembic em produção]]
