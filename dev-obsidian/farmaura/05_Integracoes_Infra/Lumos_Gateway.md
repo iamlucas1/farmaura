@@ -15,7 +15,30 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 ## Dependências
 
 - Nunca publicar a porta do `farmaura-api` diretamente no host além da rede do gateway, salvo debug local documentado — ver skill [[secure-service-communication]].
-- Config de roteamento específica do Farmaura dentro do `lumos-gateway` (arquivo `nginx/conf.d/`) não foi localizada nominalmente pela pesquisa — confirmar nome do template quando for mexer nesse roteamento.
+- Config de roteamento do Farmaura no `lumos-gateway`: `nginx/conf.d/90-farmaura.conf.template`
+  (server block HTTPS, `FARMAURA_UPSTREAM=farmaura`, `FARMAURA_DOMAINS`/`FARMAURA_PRIMARY_DOMAIN`
+  via `.env`).
+- **Drift real encontrado em 2026-07-24**: no servidor (`lumos-prd`, `/opt/lumos-gateway`), o arquivo
+  `90-farmaura.conf.template` está **não versionado** (`??` no `git status`) e `docker-compose.yml`
+  tem edições locais não commitadas — a integração inteira do Farmaura no gateway foi feita direto
+  no servidor, fora do fluxo git. O branch que o servidor rastreia é `master`; todo o histórico de
+  commits do Farmaura no gateway (`5496ead`, `aac5082`, etc.) só existe em `desenv`/`origin/desenv`,
+  nunca mergeado em `master`. Ou seja: git e servidor divergem tanto no conteúdo quanto no branch —
+  sempre `cat` o arquivo real do servidor antes de sobrescrever (ver [[secure-service-communication]]
+  e a diretriz geral de nunca sobrescrever sem diff prévio).
+- **Bug real encontrado e corrigido em 2026-07-24**: `gateway_nginx` não tinha a rede
+  `farmaura_private` declarada em `docker-compose.yml` — a conectividade existia só por um
+  `docker network connect farmaura_private lumos_gateway_nginx` manual, nunca persistido. Um
+  `docker restart` simples preserva conexões de rede manuais, mas qualquer `docker compose up`/
+  recreate do `gateway_nginx` (recriação de container, não apenas restart) as descarta — nesse caso
+  toda requisição para `drogariafarmaura.com.br` cai no upstream inexistente, o `farmaura_origin`
+  responde 502/503, e o `location @fallback` redireciona (302) para `lumosmed.com.br` (o
+  `$fallback_domain` default). Corrigido declarando `farmaura_private` como rede externa no
+  `docker-compose.yml` (serviço `gateway_nginx` + bloco `networks:` top-level) — agora sobrevive a
+  qualquer recreate futuro do gateway.
+- `client_max_body_size` do vhost do Farmaura era o default global (10m) — `farmaura-api` passou a
+  aceitar uploads de até ~20MB (catálogos de fornecedor com imagens), então o vhost ganhou
+  `client_max_body_size 25m;` explícito para não virar o novo teto.
 
 ## Ver também
 
@@ -25,4 +48,9 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 
 ## Atualizações
 
+- 2026-07-24: corrigido bug real de produção (rede `farmaura_private` não declarada no
+  `docker-compose.yml` do gateway — sobrevivia só por conexão manual, quebraria em qualquer
+  recreate futuro) e subido `client_max_body_size` do vhost Farmaura (10m → 25m). Documentado o
+  drift real entre servidor e git (arquivo de rota do Farmaura não versionado no servidor,
+  histórico do Farmaura só em `desenv`, servidor rastreia `master`).
 - 2026-07-19: nota criada.
