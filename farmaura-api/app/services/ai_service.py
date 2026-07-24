@@ -22,7 +22,10 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.core.config import Settings
+from app.core.logging import get_logger
 from app.schemas.ai import AiPromptExecutionResponse, AiProviderStatusResponse
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -130,6 +133,9 @@ class AiService:
         try:
             return await client.post(url, **kwargs)
         except httpx.TimeoutException as error:
+            logger.warning(
+                "ai_provider_timeout", url=url, error_type=type(error).__name__, error=str(error)
+            )
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail=(
@@ -138,6 +144,12 @@ class AiService:
                 ),
             ) from error
         except httpx.RequestError as error:
+            logger.warning(
+                "ai_provider_connection_error",
+                url=url,
+                error_type=type(error).__name__,
+                error=str(error),
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=(
