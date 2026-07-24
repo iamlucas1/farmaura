@@ -46,3 +46,12 @@ registrada e funcionando, só exigindo login, não quebrando por tabela ausente.
 incondicionalmente a cada start (gap conhecido, ver [[../00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|decisão de adoção do Alembic]]) — por isso a migration real precisa ser
 aplicada **antes** de subir o container novo com `up`/`up --build`, não depois, e sempre via
 `run --rm --entrypoint ''` para não disparar o entrypoint padrão no meio do processo.
+
+**2026-07-24**: mesmo deploy pipeline reaplicado para levar produção de `20260723_02` até
+`20260723_04` (campos `units_per_package` e fiscais — NCM/IPI/ST/preço final — em
+`purchase_quote_items`, ver [[../02_Documentacao/Modulo_Orcamentos|Modulo Orçamentos]]). `alembic
+upgrade head` rodado contra o Postgres real antes de recriar os containers; `alembic current`
+confirmou `20260723_04 (head)` e as colunas novas foram conferidas via `\d purchase_quote_items`.
+Junto nesse deploy: limites de upload (`APP_MAX_REQUEST_BODY_BYTES`/`APP_MAX_UPLOAD_BYTES`) subidos
+de 1MB/5MB para ~20MB no `.env` de produção — estavam rejeitando catálogos de fornecedor com 413
+antes mesmo de chegar na validação de upload.
