@@ -13,11 +13,24 @@ Responsibilities:
   original source document, without ever touching sellable inventory;
 
 Observations:
-- Gemini accepts PDF/image inline; OpenAI's document path is image-only, same
-  constraint InventoryInvoiceService already works within;
-- XLSX/DOCX text extraction is capped to keep prompts within provider limits —
-  layouts vary a lot, so the AI still normalizes the extracted table/text into
-  the target schema rather than us trying to parse columns ourselves.
+- both Gemini and OpenAI accept PDF and image inline;
+- XLSX/DOCX text extraction is capped (LOCAL_PARSE_MAX_CHARS) only as a hard
+  safety ceiling against pathological files — the cap must stay high enough
+  that real supplier price lists (some run 500-1000+ rows) reach the AI whole,
+  because the split-and-retry logic below only ever sees text truncation as an
+  *AI output* being cut off (is_response_truncated); an *input* silently cut
+  by this local cap before the first call would never trigger a split and
+  would just drop the tail of the file with no error;
+- layouts vary a lot (flat tables, order forms with a two-row header, sheets
+  that repeat the same catalog with different columns, tax-rate-by-state
+  reference sheets mixed into the same workbook), so the AI still normalizes
+  the extracted table/text into the target schema rather than us trying to
+  parse columns ourselves — deterministic code only handles what's safe to
+  get unambiguously right (merged cells, obviously-irrelevant sheets);
+- a document whose extraction would otherwise be truncated by the provider's
+  output token limit gets split (PDF by page range, XLSX/DOCX by text line
+  range) and retried per chunk, merging results — see the SPLIT-AND-RETRY
+  EXTRACTION section below.
 """
 
 from __future__ import annotations
@@ -32,9 +45,10 @@ from uuid import uuid4
 from docx import Document as DocxDocument
 from fastapi import HTTPException, UploadFile, status
 from openpyxl import load_workbook
+from pypdf import PdfReader, PdfWriter
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.ai_json import parse_ai_json_object
+from app.core.ai_json import is_response_truncated, parse_ai_json_object
 from app.core.config import Settings
 from app.core.file_storage import write_private_file
 from app.core.file_validation import validate_quote_upload
@@ -53,7 +67,19 @@ from app.services.ai_service import AiDocumentExecutionRequest, AiExecutionReque
 from app.services.purchase_quote_service import PurchaseQuoteService
 
 DOCUMENT_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
-LOCAL_PARSE_MAX_CHARS = 20_000
+# Comfortably above any real supplier price list seen so far (largest sample: ~46k chars across 6
+# item-bearing sheets after tax-rate sheets are filtered out). A genuinely pathological workbook —
+# hundreds of items *and* multiple very wide (40+ column) internal calculation-mirror sheets that
+# aren't filtered by _looks_like_tax_rate_sheet — can still hit this ceiling and lose its tail
+# silently; known limitation, not solved here (see Modulo_Orcamentos.md).
+LOCAL_PARSE_MAX_CHARS = 200_000
+
+# Header keywords that mark a sheet as an ICMS-ST rate-by-state reference table (e.g. "Estado",
+# "Aliquota Interestadual", "MVA", "ST Normal") rather than a list of purchasable items — common
+# in supplier workbooks alongside the real price sheet. Skipped entirely from extraction: including
+# them wastes LOCAL_PARSE_MAX_CHARS budget on 27-row per-state tax matrices and risks the AI
+# mistaking a state row (e.g. "SP, 0.04, 0.18, ...") for a product line.
+TAX_RATE_SHEET_MARKERS = ("estado", "aliquota", "alíquota", "mva")
 
 PAYMENT_METHOD_ALIASES: dict[str, str] = {
     "pix": "pix",
@@ -115,20 +141,15 @@ class PurchaseQuoteAiService:
             )
         normalized_provider = (provider or self.settings.ai_default_provider).strip().lower()
         extension = Path(file.filename or "").suffix.lower()
+        file_name = file.filename or "orcamento"
 
         if extension in DOCUMENT_EXTENSIONS:
-            response = await self.ai_service.execute_document_prompt(
-                AiDocumentExecutionRequest(
-                    provider=normalized_provider,
-                    model=model,
-                    prompt=self._quote_extraction_prompt(file.filename or "orcamento"),
-                    system_prompt=self._quote_system_prompt(),
-                    mime_type=file.content_type or "application/octet-stream",
-                    file_name=file.filename or "orcamento",
-                    file_base64=base64.b64encode(content).decode("ascii"),
-                    temperature=0.1,
-                    max_output_tokens=4000,
-                )
+            parsed, response_provider, response_model = await self._extract_document_payload(
+                content=content,
+                mime_type=file.content_type or "application/octet-stream",
+                file_name=file_name,
+                provider=normalized_provider,
+                model=model,
             )
         else:
             extracted_text = (
@@ -136,20 +157,12 @@ class PurchaseQuoteAiService:
                 if extension == ".xlsx"
                 else self._extract_docx_text(content)
             )
-            response = await self.ai_service.execute_prompt(
-                AiExecutionRequest(
-                    provider=normalized_provider,
-                    model=model,
-                    prompt=self._quote_extraction_prompt(file.filename or "orcamento")
-                    + "\n\nConteudo extraido do arquivo:\n"
-                    + extracted_text,
-                    system_prompt=self._quote_system_prompt(),
-                    temperature=0.1,
-                    max_output_tokens=4000,
-                )
+            parsed, response_provider, response_model = await self._extract_text_payload(
+                extracted_text=extracted_text,
+                file_name=file_name,
+                provider=normalized_provider,
+                model=model,
             )
-
-        parsed = parse_ai_json_object(response.content, error_context="AI quote extraction")
         raw_header = parsed.get("quote")
         payment_terms_payload = parsed.get("payment_terms") or []
         items_payload = parsed.get("items") or []
@@ -194,6 +207,9 @@ class PurchaseQuoteAiService:
                 ean_code=ean_code,
                 limit=6,
             )
+            units_per_package = self._safe_optional_decimal(raw_item.get("units_per_package"))
+            if units_per_package is not None and units_per_package <= Decimal("0.00"):
+                units_per_package = None
             lines.append(
                 PurchaseQuoteImportPreviewLineResponse(
                     line_id=f"line-{index}",
@@ -202,10 +218,17 @@ class PurchaseQuoteAiService:
                     sku=self._safe_text(raw_item.get("sku")),
                     ean_code=ean_code,
                     unit=self._safe_text(raw_item.get("unit"), fallback="un"),
+                    units_per_package=units_per_package,
                     quantity_reference=self._safe_optional_decimal(
                         raw_item.get("quantity_reference")
                     ),
                     unit_price=self._safe_decimal(raw_item.get("unit_price")),
+                    ncm_code=self._safe_text(raw_item.get("ncm_code")),
+                    ipi_percentage=self._safe_optional_decimal(raw_item.get("ipi_percentage")),
+                    icms_st_value=self._safe_optional_decimal(raw_item.get("icms_st_value")),
+                    final_unit_price=self._safe_optional_decimal(
+                        raw_item.get("final_unit_price")
+                    ),
                     is_comodato=self._safe_bool(raw_item.get("is_comodato")),
                     comodato_notes=self._safe_text(raw_item.get("comodato_notes")),
                     match_candidates=[
@@ -222,8 +245,8 @@ class PurchaseQuoteAiService:
             )
 
         return PurchaseQuoteImportPreviewResponse(
-            provider=response.provider,
-            model=response.model,
+            provider=response_provider,
+            model=response_model,
             source_file_name=file.filename or "orcamento",
             header=PurchaseQuoteImportPreviewHeaderResponse(
                 supplier_name=supplier_name,
@@ -274,14 +297,202 @@ class PurchaseQuoteAiService:
         return await self.quote_service.persist_quote(quote)
 
     # ========================================================================
+    # SPLIT-AND-RETRY EXTRACTION
+    # ========================================================================
+    #
+    # A single large orçamento can produce more line items than fit in one AI
+    # response before the provider's output token limit cuts it off. Instead of
+    # just failing, both extraction paths below detect that (is_response_truncated)
+    # and split the source in half — by PDF page range, or by extracted-text line
+    # range — retrying each half independently (recursively, up to a bounded
+    # depth) and merging the results, so a document with many items still gets
+    # fully read and shown to the user for review. Images can't be split this
+    # way (there's no natural boundary to cut along) and fail with a clear
+    # message instead — in practice a single photographed/scanned page rarely
+    # has enough items to hit the limit.
+
+    async def _extract_document_payload(
+        self,
+        *,
+        content: bytes,
+        mime_type: str,
+        file_name: str,
+        provider: str,
+        model: str,
+        max_split_depth: int = 2,
+    ) -> tuple[dict[str, object], str, str]:
+        """Extract structured data from a document, splitting PDFs by page if truncated."""
+
+        response = await self.ai_service.execute_document_prompt(
+            AiDocumentExecutionRequest(
+                provider=provider,
+                model=model,
+                prompt=self._quote_extraction_prompt(file_name),
+                system_prompt=self._quote_system_prompt(),
+                mime_type=mime_type,
+                file_name=file_name,
+                file_base64=base64.b64encode(content).decode("ascii"),
+                temperature=0.1,
+                max_output_tokens=8000,
+            )
+        )
+        if not is_response_truncated(response):
+            parsed = parse_ai_json_object(response.content, error_context="AI quote extraction")
+            return parsed, response.provider, response.model
+
+        if mime_type != "application/pdf" or max_split_depth <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "A resposta da IA foi cortada por exceder o limite de tamanho da resposta, "
+                    "mesmo apos dividir o arquivo. Tente um orcamento com menos itens."
+                ),
+            )
+
+        try:
+            reader = PdfReader(BytesIO(content))
+            page_count = len(reader.pages)
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Could not read the PDF file to split it for re-processing.",
+            ) from error
+        if page_count < 2:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "A resposta da IA foi cortada por exceder o limite de tamanho da resposta, "
+                    "e o PDF tem uma unica pagina — nao e possivel dividir. Tente um arquivo "
+                    "com menos itens."
+                ),
+            )
+        midpoint = page_count // 2
+        payloads: list[dict[str, object]] = []
+        response_provider = response.provider
+        response_model = response.model
+        for start, end in ((0, midpoint), (midpoint, page_count)):
+            writer = PdfWriter()
+            for page_index in range(start, end):
+                writer.add_page(reader.pages[page_index])
+            buffer = BytesIO()
+            writer.write(buffer)
+            chunk_payload, response_provider, response_model = await self._extract_document_payload(
+                content=buffer.getvalue(),
+                mime_type=mime_type,
+                file_name=file_name,
+                provider=provider,
+                model=model,
+                max_split_depth=max_split_depth - 1,
+            )
+            payloads.append(chunk_payload)
+        return self._merge_extracted_payloads(payloads), response_provider, response_model
+
+    async def _extract_text_payload(
+        self,
+        *,
+        extracted_text: str,
+        file_name: str,
+        provider: str,
+        model: str,
+        max_split_depth: int = 2,
+    ) -> tuple[dict[str, object], str, str]:
+        """Extract structured data from parsed XLSX/DOCX text, splitting by lines if truncated."""
+
+        response = await self.ai_service.execute_prompt(
+            AiExecutionRequest(
+                provider=provider,
+                model=model,
+                prompt=self._quote_extraction_prompt(file_name)
+                + "\n\nConteudo extraido do arquivo:\n"
+                + extracted_text,
+                system_prompt=self._quote_system_prompt(),
+                temperature=0.1,
+                max_output_tokens=8000,
+            )
+        )
+        if not is_response_truncated(response):
+            parsed = parse_ai_json_object(response.content, error_context="AI quote extraction")
+            return parsed, response.provider, response.model
+
+        lines = extracted_text.split("\n")
+        if len(lines) < 4 or max_split_depth <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "A resposta da IA foi cortada por exceder o limite de tamanho da resposta, "
+                    "mesmo apos dividir o arquivo. Tente um orcamento com menos itens."
+                ),
+            )
+
+        # Repeat the first lines (usually the header/supplier section) in every chunk so
+        # header fields survive the split even when they'd otherwise only be in chunk 1.
+        header_preamble = "\n".join(lines[:15])
+        midpoint = len(lines) // 2
+        line_chunks = (lines[:midpoint], lines[midpoint:])
+        payloads: list[dict[str, object]] = []
+        response_provider = response.provider
+        response_model = response.model
+        for index, chunk_lines in enumerate(line_chunks):
+            joined_lines = "\n".join(chunk_lines)
+            chunk_text = joined_lines if index == 0 else header_preamble + "\n" + joined_lines
+            chunk_payload, response_provider, response_model = await self._extract_text_payload(
+                extracted_text=chunk_text,
+                file_name=file_name,
+                provider=provider,
+                model=model,
+                max_split_depth=max_split_depth - 1,
+            )
+            payloads.append(chunk_payload)
+        return self._merge_extracted_payloads(payloads), response_provider, response_model
+
+    def _merge_extracted_payloads(self, payloads: list[dict[str, object]]) -> dict[str, object]:
+        """Merge chunked extraction payloads into one, concatenating items.
+
+        Header fields and payment terms come from whichever chunk has non-empty
+        data for each — only the chunk containing the document's header section
+        will have those populated; the rest contribute items only.
+        """
+
+        merged_header: dict[str, object] = {}
+        merged_payment_terms: list[object] = []
+        merged_items: list[object] = []
+        for payload in payloads:
+            header = payload.get("quote")
+            if isinstance(header, dict):
+                for key, value in header.items():
+                    if value not in (None, "", 0) and not merged_header.get(key):
+                        merged_header[key] = value
+            payment_terms = payload.get("payment_terms")
+            if isinstance(payment_terms, list) and not merged_payment_terms:
+                merged_payment_terms = payment_terms
+            items = payload.get("items")
+            if isinstance(items, list):
+                merged_items.extend(items)
+        return {
+            "quote": merged_header,
+            "payment_terms": merged_payment_terms,
+            "items": merged_items,
+        }
+
+    # ========================================================================
     # LOCAL DOCUMENT PARSING (XLSX / DOCX)
     # ========================================================================
 
     def _extract_xlsx_text(self, content: bytes) -> str:
-        """Extract a plain-text table representation from an XLSX workbook."""
+        """Extract a plain-text table representation from an XLSX workbook.
+
+        Resolves merged cells (common in supplier quote headers and in tables
+        exported from a pivot table, e.g. a supplier/category name merged down
+        several rows) by filling every cell in a merged region with its anchor
+        (top-left) value before flattening rows to text. Without this, every
+        non-anchor cell in a merge reads as blank, silently dropping the label
+        exactly on the rows where it isn't repeated. Uses non-read-only mode so
+        `merged_cells.ranges` is reliably populated — quote files are small
+        enough that the extra memory cost doesn't matter.
+        """
 
         try:
-            workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
+            workbook = load_workbook(BytesIO(content), data_only=True)
         except Exception as error:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -289,11 +500,36 @@ class PurchaseQuoteAiService:
             ) from error
         lines: list[str] = []
         for sheet in workbook.worksheets:
-            lines.append(f"### Planilha: {sheet.title}")
-            for row in sheet.iter_rows(values_only=True):
-                cells = ["" if value is None else str(value) for value in row]
+            non_anchor_to_anchor: dict[tuple[int, int], tuple[int, int]] = {}
+            for merged_range in sheet.merged_cells.ranges:
+                anchor = (merged_range.min_row, merged_range.min_col)
+                for row_index in range(merged_range.min_row, merged_range.max_row + 1):
+                    for col_index in range(merged_range.min_col, merged_range.max_col + 1):
+                        if (row_index, col_index) != anchor:
+                            non_anchor_to_anchor[(row_index, col_index)] = anchor
+            anchor_values: dict[tuple[int, int], object] = {}
+            sheet_rows: list[list[str]] = []
+            for row_index, row in enumerate(sheet.iter_rows(), start=1):
+                cells: list[str] = []
+                for col_index, cell in enumerate(row, start=1):
+                    value = cell.value
+                    if value is not None:
+                        anchor_values[(row_index, col_index)] = value
+                    else:
+                        anchor = non_anchor_to_anchor.get((row_index, col_index))
+                        if anchor is not None:
+                            value = anchor_values.get(anchor)
+                    cells.append("" if value is None else str(value))
                 if any(cell.strip() for cell in cells):
-                    lines.append(" | ".join(cells))
+                    sheet_rows.append(cells)
+            if self._looks_like_tax_rate_sheet(sheet_rows):
+                lines.append(
+                    f"### Planilha: {sheet.title} "
+                    "(tabela de aliquotas de ICMS-ST por estado, ignorada — nao contem itens)"
+                )
+                continue
+            lines.append(f"### Planilha: {sheet.title}")
+            lines.extend(" | ".join(cells) for cells in sheet_rows)
         text = "\n".join(lines)
         if not text.strip():
             raise HTTPException(
@@ -301,6 +537,26 @@ class PurchaseQuoteAiService:
                 detail="The XLSX file has no readable content.",
             )
         return text[:LOCAL_PARSE_MAX_CHARS]
+
+    def _looks_like_tax_rate_sheet(self, sheet_rows: list[list[str]]) -> bool:
+        """Detect a per-state ICMS-ST rate reference table (not a list of items).
+
+        Some supplier workbooks bundle a sheet per product line with columns like
+        "Estado", "Aliquota Interestadual/Interna", "MVA" — a tax-calculation lookup table, not
+        purchase items. Checks only the first few non-empty rows (the header is always near the
+        top) for that specific combination, so an actual item sheet that happens to mention a
+        state somewhere is never misclassified.
+        """
+
+        for cells in sheet_rows[:3]:
+            normalized = [cell.strip().lower() for cell in cells]
+            has_estado = "estado" in normalized
+            has_rate_column = any(
+                marker in cell for cell in normalized for marker in TAX_RATE_SHEET_MARKERS[1:]
+            )
+            if has_estado and has_rate_column:
+                return True
+        return False
 
     def _extract_docx_text(self, content: bytes) -> str:
         """Extract paragraph and table text from a DOCX document."""
@@ -374,8 +630,13 @@ class PurchaseQuoteAiService:
                         "sku": "",
                         "ean_code": "",
                         "unit": "un",
+                        "units_per_package": 0,
                         "quantity_reference": 0,
                         "unit_price": 0,
+                        "ncm_code": "",
+                        "ipi_percentage": 0,
+                        "icms_st_value": 0,
+                        "final_unit_price": 0,
                         "is_comodato": False,
                         "comodato_notes": "",
                     }
@@ -392,7 +653,48 @@ class PurchaseQuoteAiService:
             "cartao_credito, cartao_debito, consignado, dinheiro, transferencia, outro. "
             "is_comodato indica que o item e um equipamento cedido pelo fornecedor (ex.: "
             "geladeira/freezer de marca) e nao um produto comprado; comodato_notes descreve as "
-            "condicoes do comodato quando existirem. Considere o arquivo " + file_name + "."
+            "condicoes do comodato quando existirem. units_per_package e quantas unidades de "
+            "venda cabem dentro de uma unidade cotada quando ela for uma embalagem (caixa, "
+            "fardo, pacote, display, etc.). Extraia de colunas como 'CX', 'Cx.', 'Multiplo', "
+            "'Caixa de Embarque' ou de texto como 'CX C/50', 'caixa com 50 unidades', 'Caixa com "
+            "12 Unidades', '12 x 120g' (um numero seguido de 'x' antes do tamanho/peso, comum "
+            "numa coluna 'Embalagem' — nesse caso o numero antes do 'x' e o units_per_package, "
+            "nao o tamanho depois dele). NAO confunda com uma coluna de 'Multiplo de Venda(s)' "
+            "ou 'Quantidade Minima de Pedido' — isso e uma regra de quantas unidades minimas o "
+            "cliente deve pedir por vez, nao quantas unidades cabem numa caixa; ignore essas "
+            "colunas para units_per_package (deixe 0). Deixe 0 tambem quando a unidade ja for a "
+            "unidade de venda (un, ampola, frasco) ou quando a informacao nao aparecer. Quando o "
+            "preco listado for o preco de uma caixa/pacote inteiro (ex.: catalogo com 'Caixa com "
+            "12 Unidades R$ 31,20'), use essa unidade (ex.: 'cx') em vez de 'un', unit_price "
+            "igual ao preco da caixa, e units_per_package igual a quantidade de unidades dentro "
+            "dela — nao divida o preco. Ignore linhas que sejam apenas resumo/total (ex.: 'TOTAL "
+            "<marca>', 'TOTAL DE PRODUTOS', ou uma lista de categorias no topo de um formulario "
+            "de pedido com valor zerado ao lado, antes da tabela real de itens comecar) — essas "
+            "nao sao itens cotados. Se o mesmo produto (mesmo codigo ou EAN) aparecer em mais de "
+            "uma planilha do arquivo com colunas diferentes (ex.: uma aba resumida e uma aba "
+            "'Cadastro' mais completa), gere um unico item combinando os dados das duas em vez "
+            "de duplicar; para cada campo, prefira o valor da planilha que o preencher com mais "
+            "detalhe (ex.: NCM/EAN geralmente estao só na aba de cadastro). ncm_code e o codigo "
+            "de classificacao fiscal do produto (coluna 'NCM', "
+            "normalmente 8 digitos); deixe vazio se nao aparecer. ipi_percentage e a aliquota "
+            "percentual do IPI (coluna '% IPI', 'IPI', 'IPI%'), como numero (ex.: coluna com "
+            "'6.5' vira 6.5, nao 0.065); deixe 0 se nao aparecer. icms_st_value e o valor "
+            "monetario de substituicao tributaria por unidade (coluna 'ST', 'ICMS-ST', 'Subst. "
+            "Tributaria'); deixe 0 se nao aparecer ou se a coluna so tiver zeros. "
+            "final_unit_price e o preco unitario final ja com os impostos aplicados, quando o "
+            "documento tiver uma coluna propria para isso (ex.: 'Preco Final', 'Preco com "
+            "Imposto', 'Valor Final'); nesse caso unit_price continua sendo o preco base (ex.: "
+            "coluna 'Preco Unit.') e final_unit_price o valor com imposto — nao calcule "
+            "final_unit_price voce mesmo, so preencha quando o documento ja trouxer essa coluna "
+            "pronta; deixe 0 quando nao existir. Quando o documento tiver colunas separadas de "
+            "codigo do produto e descricao (ex.: 'Codigo' e 'Detalhe', ou 'Codigo' e 'Produto'), "
+            "use a coluna de codigo em sku e a coluna de texto/descricao completa em "
+            "description. Se o conteudo vier de "
+            "uma planilha e parecer "
+            "com uma tabela dinamica exportada do Excel — linhas onde a celula de agrupamento "
+            "(ex.: nome do fornecedor ou categoria) fica em branco nas linhas seguintes ao "
+            "primeiro item do grupo — considere que o valor em branco repete o da linha anterior "
+            "daquela mesma coluna. Considere o arquivo " + file_name + "."
         )
 
     # ========================================================================

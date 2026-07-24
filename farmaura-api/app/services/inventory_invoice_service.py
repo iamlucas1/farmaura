@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ai_json import is_response_truncated, parse_ai_json_object
 from app.core.config import Settings
 from app.core.file_validation import validate_upload
 from app.models.purchase_quote import PurchaseQuote
@@ -87,9 +87,17 @@ class InventoryInvoiceService:
                 file_name=file.filename or "invoice",
                 file_base64=base64.b64encode(content).decode("ascii"),
                 temperature=0.1,
-                max_output_tokens=4000,
+                max_output_tokens=8000,
             )
         )
+        if is_response_truncated(response):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "A resposta da IA foi cortada por exceder o limite de tamanho da resposta. "
+                    "Tente uma nota fiscal com menos itens."
+                ),
+            )
         parsed = self._parse_extracted_payload(response.content)
         store_id = await self.repository.get_primary_store_id(tenant_id=str(self.subject.tenant_id))
         default_location = await self._resolve_default_location(store_id)
@@ -201,7 +209,22 @@ class InventoryInvoiceService:
                 limit=6,
             )
             fc = candidates[0] if candidates else None
-            quantity = self._safe_int(item.quantity_reference, minimum=0)
+            # When the supplier stated how many sellable units one quoted package contains
+            # (ex.: caixa com 50 un), convert both the quoted package quantity into a
+            # sellable-unit stock quantity AND the per-package price into a per-unit cost —
+            # otherwise the suggested acquisition cost would apply the whole package's price to
+            # every individual unit (e.g. R$100/caixa charged as R$100/unit on 50 units, a 50x
+            # overvaluation). Falls back to prior behavior when units_per_package isn't set.
+            if item.quantity_reference is not None and item.units_per_package:
+                quantity = self._safe_int(
+                    item.quantity_reference * item.units_per_package, minimum=0
+                )
+                effective_unit_cost = (item.unit_price / item.units_per_package).quantize(
+                    Decimal("0.01")
+                )
+            else:
+                quantity = self._safe_int(item.quantity_reference, minimum=0)
+                effective_unit_cost = item.unit_price
             lines.append(
                 InventoryInvoicePreviewLineResponse(
                     line_id=f"line-{index}",
@@ -211,8 +234,8 @@ class InventoryInvoiceService:
                     batch_code="",
                     expiry_label="",
                     quantity=quantity,
-                    unit_cost=item.unit_price,
-                    total_cost=item.unit_price * Decimal(max(quantity, 1)),
+                    unit_cost=effective_unit_cost,
+                    total_cost=effective_unit_cost * Decimal(max(quantity, 1)),
                     suggested_sku=item.sku_snapshot,
                     suggested_name=item.description,
                     suggested_brand_name=item.brand_name or (fc.brand_name if fc else ""),
@@ -223,9 +246,9 @@ class InventoryInvoiceService:
                     suggested_low_stock_threshold=fc.low_stock_threshold if fc else 0,
                     suggested_attention_stock_threshold=fc.attention_stock_threshold if fc else 0,
                     suggested_normal_stock_threshold=fc.normal_stock_threshold if fc else 0,
-                    suggested_sale_price=item.unit_price,
-                    suggested_acquisition_cost=item.unit_price,
-                    suggested_market_reference_price=item.unit_price,
+                    suggested_sale_price=effective_unit_cost,
+                    suggested_acquisition_cost=effective_unit_cost,
+                    suggested_market_reference_price=effective_unit_cost,
                     suggested_promotional_discount_percent=Decimal("0.00"),
                     suggested_is_controlled=bool(fc.is_controlled) if fc else False,
                     suggested_tax_cost_amount=None,
@@ -513,22 +536,7 @@ class InventoryInvoiceService:
     def _parse_extracted_payload(self, content: str) -> dict[str, object]:
         """Parse the JSON body returned by the AI model."""
 
-        cleaned = str(content or "").strip()
-        fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", cleaned, flags=re.DOTALL)
-        if fenced_match:
-            cleaned = fenced_match.group(1).strip()
-        try:
-            payload = json.loads(cleaned)
-        except json.JSONDecodeError:
-            object_match = re.search(r"(\{.*\})", cleaned, flags=re.DOTALL)
-            if not object_match:
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI invoice extraction did not return valid JSON.")
-            try:
-                payload = json.loads(object_match.group(1))
-            except json.JSONDecodeError as error:
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI invoice extraction returned malformed JSON.") from error
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI invoice extraction returned an invalid payload.")
+        payload = parse_ai_json_object(content, error_context="AI invoice extraction")
         payload.setdefault("invoice", {})
         payload.setdefault("items", [])
         if not isinstance(payload["items"], list):

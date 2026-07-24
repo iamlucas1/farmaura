@@ -122,6 +122,137 @@ todos como comprados" (pula itens em comodato) e "Desmarcar todos", e um contado
 marcados como comprados" no topo da revisão. Nenhuma mudança de backend — o campo `action` por item
 continua sendo `existing`/`new`/`skip` exatamente como antes, só a forma de definir isso mudou.
 
+## Robustez da IA de importação (PDF/OpenAI, JSON, XLSX pivot, divisão automática)
+
+- **OpenAI processa PDF, não só imagem**: `AiService._execute_openai_document`
+  (`app/services/ai_service.py`) ganhou um branch para `application/pdf` usando `input_file`/
+  `file_data` (data URL base64) na Responses API — mesmo endpoint já usado para imagem, sem upload
+  separado. Antes, qualquer PDF no provider OpenAI era rejeitado explicitamente.
+- **JSON mais tolerante a erros de formatação do modelo**: `parse_ai_json_object`
+  (`app/core/ai_json.py`) agora tenta, em sequência, o texto cru, o conteúdo dentro de cerca
+  markdown, e o maior trecho `{...}` encontrado — cada um também com uma segunda tentativa após
+  normalizar aspas curvas e remover vírgula sobrando antes de `}`/`]`. Cobre os erros mais comuns
+  que modelos cometem, sem tentar ser um parser JSON tolerante completo.
+- **Detecção de resposta cortada por limite de tokens**: nova `is_response_truncated()`
+  (`app/core/ai_json.py`), checando `finish_reason` (Gemini: `MAX_TOKENS`; OpenAI: `incomplete`).
+  Essa era a causa real mais provável do erro genérico "JSON mal formatado" reportado pelo usuário
+  num orçamento com muitos itens — `max_output_tokens` subiu de 4000 para 8000 nos dois serviços de
+  extração (orçamento e nota fiscal) para reduzir a chance de isso acontecer.
+- **Divisão automática do arquivo quando a resposta é cortada mesmo assim**
+  (`purchase_quote_ai_service.py`): em vez de só devolver um erro pedindo para o usuário dividir o
+  arquivo manualmente, o sistema divide sozinho e tenta de novo, mesclando os resultados
+  (`_merge_extracted_payloads` — concatena itens, mantém cabeçalho/formas de pagamento do primeiro
+  trecho que tiver dado): PDF é dividido por página (`pypdf`, nova dependência), XLSX/DOCX por
+  linha de texto extraído (repetindo as primeiras linhas do documento em cada pedaço, para o
+  cabeçalho/fornecedor não se perder no meio da divisão). Recursivo, limitado a profundidade 2
+  (até 4 pedaços). Imagem não é dividida (sem fronteira natural de corte) — mantém o erro claro.
+- **XLSX com tabela dinâmica**: `_extract_xlsx_text` resolve células mescladas (comum em cabeçalho
+  de tabela dinâmica exportada do Excel, ex.: nome do fornecedor mesclado sobre várias linhas) —
+  troca `read_only=True` por leitura normal (para acesso confiável a `merged_cells.ranges`) e
+  preenche toda célula de uma região mesclada com o valor da célula âncora antes de gerar o texto.
+  Para o caso de rótulo em branco por repetição (sem ser mesclagem de fato — padrão comum de export
+  de pivot table), o código não tenta adivinhar: o prompt de extração instrui a IA a considerar que
+  célula de agrupamento em branco repete o valor da linha anterior daquela coluna.
+
+## Quantidade de unidades por caixa/pacote (`units_per_package`)
+
+Campo novo em `purchase_quote_items.units_per_package` (nullable, `Numeric(12,3)`, migration
+`20260723_03_add_purchase_quote_item_units_per_package`) — quantas unidades de venda cabem numa
+unidade cotada, quando ela for uma embalagem (caixa, fardo, pacote, dúzia, cartela). Puramente
+aditivo/opcional: sem esse dado, nada muda.
+
+- **Cotações**: quando a unidade do item é uma dessas "tipo embalagem"
+  (`PACKAGE_LIKE_UNITS = ['cx', 'fardo', 'pct', 'dz', 'cartela']` em `quotes-screen.jsx`), aparece
+  um campo extra "Unidades por cx/fardo/..." — no cadastro manual e na revisão do import por IA.
+  A própria IA já tenta extrair esse número quando o documento indicar (ex.: "CX C/50").
+- **Fecha uma lacuna já documentada**: `InventoryInvoiceService.preview_from_purchase_quote` agora
+  usa esse campo, quando presente, para converter a quantidade cotada (em caixas) numa quantidade
+  de estoque (em unidades de venda) — `quantidade = quantity_reference × units_per_package` — e
+  também converte o preço: o custo/preço sugerido passa a ser por unidade de venda
+  (`unit_price ÷ units_per_package`), não mais o preço da caixa inteira aplicado a cada unidade
+  (que superavaliaria o estoque em `units_per_package` vezes). Sem o campo preenchido, comportamento
+  idêntico ao anterior — a limitação registrada no ADR original de Confirmar Compra ("quantidade
+  entra na unidade de venda, sem conversão pela unidade cotada") deixa de se aplicar quando o
+  fornecedor informou a conversão.
+
+## Robustez da extração XLSX (planilhas reais analisadas)
+
+Analisadas 4 planilhas reais de fornecedores (formulário de pedido com célula mesclada por
+categoria, tabela plana com NCM/embalagem "N x tamanho", workbook com abas "resumo" + "cadastro"
+duplicadas + 10 abas de alíquota ICMS-ST por estado, e um formulário de pedido gigante de 933
+linhas com abas de cálculo interno de até 85 colunas) para endurecer `_extract_xlsx_text` e o
+prompt de extração (`purchase_quote_ai_service.py`) contra padrões reais, não só hipotéticos.
+
+- **Bug real encontrado: corte silencioso do arquivo antes da IA ver o conteúdo.**
+  `LOCAL_PARSE_MAX_CHARS` cortava o texto extraído em 20.000 caracteres *antes* de passar pelo
+  mecanismo de divisão-e-repetição (`_extract_text_payload`) — esse mecanismo só reage a resposta
+  da IA cortada (`is_response_truncated`), nunca a um corte que já aconteceu no texto de entrada.
+  Para uma planilha de algumas centenas de linhas, isso descartava a cauda do arquivo sem erro
+  nenhum, e o usuário nunca saberia que faltou item. Subido para 200.000 caracteres — suficiente
+  para as 3 planilhas menores analisadas (7k/15k/46k caracteres) caberem inteiras; um workbook
+  realmente patológico (centenas de linhas *e* abas de cálculo interno muito largas, sem cabeçalho
+  de item reconhecível) ainda pode bater nesse teto — limitação conhecida, não resolvida agora.
+- **Abas de alíquota de ICMS-ST por estado são ignoradas**: heurística determinística em
+  `_looks_like_tax_rate_sheet` — se as primeiras linhas de uma aba tiverem uma coluna "Estado"/
+  "Escolha a UF" junto de "Alíquota"/"MVA", a aba inteira é substituída por uma nota curta em vez
+  do conteúdo. Sem isso, uma tabela de 27 linhas por estado (uma por aba de produto, às vezes 10+
+  abas no mesmo arquivo) competia por espaço com os itens de verdade e arriscava a IA interpretar
+  uma linha de estado ("SP, 0.04, 0.18, ...") como produto.
+- **Prompt ganhou reconhecimento de padrões reais de planilha**: coluna "Embalagem" no formato
+  "12 x 120g" (o número antes do "x" é `units_per_package`); distinção explícita entre uma coluna
+  de conversão de embalagem real ("CX", "Cx.", "Caixa de Embarque") e uma coluna de "Múltiplo de
+  Venda"/quantidade mínima de pedido (regra de pedido, não conversão — não deve virar
+  `units_per_package`); ignorar linhas de resumo/total ("TOTAL <marca>", lista de categorias com
+  valor zerado no topo de formulário de pedido); e combinar num único item quando o mesmo
+  código/EAN aparece em mais de uma aba do mesmo arquivo (ex.: aba resumida + aba "Cadastro" mais
+  completa), preferindo o valor mais detalhado por campo em vez de duplicar o item.
+
+**Limite de upload era menor do que documentos reais de fornecedor**: `APP_MAX_REQUEST_BODY_BYTES`
+(middleware `BodyLimitMiddleware`, verificado antes de qualquer outra validação) estava em 1MB no
+`.env` local — mais restritivo até que o limite de upload de 5MB (`APP_MAX_UPLOAD_BYTES`). Um
+catálogo em PDF com imagens passa fácil de 1MB. Ambos subiram para ~20MB (`max_request_body_bytes`
+e `max_upload_bytes` em `app/core/config.py`, e os mesmos valores no `.env` local). Como o gateway
+de produção (`lumos-gateway`) também impõe um teto próprio (`client_max_body_size`, herdado do
+default global de 10MB em `nginx.conf.template`) e o comentário do próprio `BodyLimitMiddleware`
+avisa que os dois devem ficar alinhados, o template
+`lumos-gateway/nginx/conf.d/90-farmaura.conf.template` ganhou `client_max_body_size 25m;` explícito
+— arquivo do repositório, ainda **não** implantado no gateway real (precisa de deploy do
+lumos-gateway antes de valer em produção).
+
+## Campos fiscais do item (NCM, IPI, ST, preço final)
+
+Alguns fornecedores enviam tabela de preço já com dados fiscais por linha (ex.: tabelas de
+atacado/distribuidor com colunas "NCM", "% IPI", "ST" e "Preço Final"). Antes desses campos
+existirem no schema, a IA extraía só descrição/unidade/preço base e o resto da tabela era
+descartado silenciosamente — o usuário reportou isso ao importar um PDF que tinha essas colunas e
+notar que "não virou tabela para conferência" nada relacionado a imposto.
+
+Campos novos em `purchase_quote_items` (todos opcionais, migration
+`20260723_04_add_purchase_quote_item_tax_fields`):
+
+- `ncm_code` (`varchar(16)`, default `""`) — código de classificação fiscal do produto.
+- `ipi_percentage` (`Numeric(6,3)`, nullable) — alíquota percentual do IPI (ex.: `6.5`, não `0.065`).
+- `icms_st_value` (`Numeric(12,2)`, nullable) — valor monetário de substituição tributária por
+  unidade.
+- `final_unit_price` (`Numeric(12,2)`, nullable) — preço unitário já com impostos aplicados, quando
+  o documento trouxer essa coluna pronta.
+
+Puramente informativo/aditivo: `unit_price` continua sendo o preço base usado em toda a lógica de
+comparação e "Confirmar Compra" — nada é calculado a partir dos campos fiscais automaticamente, e a
+IA só preenche `final_unit_price` quando o documento já tem uma coluna própria para isso (nunca
+calcula IPI/ST em cima do preço base por conta própria, para não inventar um valor que o fornecedor
+não informou).
+
+- **Prompt de extração** (`purchase_quote_ai_service.py`): instruído a reconhecer sinônimos comuns
+  de coluna (NCM; `% IPI`/`IPI`/`IPI%`; `ST`/`ICMS-ST`/`Subst. Tributaria`; `Preço Final`/`Preço com
+  Imposto`/`Valor Final`) e a tratar preço listado por caixa/pacote inteiro (ex.: catálogo "Caixa
+  com 12 Unidades R$ 31,20") como `unit_price` da própria caixa (unidade `cx`) em vez de dividir
+  pelo `units_per_package` — evita o erro de transformar preço de caixa em preço de unidade sem o
+  usuário pedir.
+- **Cotações** (`quotes-screen.jsx`): campos NCM/IPI(%)/ST(R$)/Preço final aparecem no editor manual
+  de item, na revisão do import por IA, e como coluna "Impostos" + subtexto "Final: R$ X" na
+  visualização da cotação (`QuoteViewModal`).
+
 ## Ver também
 
 - [[../00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|Adoção de Alembic em produção]] — como o schema desta feature foi migrado para o processo novo.
@@ -131,6 +262,39 @@ continua sendo `existing`/`new`/`skip` exatamente como antes, só a forma de def
 
 ## Atualizações
 
+- 2026-07-24: corrigido 413 ao importar catálogo/orçamento grande — `APP_MAX_REQUEST_BODY_BYTES`
+  estava em 1MB no `.env` local (mais restritivo que o próprio limite de upload de 5MB), rejeitando
+  qualquer PDF de catálogo com imagens antes mesmo da validação de upload rodar. Limites subidos
+  para ~20MB (`config.py` e `.env`); `lumos-gateway`'s farmaura template ganhou
+  `client_max_body_size 25m;` explícito para não virar o novo teto em produção (arquivo do
+  repositório, deploy do gateway ainda pendente).
+- 2026-07-24: robustez da extração XLSX contra planilhas reais de fornecedores (4 arquivos de
+  exemplo analisados) — corrigido corte silencioso de conteúdo por `LOCAL_PARSE_MAX_CHARS` (20k →
+  200k caracteres) que descartava a cauda de planilhas grandes sem erro; abas de alíquota ICMS-ST
+  por estado agora são detectadas e ignoradas (`_looks_like_tax_rate_sheet`); prompt reconhece
+  "Embalagem" no formato "N x tamanho", distingue múltiplo de venda de conversão de embalagem real,
+  ignora linhas de total/resumo, e combina item duplicado entre abas do mesmo arquivo.
+- 2026-07-24: campos fiscais do item de cotação — `ncm_code`, `ipi_percentage`, `icms_st_value`,
+  `final_unit_price` (todos opcionais, migration `20260723_04`). Corrige tabelas de fornecedor com
+  colunas NCM/%IPI/ST/Preço Final sendo descartadas pela IA na importação; prompt de extração
+  ganhou instruções para reconhecer essas colunas e para tratar preço de caixa/pacote inteiro (ex.:
+  catálogo "Caixa com 12 Unidades R$ 31,20") sem dividir pelo `units_per_package`. Aplicado
+  diretamente no Postgres de dev local (`ALTER TABLE`) porque `bootstrap_database.py` só roda
+  `create_all`, que não adiciona coluna em tabela já existente — só cria tabela ausente; a migration
+  Alembic é quem cobre isso em produção.
+- 2026-07-23: corrigido erro real encontrado ao testar a importação de PDF por OpenAI logo após
+  a mudança acima — `httpx.ReadTimeout` (30s era pouco para PDF + `max_output_tokens=8000`) subia
+  como exceção não tratada, o que faz o FastAPI devolver 500 sem os headers de CORS (o navegador
+  reporta isso como bloqueio de CORS, escondendo o erro real). `AiService` ganhou um `_post()`
+  compartilhado que converte timeout/erro de conexão em `HTTPException` limpa (504/502);
+  `ai_request_timeout_seconds` subiu de 30 para 90s (`app/core/config.py` e `.env` local).
+- 2026-07-23: robustez da importação por IA — OpenAI passa a processar PDF (não só imagem);
+  `parse_ai_json_object` tolera vírgula sobrando e aspas curvas; resposta cortada por limite de
+  tokens é detectada e o arquivo é dividido automaticamente (PDF por página via nova dependência
+  `pypdf`, XLSX/DOCX por linha de texto) e os resultados mesclados; XLSX com células mescladas
+  (comum em tabela dinâmica exportada) é lido corretamente. Campo novo `units_per_package` em
+  Cotações (quantas unidades tem uma caixa/pacote), usado por "Confirmar Compra" para converter
+  quantidade e custo corretamente quando presente — nova migration `20260723_03`.
 - 2026-07-23: "Comparar Fornecedores" ganhou ordenação por coluna, filtro "somente melhores
   ofertas", coluna de valor total (produto + frete, sem duplicar frete entre itens da mesma
   cotação) e "Meu catálogo" (seleção manual do usuário, sobrevive a filtro). "Confirmar Compra"

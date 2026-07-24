@@ -118,6 +118,33 @@ class AiService:
         if not self.settings.ai_enabled:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI integrations are disabled.")
 
+    async def _post(self, client: httpx.AsyncClient, url: str, **kwargs: Any) -> httpx.Response:
+        """POST to an AI provider, converting transport failures into a clean HTTP error.
+
+        Without this, a timeout or connection error is an *unhandled* exception that FastAPI
+        turns into a 500 without going through the CORS middleware — the browser then reports a
+        misleading "CORS policy" error instead of the real cause. Document/multimodal requests
+        (larger uploads, longer generation) are the most likely to hit this.
+        """
+
+        try:
+            return await client.post(url, **kwargs)
+        except httpx.TimeoutException as error:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=(
+                    "A IA demorou demais para responder. Tente novamente ou, se o arquivo for "
+                    "grande, considere um arquivo com menos itens."
+                ),
+            ) from error
+        except httpx.RequestError as error:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Nao foi possivel se conectar ao provedor de IA. Tente novamente em instantes."
+                ),
+            ) from error
+
     async def _execute_gemini(self, request: AiExecutionRequest) -> AiPromptExecutionResponse:
         """Execute a prompt through the Gemini GenerateContent API."""
 
@@ -181,7 +208,8 @@ class AiService:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Gemini API key is not configured.")
         endpoint = self.settings.ai_gemini_base_url.rstrip("/") + f"/models/{model}:generateContent"
         async with httpx.AsyncClient(timeout=self.settings.ai_request_timeout_seconds) as client:
-            response = await client.post(
+            response = await self._post(
+                client,
                 endpoint,
                 params={"key": api_key},
                 headers={"Content-Type": "application/json"},
@@ -221,7 +249,8 @@ class AiService:
         if request.system_prompt.strip() != "":
             payload["instructions"] = request.system_prompt.strip()
         async with httpx.AsyncClient(timeout=self.settings.ai_request_timeout_seconds) as client:
-            response = await client.post(
+            response = await self._post(
+                client,
                 endpoint,
                 headers={
                     "Content-Type": "application/json",
@@ -244,12 +273,31 @@ class AiService:
         )
 
     async def _execute_openai_document(self, request: AiDocumentExecutionRequest) -> AiPromptExecutionResponse:
-        """Execute a multimodal document prompt through the OpenAI Responses API."""
+        """Execute a multimodal document prompt through the OpenAI Responses API.
 
-        if not request.mime_type.startswith("image/"):
+        Images use an `input_image` content part; PDFs use `input_file` with an
+        inline base64 data URL — both go through the same endpoint, no separate
+        upload step needed. Any other mime type is rejected with a clear message
+        since neither branch applies (XLSX/DOCX never reach this method — they're
+        parsed locally and sent as a text prompt instead, which already works with
+        both providers).
+        """
+
+        if request.mime_type.startswith("image/"):
+            content_part: dict[str, Any] = {
+                "type": "input_image",
+                "image_url": "data:" + request.mime_type + ";base64," + request.file_base64,
+            }
+        elif request.mime_type == "application/pdf":
+            content_part = {
+                "type": "input_file",
+                "filename": request.file_name or "document.pdf",
+                "file_data": "data:" + request.mime_type + ";base64," + request.file_base64,
+            }
+        else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="OpenAI invoice extraction currently supports image files only. Use Gemini for PDF documents.",
+                detail="OpenAI document extraction supports PDF and image files only.",
             )
         api_key = self.settings.ai_openai_api_key.strip()
         if api_key == "":
@@ -263,10 +311,7 @@ class AiService:
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": request.prompt},
-                        {
-                            "type": "input_image",
-                            "image_url": "data:" + request.mime_type + ";base64," + request.file_base64,
-                        },
+                        content_part,
                     ],
                 }
             ],
@@ -275,7 +320,8 @@ class AiService:
         if request.system_prompt.strip() != "":
             payload["instructions"] = request.system_prompt.strip()
         async with httpx.AsyncClient(timeout=self.settings.ai_request_timeout_seconds) as client:
-            response = await client.post(
+            response = await self._post(
+                client,
                 endpoint,
                 headers={
                     "Content-Type": "application/json",

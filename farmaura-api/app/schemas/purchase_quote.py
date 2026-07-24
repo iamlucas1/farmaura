@@ -67,8 +67,13 @@ class PurchaseQuoteItemRequest(StrictModel):
     sku_snapshot: str = Field(default="", max_length=64)
     ean_code_snapshot: str = Field(default="", max_length=32)
     unit: str = Field(default="un", max_length=16)
+    units_per_package: Decimal | None = Field(default=None, gt=Decimal("0"))
     quantity_reference: Decimal | None = Field(default=None, ge=Decimal("0"))
     unit_price: Decimal = Field(ge=Decimal("0.00"))
+    ncm_code: str = Field(default="", max_length=16)
+    ipi_percentage: Decimal | None = Field(default=None, ge=Decimal("0"))
+    icms_st_value: Decimal | None = Field(default=None, ge=Decimal("0.00"))
+    final_unit_price: Decimal | None = Field(default=None, ge=Decimal("0.00"))
     is_comodato: bool = False
     comodato_notes: str = Field(default="", max_length=1000)
     notes: str = Field(default="", max_length=500)
@@ -165,8 +170,13 @@ class PurchaseQuoteImportPreviewLineResponse(StrictModel):
     sku: str
     ean_code: str
     unit: str
+    units_per_package: Decimal | None
     quantity_reference: Decimal | None
     unit_price: Decimal
+    ncm_code: str
+    ipi_percentage: Decimal | None
+    icms_st_value: Decimal | None
+    final_unit_price: Decimal | None
     is_comodato: bool
     comodato_notes: str
     match_candidates: list[PurchaseQuoteProductCandidateResponse]

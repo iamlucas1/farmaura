@@ -24,6 +24,7 @@ const PAYMENT_METHOD_LABEL = {
 const PAYMENT_METHOD_OPTIONS = Object.keys(PAYMENT_METHOD_LABEL);
 const QUOTE_STATUS_LABEL = { draft: 'Rascunho', confirmed: 'Confirmado', archived: 'Arquivado' };
 const UNIT_OPTIONS = ['un', 'cx', 'fardo', 'pct', 'kg', 'g', 'L', 'mL', 'fr', 'dz', 'cartela', 'ampola'];
+const PACKAGE_LIKE_UNITS = ['cx', 'fardo', 'pct', 'dz', 'cartela'];
 
 function paymentMethodLabel(method) { return PAYMENT_METHOD_LABEL[method] || 'Outro'; }
 function todayIsoDate() { return new Date().toISOString().slice(0, 10); }
@@ -308,7 +309,7 @@ function QuotesScreen({ ctx }) {
 
 /* ===================== FORMAS DE PAGAMENTO E ITENS (linhas dinâmicas) ===================== */
 function emptyPaymentTerm() { return { method: 'pix', discountPercent: '', surchargePercent: '', installmentCount: '', daysToPay: '', notes: '' }; }
-function emptyItem() { return { productId: '', description: '', brandName: '', skuSnapshot: '', eanCodeSnapshot: '', unit: 'un', quantityReference: '', unitPrice: '', isComodato: false, comodatoNotes: '', notes: '' }; }
+function emptyItem() { return { productId: '', description: '', brandName: '', skuSnapshot: '', eanCodeSnapshot: '', unit: 'un', unitsPerPackage: '', quantityReference: '', unitPrice: '', ncmCode: '', ipiPercentage: '', icmsStValue: '', finalUnitPrice: '', isComodato: false, comodatoNotes: '', notes: '' }; }
 
 function PaymentTermsEditor({ terms, onChange }) {
   const setTerm = (index, patch) => onChange(terms.map((term, i) => i === index ? { ...term, ...patch } : term));
@@ -351,11 +352,18 @@ function ItemsEditor({ items, onChange }) {
             <div className="fa-field fa-span2"><label>Descrição *</label><input className="fa-input" value={item.description} onChange={(e) => setItem(index, { description: e.target.value })} /></div>
             <div className="fa-field"><label>Marca</label><input className="fa-input" value={item.brandName} onChange={(e) => setItem(index, { brandName: e.target.value })} /></div>
             <div className="fa-field"><label>Unidade</label><UnitSelect value={item.unit} onChange={(unit) => setItem(index, { unit })} /></div>
+            {PACKAGE_LIKE_UNITS.includes(item.unit) && (
+              <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setItem(index, { unitsPerPackage: e.target.value })} placeholder="Ex.: 50" /></div>
+            )}
             <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="0.001" min="0" value={item.quantityReference} onChange={(e) => setItem(index, { quantityReference: e.target.value })} /></div>
             <div className="fa-field"><label>Preço unitário (R$) *</label><input className="fa-input" type="number" step="0.01" min="0" value={item.unitPrice} onChange={(e) => setItem(index, { unitPrice: e.target.value })} /></div>
             <div className="fa-field"><label>Valor total</label><input className="fa-input" value={brl(itemTotalValue(item))} disabled /></div>
             <div className="fa-field"><label>SKU</label><input className="fa-input" value={item.skuSnapshot} onChange={(e) => setItem(index, { skuSnapshot: e.target.value })} /></div>
             <div className="fa-field"><label>EAN</label><input className="fa-input" value={item.eanCodeSnapshot} onChange={(e) => setItem(index, { eanCodeSnapshot: e.target.value })} /></div>
+            <div className="fa-field"><label>NCM</label><input className="fa-input" value={item.ncmCode} onChange={(e) => setItem(index, { ncmCode: e.target.value })} placeholder="Ex.: 34013000" /></div>
+            <div className="fa-field"><label>IPI (%)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.ipiPercentage} onChange={(e) => setItem(index, { ipiPercentage: e.target.value })} /></div>
+            <div className="fa-field"><label>ST (R$)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.icmsStValue} onChange={(e) => setItem(index, { icmsStValue: e.target.value })} /></div>
+            <div className="fa-field"><label>Preço final (c/ impostos)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.finalUnitPrice} onChange={(e) => setItem(index, { finalUnitPrice: e.target.value })} placeholder="Opcional" /></div>
           </div>
           <label className="fa-check" data-on={item.isComodato ? '1' : '0'} onClick={() => setItem(index, { isComodato: !item.isComodato })} style={{ marginTop: 10 }}>
             <span className="box"><Icon name="check" size={13} stroke={2.6} /></span>Item em comodato (ex.: geladeira cedida pelo fornecedor)
@@ -417,6 +425,7 @@ function QuoteViewModal({ quote, onClose }) {
               <th>Marca</th>
               <th>Unidade</th>
               <th>Quantidade</th>
+              <th>Impostos</th>
               <th>Preço unitário</th>
               <th>Valor total</th>
             </tr>
@@ -429,9 +438,23 @@ function QuoteViewModal({ quote, onClose }) {
                   {item.isComodato && <span className="fa-badge fa-badge-mist" style={{ marginTop: 4 }}><Icon name="gift" size={11} />Comodato{item.comodatoNotes ? ' · ' + item.comodatoNotes : ''}</span>}
                 </td>
                 <td>{item.brandName || '—'}</td>
-                <td>{item.unit}</td>
+                <td>{item.unit}{item.unitsPerPackage ? <span className="ph-cell-sub"> · {item.unitsPerPackage} un/{item.unit}</span> : null}</td>
                 <td>{item.quantityReference != null ? item.quantityReference : '—'}</td>
-                <td>{brl(item.unitPrice)}</td>
+                <td>
+                  {item.ncmCode ? <div>NCM {item.ncmCode}</div> : null}
+                  {(item.ipiPercentage != null || item.icmsStValue != null) && (
+                    <span className="ph-cell-sub">
+                      {item.ipiPercentage != null ? 'IPI ' + item.ipiPercentage + '%' : ''}
+                      {item.ipiPercentage != null && item.icmsStValue != null ? ' · ' : ''}
+                      {item.icmsStValue != null ? 'ST ' + brl(item.icmsStValue) : ''}
+                    </span>
+                  )}
+                  {!item.ncmCode && item.ipiPercentage == null && item.icmsStValue == null ? '—' : null}
+                </td>
+                <td>
+                  {brl(item.unitPrice)}
+                  {item.finalUnitPrice != null && <div className="ph-cell-sub">Final: {brl(item.finalUnitPrice)}</div>}
+                </td>
                 <td>{brl(itemTotalValue(item))}</td>
               </tr>
             ))}
@@ -459,7 +482,7 @@ function buildQuoteForm(quote) {
     deliveryTimeDays: quote && quote.deliveryTimeDays != null ? quote.deliveryTimeDays : '',
     notes: quote && quote.notes || '',
     paymentTerms: quote && quote.paymentTerms && quote.paymentTerms.length ? quote.paymentTerms.map((term) => ({ ...term, discountPercent: term.discountPercent ?? '', surchargePercent: term.surchargePercent ?? '', installmentCount: term.installmentCount ?? '', daysToPay: term.daysToPay ?? '' })) : [emptyPaymentTerm()],
-    items: quote && quote.items && quote.items.length ? quote.items.map((item) => ({ ...item, quantityReference: item.quantityReference ?? '' })) : [emptyItem()],
+    items: quote && quote.items && quote.items.length ? quote.items.map((item) => ({ ...item, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference ?? '', ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '' })) : [emptyItem()],
   };
 }
 
@@ -560,7 +583,8 @@ function QuoteImportModal({ suppliers, onClose, onPreview, onConfirm, notify }) 
         items: payload.items.map((item) => ({
           productId: item.matchCandidates[0] ? item.matchCandidates[0].id : '',
           description: item.description, brandName: item.brandName, skuSnapshot: item.sku, eanCodeSnapshot: item.eanCode,
-          unit: item.unit, quantityReference: item.quantityReference ?? '', unitPrice: item.unitPrice,
+          unit: item.unit, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference ?? '', unitPrice: item.unitPrice,
+          ncmCode: item.ncmCode ?? '', ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '',
           isComodato: item.isComodato, comodatoNotes: item.comodatoNotes, notes: '',
           matchCandidates: item.matchCandidates,
         })),
@@ -705,9 +729,16 @@ function QuoteImportModal({ suppliers, onClose, onPreview, onConfirm, notify }) 
                   <div className="fa-field fa-span2"><label>Descrição *</label><input className="fa-input" value={item.description} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, description: e.target.value } : it) }))} /></div>
                   <div className="fa-field"><label>Marca</label><input className="fa-input" value={item.brandName} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, brandName: e.target.value } : it) }))} /></div>
                   <div className="fa-field"><label>Unidade</label><UnitSelect value={item.unit} onChange={(unit) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, unit } : it) }))} /></div>
+                  {PACKAGE_LIKE_UNITS.includes(item.unit) && (
+                    <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, unitsPerPackage: e.target.value } : it) }))} placeholder="Ex.: 50" /></div>
+                  )}
                   <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="0.001" min="0" value={item.quantityReference} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, quantityReference: e.target.value } : it) }))} /></div>
                   <div className="fa-field"><label>Preço unitário (R$) *</label><input className="fa-input" type="number" step="0.01" min="0" value={item.unitPrice} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, unitPrice: e.target.value } : it) }))} /></div>
                   <div className="fa-field"><label>Valor total</label><input className="fa-input" value={brl(itemTotalValue(item))} disabled /></div>
+                  <div className="fa-field"><label>NCM</label><input className="fa-input" value={item.ncmCode} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, ncmCode: e.target.value } : it) }))} placeholder="Ex.: 34013000" /></div>
+                  <div className="fa-field"><label>IPI (%)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.ipiPercentage} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, ipiPercentage: e.target.value } : it) }))} /></div>
+                  <div className="fa-field"><label>ST (R$)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.icmsStValue} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, icmsStValue: e.target.value } : it) }))} /></div>
+                  <div className="fa-field"><label>Preço final (c/ impostos)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.finalUnitPrice} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, finalUnitPrice: e.target.value } : it) }))} placeholder="Opcional" /></div>
                   {item.matchCandidates && item.matchCandidates.length > 0 && (
                     <div className="fa-field fa-span2">
                       <label>Produto correspondente no catálogo (referência, opcional)</label>

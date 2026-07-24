@@ -58,13 +58,13 @@ class Settings(BaseSettings):
     storage_root: Path = Path("farmaura-api/storage/private")
     storage_tmp_root: Path = Path("farmaura-api/storage/tmp")
     storage_quarantine_root: Path = Path("farmaura-api/storage/quarantine")
-    max_request_body_bytes: int = 6_291_456
-    max_upload_bytes: int = 5_242_880
+    max_request_body_bytes: int = 21_000_000
+    max_upload_bytes: int = 20_971_520
     default_page_size: int = 20
     max_page_size: int = 100
     ai_enabled: bool = False
     ai_default_provider: str = "gemini"
-    ai_request_timeout_seconds: int = 30
+    ai_request_timeout_seconds: int = 90
     ai_gemini_api_key: str = ""
     ai_gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     ai_gemini_model: str = "gemini-2.5-flash"
