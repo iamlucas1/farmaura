@@ -60,6 +60,14 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 
 ## Atualizações
 
+- 2026-07-24: corrigido timeout na importação de orçamento por IA — a extração de um documento
+  real leva legitimamente mais de um minuto (observado 105s e 151.8s ponta a ponta em produção;
+  `ai_request_timeout_seconds=90` por chamada, e um documento que aciona divisão-e-repetição faz
+  várias chamadas em sequência). Duas camadas de proxy tinham timeout menor que isso e cortavam a
+  conexão antes do backend terminar (que respondia 200 de qualquer forma, tarde demais): o nginx
+  **dentro** do container `farmaura` (`docker/web/nginx.conf`, sem timeout explícito → default de
+  60s do próprio nginx) e o `proxy_read_timeout 120;` do vhost no `lumos-gateway`. Subidos os dois
+  para 300s. Validado com uma importação real de ponta a ponta pelo domínio (200 OK em 2min28s).
 - 2026-07-24: corrigido 429 no console interno — telas com muitas chamadas paralelas no load
   (ex.: Cotações, 12 GETs simultâneos) estouravam `limit_req burst=10` do vhost Farmaura; subido
   para `burst=40` (server e location).
