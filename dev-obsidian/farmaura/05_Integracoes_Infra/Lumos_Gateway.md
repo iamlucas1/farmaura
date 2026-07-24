@@ -39,6 +39,18 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 - `client_max_body_size` do vhost do Farmaura era o default global (10m) — `farmaura-api` passou a
   aceitar uploads de até ~20MB (catálogos de fornecedor com imagens), então o vhost ganhou
   `client_max_body_size 25m;` explícito para não virar o novo teto.
+- **Bug real encontrado em 2026-07-24 (mesmo dia, logo após o deploy acima)**: telas do console
+  interno que disparam várias chamadas em paralelo no carregamento (ex.: "Cotações" — 12 GETs
+  simultâneos: therapeutic-classes, stores, inventory/dashboard, inventory/lots, portal bootstrap,
+  orders/internal-board, prescriptions/review-queue, crm/customers, chat/threads, pdv/queue,
+  pdv/sales, deliveries/routes/live) estouravam o `limit_req zone=req_limit burst=10 nodelay;` do
+  bloco `location /` — as chamadas além do burst (inclusive `favicon.ico`) voltavam 429 direto do
+  gateway, sem nem chegar no backend. `req_limit` é uma zona **compartilhada por IP entre todos os
+  tenants** (`limit_req_zone $binary_remote_addr zone=req_limit:20m rate=5r/s;` em
+  `nginx.conf.template`), mas o `burst` é declarado por vhost/location — deu para corrigir só o
+  Farmaura sem tocar nos outros tenants. Subido de `burst=10`/`burst=20` (location/server) para
+  `burst=40` nos dois níveis do vhost Farmaura; validado disparando 15 requisições em paralelo
+  contra o domínio real e confirmando que nenhuma voltou 429.
 
 ## Ver também
 
@@ -48,6 +60,9 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 
 ## Atualizações
 
+- 2026-07-24: corrigido 429 no console interno — telas com muitas chamadas paralelas no load
+  (ex.: Cotações, 12 GETs simultâneos) estouravam `limit_req burst=10` do vhost Farmaura; subido
+  para `burst=40` (server e location).
 - 2026-07-24: corrigido bug real de produção (rede `farmaura_private` não declarada no
   `docker-compose.yml` do gateway — sobrevivia só por conexão manual, quebraria em qualquer
   recreate futuro) e subido `client_max_body_size` do vhost Farmaura (10m → 25m). Documentado o
