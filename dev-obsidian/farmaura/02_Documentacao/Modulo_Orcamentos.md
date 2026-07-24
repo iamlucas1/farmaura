@@ -207,17 +207,27 @@ prompt de extração (`purchase_quote_ai_service.py`) contra padrões reais, nã
   código/EAN aparece em mais de uma aba do mesmo arquivo (ex.: aba resumida + aba "Cadastro" mais
   completa), preferindo o valor mais detalhado por campo em vez de duplicar o item.
 
-**Limite de upload era menor do que documentos reais de fornecedor**: `APP_MAX_REQUEST_BODY_BYTES`
-(middleware `BodyLimitMiddleware`, verificado antes de qualquer outra validação) estava em 1MB no
-`.env` local — mais restritivo até que o limite de upload de 5MB (`APP_MAX_UPLOAD_BYTES`). Um
-catálogo em PDF com imagens passa fácil de 1MB. Ambos subiram para ~20MB (`max_request_body_bytes`
-e `max_upload_bytes` em `app/core/config.py`, e os mesmos valores no `.env` local). Como o gateway
-de produção (`lumos-gateway`) também impõe um teto próprio (`client_max_body_size`, herdado do
-default global de 10MB em `nginx.conf.template`) e o comentário do próprio `BodyLimitMiddleware`
-avisa que os dois devem ficar alinhados, o template
-`lumos-gateway/nginx/conf.d/90-farmaura.conf.template` ganhou `client_max_body_size 25m;` explícito
-— arquivo do repositório, ainda **não** implantado no gateway real (precisa de deploy do
-lumos-gateway antes de valer em produção).
+**Limite de upload era menor do que documentos reais de fornecedor — três camadas, três limites
+diferentes**: uma requisição de import passa por `lumos-gateway` (nginx) → nginx interno do
+container `farmaura` (proxy `/api/v1/` → `farmaura-api`) → `BodyLimitMiddleware` do próprio
+`farmaura-api`. Cada uma tinha um teto menor que o anterior, e cada uma precisou ser corrigida
+separadamente, em rodadas diferentes, porque só apareciam ao testar o caminho real (domínio em
+produção) — testar direto na porta 8080 do backend, como em dev local, pula as duas primeiras
+camadas e mascara o problema:
+- `farmaura-api`: `APP_MAX_REQUEST_BODY_BYTES` (middleware `BodyLimitMiddleware`, checado antes de
+  qualquer outra validação) estava em 1MB no `.env`, mais restritivo até que o próprio
+  `APP_MAX_UPLOAD_BYTES` de 5MB. Ambos subiram para ~20MB (`app/core/config.py` e `.env`, local e
+  produção).
+- `lumos-gateway`: o vhost do Farmaura (`nginx/conf.d/90-farmaura.conf.template`) herdava o
+  `client_max_body_size` default global de 10MB — ganhou `client_max_body_size 25m;` explícito.
+- `docker/web/nginx.conf` (nginx **dentro** do container `farmaura`, que serve os estáticos e faz
+  `proxy_pass` de `/api/v1/` para `farmaura-api:8080`): não tinha `client_max_body_size` nenhum,
+  caindo no default embutido do nginx de **1MB** — o teto mais apertado dos três, e o único que só
+  se manifesta passando pelo domínio real (gateway → este proxy → backend), nunca testando a porta
+  8080 direto. Ganhou `client_max_body_size 25m;` no bloco `server`.
+
+Todas as três camadas foram implantadas em produção; validado com upload real de 8MB através do
+domínio (`drogariafarmaura.com.br`) retornando 401 (exige login) em vez de 413.
 
 ## Campos fiscais do item (NCM, IPI, ST, preço final)
 
@@ -262,12 +272,11 @@ não informou).
 
 ## Atualizações
 
-- 2026-07-24: corrigido 413 ao importar catálogo/orçamento grande — `APP_MAX_REQUEST_BODY_BYTES`
-  estava em 1MB no `.env` local (mais restritivo que o próprio limite de upload de 5MB), rejeitando
-  qualquer PDF de catálogo com imagens antes mesmo da validação de upload rodar. Limites subidos
-  para ~20MB (`config.py` e `.env`); `lumos-gateway`'s farmaura template ganhou
-  `client_max_body_size 25m;` explícito para não virar o novo teto em produção (arquivo do
-  repositório, deploy do gateway ainda pendente).
+- 2026-07-24: corrigido 413 ao importar catálogo/orçamento grande — três causas em sequência, uma
+  por camada (`farmaura-api` 1MB → `lumos-gateway` 10MB → nginx interno do container `farmaura`
+  1MB default), a última só reproduzível testando pelo domínio real, não pela porta 8080 direto.
+  Todas as três subidas para ~20-25MB e implantadas em produção; validado com upload real de 8MB
+  pelo domínio retornando 401 em vez de 413.
 - 2026-07-24: robustez da extração XLSX contra planilhas reais de fornecedores (4 arquivos de
   exemplo analisados) — corrigido corte silencioso de conteúdo por `LOCAL_PARSE_MAX_CHARS` (20k →
   200k caracteres) que descartava a cauda de planilhas grandes sem erro; abas de alíquota ICMS-ST
