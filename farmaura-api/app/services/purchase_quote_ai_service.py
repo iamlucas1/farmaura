@@ -52,9 +52,14 @@ from app.core.ai_json import is_response_truncated, parse_ai_json_object
 from app.core.config import Settings
 from app.core.file_storage import write_private_file
 from app.core.file_validation import validate_quote_upload
+from app.core.tenant_context import apply_tenant_context
 from app.repositories.purchase_quote_repository import PurchaseQuoteRepository
 from app.schemas.auth import TokenSubject
 from app.schemas.purchase_quote import (
+    PurchaseQuoteBatchImportConfirmItem,
+    PurchaseQuoteBatchImportConfirmResponse,
+    PurchaseQuoteBatchImportPreviewItem,
+    PurchaseQuoteBatchImportPreviewResponse,
     PurchaseQuoteImportConfirmRequest,
     PurchaseQuoteImportPreviewHeaderResponse,
     PurchaseQuoteImportPreviewLineResponse,
@@ -67,6 +72,10 @@ from app.services.ai_service import AiDocumentExecutionRequest, AiExecutionReque
 from app.services.purchase_quote_service import PurchaseQuoteService
 
 DOCUMENT_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
+# Bounds a batch import to a reasonable number of sequential AI extractions — files are processed
+# one at a time (see BATCH (MULTIPLE FILES) IMPORT below), so this is also a rough cap on how long
+# a single batch request can run for.
+MAX_BATCH_FILES = 10
 # Comfortably above any real supplier price list seen so far (largest sample: ~46k chars across 6
 # item-bearing sheets after tax-rate sheets are filtered out). A genuinely pathological workbook —
 # hundreds of items *and* multiple very wide (40+ column) internal calculation-mirror sheets that
@@ -295,6 +304,94 @@ class PurchaseQuoteAiService:
             storage_key=storage_key,
         )
         return await self.quote_service.persist_quote(quote)
+
+    # ========================================================================
+    # BATCH (MULTIPLE FILES) IMPORT
+    # ========================================================================
+    #
+    # A batch is several independent single-file imports run in sequence (not concurrently, to
+    # avoid piling concurrent AI-provider calls onto the same rate-limited key) — one uploaded
+    # file always extracts to exactly one quote/supplier, same as preview_quote_import/
+    # confirm_quote_import above; a batch never merges two files' items into one quote. Each file
+    # succeeds or fails independently so one malformed document doesn't block the rest.
+
+    async def preview_quote_import_batch(
+        self,
+        *,
+        files: list[UploadFile],
+        provider: str,
+        model: str,
+    ) -> PurchaseQuoteBatchImportPreviewResponse:
+        """Extract purchase quote data from several supplier documents, one preview per file."""
+
+        self._ensure_batch_size(files)
+        results: list[PurchaseQuoteBatchImportPreviewItem] = []
+        for file in files:
+            file_name = file.filename or ""
+            try:
+                preview = await self.preview_quote_import(file=file, provider=provider, model=model)
+                results.append(
+                    PurchaseQuoteBatchImportPreviewItem(
+                        file_name=file_name, success=True, preview=preview, error=""
+                    )
+                )
+            except HTTPException as error:
+                results.append(
+                    PurchaseQuoteBatchImportPreviewItem(
+                        file_name=file_name, success=False, preview=None, error=str(error.detail)
+                    )
+                )
+        return PurchaseQuoteBatchImportPreviewResponse(results=results)
+
+    async def confirm_quote_import_batch(
+        self,
+        *,
+        files: list[UploadFile],
+        payloads: list[PurchaseQuoteImportConfirmRequest],
+    ) -> PurchaseQuoteBatchImportConfirmResponse:
+        """Persist several human-reviewed AI extraction results, one confirmed quote per file."""
+
+        self._ensure_batch_size(files)
+        if len(files) != len(payloads):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Each file must have a matching review payload.",
+            )
+        results: list[PurchaseQuoteBatchImportConfirmItem] = []
+        for file, payload in zip(files, payloads, strict=True):
+            file_name = file.filename or ""
+            try:
+                # confirm_quote_import commits after persisting, which clears the transaction-
+                # local RLS context (see purchase_quote_service.py's _reapply_tenant_context) --
+                # without reapplying it here, every file after the first in a batch would fail
+                # its INSERT with "new row violates row-level security policy".
+                await apply_tenant_context(self.session, self.subject)
+                quote = await self.confirm_quote_import(payload=payload, file=file)
+                results.append(
+                    PurchaseQuoteBatchImportConfirmItem(
+                        file_name=file_name, success=True, quote=quote, error=""
+                    )
+                )
+            except HTTPException as error:
+                results.append(
+                    PurchaseQuoteBatchImportConfirmItem(
+                        file_name=file_name, success=False, quote=None, error=str(error.detail)
+                    )
+                )
+        return PurchaseQuoteBatchImportConfirmResponse(results=results)
+
+    def _ensure_batch_size(self, files: list[UploadFile]) -> None:
+        """Reject a batch with no files or more than MAX_BATCH_FILES."""
+
+        if not files:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No files were sent."
+            )
+        if len(files) > MAX_BATCH_FILES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Send at most {MAX_BATCH_FILES} files per batch.",
+            )
 
     # ========================================================================
     # SPLIT-AND-RETRY EXTRACTION

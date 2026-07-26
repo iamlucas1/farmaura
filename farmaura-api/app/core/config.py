@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     storage_root: Path = Path("farmaura-api/storage/private")
     storage_tmp_root: Path = Path("farmaura-api/storage/tmp")
     storage_quarantine_root: Path = Path("farmaura-api/storage/quarantine")
-    max_request_body_bytes: int = 21_000_000
-    max_upload_bytes: int = 20_971_520
+    max_request_body_bytes: int = 560_000_000
+    max_upload_bytes: int = 110_000_000
     default_page_size: int = 20
     max_page_size: int = 100
     ai_enabled: bool = False

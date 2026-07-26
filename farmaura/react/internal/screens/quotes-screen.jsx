@@ -25,6 +25,7 @@ const PAYMENT_METHOD_OPTIONS = Object.keys(PAYMENT_METHOD_LABEL);
 const QUOTE_STATUS_LABEL = { draft: 'Rascunho', confirmed: 'Confirmado', archived: 'Arquivado' };
 const UNIT_OPTIONS = ['un', 'cx', 'fardo', 'pct', 'kg', 'g', 'L', 'mL', 'fr', 'dz', 'cartela', 'ampola'];
 const PACKAGE_LIKE_UNITS = ['cx', 'fardo', 'pct', 'dz', 'cartela'];
+const MAX_BATCH_FILES = 10;
 
 function paymentMethodLabel(method) { return PAYMENT_METHOD_LABEL[method] || 'Outro'; }
 function todayIsoDate() { return new Date().toISOString().slice(0, 10); }
@@ -51,7 +52,7 @@ function UnitSelect({ value, onChange }) {
 function QuotesScreen({ ctx }) {
   const {
     suppliers, fetchPurchaseQuotes, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
-    downloadPurchaseQuoteFile, previewPurchaseQuoteImport, confirmPurchaseQuoteImport,
+    downloadPurchaseQuoteFile, previewPurchaseQuoteImportBatch, confirmPurchaseQuoteImportBatch,
     setPendingPurchaseQuoteId, onNav,
     notify, onLogout,
   } = ctx;
@@ -295,10 +296,11 @@ function QuotesScreen({ ctx }) {
         <QuoteImportModal
           suppliers={suppliers}
           onClose={() => setImportOpen(false)}
-          onPreview={previewPurchaseQuoteImport}
-          onConfirm={async (payload) => {
-            await confirmPurchaseQuoteImport(payload);
+          onPreviewBatch={previewPurchaseQuoteImportBatch}
+          onConfirmBatch={async (payload) => {
+            const result = await confirmPurchaseQuoteImportBatch(payload);
             await load();
+            return result;
           }}
           notify={notify}
         />
@@ -554,61 +556,217 @@ function QuoteFormModal({ title, submitLabel, initialQuote, suppliers, onClose, 
 }
 
 /* ===================== MODAL: IMPORTAR ORÇAMENTO COM IA ===================== */
-function QuoteImportModal({ suppliers, onClose, onPreview, onConfirm, notify }) {
+function formatFileSize(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function groupFormFromPreview(payload) {
+  return {
+    supplierId: payload.header.matchedSupplierId || '',
+    supplierName: payload.header.supplierName,
+    supplierDocument: payload.header.supplierDocument,
+    quoteDate: /^\d{4}-\d{2}-\d{2}$/.test(payload.header.quoteDate) ? payload.header.quoteDate : todayIsoDate(),
+    validUntil: /^\d{4}-\d{2}-\d{2}$/.test(payload.header.validUntil) ? payload.header.validUntil : '',
+    freightType: payload.header.freightType,
+    freightCost: payload.header.freightCost != null ? payload.header.freightCost : '',
+    deliveryTimeDays: payload.header.deliveryTimeDays != null ? payload.header.deliveryTimeDays : '',
+    notes: payload.header.notes,
+    paymentTerms: payload.paymentTerms.length ? payload.paymentTerms.map((term) => ({ ...term, discountPercent: term.discountPercent ?? '', surchargePercent: term.surchargePercent ?? '', installmentCount: term.installmentCount ?? '', daysToPay: term.daysToPay ?? '' })) : [emptyPaymentTerm()],
+    items: payload.items.map((item) => ({
+      productId: item.matchCandidates[0] ? item.matchCandidates[0].id : '',
+      description: item.description, brandName: item.brandName, skuSnapshot: item.sku, eanCodeSnapshot: item.eanCode,
+      unit: item.unit, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference ?? '', unitPrice: item.unitPrice,
+      ncmCode: item.ncmCode ?? '', ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '',
+      isComodato: item.isComodato, comodatoNotes: item.comodatoNotes, notes: '',
+      matchCandidates: item.matchCandidates,
+    })),
+  };
+}
+
+function isGroupValid(form) {
+  const validItems = form.items.length > 0 && form.items.every((item) => item.description.trim() && item.unitPrice !== '' && Number(item.unitPrice) >= 0);
+  return form.supplierName.trim().length >= 2 && !!form.quoteDate && validItems;
+}
+
+function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove }) {
+  const { fileName, preview, form, confirmError } = group;
+  const set = (key, value) => onChange(index, (prev) => ({ ...prev, [key]: value }));
+  const setItem = (itemIndex, patch) => onChange(index, (prev) => ({ ...prev, items: prev.items.map((it, i) => i === itemIndex ? { ...it, ...patch } : it) }));
+
+  const itemsByBrand = form.items
+    .map((item, itemIndex) => ({ item, itemIndex }))
+    .sort((a, b) => (a.item.brandName || '').localeCompare(b.item.brandName || '', 'pt-BR'));
+  let lastBrand = undefined;
+
+  return (
+    <div className="fa-card" style={{ padding: 18, marginBottom: 16, border: confirmError ? '1px solid var(--fa-error)' : undefined }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>{form.supplierName || 'Fornecedor não identificado'}</div>
+          <div className="ph-cell-sub" style={{ lineHeight: 1.7 }}>
+            <div>Arquivo: <span className="fa-mono">{fileName}</span></div>
+            <div>Provider: <span className="fa-mono">{preview.provider} · {preview.model}</span> · Itens: <span className="fa-mono">{preview.items.length}</span></div>
+          </div>
+          {confirmError && <div style={{ color: 'var(--fa-error)', fontWeight: 700, marginTop: 6, fontSize: 13.5 }}>{confirmError}</div>}
+        </div>
+        <button className="fa-iconbtn" style={{ width: 32, height: 32 }} onClick={() => onRemove(index)} aria-label="Remover este orçamento da lista"><Icon name="trash" size={14} /></button>
+      </div>
+
+      <div className="fa-form2" style={{ marginBottom: 16 }}>
+        <div className="fa-field fa-span2">
+          <label>Fornecedor cadastrado (opcional)</label>
+          <select className="fa-select" value={form.supplierId} onChange={(e) => {
+            const selected = (suppliers || []).find((supplier) => supplier.id === e.target.value);
+            set('supplierId', e.target.value);
+            if (selected) { set('supplierName', selected.legalName); set('supplierDocument', selected.cnpj); }
+          }}>
+            <option value="">Fornecedor avulso (não cadastrado)</option>
+            {(suppliers || []).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.legalName}</option>)}
+          </select>
+        </div>
+        <div className="fa-field"><label>Nome do fornecedor *</label><input className="fa-input" value={form.supplierName} onChange={(e) => set('supplierName', e.target.value)} /></div>
+        <div className="fa-field"><label>CNPJ</label><input className="fa-input" value={form.supplierDocument} onChange={(e) => set('supplierDocument', e.target.value)} /></div>
+        <div className="fa-field"><label>Data da cotação *</label><input className="fa-input" type="date" value={form.quoteDate} onChange={(e) => set('quoteDate', e.target.value)} /></div>
+        <div className="fa-field"><label>Válido até</label><input className="fa-input" type="date" value={form.validUntil} onChange={(e) => set('validUntil', e.target.value)} /></div>
+        <div className="fa-field">
+          <label>Frete</label>
+          <select className="fa-select" value={form.freightType} onChange={(e) => set('freightType', e.target.value)}>
+            <option value="">Não informado</option>
+            <option value="FOB">FOB</option>
+            <option value="CIF">CIF</option>
+          </select>
+        </div>
+        <div className="fa-field"><label>Custo do frete (R$)</label><input className="fa-input" type="number" step="0.01" min="0" value={form.freightCost} onChange={(e) => set('freightCost', e.target.value)} /></div>
+        <div className="fa-field"><label>Prazo de entrega (dias)</label><input className="fa-input" type="number" min="0" value={form.deliveryTimeDays} onChange={(e) => set('deliveryTimeDays', e.target.value)} /></div>
+        <div className="fa-field fa-span2"><label>Observações</label><input className="fa-input" value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
+      </div>
+
+      <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 13.5 }}>Formas de pagamento</div>
+      <PaymentTermsEditor terms={form.paymentTerms} onChange={(terms) => set('paymentTerms', terms)} />
+
+      <div style={{ margin: '20px 0 8px', fontWeight: 700, fontSize: 13.5 }}>Itens extraídos (por marca)</div>
+      <div style={{ maxHeight: '40vh', overflowY: 'auto', paddingRight: 6, display: 'grid', gap: 12 }}>
+        {itemsByBrand.map(({ item, itemIndex }) => {
+          const brandLabel = item.brandName || 'Sem marca';
+          const showBrandHeader = brandLabel !== lastBrand;
+          lastBrand = brandLabel;
+          return (
+            <React.Fragment key={itemIndex}>
+              {showBrandHeader && (
+                <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--fa-ink-3)', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 4 }}>{brandLabel}</div>
+              )}
+              <div className="fa-card" style={{ padding: 14, borderLeft: item.isComodato ? '4px solid var(--fa-info)' : '4px solid var(--fa-success)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span className="fa-badge fa-badge-mist">Linha {itemIndex + 1}</span>
+                  <div style={{ fontWeight: 800, flex: 1, minWidth: 200 }}>{item.description}</div>
+                  <span className="fa-badge" style={{ background: 'var(--fa-warn-soft)', color: 'var(--fa-warn)' }}>{brl(Number(item.unitPrice || 0))}</span>
+                </div>
+                <div className="fa-form2">
+                  <div className="fa-field fa-span2"><label>Descrição *</label><input className="fa-input" value={item.description} onChange={(e) => setItem(itemIndex, { description: e.target.value })} /></div>
+                  <div className="fa-field"><label>Marca</label><input className="fa-input" value={item.brandName} onChange={(e) => setItem(itemIndex, { brandName: e.target.value })} /></div>
+                  <div className="fa-field"><label>Unidade</label><UnitSelect value={item.unit} onChange={(unit) => setItem(itemIndex, { unit })} /></div>
+                  {PACKAGE_LIKE_UNITS.includes(item.unit) && (
+                    <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setItem(itemIndex, { unitsPerPackage: e.target.value })} placeholder="Ex.: 50" /></div>
+                  )}
+                  <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="0.001" min="0" value={item.quantityReference} onChange={(e) => setItem(itemIndex, { quantityReference: e.target.value })} /></div>
+                  <div className="fa-field"><label>Preço unitário (R$) *</label><input className="fa-input" type="number" step="0.01" min="0" value={item.unitPrice} onChange={(e) => setItem(itemIndex, { unitPrice: e.target.value })} /></div>
+                  <div className="fa-field"><label>Valor total</label><input className="fa-input" value={brl(itemTotalValue(item))} disabled /></div>
+                  <div className="fa-field"><label>NCM</label><input className="fa-input" value={item.ncmCode} onChange={(e) => setItem(itemIndex, { ncmCode: e.target.value })} placeholder="Ex.: 34013000" /></div>
+                  <div className="fa-field"><label>IPI (%)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.ipiPercentage} onChange={(e) => setItem(itemIndex, { ipiPercentage: e.target.value })} /></div>
+                  <div className="fa-field"><label>ST (R$)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.icmsStValue} onChange={(e) => setItem(itemIndex, { icmsStValue: e.target.value })} /></div>
+                  <div className="fa-field"><label>Preço final (c/ impostos)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.finalUnitPrice} onChange={(e) => setItem(itemIndex, { finalUnitPrice: e.target.value })} placeholder="Opcional" /></div>
+                  {item.matchCandidates && item.matchCandidates.length > 0 && (
+                    <div className="fa-field fa-span2">
+                      <label>Produto correspondente no catálogo (referência, opcional)</label>
+                      <select className="fa-select" value={item.productId} onChange={(e) => setItem(itemIndex, { productId: e.target.value })}>
+                        <option value="">Nenhum (produto ainda não cadastrado)</option>
+                        {item.matchCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.brandName || 'Sem marca'} · {candidate.eanCode || candidate.sku}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <label className="fa-check" data-on={item.isComodato ? '1' : '0'} onClick={() => setItem(itemIndex, { isComodato: !item.isComodato })} style={{ marginTop: 10 }}>
+                  <span className="box"><Icon name="check" size={13} stroke={2.6} /></span>Item em comodato
+                </label>
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function QuoteImportModal({ suppliers, onClose, onPreviewBatch, onConfirmBatch, notify }) {
   const [stage, setStage] = useState('upload');
   const [provider, setProvider] = useState('gemini');
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState(null);
+  const [groups, setGroups] = useState([]);
+  const [failedFiles, setFailedFiles] = useState([]);
+
+  const removeSelectedFile = (index) => setFiles((prev) => prev.filter((_, i) => i !== index));
 
   const handleAnalyze = async () => {
-    if (!file) { notify('Selecione um arquivo de orçamento.', 'warn'); return; }
+    if (!files.length) { notify('Selecione ao menos um arquivo de orçamento.', 'warn'); return; }
     setBusy(true);
     setStage('processing');
     try {
-      const payload = await onPreview({ file, provider, model: '' });
-      setPreview(payload);
-      setForm({
-        supplierId: payload.header.matchedSupplierId || '',
-        supplierName: payload.header.supplierName,
-        supplierDocument: payload.header.supplierDocument,
-        quoteDate: /^\d{4}-\d{2}-\d{2}$/.test(payload.header.quoteDate) ? payload.header.quoteDate : todayIsoDate(),
-        validUntil: /^\d{4}-\d{2}-\d{2}$/.test(payload.header.validUntil) ? payload.header.validUntil : '',
-        freightType: payload.header.freightType,
-        freightCost: payload.header.freightCost != null ? payload.header.freightCost : '',
-        deliveryTimeDays: payload.header.deliveryTimeDays != null ? payload.header.deliveryTimeDays : '',
-        notes: payload.header.notes,
-        paymentTerms: payload.paymentTerms.length ? payload.paymentTerms.map((term) => ({ ...term, discountPercent: term.discountPercent ?? '', surchargePercent: term.surchargePercent ?? '', installmentCount: term.installmentCount ?? '', daysToPay: term.daysToPay ?? '' })) : [emptyPaymentTerm()],
-        items: payload.items.map((item) => ({
-          productId: item.matchCandidates[0] ? item.matchCandidates[0].id : '',
-          description: item.description, brandName: item.brandName, skuSnapshot: item.sku, eanCodeSnapshot: item.eanCode,
-          unit: item.unit, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference ?? '', unitPrice: item.unitPrice,
-          ncmCode: item.ncmCode ?? '', ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '',
-          isComodato: item.isComodato, comodatoNotes: item.comodatoNotes, notes: '',
-          matchCandidates: item.matchCandidates,
-        })),
+      const { results } = await onPreviewBatch({ files, provider, model: '' });
+      const nextGroups = [];
+      const nextFailed = [];
+      results.forEach((result, index) => {
+        const sourceFile = files[index];
+        if (!result.success || !result.preview) {
+          nextFailed.push({ fileName: result.fileName || (sourceFile && sourceFile.name) || '', error: result.error || 'Não foi possível ler o orçamento.' });
+          return;
+        }
+        nextGroups.push({
+          file: sourceFile,
+          fileName: result.fileName || (sourceFile && sourceFile.name) || '',
+          preview: result.preview,
+          form: groupFormFromPreview(result.preview),
+        });
       });
+      if (!nextGroups.length) {
+        setStage('upload');
+        notify('Nenhum arquivo pôde ser lido. Verifique os erros e tente novamente.', 'warn');
+        return;
+      }
+      setGroups(nextGroups);
+      setFailedFiles(nextFailed);
       setStage('review');
     } catch (error) {
       setStage('upload');
-      notify(error && error.message ? error.message : 'Não foi possível ler o orçamento.', 'warn');
+      notify(error && error.message ? error.message : 'Não foi possível ler os orçamentos.', 'warn');
     } finally {
       setBusy(false);
     }
   };
 
-  const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const validItems = form && form.items.length > 0 && form.items.every((item) => item.description.trim() && item.unitPrice !== '' && Number(item.unitPrice) >= 0);
-  const valid = form && form.supplierName.trim().length >= 2 && !!form.quoteDate && validItems;
+  const updateGroupForm = (index, updater) => setGroups((prev) => prev.map((group, i) => i === index ? { ...group, form: updater(group.form), confirmError: '' } : group));
+  const removeGroup = (index) => setGroups((prev) => prev.filter((_, i) => i !== index));
+
+  const valid = groups.length > 0 && groups.every((group) => isGroupValid(group.form));
 
   const handleConfirm = async () => {
     setBusy(true);
     try {
-      await onConfirm({ file, ...form });
-      onClose();
+      const { results } = await onConfirmBatch({ files: groups.map((group) => group.file), forms: groups.map((group) => group.form) });
+      const stillFailing = [];
+      results.forEach((result, index) => {
+        if (!result.success) stillFailing.push({ ...groups[index], confirmError: result.error || 'Não foi possível salvar este orçamento.' });
+      });
+      if (stillFailing.length) {
+        setGroups(stillFailing);
+        notify(`${results.length - stillFailing.length} de ${results.length} orçamentos salvos — corrija os que falharam e tente de novo.`, 'warn');
+      } else {
+        onClose();
+      }
     } catch (error) {
-      notify(error && error.message ? error.message : 'Não foi possível confirmar a importação do orçamento.', 'warn');
+      notify(error && error.message ? error.message : 'Não foi possível confirmar a importação dos orçamentos.', 'warn');
     } finally {
       setBusy(false);
     }
@@ -621,14 +779,15 @@ function QuoteImportModal({ suppliers, onClose, onPreview, onConfirm, notify }) 
           <span className="fa-iconbox" style={{ width: 56, height: 56, marginBottom: 14 }}><Icon name="camera" size={28} /></span>
           <h2 className="fa-h3" style={{ fontSize: 22 }}>Importar orçamento com IA</h2>
           <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
-            Envie o orçamento em PDF, imagem, planilha (XLSX) ou documento Word (DOCX). A IA extrai fornecedor,
-            produtos, preços, formas de pagamento, frete e prazo — você confere tudo antes de salvar.
+            Envie um ou mais orçamentos em PDF, imagem, planilha (XLSX) ou documento Word (DOCX) — inclusive de
+            fornecedores diferentes. A IA extrai fornecedor, marcas, produtos, preços, formas de pagamento, frete
+            e prazo de cada arquivo — você confere tudo, organizado por fornecedor, antes de salvar.
           </p>
           <div className="fa-form2" style={{ marginTop: 18 }}>
             <div className="fa-field fa-span2">
-              <label>Arquivo do orçamento</label>
-              <input className="fa-input" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={(e) => setFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)} />
+              <label>Arquivos do orçamento (até {MAX_BATCH_FILES}, até 100MB cada)</label>
+              <input className="fa-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])} />
             </div>
             <div className="fa-field">
               <label>Provider de leitura</label>
@@ -640,13 +799,26 @@ function QuoteImportModal({ suppliers, onClose, onPreview, onConfirm, notify }) 
             <div className="fa-field">
               <label>Observação</label>
               <div className="fa-card" style={{ padding: '12px 14px', minHeight: 46, display: 'flex', alignItems: 'center', color: 'var(--fa-ink-3)', fontSize: 13.5 }}>
-                Para PDF prefira Gemini. Para XLSX/DOCX o conteúdo é lido diretamente do arquivo antes da IA interpretar.
+                Para PDF prefira Gemini. Cada arquivo vira um orçamento — se dois arquivos forem do mesmo
+                fornecedor, você pode apontar os dois para o mesmo cadastro na conferência.
               </div>
             </div>
           </div>
+          {files.length > 0 && (
+            <div style={{ marginTop: 4, display: 'grid', gap: 8 }}>
+              {files.map((f, index) => (
+                <div key={`${f.name}-${index}`} className="fa-card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Icon name="tag" size={16} />
+                  <div style={{ flex: 1, fontWeight: 600, fontSize: 13.5 }}>{f.name}</div>
+                  <span className="ph-cell-sub">{formatFileSize(f.size)}</span>
+                  <button className="fa-iconbtn" style={{ width: 28, height: 28 }} onClick={() => removeSelectedFile(index)} aria-label="Remover arquivo"><Icon name="close" size={13} /></button>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
             <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onClose}>Cancelar</button>
-            <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!file} onClick={handleAnalyze}><Icon name="camera" size={16} />Analisar orçamento</button>
+            <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!files.length} onClick={handleAnalyze}><Icon name="camera" size={16} />Analisar {files.length > 1 ? `${files.length} orçamentos` : 'orçamento'}</button>
           </div>
         </div>
       )}
@@ -654,111 +826,45 @@ function QuoteImportModal({ suppliers, onClose, onPreview, onConfirm, notify }) 
       {stage === 'processing' && (
         <div style={{ textAlign: 'center', padding: '24px 8px 12px' }}>
           <span className="fa-iconbox" style={{ width: 68, height: 68, margin: '0 auto 16px' }}><Icon name="repeat" size={30} /></span>
-          <h2 className="fa-h3" style={{ fontSize: 22 }}>Processando orçamento</h2>
+          <h2 className="fa-h3" style={{ fontSize: 22 }}>Processando orçamento{files.length > 1 ? 's' : ''}</h2>
           <p className="fa-muted" style={{ fontSize: 14, lineHeight: 1.6, maxWidth: 520, margin: '10px auto 0' }}>
-            Estamos lendo o documento e extraindo fornecedor, itens, preços e condições para a sua conferência.
+            Estamos lendo {files.length > 1 ? 'os documentos' : 'o documento'} e extraindo fornecedor, marca, itens,
+            preços e condições para a sua conferência. Arquivos grandes podem levar alguns minutos.
           </p>
           <div className="fa-card" style={{ marginTop: 18, padding: '16px 18px', background: 'var(--fa-info-soft)', color: 'var(--fa-primary)', fontWeight: 700 }}>
-            Arquivo em análise: {file ? file.name : 'orçamento'}
+            {files.length > 1 ? `${files.length} arquivos em análise` : `Arquivo em análise: ${files[0] ? files[0].name : 'orçamento'}`}
           </div>
         </div>
       )}
 
-      {stage === 'review' && form && (
+      {stage === 'review' && groups.length > 0 && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 260 }}>
-              <span className="fa-iconbox" style={{ width: 56, height: 56, marginBottom: 14 }}><Icon name="check" size={28} /></span>
-              <h2 className="fa-h3" style={{ fontSize: 22 }}>Conferência antes de salvar</h2>
-              <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
-                Revise e corrija o cabeçalho, as formas de pagamento e os itens. A data da cotação é o dado mais
-                importante — confirme que reflete o dia em que o orçamento foi enviado, pois o preço varia por dia.
-              </p>
-            </div>
-            <div className="fa-card" style={{ padding: 16, minWidth: 300, flex: '0 0 340px' }}>
-              <div style={{ fontWeight: 800, marginBottom: 8 }}>{preview.sourceFileName}</div>
-              <div className="ph-cell-sub" style={{ lineHeight: 1.7 }}>
-                <div>Provider: <span className="fa-mono">{preview.provider} · {preview.model}</span></div>
-                <div>Itens extraídos: <span className="fa-mono">{preview.items.length}</span></div>
-              </div>
-            </div>
+          <div style={{ marginBottom: 16 }}>
+            <span className="fa-iconbox" style={{ width: 56, height: 56, marginBottom: 14 }}><Icon name="check" size={28} /></span>
+            <h2 className="fa-h3" style={{ fontSize: 22 }}>Conferência antes de salvar</h2>
+            <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
+              {groups.length > 1 ? `${groups.length} orçamentos extraídos, um por fornecedor.` : 'Orçamento extraído.'} Revise
+              cabeçalho, formas de pagamento e itens de cada um — a data da cotação é o dado mais importante, pois o
+              preço varia por dia.
+            </p>
           </div>
 
-          <div className="fa-form2" style={{ marginBottom: 16 }}>
-            <div className="fa-field fa-span2">
-              <label>Fornecedor cadastrado (opcional)</label>
-              <select className="fa-select" value={form.supplierId} onChange={(e) => {
-                const selected = (suppliers || []).find((supplier) => supplier.id === e.target.value);
-                set('supplierId', e.target.value);
-                if (selected) { set('supplierName', selected.legalName); set('supplierDocument', selected.cnpj); }
-              }}>
-                <option value="">Fornecedor avulso (não cadastrado)</option>
-                {(suppliers || []).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.legalName}</option>)}
-              </select>
+          {failedFiles.length > 0 && (
+            <div className="fa-card" style={{ padding: 14, marginBottom: 16, borderLeft: '4px solid var(--fa-error)' }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Não foi possível ler {failedFiles.length > 1 ? 'estes arquivos' : 'este arquivo'}:</div>
+              {failedFiles.map((failed, index) => (
+                <div key={index} className="ph-cell-sub">{failed.fileName}: {failed.error}</div>
+              ))}
             </div>
-            <div className="fa-field"><label>Nome do fornecedor *</label><input className="fa-input" value={form.supplierName} onChange={(e) => set('supplierName', e.target.value)} /></div>
-            <div className="fa-field"><label>CNPJ</label><input className="fa-input" value={form.supplierDocument} onChange={(e) => set('supplierDocument', e.target.value)} /></div>
-            <div className="fa-field"><label>Data da cotação *</label><input className="fa-input" type="date" value={form.quoteDate} onChange={(e) => set('quoteDate', e.target.value)} /></div>
-            <div className="fa-field"><label>Válido até</label><input className="fa-input" type="date" value={form.validUntil} onChange={(e) => set('validUntil', e.target.value)} /></div>
-            <div className="fa-field">
-              <label>Frete</label>
-              <select className="fa-select" value={form.freightType} onChange={(e) => set('freightType', e.target.value)}>
-                <option value="">Não informado</option>
-                <option value="FOB">FOB</option>
-                <option value="CIF">CIF</option>
-              </select>
-            </div>
-            <div className="fa-field"><label>Custo do frete (R$)</label><input className="fa-input" type="number" step="0.01" min="0" value={form.freightCost} onChange={(e) => set('freightCost', e.target.value)} /></div>
-            <div className="fa-field"><label>Prazo de entrega (dias)</label><input className="fa-input" type="number" min="0" value={form.deliveryTimeDays} onChange={(e) => set('deliveryTimeDays', e.target.value)} /></div>
-            <div className="fa-field fa-span2"><label>Observações</label><input className="fa-input" value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
-          </div>
+          )}
 
-          <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 13.5 }}>Formas de pagamento</div>
-          <PaymentTermsEditor terms={form.paymentTerms} onChange={(terms) => set('paymentTerms', terms)} />
+          {groups.map((group, index) => (
+            <QuoteReviewGroup key={`${group.fileName}-${index}`} group={group} index={index} suppliers={suppliers} onChange={updateGroupForm} onRemove={removeGroup} />
+          ))}
 
-          <div style={{ margin: '20px 0 8px', fontWeight: 700, fontSize: 13.5 }}>Itens extraídos</div>
-          <div style={{ maxHeight: '40vh', overflowY: 'auto', paddingRight: 6, display: 'grid', gap: 12 }}>
-            {form.items.map((item, index) => (
-              <div key={index} className="fa-card" style={{ padding: 14, borderLeft: item.isComodato ? '4px solid var(--fa-info)' : '4px solid var(--fa-success)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                  <span className="fa-badge fa-badge-mist">Linha {index + 1}</span>
-                  <div style={{ fontWeight: 800, flex: 1, minWidth: 200 }}>{item.description}</div>
-                  <span className="fa-badge" style={{ background: 'var(--fa-warn-soft)', color: 'var(--fa-warn)' }}>{brl(Number(item.unitPrice || 0))}</span>
-                </div>
-                <div className="fa-form2">
-                  <div className="fa-field fa-span2"><label>Descrição *</label><input className="fa-input" value={item.description} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, description: e.target.value } : it) }))} /></div>
-                  <div className="fa-field"><label>Marca</label><input className="fa-input" value={item.brandName} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, brandName: e.target.value } : it) }))} /></div>
-                  <div className="fa-field"><label>Unidade</label><UnitSelect value={item.unit} onChange={(unit) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, unit } : it) }))} /></div>
-                  {PACKAGE_LIKE_UNITS.includes(item.unit) && (
-                    <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, unitsPerPackage: e.target.value } : it) }))} placeholder="Ex.: 50" /></div>
-                  )}
-                  <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="0.001" min="0" value={item.quantityReference} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, quantityReference: e.target.value } : it) }))} /></div>
-                  <div className="fa-field"><label>Preço unitário (R$) *</label><input className="fa-input" type="number" step="0.01" min="0" value={item.unitPrice} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, unitPrice: e.target.value } : it) }))} /></div>
-                  <div className="fa-field"><label>Valor total</label><input className="fa-input" value={brl(itemTotalValue(item))} disabled /></div>
-                  <div className="fa-field"><label>NCM</label><input className="fa-input" value={item.ncmCode} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, ncmCode: e.target.value } : it) }))} placeholder="Ex.: 34013000" /></div>
-                  <div className="fa-field"><label>IPI (%)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.ipiPercentage} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, ipiPercentage: e.target.value } : it) }))} /></div>
-                  <div className="fa-field"><label>ST (R$)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.icmsStValue} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, icmsStValue: e.target.value } : it) }))} /></div>
-                  <div className="fa-field"><label>Preço final (c/ impostos)</label><input className="fa-input" type="number" step="0.01" min="0" value={item.finalUnitPrice} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, finalUnitPrice: e.target.value } : it) }))} placeholder="Opcional" /></div>
-                  {item.matchCandidates && item.matchCandidates.length > 0 && (
-                    <div className="fa-field fa-span2">
-                      <label>Produto correspondente no catálogo (referência, opcional)</label>
-                      <select className="fa-select" value={item.productId} onChange={(e) => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, productId: e.target.value } : it) }))}>
-                        <option value="">Nenhum (produto ainda não cadastrado)</option>
-                        {item.matchCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.brandName || 'Sem marca'} · {candidate.eanCode || candidate.sku}</option>)}
-                      </select>
-                    </div>
-                  )}
-                </div>
-                <label className="fa-check" data-on={item.isComodato ? '1' : '0'} onClick={() => setForm((prev) => ({ ...prev, items: prev.items.map((it, i) => i === index ? { ...it, isComodato: !it.isComodato } : it) }))} style={{ marginTop: 10 }}>
-                  <span className="box"><Icon name="check" size={13} stroke={2.6} /></span>Item em comodato
-                </label>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
             <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={() => setStage('upload')} disabled={busy}>Voltar</button>
-            <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!valid || busy} onClick={handleConfirm}><Icon name="check" size={16} />{busy ? 'Salvando…' : 'Confirmar e salvar orçamento'}</button>
+            <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!valid || busy} onClick={handleConfirm}><Icon name="check" size={16} />{busy ? 'Salvando…' : `Confirmar e salvar ${groups.length > 1 ? `${groups.length} orçamentos` : 'orçamento'}`}</button>
           </div>
         </div>
       )}

@@ -3524,9 +3524,9 @@ function PharmApp() {
     document.body.removeChild(link);
     URL.revokeObjectURL(blobUrl);
   };
-  const previewPurchaseQuoteImport = async ({ file, provider, model }) => {
+  const previewPurchaseQuoteImportBatch = async ({ files, provider, model }) => {
     const form = new FormData();
-    form.append('file', file);
+    files.forEach((file) => form.append('files', file));
     if (provider) form.append('provider', provider);
     if (model) form.append('model', model);
     const payload = await authClient.request('/purchase-quotes/import-preview', {
@@ -3534,23 +3534,44 @@ function PharmApp() {
       body: form,
       skipJsonContentType: true,
     });
-    return _purchaseQuoteImportPreviewFromResponse(payload);
+    return {
+      results: (payload.results || []).map((result) => ({
+        fileName: result.file_name || '',
+        success: !!result.success,
+        preview: result.preview ? _purchaseQuoteImportPreviewFromResponse(result.preview) : null,
+        error: result.error || '',
+      })),
+    };
   };
-  const confirmPurchaseQuoteImport = async ({ file, ...formPayload }) => {
+  const confirmPurchaseQuoteImportBatch = async ({ files, forms }) => {
     const form = new FormData();
-    form.append('file', file);
-    form.append('payload', JSON.stringify({
+    files.forEach((file) => form.append('files', file));
+    forms.forEach((formPayload) => form.append('payloads', JSON.stringify({
       ..._purchaseQuoteHeaderToPayload(formPayload),
       source_provider: formPayload.sourceProvider || '',
       source_model: formPayload.sourceModel || '',
-    }));
+    })));
     const payload = await authClient.request('/purchase-quotes/import-confirm', {
       method: 'POST',
       body: form,
       skipJsonContentType: true,
     });
-    showToast('Orçamento importado e salvo', 'success');
-    return _purchaseQuoteFromResponse(payload);
+    const results = (payload.results || []).map((result) => ({
+      fileName: result.file_name || '',
+      success: !!result.success,
+      quote: result.quote ? _purchaseQuoteFromResponse(result.quote) : null,
+      error: result.error || '',
+    }));
+    const successCount = results.filter((result) => result.success).length;
+    if (successCount > 0) {
+      showToast(
+        successCount === results.length
+          ? 'Orçamento(s) importado(s) e salvo(s)'
+          : `${successCount} de ${results.length} orçamentos salvos`,
+        successCount === results.length ? 'success' : 'warn',
+      );
+    }
+    return { results };
   };
   const fetchPurchaseQuoteCompare = async ({ productId = '', brandName = '', productQuery = '' } = {}) => {
     const params = new URLSearchParams();
@@ -3852,7 +3873,7 @@ function PharmApp() {
     fetchTeamMembers, addTeamMember, updateTeamMember, setTeamMemberActive, updateTeamMemberStore,
     suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive,
     fetchPurchaseQuotes, fetchPurchaseQuote, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
-    downloadPurchaseQuoteFile, previewPurchaseQuoteImport, confirmPurchaseQuoteImport, fetchPurchaseQuoteCompare,
+    downloadPurchaseQuoteFile, previewPurchaseQuoteImportBatch, confirmPurchaseQuoteImportBatch, fetchPurchaseQuoteCompare,
     fetchPurchaseAnalytics,
     previewPurchaseQuoteReceiving, pendingPurchaseQuoteId, setPendingPurchaseQuoteId,
     products, refreshProducts, addProduct, updateProduct, setProductActive, setProductDiscarded, fetchProductStoreLinks, linkProductToStore,

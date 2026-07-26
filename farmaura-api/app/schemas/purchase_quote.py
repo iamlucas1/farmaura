@@ -226,6 +226,45 @@ class PurchaseQuoteImportConfirmRequest(PurchaseQuoteCreateRequest):
 
 
 # ============================================================================
+# AI IMPORT — BATCH (MULTIPLE FILES) SCHEMAS
+# ============================================================================
+#
+# One uploaded file still extracts to exactly one quote/supplier (see
+# PurchaseQuoteImportPreviewResponse above) — a batch is just several of those run in sequence,
+# each succeeding or failing independently so one malformed file doesn't block the rest.
+
+
+class PurchaseQuoteBatchImportPreviewItem(StrictModel):
+    """Represent one file's extraction result within a batch import preview."""
+
+    file_name: str
+    success: bool
+    preview: PurchaseQuoteImportPreviewResponse | None
+    error: str
+
+
+class PurchaseQuoteBatchImportPreviewResponse(StrictModel):
+    """Represent the extracted review payloads for every file in a batch import."""
+
+    results: list[PurchaseQuoteBatchImportPreviewItem]
+
+
+class PurchaseQuoteBatchImportConfirmItem(StrictModel):
+    """Represent one file's persisted result within a batch import confirmation."""
+
+    file_name: str
+    success: bool
+    quote: PurchaseQuoteResponse | None
+    error: str
+
+
+class PurchaseQuoteBatchImportConfirmResponse(StrictModel):
+    """Represent the persisted (or failed) quotes for every file in a batch import."""
+
+    results: list[PurchaseQuoteBatchImportConfirmItem]
+
+
+# ============================================================================
 # COMPARISON SCHEMAS
 # ============================================================================
 

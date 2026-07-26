@@ -28,10 +28,11 @@ from app.domain.enums import UserRole
 from app.schemas.auth import TokenSubject
 from app.schemas.inventory import InventoryInvoicePreviewResponse
 from app.schemas.purchase_quote import (
+    PurchaseQuoteBatchImportConfirmResponse,
+    PurchaseQuoteBatchImportPreviewResponse,
     PurchaseQuoteCompareResponse,
     PurchaseQuoteCreateRequest,
     PurchaseQuoteImportConfirmRequest,
-    PurchaseQuoteImportPreviewResponse,
     PurchaseQuoteListResponse,
     PurchaseQuoteResponse,
     PurchaseQuoteStatusUpdateRequest,
@@ -181,36 +182,54 @@ async def download_purchase_quote_file(
     )
 
 
-@router.post("/import-preview", response_model=PurchaseQuoteImportPreviewResponse)
+@router.post("/import-preview", response_model=PurchaseQuoteBatchImportPreviewResponse)
 async def preview_purchase_quote_import(
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     provider: str = Form(default=""),
     model: str = Form(default=""),
     subject: TokenSubject = Depends(require_internal_subject(*_ALLOWED_ROLES)),
     session: AsyncSession = Depends(get_subject_session),
     settings: Settings = Depends(get_app_settings),
-) -> PurchaseQuoteImportPreviewResponse:
-    """Extract purchase quote data from a supplier document (PDF/image/XLSX/DOCX)."""
+) -> PurchaseQuoteBatchImportPreviewResponse:
+    """Extract purchase quote data from one or more supplier documents (PDF/image/XLSX/DOCX).
+
+    Each file always extracts to exactly one quote/supplier — a multi-file submission never
+    merges two files' items together, it just runs several single-file extractions and returns
+    one result per file, each succeeding or failing independently.
+    """
 
     service = PurchaseQuoteAiService(session=session, subject=subject, settings=settings)
-    return await service.preview_quote_import(file=file, provider=provider, model=model)
+    return await service.preview_quote_import_batch(files=files, provider=provider, model=model)
 
 
-@router.post("/import-confirm", response_model=PurchaseQuoteResponse, status_code=201)
+@router.post(
+    "/import-confirm", response_model=PurchaseQuoteBatchImportConfirmResponse, status_code=201
+)
 async def confirm_purchase_quote_import(
-    file: UploadFile = File(...),
-    payload: str = Form(...),
+    files: list[UploadFile] = File(...),
+    payloads: list[str] = Form(...),
     subject: TokenSubject = Depends(require_internal_subject(*_ALLOWED_ROLES)),
     session: AsyncSession = Depends(get_subject_session),
     settings: Settings = Depends(get_app_settings),
-) -> PurchaseQuoteResponse:
-    """Persist the human-reviewed AI extraction result as a confirmed purchase quote."""
+) -> PurchaseQuoteBatchImportConfirmResponse:
+    """Persist the human-reviewed AI extraction results, one confirmed quote per file.
 
-    try:
-        confirm_payload = PurchaseQuoteImportConfirmRequest.model_validate_json(payload)
-    except ValidationError as error:
+    `payloads[i]` must be the reviewed JSON payload for `files[i]` — same pairing order the
+    frontend built the preview review from.
+    """
+
+    if len(files) != len(payloads):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
-        ) from error
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Each file must have a matching review payload.",
+        )
+    confirm_payloads: list[PurchaseQuoteImportConfirmRequest] = []
+    for payload in payloads:
+        try:
+            confirm_payloads.append(PurchaseQuoteImportConfirmRequest.model_validate_json(payload))
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+            ) from error
     service = PurchaseQuoteAiService(session=session, subject=subject, settings=settings)
-    return await service.confirm_quote_import(payload=confirm_payload, file=file)
+    return await service.confirm_quote_import_batch(files=files, payloads=confirm_payloads)
