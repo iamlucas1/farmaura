@@ -263,6 +263,47 @@ não informou).
   de item, na revisão do import por IA, e como coluna "Impostos" + subtexto "Final: R$ X" na
   visualização da cotação (`QuoteViewModal`).
 
+## Importação em lote (múltiplos arquivos, segregado por fornecedor e marca)
+
+`/import-preview` e `/import-confirm` aceitam vários arquivos numa única requisição (até
+`MAX_BATCH_FILES = 10`, mesma constante no backend `purchase_quote_ai_service.py` e no frontend
+`quotes-screen.jsx`) — por exemplo, cotações de vários fornecedores diferentes de uma vez.
+
+**Decisão de design: um `PurchaseQuote` por arquivo, nunca mesclado entre arquivos.** Cada arquivo
+continua extraindo exatamente uma cotação/fornecedor, exatamente como no fluxo de arquivo único —
+um lote nunca combina itens de dois arquivos numa mesma cotação. "Segregar primeiro por
+fornecedor, depois pela marca que cada fornecedor oferece" (pedido original do usuário) é resolvido
+assim: cada arquivo vira uma cotação distinta (segregação por fornecedor), e dentro de cada
+cotação os itens já carregam `brand_name` — a tela de conferência agrupa e sub-cabeçalha os itens
+por marca dentro de cada cartão de fornecedor. Isso evitou qualquer mudança de schema (nenhuma
+migration nova nesta feature) e reaproveita `find_supplier_match` exatamente como já era (já era
+escopado por cabeçalho, chamado uma vez por arquivo extraído).
+
+- **Backend** (`purchase_quote_ai_service.py`): `preview_quote_import_batch`/
+  `confirm_quote_import_batch` são wrappers finos que chamam `preview_quote_import`/
+  `confirm_quote_import` (inalterados) num laço **sequencial** — nunca concorrente, para não
+  empilhar chamadas simultâneas de IA na mesma chave de API compartilhada entre dev e produção
+  (risco de rate-limit já observado nesta sessão). Cada arquivo tem sucesso ou falha
+  independentemente — um PDF corrompido não derruba o lote inteiro, só aparece como item com
+  `success: false` e `error` no resultado.
+- **Bug real encontrado testando esta feature**: o laço de `confirm_quote_import_batch` batia
+  exatamente no problema já documentado de "RLS após commit" (`confirm_quote_import` comita ao
+  persistir cada cotação, o que limpa o contexto de RLS transaction-local) — todo arquivo depois
+  do primeiro num lote falhava o INSERT com "new row violates row-level security policy". Corrigido
+  chamando `apply_tenant_context(session, subject)` entre iterações, mesmo padrão já usado em
+  `purchase_quote_service.py` (`_reapply_tenant_context`).
+- **Frontend** (`quotes-screen.jsx`): `<input type="file" multiple>`; a tela de conferência mostra
+  um cartão por cotação extraída com sucesso (fornecedor, formas de pagamento, itens agrupados por
+  marca), arquivos que falharam ficam listados com o erro sem bloquear os que deram certo; a
+  confirmação envia o lote inteiro numa requisição e mantém abertos só os cartões que falharam ao
+  salvar, para o usuário corrigir e tentar de novo sem reenviar tudo.
+- **Limites de tamanho**: por arquivo, ~100MB (`APP_MAX_UPLOAD_BYTES` subiu de ~20MB); por lote,
+  ~500MB (`APP_MAX_REQUEST_BODY_BYTES` subiu de ~21MB). As mesmas três camadas de proxy já tocadas
+  antes nesta sessão (`farmaura-api`, nginx interno do container `farmaura`, vhost do
+  `lumos-gateway`) subiram juntas — `client_max_body_size` para 600m nas duas camadas de nginx, e
+  `proxy_read_timeout`/`proxy_send_timeout` para 1800s (processamento sequencial de vários arquivos
+  grandes pode legitimamente levar bem mais que os 300s já usados para um arquivo só).
+
 ## Ver também
 
 - [[../00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|Adoção de Alembic em produção]] — como o schema desta feature foi migrado para o processo novo.
@@ -272,6 +313,12 @@ não informou).
 
 ## Atualizações
 
+- 2026-07-25: importação em lote — `/import-preview`/`/import-confirm` aceitam múltiplos arquivos
+  (até 10), cada um vira uma cotação própria (nunca mesclada entre arquivos), segregado por
+  fornecedor com itens agrupados por marca na conferência. Limites subidos para ~100MB/arquivo e
+  ~500MB/lote nas três camadas de proxy, timeouts para 1800s. Corrigido bug real de RLS-após-commit
+  no laço de confirmação em lote (achado testando, não reportado pelo usuário). Validado ponta a
+  ponta em produção com 2 arquivos reais de fornecedores diferentes.
 - 2026-07-24: corrigido 413 ao importar catálogo/orçamento grande — três causas em sequência, uma
   por camada (`farmaura-api` 1MB → `lumos-gateway` 10MB → nginx interno do container `farmaura`
   1MB default), a última só reproduzível testando pelo domínio real, não pela porta 8080 direto.

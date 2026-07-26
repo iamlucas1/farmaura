@@ -60,6 +60,10 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 
 ## Atualizações
 
+- 2026-07-25: vhost Farmaura subiu de novo — `client_max_body_size` 25m → 600m,
+  `proxy_read_timeout`/`proxy_send_timeout` 300s/60s → 1800s/1800s — para suportar importação de
+  orçamento em lote (múltiplos arquivos, até ~500MB e vários minutos de processamento sequencial
+  de IA). Ver [[../02_Documentacao/Modulo_Orcamentos|Módulo Orçamentos]].
 - 2026-07-24: corrigido timeout na importação de orçamento por IA — a extração de um documento
   real leva legitimamente mais de um minuto (observado 105s e 151.8s ponta a ponta em produção;
   `ai_request_timeout_seconds=90` por chamada, e um documento que aciona divisão-e-repetição faz
