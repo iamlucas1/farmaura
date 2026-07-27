@@ -276,6 +276,26 @@ class PurchaseQuoteAiService:
             items=lines,
         )
 
+    async def preview_quote_import_one(
+        self, *, file: UploadFile, provider: str, model: str
+    ) -> PurchaseQuoteBatchImportPreviewItem:
+        """Extract one file's preview, wrapping a failure instead of raising.
+
+        Used both by the single-file import-preview endpoint (so the frontend can fire one
+        request per file and track per-file progress) and by the batch task helper below.
+        """
+
+        file_name = file.filename or ""
+        try:
+            preview = await self.preview_quote_import(file=file, provider=provider, model=model)
+            return PurchaseQuoteBatchImportPreviewItem(
+                file_name=file_name, success=True, preview=preview, error=""
+            )
+        except HTTPException as error:
+            return PurchaseQuoteBatchImportPreviewItem(
+                file_name=file_name, success=False, preview=None, error=str(error.detail)
+            )
+
     async def confirm_quote_import(
         self,
         *,
@@ -329,23 +349,14 @@ class PurchaseQuoteAiService:
     ) -> PurchaseQuoteBatchImportPreviewItem:
         """Extract one file's preview on its own session, never raising."""
 
-        file_name = file.filename or ""
         async with SessionFactory() as task_session:
             await apply_tenant_context(task_session, self.subject)
             task_service = PurchaseQuoteAiService(
                 session=task_session, subject=self.subject, settings=self.settings
             )
-            try:
-                preview = await task_service.preview_quote_import(
-                    file=file, provider=provider, model=model
-                )
-                return PurchaseQuoteBatchImportPreviewItem(
-                    file_name=file_name, success=True, preview=preview, error=""
-                )
-            except HTTPException as error:
-                return PurchaseQuoteBatchImportPreviewItem(
-                    file_name=file_name, success=False, preview=None, error=str(error.detail)
-                )
+            return await task_service.preview_quote_import_one(
+                file=file, provider=provider, model=model
+            )
 
     async def preview_quote_import_batch(
         self,

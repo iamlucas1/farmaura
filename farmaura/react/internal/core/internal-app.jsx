@@ -3524,6 +3524,23 @@ function PharmApp() {
     document.body.removeChild(link);
     URL.revokeObjectURL(blobUrl);
   };
+  const previewPurchaseQuoteImportOne = async ({ file, provider, model }) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (provider) form.append('provider', provider);
+    if (model) form.append('model', model);
+    const result = await authClient.request('/purchase-quotes/import-preview/one', {
+      method: 'POST',
+      body: form,
+      skipJsonContentType: true,
+    });
+    return {
+      fileName: result.file_name || '',
+      success: !!result.success,
+      preview: result.preview ? _purchaseQuoteImportPreviewFromResponse(result.preview) : null,
+      error: result.error || '',
+    };
+  };
   const previewPurchaseQuoteImportBatch = async ({ files, provider, model }) => {
     const form = new FormData();
     files.forEach((file) => form.append('files', file));
@@ -3873,7 +3890,7 @@ function PharmApp() {
     fetchTeamMembers, addTeamMember, updateTeamMember, setTeamMemberActive, updateTeamMemberStore,
     suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive,
     fetchPurchaseQuotes, fetchPurchaseQuote, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
-    downloadPurchaseQuoteFile, previewPurchaseQuoteImportBatch, confirmPurchaseQuoteImportBatch, fetchPurchaseQuoteCompare,
+    downloadPurchaseQuoteFile, previewPurchaseQuoteImportOne, previewPurchaseQuoteImportBatch, confirmPurchaseQuoteImportBatch, fetchPurchaseQuoteCompare,
     fetchPurchaseAnalytics,
     previewPurchaseQuoteReceiving, pendingPurchaseQuoteId, setPendingPurchaseQuoteId,
     products, refreshProducts, addProduct, updateProduct, setProductActive, setProductDiscarded, fetchProductStoreLinks, linkProductToStore,

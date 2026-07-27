@@ -966,6 +966,24 @@
   .inv-actions { margin-left: 0; width: 100%; }
 }
 
+/* ---------- Importação de orçamentos com IA: progresso por arquivo ---------- */
+.fa-spin { animation: faSpin 1s linear infinite; }
+@keyframes faSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .fa-spin { animation: none; } }
+
+.qt-import-progress-summary { margin-top: 18px; padding: 14px 18px; }
+.qt-import-progress-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.qt-import-progress-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+.qt-import-status-icon { flex: none; width: 20px; height: 20px; display: grid; place-items: center; }
+.qt-import-progress-row[data-status="processing"] .qt-import-status-icon { color: var(--fa-primary); }
+.qt-import-progress-row[data-status="done"] .qt-import-status-icon { color: var(--fa-success); }
+.qt-import-progress-row[data-status="error"] .qt-import-status-icon { color: var(--fa-error); }
+.qt-import-progress-name { flex: 1; min-width: 0; font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-import-progress-label { font-size: 12px; font-weight: 700; flex: none; }
+.qt-import-progress-row[data-status="processing"] .qt-import-progress-label { color: var(--fa-ink-3); }
+.qt-import-progress-row[data-status="done"] .qt-import-progress-label { color: var(--fa-success); }
+.qt-import-progress-row[data-status="error"] .qt-import-progress-label { color: var(--fa-error); }
+
 /* ============================================================
    Auditoria (Estoque + Precificador) — tela admin-only.
    Todo o CSS abaixo é escopado em .audit-* para não vazar

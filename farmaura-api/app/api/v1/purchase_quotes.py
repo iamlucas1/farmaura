@@ -29,6 +29,7 @@ from app.schemas.auth import TokenSubject
 from app.schemas.inventory import InventoryInvoicePreviewResponse
 from app.schemas.purchase_quote import (
     PurchaseQuoteBatchImportConfirmResponse,
+    PurchaseQuoteBatchImportPreviewItem,
     PurchaseQuoteBatchImportPreviewResponse,
     PurchaseQuoteCompareResponse,
     PurchaseQuoteCreateRequest,
@@ -200,6 +201,26 @@ async def preview_purchase_quote_import(
 
     service = PurchaseQuoteAiService(session=session, subject=subject, settings=settings)
     return await service.preview_quote_import_batch(files=files, provider=provider, model=model)
+
+
+@router.post("/import-preview/one", response_model=PurchaseQuoteBatchImportPreviewItem)
+async def preview_purchase_quote_import_one(
+    file: UploadFile = File(...),
+    provider: str = Form(default=""),
+    model: str = Form(default=""),
+    subject: TokenSubject = Depends(require_internal_subject(*_ALLOWED_ROLES)),
+    session: AsyncSession = Depends(get_subject_session),
+    settings: Settings = Depends(get_app_settings),
+) -> PurchaseQuoteBatchImportPreviewItem:
+    """Extract purchase quote data from a single supplier document.
+
+    Lets the frontend fire one request per file (still bounded by MAX_BATCH_FILES client-side)
+    instead of the combined /import-preview batch call, so it can track and display per-file
+    progress while a batch is being read.
+    """
+
+    service = PurchaseQuoteAiService(session=session, subject=subject, settings=settings)
+    return await service.preview_quote_import_one(file=file, provider=provider, model=model)
 
 
 @router.post(

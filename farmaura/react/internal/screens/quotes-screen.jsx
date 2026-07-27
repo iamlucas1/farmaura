@@ -53,7 +53,7 @@ function UnitSelect({ value, onChange }) {
 function QuotesScreen({ ctx }) {
   const {
     suppliers, addSupplier, fetchPurchaseQuotes, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
-    downloadPurchaseQuoteFile, previewPurchaseQuoteImportBatch, confirmPurchaseQuoteImportBatch,
+    downloadPurchaseQuoteFile, previewPurchaseQuoteImportOne, confirmPurchaseQuoteImportBatch,
     setPendingPurchaseQuoteId, onNav,
     notify, onLogout,
   } = ctx;
@@ -298,7 +298,7 @@ function QuotesScreen({ ctx }) {
           suppliers={suppliers}
           onAddSupplier={addSupplier}
           onClose={() => setImportOpen(false)}
-          onPreviewBatch={previewPurchaseQuoteImportBatch}
+          onPreviewOne={previewPurchaseQuoteImportOne}
           onConfirmBatch={async (payload) => {
             const result = await confirmPurchaseQuoteImportBatch(payload);
             await load();
@@ -729,13 +729,14 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSu
   );
 }
 
-function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewBatch, onConfirmBatch, notify }) {
+function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onConfirmBatch, notify }) {
   const [stage, setStage] = useState('upload');
   const [provider, setProvider] = useState('openai');
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [groups, setGroups] = useState([]);
   const [failedFiles, setFailedFiles] = useState([]);
+  const [fileProgress, setFileProgress] = useState([]);
 
   const removeSelectedFile = (index) => setFiles((prev) => prev.filter((_, i) => i !== index));
 
@@ -761,8 +762,25 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewBatch, o
     if (!files.length) { notify('Selecione ao menos um arquivo de orçamento.', 'warn'); return; }
     setBusy(true);
     setStage('processing');
+    setFileProgress(files.map((file) => ({ fileName: file.name, status: 'processing' })));
     try {
-      const { results } = await onPreviewBatch({ files, provider, model: '' });
+      // One request per file, fired concurrently, so the "processing" screen can show each
+      // file's status as it lands instead of waiting for the whole batch to resolve at once.
+      const results = await Promise.all(files.map((file, index) => (
+        onPreviewOne({ file, provider, model: '' })
+          .catch((error) => ({
+            fileName: file.name,
+            success: false,
+            preview: null,
+            error: error && error.message ? error.message : 'Não foi possível ler o orçamento.',
+          }))
+          .then((result) => {
+            setFileProgress((prev) => prev.map((entry, i) => (
+              i === index ? { ...entry, status: result.success ? 'done' : 'error' } : entry
+            )));
+            return result;
+          })
+      )));
       const nextGroups = [];
       const nextFailed = [];
       results.forEach((result, index) => {
@@ -873,14 +891,29 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewBatch, o
 
       {stage === 'processing' && (
         <div style={{ textAlign: 'center', padding: '24px 8px 12px' }}>
-          <span className="fa-iconbox" style={{ width: 68, height: 68, margin: '0 auto 16px' }}><Icon name="repeat" size={30} /></span>
+          <span className="fa-iconbox" style={{ width: 68, height: 68, margin: '0 auto 16px' }}><Icon name="repeat" size={30} className="fa-spin" /></span>
           <h2 className="fa-h3" style={{ fontSize: 22 }}>Processando orçamento{files.length > 1 ? 's' : ''}</h2>
           <p className="fa-muted" style={{ fontSize: 14, lineHeight: 1.6, maxWidth: 520, margin: '10px auto 0' }}>
             Estamos lendo {files.length > 1 ? 'os documentos' : 'o documento'} e extraindo fornecedor, marca, itens,
             preços e condições para a sua conferência. Arquivos grandes podem levar alguns minutos.
           </p>
-          <div className="fa-card" style={{ marginTop: 18, padding: '16px 18px', background: 'var(--fa-info-soft)', color: 'var(--fa-primary)', fontWeight: 700 }}>
-            {files.length > 1 ? `${files.length} arquivos em análise` : `Arquivo em análise: ${files[0] ? files[0].name : 'orçamento'}`}
+          <div className="fa-card qt-import-progress-summary" style={{ background: 'var(--fa-info-soft)', color: 'var(--fa-primary)', fontWeight: 700 }}>
+            {fileProgress.filter((entry) => entry.status !== 'processing').length} de {fileProgress.length} arquivo{fileProgress.length > 1 ? 's' : ''} processado{fileProgress.length > 1 ? 's' : ''}
+          </div>
+          <div className="qt-import-progress-list">
+            {fileProgress.map((entry, index) => (
+              <div key={`${entry.fileName}-${index}`} className="fa-card qt-import-progress-row" data-status={entry.status}>
+                <span className="qt-import-status-icon">
+                  {entry.status === 'processing' && <Icon name="repeat" size={16} className="fa-spin" />}
+                  {entry.status === 'done' && <Icon name="check" size={16} />}
+                  {entry.status === 'error' && <Icon name="close" size={16} />}
+                </span>
+                <div className="qt-import-progress-name">{entry.fileName}</div>
+                <span className="qt-import-progress-label">
+                  {entry.status === 'processing' ? 'Processando…' : entry.status === 'done' ? 'Pronto' : 'Falhou'}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}
