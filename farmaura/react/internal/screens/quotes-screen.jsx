@@ -267,6 +267,9 @@ function QuotesScreen({ ctx }) {
           submitLabel="Salvar alterações"
           initialQuote={editQuote}
           suppliers={suppliers}
+          brands={brands}
+          onAddBrand={addBrand}
+          notify={notify}
           onClose={() => setEditQuote(null)}
           onSave={async (payload) => {
             try {
@@ -284,6 +287,9 @@ function QuotesScreen({ ctx }) {
           title="Cadastrar orçamento"
           submitLabel="Salvar orçamento"
           suppliers={suppliers}
+          brands={brands}
+          onAddBrand={addBrand}
+          notify={notify}
           onClose={() => setNewOpen(false)}
           onSave={async (payload) => {
             try {
@@ -346,7 +352,8 @@ function PaymentTermsEditor({ terms, onChange }) {
   );
 }
 
-function ItemsEditor({ items, onChange }) {
+function ItemsEditor({ items, onChange, brands, onAddBrand, suppliers, notify }) {
+  const [addBrandForIndex, setAddBrandForIndex] = useState(null);
   const setItem = (index, patch) => onChange(items.map((item, i) => i === index ? { ...item, ...patch } : item));
   const removeItem = (index) => onChange(items.filter((_, i) => i !== index));
   return (
@@ -359,7 +366,19 @@ function ItemsEditor({ items, onChange }) {
           </div>
           <div className="fa-form2">
             <div className="fa-field fa-span2"><label>Descrição *</label><input className="fa-input" value={item.description} onChange={(e) => setItem(index, { description: e.target.value })} /></div>
-            <div className="fa-field"><label>Marca</label><input className="fa-input" value={item.brandName} onChange={(e) => setItem(index, { brandName: e.target.value })} /></div>
+            <div className="fa-field fa-span2">
+              <label>Marca</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select className="fa-select" style={{ flex: 1 }} value={item.brandId} onChange={(e) => {
+                  const selected = (brands || []).find((brand) => brand.id === e.target.value);
+                  setItem(index, { brandId: e.target.value, brandName: selected ? selected.name : item.brandName });
+                }}>
+                  <option value="">Sem marca vinculada</option>
+                  {(brands || []).filter((brand) => brand.active && !brand.discarded).map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                </select>
+                <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setAddBrandForIndex(index)}><Icon name="plus" size={14} stroke={2.2} />Adicionar</button>
+              </div>
+            </div>
             <div className="fa-field"><label>Unidade</label><UnitSelect value={item.unit} onChange={(unit) => setItem(index, { unit })} /></div>
             {PACKAGE_LIKE_UNITS.includes(item.unit) && (
               <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setItem(index, { unitsPerPackage: e.target.value })} placeholder="Ex.: 50" /></div>
@@ -388,6 +407,26 @@ function ItemsEditor({ items, onChange }) {
       <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => onChange([...items, emptyItem()])}>
         <Icon name="plus" size={14} />Adicionar item
       </button>
+
+      {addBrandForIndex !== null && (
+        <BrandModal
+          title="Nova marca"
+          submitLabel="Cadastrar e vincular"
+          initialBrand={{ name: items[addBrandForIndex] ? items[addBrandForIndex].brandName : '' }}
+          suppliers={suppliers || []}
+          onClose={() => setAddBrandForIndex(null)}
+          onSave={async (payload) => {
+            try {
+              const created = await onAddBrand(payload);
+              setItem(addBrandForIndex, { brandId: created.id, brandName: created.name });
+              setAddBrandForIndex(null);
+              notify && notify('Marca cadastrada e vinculada.', 'success');
+            } catch (error) {
+              notify && notify(error && error.message ? error.message : 'Não foi possível cadastrar a marca.', 'warn');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -495,7 +534,7 @@ function buildQuoteForm(quote) {
   };
 }
 
-function QuoteFormModal({ title, submitLabel, initialQuote, suppliers, onClose, onSave }) {
+function QuoteFormModal({ title, submitLabel, initialQuote, suppliers, brands, onAddBrand, notify, onClose, onSave }) {
   const [form, setForm] = useState(() => buildQuoteForm(initialQuote));
   const [busy, setBusy] = useState(false);
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -552,7 +591,7 @@ function QuoteFormModal({ title, submitLabel, initialQuote, suppliers, onClose, 
       <PaymentTermsEditor terms={form.paymentTerms} onChange={(terms) => set('paymentTerms', terms)} />
 
       <div style={{ marginTop: 20, marginBottom: 8, fontWeight: 700, fontSize: 13.5 }}>Itens cotados</div>
-      <ItemsEditor items={form.items} onChange={(items) => set('items', items)} />
+      <ItemsEditor items={form.items} onChange={(items) => set('items', items)} brands={brands} onAddBrand={onAddBrand} suppliers={suppliers} notify={notify} />
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onClose} disabled={busy}>Cancelar</button>
@@ -608,6 +647,15 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSu
     .map((item, itemIndex) => ({ item, itemIndex }))
     .sort((a, b) => (a.item.brandName || '').localeCompare(b.item.brandName || '', 'pt-BR'));
   let lastBrand = undefined;
+
+  // Every distinct brand name the AI extracted across this group's items that isn't already a
+  // registered brand — shown as one-click suggestions in "Adicionar marca" so registering several
+  // brands pulled from the same file doesn't mean retyping each name from scratch.
+  const unmatchedBrandNames = Array.from(new Set(
+    form.items
+      .map((item) => (item.brandName || '').trim())
+      .filter((name) => name && !(brands || []).some((brand) => brand.name.toLowerCase() === name.toLowerCase()))
+  ));
 
   return (
     <div className="fa-card" style={{ padding: 18, marginBottom: 16, border: confirmError ? '1px solid var(--fa-error)' : undefined }}>
@@ -755,6 +803,7 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSu
           submitLabel="Cadastrar e vincular"
           initialBrand={{ name: form.items[addBrandForItemIndex] ? form.items[addBrandForItemIndex].brandName : '' }}
           suppliers={suppliers || []}
+          nameSuggestions={unmatchedBrandNames}
           onClose={() => setAddBrandForItemIndex(null)}
           onSave={async (payload) => {
             try {

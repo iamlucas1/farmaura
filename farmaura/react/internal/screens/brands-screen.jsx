@@ -325,7 +325,7 @@ function BrandsScreen({ ctx }) {
   );
 }
 
-function BrandModal({ title, submitLabel, initialBrand, suppliers, onClose, onSave, onToggleActive, onDiscard, activeBusy }) {
+function BrandModal({ title, submitLabel, initialBrand, suppliers, nameSuggestions, onClose, onSave, onToggleActive, onDiscard, activeBusy }) {
   const [form, setForm] = useState(() => ({
     name: initialBrand && initialBrand.name || '',
     description: initialBrand && initialBrand.description || '',
@@ -375,6 +375,19 @@ function BrandModal({ title, submitLabel, initialBrand, suppliers, onClose, onSa
             <Icon name="trash" size={14} />Descartar marca
           </button>
           <div className="ph-cell-sub" style={{ marginTop: 4 }}>Descartar remove a marca da lista; um administrador pode recuperá-la depois.</div>
+        </div>
+      )}
+
+      {nameSuggestions && nameSuggestions.length > 0 && (
+        <div className="fa-field" style={{ marginTop: 14 }}>
+          <label>Sugestões extraídas pela IA</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {nameSuggestions.map((name) => (
+              <button key={name} type="button" className={form.name === name ? 'fa-btn fa-btn-primary fa-btn-sm' : 'fa-btn fa-btn-soft fa-btn-sm'} onClick={() => set('name', name)}>
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
