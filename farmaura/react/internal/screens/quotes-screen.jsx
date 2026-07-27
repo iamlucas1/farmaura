@@ -731,7 +731,7 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSu
 
 function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewBatch, onConfirmBatch, notify }) {
   const [stage, setStage] = useState('upload');
-  const [provider, setProvider] = useState('gemini');
+  const [provider, setProvider] = useState('openai');
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [groups, setGroups] = useState([]);
