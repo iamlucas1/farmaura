@@ -3,6 +3,7 @@ import { ModalShell, brl } from "../../marketplace/core/marketplace-components.j
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { Topbar } from "../core/internal-shell.jsx";
 import { InventoryKpi } from "./inventory-screen.jsx";
+import { SupplierModal } from "./suppliers-screen.jsx";
 
 /* FARMAURA Console — Orçamentos (cotações de compra).
    Captura de cotações de fornecedores (manual ou por IA a partir de PDF/imagem/XLSX/DOCX) para
@@ -51,7 +52,7 @@ function UnitSelect({ value, onChange }) {
 
 function QuotesScreen({ ctx }) {
   const {
-    suppliers, fetchPurchaseQuotes, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
+    suppliers, addSupplier, fetchPurchaseQuotes, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
     downloadPurchaseQuoteFile, previewPurchaseQuoteImportBatch, confirmPurchaseQuoteImportBatch,
     setPendingPurchaseQuoteId, onNav,
     notify, onLogout,
@@ -295,6 +296,7 @@ function QuotesScreen({ ctx }) {
       {importOpen && (
         <QuoteImportModal
           suppliers={suppliers}
+          onAddSupplier={addSupplier}
           onClose={() => setImportOpen(false)}
           onPreviewBatch={previewPurchaseQuoteImportBatch}
           onConfirmBatch={async (payload) => {
@@ -587,11 +589,12 @@ function groupFormFromPreview(payload) {
 
 function isGroupValid(form) {
   const validItems = form.items.length > 0 && form.items.every((item) => item.description.trim() && item.unitPrice !== '' && Number(item.unitPrice) >= 0);
-  return form.supplierName.trim().length >= 2 && !!form.quoteDate && validItems;
+  return !!form.supplierId && !!form.quoteDate && validItems;
 }
 
-function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove }) {
+function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSupplier, notify }) {
   const { fileName, preview, form, confirmError } = group;
+  const [addSupplierOpen, setAddSupplierOpen] = useState(false);
   const set = (key, value) => onChange(index, (prev) => ({ ...prev, [key]: value }));
   const setItem = (itemIndex, patch) => onChange(index, (prev) => ({ ...prev, items: prev.items.map((it, i) => i === itemIndex ? { ...it, ...patch } : it) }));
 
@@ -616,18 +619,24 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove }) {
 
       <div className="fa-form2" style={{ marginBottom: 16 }}>
         <div className="fa-field fa-span2">
-          <label>Fornecedor cadastrado (opcional)</label>
-          <select className="fa-select" value={form.supplierId} onChange={(e) => {
-            const selected = (suppliers || []).find((supplier) => supplier.id === e.target.value);
-            set('supplierId', e.target.value);
-            if (selected) { set('supplierName', selected.legalName); set('supplierDocument', selected.cnpj); }
-          }}>
-            <option value="">Fornecedor avulso (não cadastrado)</option>
-            {(suppliers || []).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.legalName}</option>)}
-          </select>
+          <label>Fornecedor *</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select className="fa-select" style={{ flex: 1 }} value={form.supplierId} onChange={(e) => {
+              const selected = (suppliers || []).find((supplier) => supplier.id === e.target.value);
+              set('supplierId', e.target.value);
+              if (selected) { set('supplierName', selected.legalName); set('supplierDocument', selected.cnpj); }
+            }}>
+              <option value="">Selecione um fornecedor cadastrado</option>
+              {(suppliers || []).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.legalName}</option>)}
+            </select>
+            <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setAddSupplierOpen(true)}><Icon name="plus" size={14} stroke={2.2} />Adicionar</button>
+          </div>
+          {!form.supplierId && (
+            <div className="ph-cell-sub" style={{ color: 'var(--fa-error)', marginTop: 4 }}>
+              {form.supplierName ? `Fornecedor extraído ("${form.supplierName}") não está cadastrado — selecione o correspondente ou cadastre um novo.` : 'Selecione um fornecedor cadastrado ou cadastre um novo.'}
+            </div>
+          )}
         </div>
-        <div className="fa-field"><label>Nome do fornecedor *</label><input className="fa-input" value={form.supplierName} onChange={(e) => set('supplierName', e.target.value)} /></div>
-        <div className="fa-field"><label>CNPJ</label><input className="fa-input" value={form.supplierDocument} onChange={(e) => set('supplierDocument', e.target.value)} /></div>
         <div className="fa-field"><label>Data da cotação *</label><input className="fa-input" type="date" value={form.quoteDate} onChange={(e) => set('quoteDate', e.target.value)} /></div>
         <div className="fa-field"><label>Válido até</label><input className="fa-input" type="date" value={form.validUntil} onChange={(e) => set('validUntil', e.target.value)} /></div>
         <div className="fa-field">
@@ -695,11 +704,32 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove }) {
           );
         })}
       </div>
+
+      {addSupplierOpen && (
+        <SupplierModal
+          title="Novo fornecedor"
+          submitLabel="Cadastrar e vincular"
+          initialSupplier={{ legalName: form.supplierName, cnpj: form.supplierDocument }}
+          onClose={() => setAddSupplierOpen(false)}
+          onSave={async (payload) => {
+            try {
+              const created = await onAddSupplier(payload);
+              set('supplierId', created.id);
+              set('supplierName', created.legalName);
+              set('supplierDocument', created.cnpj);
+              setAddSupplierOpen(false);
+              notify && notify('Fornecedor cadastrado e vinculado.', 'success');
+            } catch (error) {
+              notify && notify(error && error.message ? error.message : 'Não foi possível cadastrar o fornecedor.', 'warn');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function QuoteImportModal({ suppliers, onClose, onPreviewBatch, onConfirmBatch, notify }) {
+function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewBatch, onConfirmBatch, notify }) {
   const [stage, setStage] = useState('upload');
   const [provider, setProvider] = useState('gemini');
   const [files, setFiles] = useState([]);
@@ -859,7 +889,7 @@ function QuoteImportModal({ suppliers, onClose, onPreviewBatch, onConfirmBatch, 
           )}
 
           {groups.map((group, index) => (
-            <QuoteReviewGroup key={`${group.fileName}-${index}`} group={group} index={index} suppliers={suppliers} onChange={updateGroupForm} onRemove={removeGroup} />
+            <QuoteReviewGroup key={`${group.fileName}-${index}`} group={group} index={index} suppliers={suppliers} onChange={updateGroupForm} onRemove={removeGroup} onAddSupplier={onAddSupplier} notify={notify} />
           ))}
 
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>

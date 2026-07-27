@@ -35,6 +35,7 @@ Observations:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from decimal import Decimal, InvalidOperation
@@ -50,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_json import is_response_truncated, parse_ai_json_object
 from app.core.config import Settings
+from app.core.database import SessionFactory
 from app.core.file_storage import write_private_file
 from app.core.file_validation import validate_quote_upload
 from app.core.tenant_context import apply_tenant_context
@@ -309,11 +311,41 @@ class PurchaseQuoteAiService:
     # BATCH (MULTIPLE FILES) IMPORT
     # ========================================================================
     #
-    # A batch is several independent single-file imports run in sequence (not concurrently, to
-    # avoid piling concurrent AI-provider calls onto the same rate-limited key) — one uploaded
-    # file always extracts to exactly one quote/supplier, same as preview_quote_import/
-    # confirm_quote_import above; a batch never merges two files' items into one quote. Each file
-    # succeeds or fails independently so one malformed document doesn't block the rest.
+    # A batch is several independent single-file imports run concurrently (bounded by
+    # MAX_BATCH_FILES) -- one uploaded file always extracts to exactly one quote/supplier, same as
+    # preview_quote_import/confirm_quote_import above; a batch never merges two files' items into
+    # one quote. Each file succeeds or fails independently so one malformed document doesn't block
+    # the rest.
+    #
+    # AsyncSession is not safe for concurrent use, so the shared request-scoped self.session can't
+    # be used by more than one file at a time. Each concurrent task instead opens its own
+    # independent session from the module-level SessionFactory, applies tenant/RLS context to it
+    # (apply_tenant_context only needs a session + the subject, not any other request state), and
+    # runs the existing single-file method against a throwaway PurchaseQuoteAiService scoped to
+    # that session -- see database.py for why the engine's pool was sized up to cover this.
+
+    async def _preview_one(
+        self, file: UploadFile, provider: str, model: str
+    ) -> PurchaseQuoteBatchImportPreviewItem:
+        """Extract one file's preview on its own session, never raising."""
+
+        file_name = file.filename or ""
+        async with SessionFactory() as task_session:
+            await apply_tenant_context(task_session, self.subject)
+            task_service = PurchaseQuoteAiService(
+                session=task_session, subject=self.subject, settings=self.settings
+            )
+            try:
+                preview = await task_service.preview_quote_import(
+                    file=file, provider=provider, model=model
+                )
+                return PurchaseQuoteBatchImportPreviewItem(
+                    file_name=file_name, success=True, preview=preview, error=""
+                )
+            except HTTPException as error:
+                return PurchaseQuoteBatchImportPreviewItem(
+                    file_name=file_name, success=False, preview=None, error=str(error.detail)
+                )
 
     async def preview_quote_import_batch(
         self,
@@ -322,26 +354,34 @@ class PurchaseQuoteAiService:
         provider: str,
         model: str,
     ) -> PurchaseQuoteBatchImportPreviewResponse:
-        """Extract purchase quote data from several supplier documents, one preview per file."""
+        """Extract purchase quote data from several supplier documents, concurrently."""
 
         self._ensure_batch_size(files)
-        results: list[PurchaseQuoteBatchImportPreviewItem] = []
-        for file in files:
-            file_name = file.filename or ""
+        results = await asyncio.gather(
+            *(self._preview_one(file, provider, model) for file in files)
+        )
+        return PurchaseQuoteBatchImportPreviewResponse(results=list(results))
+
+    async def _confirm_one(
+        self, file: UploadFile, payload: PurchaseQuoteImportConfirmRequest
+    ) -> PurchaseQuoteBatchImportConfirmItem:
+        """Persist one file's reviewed result on its own session, never raising."""
+
+        file_name = file.filename or ""
+        async with SessionFactory() as task_session:
+            await apply_tenant_context(task_session, self.subject)
+            task_service = PurchaseQuoteAiService(
+                session=task_session, subject=self.subject, settings=self.settings
+            )
             try:
-                preview = await self.preview_quote_import(file=file, provider=provider, model=model)
-                results.append(
-                    PurchaseQuoteBatchImportPreviewItem(
-                        file_name=file_name, success=True, preview=preview, error=""
-                    )
+                quote = await task_service.confirm_quote_import(payload=payload, file=file)
+                return PurchaseQuoteBatchImportConfirmItem(
+                    file_name=file_name, success=True, quote=quote, error=""
                 )
             except HTTPException as error:
-                results.append(
-                    PurchaseQuoteBatchImportPreviewItem(
-                        file_name=file_name, success=False, preview=None, error=str(error.detail)
-                    )
+                return PurchaseQuoteBatchImportConfirmItem(
+                    file_name=file_name, success=False, quote=None, error=str(error.detail)
                 )
-        return PurchaseQuoteBatchImportPreviewResponse(results=results)
 
     async def confirm_quote_import_batch(
         self,
@@ -349,7 +389,7 @@ class PurchaseQuoteAiService:
         files: list[UploadFile],
         payloads: list[PurchaseQuoteImportConfirmRequest],
     ) -> PurchaseQuoteBatchImportConfirmResponse:
-        """Persist several human-reviewed AI extraction results, one confirmed quote per file."""
+        """Persist several human-reviewed AI extraction results, concurrently."""
 
         self._ensure_batch_size(files)
         if len(files) != len(payloads):
@@ -357,28 +397,12 @@ class PurchaseQuoteAiService:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Each file must have a matching review payload.",
             )
-        results: list[PurchaseQuoteBatchImportConfirmItem] = []
-        for file, payload in zip(files, payloads, strict=True):
-            file_name = file.filename or ""
-            try:
-                # confirm_quote_import commits after persisting, which clears the transaction-
-                # local RLS context (see purchase_quote_service.py's _reapply_tenant_context) --
-                # without reapplying it here, every file after the first in a batch would fail
-                # its INSERT with "new row violates row-level security policy".
-                await apply_tenant_context(self.session, self.subject)
-                quote = await self.confirm_quote_import(payload=payload, file=file)
-                results.append(
-                    PurchaseQuoteBatchImportConfirmItem(
-                        file_name=file_name, success=True, quote=quote, error=""
-                    )
-                )
-            except HTTPException as error:
-                results.append(
-                    PurchaseQuoteBatchImportConfirmItem(
-                        file_name=file_name, success=False, quote=None, error=str(error.detail)
-                    )
-                )
-        return PurchaseQuoteBatchImportConfirmResponse(results=results)
+        tasks = [
+            self._confirm_one(file, payload)
+            for file, payload in zip(files, payloads, strict=True)
+        ]
+        results = await asyncio.gather(*tasks)
+        return PurchaseQuoteBatchImportConfirmResponse(results=list(results))
 
     def _ensure_batch_size(self, files: list[UploadFile]) -> None:
         """Reject a batch with no files or more than MAX_BATCH_FILES."""

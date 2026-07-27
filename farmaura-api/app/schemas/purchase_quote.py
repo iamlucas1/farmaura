@@ -17,7 +17,7 @@ Observations:
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.common import StrictModel
 
@@ -219,10 +219,24 @@ class PurchaseQuoteImportPreviewResponse(StrictModel):
 
 
 class PurchaseQuoteImportConfirmRequest(PurchaseQuoteCreateRequest):
-    """Validate the human-reviewed payload persisted after AI extraction."""
+    """Validate the human-reviewed payload persisted after AI extraction.
+
+    Unlike a manually entered quote (PurchaseQuoteCreateRequest, which still allows an
+    unregistered "avulso" supplier via free-text supplier_name/supplier_document alone), an
+    AI-imported quote must be linked to a real catalog Supplier — the review UI no longer offers
+    free-text supplier entry, so supplier_id is required here specifically.
+    """
 
     source_provider: str = Field(default="", max_length=24)
     source_model: str = Field(default="", max_length=64)
+
+    @model_validator(mode="after")
+    def _require_linked_supplier(self) -> "PurchaseQuoteImportConfirmRequest":
+        """Reject a confirm payload with no catalog supplier linked."""
+
+        if not self.supplier_id.strip():
+            raise ValueError("A supplier must be selected from the catalog.")
+        return self
 
 
 # ============================================================================

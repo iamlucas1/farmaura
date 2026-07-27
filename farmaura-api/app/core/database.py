@@ -81,7 +81,15 @@ from app.models.base import Base
 
 
 settings = get_settings()
-engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+# pool_size/max_overflow are explicit (SQLAlchemy's async defaults are 5/10 = 15 total) because
+# purchase quote batch imports open one independent session per file and run them concurrently
+# (see PurchaseQuoteAiService._preview_one/_confirm_one) -- up to MAX_BATCH_FILES=10 sessions can
+# be held open by a single request. 30 total gives that its own headroom plus room for the rest of
+# the app's normal concurrent traffic on this single-process engine (no --workers in the uvicorn
+# entrypoint, so this is the whole app's pool, not one of several).
+engine = create_async_engine(
+    settings.database_url, pool_pre_ping=True, pool_size=10, max_overflow=20
+)
 SessionFactory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
 
 

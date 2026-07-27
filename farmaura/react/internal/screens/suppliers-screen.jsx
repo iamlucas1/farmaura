@@ -281,4 +281,4 @@ function SupplierModal({ title, submitLabel, initialSupplier, onClose, onSave })
   );
 }
 
-export { SuppliersScreen };
+export { SuppliersScreen, SupplierModal };
