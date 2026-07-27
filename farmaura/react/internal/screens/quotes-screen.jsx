@@ -27,6 +27,8 @@ const QUOTE_STATUS_LABEL = { draft: 'Rascunho', confirmed: 'Confirmado', archive
 const UNIT_OPTIONS = ['un', 'cx', 'fardo', 'pct', 'kg', 'g', 'L', 'mL', 'fr', 'dz', 'cartela', 'ampola'];
 const PACKAGE_LIKE_UNITS = ['cx', 'fardo', 'pct', 'dz', 'cartela'];
 const MAX_BATCH_FILES = 10;
+const MAX_CONCURRENT_PREVIEWS = 5;
+const MAX_PREVIEW_ATTEMPTS = 3;
 
 function paymentMethodLabel(method) { return PAYMENT_METHOD_LABEL[method] || 'Outro'; }
 function todayIsoDate() { return new Date().toISOString().slice(0, 10); }
@@ -758,29 +760,49 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onC
     });
   };
 
+  const previewFileWithRetry = async (file, index) => {
+    let lastResult = null;
+    for (let attempt = 1; attempt <= MAX_PREVIEW_ATTEMPTS; attempt += 1) {
+      setFileProgress((prev) => prev.map((entry, i) => (i === index ? { ...entry, status: 'processing', attempt } : entry)));
+      try {
+        lastResult = await onPreviewOne({ file, provider, model: '' });
+      } catch (error) {
+        lastResult = {
+          fileName: file.name,
+          success: false,
+          preview: null,
+          error: error && error.message ? error.message : 'Não foi possível ler o orçamento.',
+        };
+      }
+      if (lastResult.success) break;
+    }
+    setFileProgress((prev) => prev.map((entry, i) => (
+      i === index ? { ...entry, status: lastResult.success ? 'done' : 'error' } : entry
+    )));
+    return lastResult;
+  };
+
   const handleAnalyze = async () => {
     if (!files.length) { notify('Selecione ao menos um arquivo de orçamento.', 'warn'); return; }
     setBusy(true);
     setStage('processing');
-    setFileProgress(files.map((file) => ({ fileName: file.name, status: 'processing' })));
+    setFileProgress(files.map((file) => ({ fileName: file.name, status: 'processing', attempt: 1 })));
     try {
-      // One request per file, fired concurrently, so the "processing" screen can show each
-      // file's status as it lands instead of waiting for the whole batch to resolve at once.
-      const results = await Promise.all(files.map((file, index) => (
-        onPreviewOne({ file, provider, model: '' })
-          .catch((error) => ({
-            fileName: file.name,
-            success: false,
-            preview: null,
-            error: error && error.message ? error.message : 'Não foi possível ler o orçamento.',
-          }))
-          .then((result) => {
-            setFileProgress((prev) => prev.map((entry, i) => (
-              i === index ? { ...entry, status: result.success ? 'done' : 'error' } : entry
-            )));
-            return result;
-          })
-      )));
+      // Only MAX_CONCURRENT_PREVIEWS requests run at once (each retried up to
+      // MAX_PREVIEW_ATTEMPTS times before its error reaches the review screen) — a fixed pool of
+      // lanes, each pulling the next unprocessed file, keeps that cap regardless of batch size.
+      const results = new Array(files.length);
+      let nextIndex = 0;
+      const runLane = async () => {
+        while (nextIndex < files.length) {
+          const index = nextIndex;
+          nextIndex += 1;
+          results[index] = await previewFileWithRetry(files[index], index);
+        }
+      };
+      const lanes = Array.from({ length: Math.min(MAX_CONCURRENT_PREVIEWS, files.length) }, runLane);
+      await Promise.all(lanes);
+
       const nextGroups = [];
       const nextFailed = [];
       results.forEach((result, index) => {
@@ -796,14 +818,12 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onC
           form: groupFormFromPreview(result.preview),
         });
       });
-      if (!nextGroups.length) {
-        setStage('upload');
-        notify('Nenhum arquivo pôde ser lido. Verifique os erros e tente novamente.', 'warn');
-        return;
-      }
       setGroups(nextGroups);
       setFailedFiles(nextFailed);
       setStage('review');
+      if (!nextGroups.length) {
+        notify('Nenhum arquivo pôde ser lido. Veja os erros abaixo.', 'warn');
+      }
     } catch (error) {
       setStage('upload');
       notify(error && error.message ? error.message : 'Não foi possível ler os orçamentos.', 'warn');
@@ -891,7 +911,7 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onC
 
       {stage === 'processing' && (
         <div style={{ textAlign: 'center', padding: '24px 8px 12px' }}>
-          <span className="fa-iconbox" style={{ width: 68, height: 68, margin: '0 auto 16px' }}><Icon name="repeat" size={30} className="fa-spin" /></span>
+          <span className="qt-spinner" style={{ width: 68, height: 68, borderWidth: 5, margin: '0 auto 16px' }} />
           <h2 className="fa-h3" style={{ fontSize: 22 }}>Processando orçamento{files.length > 1 ? 's' : ''}</h2>
           <p className="fa-muted" style={{ fontSize: 14, lineHeight: 1.6, maxWidth: 520, margin: '10px auto 0' }}>
             Estamos lendo {files.length > 1 ? 'os documentos' : 'o documento'} e extraindo fornecedor, marca, itens,
@@ -904,13 +924,15 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onC
             {fileProgress.map((entry, index) => (
               <div key={`${entry.fileName}-${index}`} className="fa-card qt-import-progress-row" data-status={entry.status}>
                 <span className="qt-import-status-icon">
-                  {entry.status === 'processing' && <Icon name="repeat" size={16} className="fa-spin" />}
+                  {entry.status === 'processing' && <span className="qt-spinner qt-spinner-sm" />}
                   {entry.status === 'done' && <Icon name="check" size={16} />}
                   {entry.status === 'error' && <Icon name="close" size={16} />}
                 </span>
                 <div className="qt-import-progress-name">{entry.fileName}</div>
                 <span className="qt-import-progress-label">
-                  {entry.status === 'processing' ? 'Processando…' : entry.status === 'done' ? 'Pronto' : 'Falhou'}
+                  {entry.status === 'processing'
+                    ? (entry.attempt > 1 ? `Processando… (tentativa ${entry.attempt} de ${MAX_PREVIEW_ATTEMPTS})` : 'Processando…')
+                    : entry.status === 'done' ? 'Pronto' : 'Falhou'}
                 </span>
               </div>
             ))}
@@ -918,23 +940,37 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onC
         </div>
       )}
 
-      {stage === 'review' && groups.length > 0 && (
+      {stage === 'review' && (
         <div>
-          <div style={{ marginBottom: 16 }}>
-            <span className="fa-iconbox" style={{ width: 56, height: 56, marginBottom: 14 }}><Icon name="check" size={28} /></span>
-            <h2 className="fa-h3" style={{ fontSize: 22 }}>Conferência antes de salvar</h2>
-            <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
-              {groups.length > 1 ? `${groups.length} orçamentos extraídos, um por fornecedor.` : 'Orçamento extraído.'} Revise
-              cabeçalho, formas de pagamento e itens de cada um — a data da cotação é o dado mais importante, pois o
-              preço varia por dia.
-            </p>
-          </div>
+          {groups.length > 0 ? (
+            <div style={{ marginBottom: 16 }}>
+              <span className="fa-iconbox" style={{ width: 56, height: 56, marginBottom: 14 }}><Icon name="check" size={28} /></span>
+              <h2 className="fa-h3" style={{ fontSize: 22 }}>Conferência antes de salvar</h2>
+              <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
+                {groups.length > 1 ? `${groups.length} orçamentos extraídos, um por fornecedor.` : 'Orçamento extraído.'} Revise
+                cabeçalho, formas de pagamento e itens de cada um — a data da cotação é o dado mais importante, pois o
+                preço varia por dia.
+              </p>
+            </div>
+          ) : (
+            <div style={{ marginBottom: 16 }}>
+              <span className="fa-iconbox" style={{ width: 56, height: 56, marginBottom: 14, background: '#FBEAE9', color: 'var(--fa-error)' }}><Icon name="close" size={28} /></span>
+              <h2 className="fa-h3" style={{ fontSize: 22 }}>Não foi possível ler os orçamentos</h2>
+              <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
+                Nenhum dos arquivos enviados pôde ser processado, mesmo após {MAX_PREVIEW_ATTEMPTS} tentativas cada. Veja os
+                erros abaixo, ajuste o que for necessário e tente novamente.
+              </p>
+            </div>
+          )}
 
           {failedFiles.length > 0 && (
             <div className="fa-card" style={{ padding: 14, marginBottom: 16, borderLeft: '4px solid var(--fa-error)' }}>
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Não foi possível ler {failedFiles.length > 1 ? 'estes arquivos' : 'este arquivo'}:</div>
               {failedFiles.map((failed, index) => (
-                <div key={index} className="ph-cell-sub">{failed.fileName}: {failed.error}</div>
+                <div key={index} className="qt-import-failed-row">
+                  <span className="qt-import-failed-name">{failed.fileName}</span>
+                  <span className="qt-import-failed-error">{failed.error}</span>
+                </div>
               ))}
             </div>
           )}
@@ -945,7 +981,9 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onC
 
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
             <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={() => setStage('upload')} disabled={busy}>Voltar</button>
-            <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!valid || busy} onClick={handleConfirm}><Icon name="check" size={16} />{busy ? 'Salvando…' : `Confirmar e salvar ${groups.length > 1 ? `${groups.length} orçamentos` : 'orçamento'}`}</button>
+            {groups.length > 0 && (
+              <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!valid || busy} onClick={handleConfirm}><Icon name="check" size={16} />{busy ? 'Salvando…' : `Confirmar e salvar ${groups.length > 1 ? `${groups.length} orçamentos` : 'orçamento'}`}</button>
+            )}
           </div>
         </div>
       )}

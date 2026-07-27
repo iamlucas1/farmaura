@@ -967,9 +967,14 @@
 }
 
 /* ---------- Importação de orçamentos com IA: progresso por arquivo ---------- */
-.fa-spin { animation: faSpin 1s linear infinite; }
-@keyframes faSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .fa-spin { animation: none; } }
+.qt-spinner {
+  display: inline-block; box-sizing: border-box; border-radius: 50%;
+  border: 4px solid var(--fa-rose-soft); border-top-color: var(--fa-primary);
+  animation: qtSpin .8s linear infinite;
+}
+.qt-spinner-sm { width: 16px; height: 16px; border-width: 2px; }
+@keyframes qtSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .qt-spinner { animation: none; } }
 
 .qt-import-progress-summary { margin-top: 18px; padding: 14px 18px; }
 .qt-import-progress-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; text-align: left; }
@@ -983,6 +988,11 @@
 .qt-import-progress-row[data-status="processing"] .qt-import-progress-label { color: var(--fa-ink-3); }
 .qt-import-progress-row[data-status="done"] .qt-import-progress-label { color: var(--fa-success); }
 .qt-import-progress-row[data-status="error"] .qt-import-progress-label { color: var(--fa-error); }
+
+.qt-import-failed-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-top: 1px solid var(--fa-mist); }
+.qt-import-failed-row:first-child { border-top: none; padding-top: 0; }
+.qt-import-failed-name { font-weight: 700; font-size: 13px; }
+.qt-import-failed-error { font-size: 12.5px; color: var(--fa-ink-3); }
 
 /* ============================================================
    Auditoria (Estoque + Precificador) — tela admin-only.
