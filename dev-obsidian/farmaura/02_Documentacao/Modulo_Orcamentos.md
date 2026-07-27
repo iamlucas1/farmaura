@@ -280,18 +280,33 @@ migration nova nesta feature) e reaproveita `find_supplier_match` exatamente com
 escopado por cabeçalho, chamado uma vez por arquivo extraído).
 
 - **Backend** (`purchase_quote_ai_service.py`): `preview_quote_import_batch`/
-  `confirm_quote_import_batch` são wrappers finos que chamam `preview_quote_import`/
-  `confirm_quote_import` (inalterados) num laço **sequencial** — nunca concorrente, para não
-  empilhar chamadas simultâneas de IA na mesma chave de API compartilhada entre dev e produção
-  (risco de rate-limit já observado nesta sessão). Cada arquivo tem sucesso ou falha
-  independentemente — um PDF corrompido não derruba o lote inteiro, só aparece como item com
-  `success: false` e `error` no resultado.
-- **Bug real encontrado testando esta feature**: o laço de `confirm_quote_import_batch` batia
-  exatamente no problema já documentado de "RLS após commit" (`confirm_quote_import` comita ao
-  persistir cada cotação, o que limpa o contexto de RLS transaction-local) — todo arquivo depois
-  do primeiro num lote falhava o INSERT com "new row violates row-level security policy". Corrigido
-  chamando `apply_tenant_context(session, subject)` entre iterações, mesmo padrão já usado em
-  `purchase_quote_service.py` (`_reapply_tenant_context`).
+  `confirm_quote_import_batch` rodam todos os arquivos do lote **concorrentemente**
+  (`asyncio.gather`), não mais sequencialmente — mudança pedida explicitamente pelo usuário depois
+  de perguntar como estava hoje, aceitando o trade-off de chamadas simultâneas de IA na mesma chave
+  compartilhada entre dev e produção. `MAX_BATCH_FILES = 10` continua sendo o teto do lote, que
+  agora é também o teto de concorrência. Cada arquivo tem sucesso ou falha independentemente — um
+  PDF corrompido não derruba o lote inteiro, só aparece como item com `success: false` e `error` no
+  resultado. Resultado real: 2 arquivos que levavam 4min14s em sequência passaram a levar 1min46s
+  em paralelo (tempo de um arquivo só, não a soma).
+- **`AsyncSession` não é seguro para uso concorrente** — a sessão única por requisição
+  (`self.session`, injetada via `get_subject_session`) não pode ser compartilhada entre tarefas
+  concorrentes. Cada tarefa (`_preview_one`/`_confirm_one`) abre sua **própria sessão
+  independente** a partir do `SessionFactory` já existente (`app/core/database.py`), reaplica
+  contexto de tenant/RLS nela (`apply_tenant_context` só precisa de `session` + `subject` — mesmo
+  helper já usado para o bug de "RLS após commit" documentado abaixo) e roda os métodos de arquivo
+  único, já existentes e inalterados, contra um `PurchaseQuoteAiService` descartável escopado
+  àquela sessão. `engine` em `database.py` ganhou `pool_size=10, max_overflow=20` explícitos (o
+  default do SQLAlchemy async é 5/10 = 15 no total, para o processo inteiro — sem `--workers` no
+  uvicorn, é o único pool de toda a app) para dar folga a até 10 sessões extras de um lote sem
+  sufocar o resto do tráfego concorrente.
+- **Bug real encontrado testando a versão sequencial desta feature** (antes da paralelização
+  acima): o laço de `confirm_quote_import_batch` batia exatamente no problema já documentado de
+  "RLS após commit" (`confirm_quote_import` comita ao persistir cada cotação, o que limpa o
+  contexto de RLS transaction-local) — todo arquivo depois do primeiro num lote falhava o INSERT
+  com "new row violates row-level security policy". Corrigido reaplicando o contexto entre
+  iterações; na versão paralela isso vira, naturalmente, "reaplicar uma vez por sessão nova" (cada
+  tarefa já começa com sua própria sessão + contexto, sem iteração sequencial para reaplicar
+  contra).
 - **Frontend** (`quotes-screen.jsx`): `<input type="file" multiple>`; a tela de conferência mostra
   um cartão por cotação extraída com sucesso (fornecedor, formas de pagamento, itens agrupados por
   marca), arquivos que falharam ficam listados com o erro sem bloquear os que deram certo; a
@@ -301,8 +316,30 @@ escopado por cabeçalho, chamado uma vez por arquivo extraído).
   ~500MB (`APP_MAX_REQUEST_BODY_BYTES` subiu de ~21MB). As mesmas três camadas de proxy já tocadas
   antes nesta sessão (`farmaura-api`, nginx interno do container `farmaura`, vhost do
   `lumos-gateway`) subiram juntas — `client_max_body_size` para 600m nas duas camadas de nginx, e
-  `proxy_read_timeout`/`proxy_send_timeout` para 1800s (processamento sequencial de vários arquivos
-  grandes pode legitimamente levar bem mais que os 300s já usados para um arquivo só).
+  `proxy_read_timeout`/`proxy_send_timeout` para 1800s. Com a paralelização acima, esse teto de
+  timeout ficou com folga bem maior do que o necessário no caso comum (o tempo de resposta agora é
+  o do arquivo mais lento do lote, não mais a soma de todos).
+
+## Fornecedor obrigatoriamente vinculado ao catálogo (sem mais "avulso")
+
+A conferência do import por IA não aceita mais fornecedor "avulso" (nome/CNPJ livre sem vínculo
+com um `Supplier` real) — pedido explícito do usuário, junto com a paralelização acima.
+
+- **Frontend** (`quotes-screen.jsx`, `QuoteReviewGroup`): os campos de texto livre "Nome do
+  fornecedor"/"CNPJ" saíram da tela; sobrou só o `<select>` de fornecedores cadastrados (agora
+  obrigatório — `isGroupValid` passou a exigir `!!form.supplierId` em vez de checar o texto do
+  nome) mais um botão "Adicionar" ao lado. Quando a IA não encontra um fornecedor correspondente no
+  catálogo (`matchedSupplierId` vazio), aparece um aviso e o botão abre o `SupplierModal` já
+  existente (exportado de `suppliers-screen.jsx`, reaproveitado sem nenhuma mudança), pré-preenchido
+  com o nome/CNPJ que a IA extraiu do documento. Ao salvar, chama `addSupplier` (mesma função usada
+  pela tela de Fornecedores — já reatualiza a lista em memória antes de retornar) e vincula o novo
+  fornecedor automaticamente ao grupo. `supplierName`/`supplierDocument` continuam existindo no
+  estado do formulário (ainda vão no payload de confirmação, ainda preenchidos automaticamente pelo
+  `onChange` do `<select>`) — só sumiram os campos de texto editáveis diretamente.
+- **Backend** (`app/schemas/purchase_quote.py`): `PurchaseQuoteImportConfirmRequest` ganhou um
+  `model_validator` exigindo `supplier_id` não vazio — rede de segurança atrás do bloqueio do
+  frontend, escopada só nessa subclasse (não em `PurchaseQuoteCreateRequest`, usada pelo cadastro
+  manual de orçamento, que continua permitindo avulso).
 
 ## Ver também
 
@@ -313,6 +350,13 @@ escopado por cabeçalho, chamado uma vez por arquivo extraído).
 
 ## Atualizações
 
+- 2026-07-26: lote de importação passou de sequencial para concorrente (`asyncio.gather`, cada
+  arquivo com sua própria sessão de banco — `AsyncSession` não é seguro para uso concorrente); pool
+  de conexões subiu (`pool_size=10, max_overflow=20`). 2 arquivos que levavam 4min14s em sequência
+  passaram a levar 1min46s em paralelo, validado localmente com dados reais. Fornecedor "avulso"
+  removido da conferência do import — vínculo com `Supplier` cadastrado passou a ser obrigatório,
+  com botão "Adicionar fornecedor" inline (reaproveita o `SupplierModal` existente) para quando a
+  IA não encontra correspondência no catálogo.
 - 2026-07-25: importação em lote — `/import-preview`/`/import-confirm` aceitam múltiplos arquivos
   (até 10), cada um vira uma cotação própria (nunca mesclada entre arquivos), segregado por
   fornecedor com itens agrupados por marca na conferência. Limites subidos para ~100MB/arquivo e
