@@ -739,6 +739,24 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewBatch, o
 
   const removeSelectedFile = (index) => setFiles((prev) => prev.filter((_, i) => i !== index));
 
+  const handleFilesSelected = (e) => {
+    const incoming = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = '';
+    if (!incoming.length) return;
+    setFiles((prev) => {
+      const merged = [...prev];
+      incoming.forEach((file) => {
+        const alreadyAdded = merged.some((f) => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified);
+        if (!alreadyAdded) merged.push(file);
+      });
+      if (merged.length > MAX_BATCH_FILES) {
+        notify(`Você pode importar no máximo ${MAX_BATCH_FILES} arquivos por vez (a seleção chegaria a ${merged.length}). Remova algum arquivo ou selecione menos arquivos.`, 'warn');
+        return prev;
+      }
+      return merged;
+    });
+  };
+
   const handleAnalyze = async () => {
     if (!files.length) { notify('Selecione ao menos um arquivo de orçamento.', 'warn'); return; }
     setBusy(true);
@@ -815,9 +833,9 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewBatch, o
           </p>
           <div className="fa-form2" style={{ marginTop: 18 }}>
             <div className="fa-field fa-span2">
-              <label>Arquivos do orçamento (até {MAX_BATCH_FILES}, até 100MB cada)</label>
+              <label>Arquivos do orçamento (até {MAX_BATCH_FILES}, até 100MB cada — pode selecionar em mais de uma vez)</label>
               <input className="fa-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])} />
+                onChange={handleFilesSelected} />
             </div>
             <div className="fa-field">
               <label>Provider de leitura</label>
