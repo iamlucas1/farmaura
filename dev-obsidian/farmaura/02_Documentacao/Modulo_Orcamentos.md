@@ -341,15 +341,68 @@ com um `Supplier` real) — pedido explícito do usuário, junto com a paraleliz
   frontend, escopada só nessa subclasse (não em `PurchaseQuoteCreateRequest`, usada pelo cadastro
   manual de orçamento, que continua permitindo avulso).
 
+## Marca vinculada ao catálogo (por item) + vínculo automático marca↔fornecedor
+
+Mesmo tratamento do fornecedor acima, agora por item: na conferência do import por IA, cada item
+deixou de aceitar `brand_name` como texto livre puro — precisa estar vinculado a uma `Brand` real do
+catálogo (`brand_id`), com o mesmo padrão de dropdown obrigatório + botão "Adicionar" inline.
+Diferente do fornecedor (obrigatório também no cadastro manual seria demais — item sem marca
+identificável é comum), essa obrigatoriedade ficou restrita à conferência do import por IA.
+
+- **Backend — schema/model**: `purchase_quote_items` ganhou `brand_id` (FK opcional para
+  `brands.id`, `ON DELETE SET NULL`, migration `20260727_01` — ver
+  [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|pendência de deploy]]).
+  `brand_name` continua existindo como snapshot (mesmo espírito de `supplier_name_snapshot`) —
+  preenchido automaticamente pelo nome da marca selecionada, não mais editável livremente na tela de
+  conferência. `PurchaseQuoteImportConfirmRequest` ganhou um segundo `model_validator`
+  (`_require_linked_brands`) exigindo `brand_id` não vazio em todo item — mesma rede de segurança
+  atrás do bloqueio do frontend, mesma subclasse escopada (cadastro manual continua livre).
+- **Backend — matching automático**: `preview_quote_import` (extração por IA) agora também tenta
+  casar o `brand_name` extraído com uma marca já cadastrada (`BrandRepository.get_by_name`, exato
+  case-insensitive — mesmo padrão do `find_supplier_match` do fornecedor) e devolve
+  `matched_brand_id` no preview; o frontend usa isso para pré-selecionar a marca no dropdown quando
+  há correspondência, só pedindo ação do usuário quando a IA extrai uma marca que ainda não existe no
+  catálogo.
+- **Backend — vínculo marca↔fornecedor (N:N)**: toda vez que um orçamento é salvo (criação manual,
+  edição, ou confirmação do import por IA) com fornecedor **e** itens com marca vinculados,
+  `PurchaseQuoteService._link_brands_to_supplier` garante automaticamente que cada marca dos itens
+  fique registrada como distribuída por aquele fornecedor (`BrandRepository.ensure_supplier_link`,
+  tabela `brand_suppliers` já existente) — só adiciona vínculos novos, nunca remove os existentes.
+  Um orçamento é evidência direta de que aquele fornecedor vende aquela marca, então o cadastro de
+  marcas/fornecedores cresce sozinho a partir do uso normal do módulo, sem exigir edição manual
+  paralela na tela de Marcas.
+- **Frontend** (`quotes-screen.jsx`, `QuoteReviewGroup`): o campo de texto livre "Marca" por item
+  virou `<select>` de marcas cadastradas (obrigatório — `isGroupValid` passou a exigir `!!item.brandId`
+  em todo item) + botão "Adicionar" que abre `BrandModal` (exportado de `brands-screen.jsx`, que
+  precisou de um pequeno ajuste: o bloco de "Status da marca/Descartar" só aparece quando
+  `initialBrand.id` existe, para não vazar essa UI de edição ao usar o modal para *criar* uma marca
+  nova pré-preenchida, igual ao `SupplierModal` já fazia). Ao salvar, chama `addBrand` (mesma função
+  da tela de Marcas) e vincula a marca nova ao item automaticamente.
+
 ## Ver também
 
 - [[../00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|Adoção de Alembic em produção]] — como o schema desta feature foi migrado para o processo novo.
 - [[../00_Decisoes/2026-07-23-confirmar-compra-cruza-orcamentos-e-estoque|Confirmar Compra cruza orçamentos e estoque]] — decisão sobre a exceção controlada à regra "orçamento nunca vira estoque".
 - [[../06_Pendencias/aplicar-migration-orcamentos-em-producao|aplicar-migration-orcamentos-em-producao]] — migration gerada, ainda não aplicada em produção.
+- [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|aplicar-migration-marca-orcamento-em-producao]] — migration `20260727_01` (brand_id), ainda não aplicada em produção.
 - [[Visao_Geral|Visão Geral]] — arquitetura geral do backend.
 
 ## Atualizações
 
+- 2026-07-27: marca por item passou a exigir vínculo com `Brand` cadastrada na conferência do
+  import por IA (mesmo padrão do fornecedor — dropdown obrigatório + "Adicionar marca" inline,
+  `matched_brand_id` no preview para pré-seleção automática quando a IA extrai um nome já
+  cadastrado). Nova migration `20260727_01` (`purchase_quote_items.brand_id`, FK opcional para
+  `brands.id`) — ver [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|pendência de
+  deploy]]. Além disso, salvar um orçamento com fornecedor e itens com marca vinculados agora
+  registra automaticamente essa marca como distribuída por aquele fornecedor
+  (`brand_suppliers`, N:N, só adiciona vínculos — nunca remove).
+- 2026-07-27: modal de import por IA — concorrência de leitura reduzida de 10 para 5 arquivos por
+  vez, cada arquivo com até 3 tentativas antes do erro aparecer na conferência. Provider padrão
+  trocado de Gemini para OpenAI. Lista "Não foi possível ler estes arquivos" corrigida para aparecer
+  mesmo quando **todos** os arquivos do lote falham (antes só aparecia se pelo menos um tivesse sido
+  lido com sucesso — um lote 100% malsucedido só mostrava um toast genérico e voltava para a tela de
+  upload). Ícone giratório da tela "Processando" trocado por um spinner circular de verdade.
 - 2026-07-26: lote de importação passou de sequencial para concorrente (`asyncio.gather`, cada
   arquivo com sua própria sessão de banco — `AsyncSession` não é seguro para uso concorrente); pool
   de conexões subiu (`pool_size=10, max_overflow=20`). 2 arquivos que levavam 4min14s em sequência

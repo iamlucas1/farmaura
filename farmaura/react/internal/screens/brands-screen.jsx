@@ -360,7 +360,7 @@ function BrandModal({ title, submitLabel, initialBrand, suppliers, onClose, onSa
       <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="tag" size={26} /></span>
       <h2 className="fa-h3" style={{ fontSize: 20 }}>{title}</h2>
 
-      {initialBrand && (
+      {initialBrand && initialBrand.id && (
         <div className="fa-field" style={{ marginBottom: 18 }}>
           <label>Status da marca</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -401,4 +401,4 @@ function BrandModal({ title, submitLabel, initialBrand, suppliers, onClose, onSa
   );
 }
 
-export { BrandsScreen };
+export { BrandsScreen, BrandModal };

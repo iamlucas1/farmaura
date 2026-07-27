@@ -70,3 +70,19 @@ class BrandRepository:
         for supplier_id in dict.fromkeys(supplier_ids):
             self.session.add(BrandSupplier(tenant_id=tenant_id, brand_id=brand_id, supplier_id=supplier_id))
         await self.session.flush()
+
+    async def ensure_supplier_link(
+        self, *, tenant_id: str, brand_id: str, supplier_id: str
+    ) -> None:
+        """Link a brand to a supplier if not already linked, leaving other links untouched."""
+
+        statement = select(BrandSupplier.id).where(
+            BrandSupplier.brand_id == brand_id, BrandSupplier.supplier_id == supplier_id
+        )
+        result = await self.session.execute(statement)
+        if result.scalar_one_or_none() is not None:
+            return
+        self.session.add(
+            BrandSupplier(tenant_id=tenant_id, brand_id=brand_id, supplier_id=supplier_id)
+        )
+        await self.session.flush()

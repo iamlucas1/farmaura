@@ -31,6 +31,7 @@ from app.core.tenant_context import apply_tenant_context
 from app.models.purchase_quote import PurchaseQuote
 from app.models.purchase_quote_item import PurchaseQuoteItem
 from app.models.purchase_quote_payment_term import PurchaseQuotePaymentTerm
+from app.repositories.brand_repository import BrandRepository
 from app.repositories.purchase_quote_repository import PurchaseQuoteRepository
 from app.schemas.auth import TokenSubject
 from app.schemas.inventory import InventoryInvoicePreviewResponse
@@ -60,11 +61,31 @@ class PurchaseQuoteService:
         self.session = session
         self.subject = subject
         self.repository = PurchaseQuoteRepository(session)
+        self.brand_repository = BrandRepository(session)
 
     async def _reapply_tenant_context(self) -> None:
         """Reapply RLS session context after a commit (see module docstring)."""
 
         await apply_tenant_context(self.session, self.subject)
+
+    async def _link_brands_to_supplier(self, quote: PurchaseQuote) -> None:
+        """Record every item's brand as distributed by the quote's supplier (N-to-N).
+
+        A saved purchase quote is direct evidence a supplier carries a brand, so this grows the
+        brand's supplier list automatically instead of requiring a separate manual edit on the
+        Brands screen. Additive only (see BrandRepository.ensure_supplier_link) — never removes an
+        existing brand-supplier link.
+        """
+
+        if not quote.supplier_id:
+            return
+        brand_ids = {item.brand_id for item in quote.items if item.brand_id}
+        for brand_id in brand_ids:
+            await self.brand_repository.ensure_supplier_link(
+                tenant_id=str(self.subject.tenant_id),
+                brand_id=brand_id,
+                supplier_id=quote.supplier_id,
+            )
 
     async def list_quotes(
         self,
@@ -102,6 +123,7 @@ class PurchaseQuoteService:
 
         quote = self.build_quote_entity(payload)
         quote = await self.repository.add_quote(quote)
+        await self._link_brands_to_supplier(quote)
         await self.session.commit()
         return self._serialize(quote)
 
@@ -137,6 +159,7 @@ class PurchaseQuoteService:
                 tenant_id=str(self.subject.tenant_id),
                 product_id=item.product_id or None,
                 description=item.description,
+                brand_id=item.brand_id or None,
                 brand_name=item.brand_name,
                 sku_snapshot=item.sku_snapshot,
                 ean_code_snapshot=item.ean_code_snapshot,
@@ -154,6 +177,7 @@ class PurchaseQuoteService:
             )
             for item in payload.items
         ]
+        await self._link_brands_to_supplier(quote)
         await self.session.commit()
         await self._reapply_tenant_context()
         quote = await self._require_quote(quote_id)
@@ -274,6 +298,7 @@ class PurchaseQuoteService:
                     tenant_id=str(self.subject.tenant_id),
                     product_id=item.product_id or None,
                     description=item.description,
+                    brand_id=item.brand_id or None,
                     brand_name=item.brand_name,
                     sku_snapshot=item.sku_snapshot,
                     ean_code_snapshot=item.ean_code_snapshot,
@@ -297,6 +322,7 @@ class PurchaseQuoteService:
         """Persist a built quote entity and return its serialized form."""
 
         quote = await self.repository.add_quote(quote)
+        await self._link_brands_to_supplier(quote)
         await self.session.commit()
         return self._serialize(quote)
 
@@ -350,6 +376,7 @@ class PurchaseQuoteService:
                     id=item.id,
                     product_id=item.product_id or "",
                     description=item.description,
+                    brand_id=item.brand_id or "",
                     brand_name=item.brand_name,
                     sku_snapshot=item.sku_snapshot,
                     ean_code_snapshot=item.ean_code_snapshot,

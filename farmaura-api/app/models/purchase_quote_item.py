@@ -74,6 +74,9 @@ class PurchaseQuoteItem(Base, UuidModel, TimestampedModel):
     )
 
     description: Mapped[str] = mapped_column(String(255), nullable=False)
+    brand_id: Mapped[str | None] = mapped_column(
+        ForeignKey("brands.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     brand_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     sku_snapshot: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     ean_code_snapshot: Mapped[str] = mapped_column(String(32), default="", nullable=False)

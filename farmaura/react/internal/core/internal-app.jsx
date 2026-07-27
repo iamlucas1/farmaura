@@ -629,6 +629,7 @@ function PharmApp() {
     id: item.id || '',
     productId: item.product_id || '',
     description: item.description || '',
+    brandId: item.brand_id || '',
     brandName: item.brand_name || '',
     skuSnapshot: item.sku_snapshot || '',
     eanCodeSnapshot: item.ean_code_snapshot || '',
@@ -685,6 +686,7 @@ function PharmApp() {
       lineId: item.line_id || 'line-' + (index + 1),
       description: item.description || '',
       brandName: item.brand_name || '',
+      matchedBrandId: item.matched_brand_id || '',
       sku: item.sku || '',
       eanCode: item.ean_code || '',
       unit: item.unit || 'un',
@@ -780,6 +782,7 @@ function PharmApp() {
   const _purchaseQuoteItemToPayload = (item) => ({
     product_id: item.productId || '',
     description: item.description,
+    brand_id: item.brandId || '',
     brand_name: item.brandName || '',
     sku_snapshot: item.skuSnapshot || '',
     ean_code_snapshot: item.eanCodeSnapshot || '',

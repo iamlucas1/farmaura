@@ -63,6 +63,7 @@ class PurchaseQuoteItemRequest(StrictModel):
 
     product_id: str = Field(default="", max_length=36)
     description: str = Field(min_length=1, max_length=255)
+    brand_id: str = Field(default="", max_length=36)
     brand_name: str = Field(default="", max_length=255)
     sku_snapshot: str = Field(default="", max_length=64)
     ean_code_snapshot: str = Field(default="", max_length=32)
@@ -167,6 +168,7 @@ class PurchaseQuoteImportPreviewLineResponse(StrictModel):
     line_id: str
     description: str
     brand_name: str
+    matched_brand_id: str
     sku: str
     ean_code: str
     unit: str
@@ -222,9 +224,10 @@ class PurchaseQuoteImportConfirmRequest(PurchaseQuoteCreateRequest):
     """Validate the human-reviewed payload persisted after AI extraction.
 
     Unlike a manually entered quote (PurchaseQuoteCreateRequest, which still allows an
-    unregistered "avulso" supplier via free-text supplier_name/supplier_document alone), an
-    AI-imported quote must be linked to a real catalog Supplier — the review UI no longer offers
-    free-text supplier entry, so supplier_id is required here specifically.
+    unregistered "avulso" supplier via free-text supplier_name/supplier_document alone, and items
+    with a free-text brand_name only), an AI-imported quote must be linked to a real catalog
+    Supplier and every item to a real catalog Brand — the review UI no longer offers free-text
+    entry for either, so supplier_id and each item's brand_id are required here specifically.
     """
 
     source_provider: str = Field(default="", max_length=24)
@@ -236,6 +239,14 @@ class PurchaseQuoteImportConfirmRequest(PurchaseQuoteCreateRequest):
 
         if not self.supplier_id.strip():
             raise ValueError("A supplier must be selected from the catalog.")
+        return self
+
+    @model_validator(mode="after")
+    def _require_linked_brands(self) -> "PurchaseQuoteImportConfirmRequest":
+        """Reject a confirm payload with any item missing a catalog brand link."""
+
+        if any(not item.brand_id.strip() for item in self.items):
+            raise ValueError("Every item must have a brand selected from the catalog.")
         return self
 
 

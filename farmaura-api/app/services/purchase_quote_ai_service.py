@@ -55,6 +55,7 @@ from app.core.database import SessionFactory
 from app.core.file_storage import write_private_file
 from app.core.file_validation import validate_quote_upload
 from app.core.tenant_context import apply_tenant_context
+from app.repositories.brand_repository import BrandRepository
 from app.repositories.purchase_quote_repository import PurchaseQuoteRepository
 from app.schemas.auth import TokenSubject
 from app.schemas.purchase_quote import (
@@ -131,6 +132,7 @@ class PurchaseQuoteAiService:
         self.subject = subject
         self.settings = settings
         self.repository = PurchaseQuoteRepository(session)
+        self.brand_repository = BrandRepository(session)
         self.ai_service = AiService(settings)
         self.quote_service = PurchaseQuoteService(session=session, subject=subject)
 
@@ -218,6 +220,13 @@ class PurchaseQuoteAiService:
                 ean_code=ean_code,
                 limit=6,
             )
+            matched_brand = (
+                await self.brand_repository.get_by_name(
+                    tenant_id=str(self.subject.tenant_id), name=brand_name
+                )
+                if brand_name
+                else None
+            )
             units_per_package = self._safe_optional_decimal(raw_item.get("units_per_package"))
             if units_per_package is not None and units_per_package <= Decimal("0.00"):
                 units_per_package = None
@@ -226,6 +235,7 @@ class PurchaseQuoteAiService:
                     line_id=f"line-{index}",
                     description=description,
                     brand_name=brand_name,
+                    matched_brand_id=matched_brand.id if matched_brand is not None else "",
                     sku=self._safe_text(raw_item.get("sku")),
                     ean_code=ean_code,
                     unit=self._safe_text(raw_item.get("unit"), fallback="un"),

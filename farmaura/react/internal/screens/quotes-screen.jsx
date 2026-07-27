@@ -4,6 +4,7 @@ import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { Topbar } from "../core/internal-shell.jsx";
 import { InventoryKpi } from "./inventory-screen.jsx";
 import { SupplierModal } from "./suppliers-screen.jsx";
+import { BrandModal } from "./brands-screen.jsx";
 
 /* FARMAURA Console — Orçamentos (cotações de compra).
    Captura de cotações de fornecedores (manual ou por IA a partir de PDF/imagem/XLSX/DOCX) para
@@ -54,7 +55,7 @@ function UnitSelect({ value, onChange }) {
 
 function QuotesScreen({ ctx }) {
   const {
-    suppliers, addSupplier, fetchPurchaseQuotes, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
+    suppliers, addSupplier, brands, addBrand, fetchPurchaseQuotes, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
     downloadPurchaseQuoteFile, previewPurchaseQuoteImportOne, confirmPurchaseQuoteImportBatch,
     setPendingPurchaseQuoteId, onNav,
     notify, onLogout,
@@ -299,6 +300,8 @@ function QuotesScreen({ ctx }) {
         <QuoteImportModal
           suppliers={suppliers}
           onAddSupplier={addSupplier}
+          brands={brands}
+          onAddBrand={addBrand}
           onClose={() => setImportOpen(false)}
           onPreviewOne={previewPurchaseQuoteImportOne}
           onConfirmBatch={async (payload) => {
@@ -315,7 +318,7 @@ function QuotesScreen({ ctx }) {
 
 /* ===================== FORMAS DE PAGAMENTO E ITENS (linhas dinâmicas) ===================== */
 function emptyPaymentTerm() { return { method: 'pix', discountPercent: '', surchargePercent: '', installmentCount: '', daysToPay: '', notes: '' }; }
-function emptyItem() { return { productId: '', description: '', brandName: '', skuSnapshot: '', eanCodeSnapshot: '', unit: 'un', unitsPerPackage: '', quantityReference: '', unitPrice: '', ncmCode: '', ipiPercentage: '', icmsStValue: '', finalUnitPrice: '', isComodato: false, comodatoNotes: '', notes: '' }; }
+function emptyItem() { return { productId: '', description: '', brandId: '', brandName: '', skuSnapshot: '', eanCodeSnapshot: '', unit: 'un', unitsPerPackage: '', quantityReference: '', unitPrice: '', ncmCode: '', ipiPercentage: '', icmsStValue: '', finalUnitPrice: '', isComodato: false, comodatoNotes: '', notes: '' }; }
 
 function PaymentTermsEditor({ terms, onChange }) {
   const setTerm = (index, patch) => onChange(terms.map((term, i) => i === index ? { ...term, ...patch } : term));
@@ -580,7 +583,7 @@ function groupFormFromPreview(payload) {
     paymentTerms: payload.paymentTerms.length ? payload.paymentTerms.map((term) => ({ ...term, discountPercent: term.discountPercent ?? '', surchargePercent: term.surchargePercent ?? '', installmentCount: term.installmentCount ?? '', daysToPay: term.daysToPay ?? '' })) : [emptyPaymentTerm()],
     items: payload.items.map((item) => ({
       productId: item.matchCandidates[0] ? item.matchCandidates[0].id : '',
-      description: item.description, brandName: item.brandName, skuSnapshot: item.sku, eanCodeSnapshot: item.eanCode,
+      description: item.description, brandId: item.matchedBrandId || '', brandName: item.brandName, skuSnapshot: item.sku, eanCodeSnapshot: item.eanCode,
       unit: item.unit, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference ?? '', unitPrice: item.unitPrice,
       ncmCode: item.ncmCode ?? '', ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '',
       isComodato: item.isComodato, comodatoNotes: item.comodatoNotes, notes: '',
@@ -590,13 +593,14 @@ function groupFormFromPreview(payload) {
 }
 
 function isGroupValid(form) {
-  const validItems = form.items.length > 0 && form.items.every((item) => item.description.trim() && item.unitPrice !== '' && Number(item.unitPrice) >= 0);
+  const validItems = form.items.length > 0 && form.items.every((item) => item.description.trim() && !!item.brandId && item.unitPrice !== '' && Number(item.unitPrice) >= 0);
   return !!form.supplierId && !!form.quoteDate && validItems;
 }
 
-function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSupplier, notify }) {
+function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSupplier, brands, onAddBrand, notify }) {
   const { fileName, preview, form, confirmError } = group;
   const [addSupplierOpen, setAddSupplierOpen] = useState(false);
+  const [addBrandForItemIndex, setAddBrandForItemIndex] = useState(null);
   const set = (key, value) => onChange(index, (prev) => ({ ...prev, [key]: value }));
   const setItem = (itemIndex, patch) => onChange(index, (prev) => ({ ...prev, items: prev.items.map((it, i) => i === itemIndex ? { ...it, ...patch } : it) }));
 
@@ -676,7 +680,24 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSu
                 </div>
                 <div className="fa-form2">
                   <div className="fa-field fa-span2"><label>Descrição *</label><input className="fa-input" value={item.description} onChange={(e) => setItem(itemIndex, { description: e.target.value })} /></div>
-                  <div className="fa-field"><label>Marca</label><input className="fa-input" value={item.brandName} onChange={(e) => setItem(itemIndex, { brandName: e.target.value })} /></div>
+                  <div className="fa-field fa-span2">
+                    <label>Marca *</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <select className="fa-select" style={{ flex: 1 }} value={item.brandId} onChange={(e) => {
+                        const selected = (brands || []).find((brand) => brand.id === e.target.value);
+                        setItem(itemIndex, { brandId: e.target.value, brandName: selected ? selected.name : item.brandName });
+                      }}>
+                        <option value="">Selecione uma marca cadastrada</option>
+                        {(brands || []).filter((brand) => brand.active && !brand.discarded).map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                      </select>
+                      <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setAddBrandForItemIndex(itemIndex)}><Icon name="plus" size={14} stroke={2.2} />Adicionar</button>
+                    </div>
+                    {!item.brandId && (
+                      <div className="ph-cell-sub" style={{ color: 'var(--fa-error)', marginTop: 4 }}>
+                        {item.brandName ? `Marca extraída ("${item.brandName}") não está cadastrada — selecione a correspondente ou cadastre uma nova.` : 'Selecione uma marca cadastrada ou cadastre uma nova.'}
+                      </div>
+                    )}
+                  </div>
                   <div className="fa-field"><label>Unidade</label><UnitSelect value={item.unit} onChange={(unit) => setItem(itemIndex, { unit })} /></div>
                   {PACKAGE_LIKE_UNITS.includes(item.unit) && (
                     <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setItem(itemIndex, { unitsPerPackage: e.target.value })} placeholder="Ex.: 50" /></div>
@@ -727,11 +748,31 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSu
           }}
         />
       )}
+
+      {addBrandForItemIndex !== null && (
+        <BrandModal
+          title="Nova marca"
+          submitLabel="Cadastrar e vincular"
+          initialBrand={{ name: form.items[addBrandForItemIndex] ? form.items[addBrandForItemIndex].brandName : '' }}
+          suppliers={suppliers || []}
+          onClose={() => setAddBrandForItemIndex(null)}
+          onSave={async (payload) => {
+            try {
+              const created = await onAddBrand(payload);
+              setItem(addBrandForItemIndex, { brandId: created.id, brandName: created.name });
+              setAddBrandForItemIndex(null);
+              notify && notify('Marca cadastrada e vinculada.', 'success');
+            } catch (error) {
+              notify && notify(error && error.message ? error.message : 'Não foi possível cadastrar a marca.', 'warn');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onConfirmBatch, notify }) {
+function QuoteImportModal({ suppliers, onAddSupplier, brands, onAddBrand, onClose, onPreviewOne, onConfirmBatch, notify }) {
   const [stage, setStage] = useState('upload');
   const [provider, setProvider] = useState('openai');
   const [files, setFiles] = useState([]);
@@ -976,7 +1017,7 @@ function QuoteImportModal({ suppliers, onAddSupplier, onClose, onPreviewOne, onC
           )}
 
           {groups.map((group, index) => (
-            <QuoteReviewGroup key={`${group.fileName}-${index}`} group={group} index={index} suppliers={suppliers} onChange={updateGroupForm} onRemove={removeGroup} onAddSupplier={onAddSupplier} notify={notify} />
+            <QuoteReviewGroup key={`${group.fileName}-${index}`} group={group} index={index} suppliers={suppliers} onChange={updateGroupForm} onRemove={removeGroup} onAddSupplier={onAddSupplier} brands={brands} onAddBrand={onAddBrand} notify={notify} />
           ))}
 
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
