@@ -366,8 +366,8 @@ Diferente do fornecedor (obrigatório também no cadastro manual seria demais �
 identificável é comum), essa obrigatoriedade ficou restrita à conferência do import por IA.
 
 - **Backend — schema/model**: `purchase_quote_items` ganhou `brand_id` (FK opcional para
-  `brands.id`, `ON DELETE SET NULL`, migration `20260727_01` — ver
-  [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|pendência de deploy]]).
+  `brands.id`, `ON DELETE SET NULL`, migration `20260727_01`, aplicada em produção em 2026-07-28 —
+  ver [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|registro do deploy]]).
   `brand_name` continua existindo como snapshot (mesmo espírito de `supplier_name_snapshot`) —
   preenchido automaticamente pelo nome da marca selecionada, não mais editável livremente na tela de
   conferência. `PurchaseQuoteImportConfirmRequest` ganhou um segundo `model_validator`
@@ -399,12 +399,17 @@ identificável é comum), essa obrigatoriedade ficou restrita à conferência do
 
 - [[../00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|Adoção de Alembic em produção]] — como o schema desta feature foi migrado para o processo novo.
 - [[../00_Decisoes/2026-07-23-confirmar-compra-cruza-orcamentos-e-estoque|Confirmar Compra cruza orçamentos e estoque]] — decisão sobre a exceção controlada à regra "orçamento nunca vira estoque".
-- [[../06_Pendencias/aplicar-migration-orcamentos-em-producao|aplicar-migration-orcamentos-em-producao]] — migration gerada, ainda não aplicada em produção.
-- [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|aplicar-migration-marca-orcamento-em-producao]] — migration `20260727_01` (brand_id), ainda não aplicada em produção.
+- [[../06_Pendencias/aplicar-migration-orcamentos-em-producao|aplicar-migration-orcamentos-em-producao]] — migration baseline do módulo, aplicada em produção em 2026-07-23.
+- [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|aplicar-migration-marca-orcamento-em-producao]] — migration `20260727_01` (brand_id), aplicada em produção em 2026-07-28.
 - [[Visao_Geral|Visão Geral]] — arquitetura geral do backend.
 
 ## Atualizações
 
+- 2026-07-28: aplicada em produção a migration `20260727_01` (`purchase_quote_items.brand_id`) e
+  feito o deploy do backend/frontend com o vínculo de marca por item, o vínculo automático
+  marca↔fornecedor, o seletor de marca no formulário manual e o fix de extração de IA abaixo — tudo
+  no mesmo deploy. Ver [[../06_Pendencias/aplicar-migration-marca-orcamento-em-producao|registro do
+  deploy]] para os passos e a verificação pós-deploy.
 - 2026-07-28: corrigido bug real de extração — título de bloco/coleção de produtos (ex.: "AMARELOU
   GERAL ?") virando `brand_name` do item em vez de parte da `description`, achado num arquivo real
   (`TABELA OHMY 2026 (23-03-2026).xlsx`, catálogo com 3 blocos de itens lado a lado na mesma

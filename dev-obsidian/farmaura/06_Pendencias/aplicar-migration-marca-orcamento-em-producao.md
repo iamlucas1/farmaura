@@ -1,6 +1,6 @@
 # Aplicar migration `20260727_01` (brand_id em purchase_quote_items) em produção
 
-**Status:** Aberto
+**Status:** Resolvido em 2026-07-28
 **Prioridade:** Alta
 **Registrado em:** 2026-07-27
 
@@ -34,6 +34,20 @@ necessário (produção já tem `alembic_version` corretamente rastreado desde a
 
 ## Contexto
 
-Não aplicada ainda porque aplicar uma migration em produção exige confirmação explícita do usuário
-(ver a seção "Responsável" da POP linkada acima) — a IA gera e testa a migration localmente, mas não
-roda contra o banco real sem esse aval.
+Não aplicada de imediato porque aplicar uma migration em produção exige confirmação explícita do
+usuário (ver a seção "Responsável" da POP linkada acima) — a IA gera e testa a migration localmente,
+mas não roda contra o banco real sem esse aval.
+
+## Resolução
+
+Aplicada em 2026-07-28, com confirmação explícita do usuário, exatamente pelos passos descritos
+acima (sem `docker-compose.gateway.yml`). `alembic current` confirmou `20260723_04` antes de rodar
+— nenhum `stamp` foi necessário. `alembic upgrade head` rodou limpo (`20260723_04 -> 20260727_01`);
+`alembic current` depois confirmou `20260727_01 (head)`, e `\d purchase_quote_items` mostrou a
+coluna `brand_id` (uuid, nullable) com a FK `fk_purchase_quote_items_brand_id_brands` e o índice
+`ix_purchase_quote_items_brand_id`. Containers `farmaura-api`/`farmaura` recriados no mesmo deploy
+(junto com o fix de extração de IA do commit `0ce8f28` — mesmo arquivo, mesma janela de deploy).
+Verificado depois: ambos os containers saudáveis, logs mostrando tráfego real (`/orders/internal-
+board/changes`, `/deliveries/routes/live`) respondendo 200 sem erro, e `GET /api/v1/purchase-
+quotes`/`GET /api/v1/brands` pelo domínio real respondendo 401 (não 500) sem autenticação —
+confirma que as rotas que agora tocam a coluna nova estão funcionando, só exigindo login.
