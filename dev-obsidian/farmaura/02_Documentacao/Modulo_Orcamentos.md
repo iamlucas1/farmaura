@@ -206,6 +206,22 @@ prompt de extração (`purchase_quote_ai_service.py`) contra padrões reais, nã
   valor zerado no topo de formulário de pedido); e combinar num único item quando o mesmo
   código/EAN aparece em mais de uma aba do mesmo arquivo (ex.: aba resumida + aba "Cadastro" mais
   completa), preferindo o valor mais detalhado por campo em vez de duplicar o item.
+- **Bug real encontrado: título de bloco/coleção virando `brand_name`**. Planilhas que repetem
+  blocos de itens (cada bloco iniciado por uma linha curta sem preço — nome de linha/coleção de
+  produtos, ex.: "AMARELOU GERAL ?", "CRESPO" — seguida do cabeçalho de colunas e só então os
+  itens) faziam a IA usar esse título de bloco como `brand_name` do item, quando na verdade é parte
+  do nome do produto (linha/coleção), não a marca do fornecedor. Prompt ganhou instrução explícita:
+  combinar o título do bloco na `description` de cada item ("Amarelou Geral? - Sh. 300ml") em vez
+  de promovê-lo a `brand_name`; e `brand_name` passou a vir do nome do arquivo quando o conteúdo da
+  planilha não tiver marca explícita (ex.: arquivo "TABELA OHMY 2026" → marca "Oh My"), ignorando
+  palavras genéricas do nome do arquivo ("tabela", "catálogo", "preços" etc.) e títulos genéricos do
+  próprio documento ("CATALOGO DE PRODUTOS", "TABELA DE PRECOS"). Validado com arquivo real
+  (`TABELA OHMY 2026 (23-03-2026).xlsx`, 3 blocos de itens lado a lado na mesma planilha) — 2
+  execuções seguidas após o ajuste final resolveram `brand_name` corretamente para "Oh My" em 100%
+  dos itens; sem regressão num arquivo simples já validado antes (`INVENTA SEM ICMS.xlsx`, mesma
+  contagem de itens de antes). Contagem exaustiva de item em layouts com múltiplos blocos lado a
+  lado na mesma planilha ainda varia entre execuções (mesma limitação de fundo do LLM em layouts
+  não-tabulares) — não resolvida por completo, só o problema de atribuição de marca reportado.
 
 **Limite de upload era menor do que documentos reais de fornecedor — três camadas, três limites
 diferentes**: uma requisição de import passa por `lumos-gateway` (nginx) → nginx interno do
@@ -389,6 +405,13 @@ identificável é comum), essa obrigatoriedade ficou restrita à conferência do
 
 ## Atualizações
 
+- 2026-07-28: corrigido bug real de extração — título de bloco/coleção de produtos (ex.: "AMARELOU
+  GERAL ?") virando `brand_name` do item em vez de parte da `description`, achado num arquivo real
+  (`TABELA OHMY 2026 (23-03-2026).xlsx`, catálogo com 3 blocos de itens lado a lado na mesma
+  planilha). Prompt ajustado para combinar o título do bloco na descrição do item e nunca usá-lo
+  como marca; `brand_name` agora também tenta inferir a marca do nome do arquivo quando a planilha
+  não traz uma explícita. Validado com o arquivo real reportado (marca resolvida corretamente para
+  "Oh My" em 2 execuções seguidas) e sem regressão num arquivo simples já testado antes.
 - 2026-07-27: marca por item passou a exigir vínculo com `Brand` cadastrada na conferência do
   import por IA (mesmo padrão do fornecedor — dropdown obrigatório + "Adicionar marca" inline,
   `matched_brand_id` no preview para pré-seleção automática quando a IA extrai um nome já
