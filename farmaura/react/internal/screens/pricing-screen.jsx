@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { createPortal } from "react-dom";
-import { ModalShell, Toggle } from "../../marketplace/core/marketplace-components.jsx";
+import { ModalShell, Toggle, useModalStack } from "../../marketplace/core/marketplace-components.jsx";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { resolvePaymentBreakdown } from "../../shared/payment-pricing.js";
 import { Topbar } from "../core/internal-shell.jsx";
@@ -398,16 +398,11 @@ function HideMarketplaceConfirmationModal({ item, onCancel, onConfirm }) {
 
 /* ===================== DRAWER: CONFIGURAÇÕES GERAIS DE PREÇO ===================== */
 function PricingSettingsDrawer({ onClose, mkt, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy, pdvDiscountSettings, setPdvDiscountSettings, savePdvDiscountSettings, pdvDiscountSettingsBusy }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
-  }, [onClose]);
+  useModalStack(true, onClose);
 
   const node = (
-    <div className="ph-drawer-overlay" onClick={onClose}>
-      <div className="ph-drawer prc-settings-drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div className="ph-drawer-overlay">
+      <div className="ph-drawer prc-settings-drawer" role="dialog" aria-modal="true">
         <div className="ph-drawer-head">
           <span className="fa-iconbox" style={{ width: 46, height: 46, flex: 'none' }}><Icon name="cog" size={22} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -520,12 +515,7 @@ function PriceDrawer({ it, mkt, cnaeSettings, onClose, onSave }) {
   const [publishOnMarketplace, setPublishOnMarketplace] = useState(!!it.marketplaceVisible);
   const [mode, setMode] = useState('price'); // price | margin
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
-  }, [onClose]);
+  useModalStack(true, onClose);
 
   // CNAE é somente-leitura aqui — é uma configuração do produto (tela Produtos), não do preço.
   const cnaeIndex = cnaeIndexByCode(cnaeSettings);
@@ -540,8 +530,8 @@ function PriceDrawer({ it, mkt, cnaeSettings, onClose, onSave }) {
   const currentTargetMargin = (() => { const c = priceCalc({ cost, price, promo: 0, ref, cnae: it.cnae, isSubjectToIcmsSt: it.isSubjectToIcmsSt }, mkt, cnaeIndex, taxRegime); return Math.max(0, Math.round(c.margin)); })();
 
   const node = (
-    <div className="ph-drawer-overlay" onClick={onClose}>
-      <div className="ph-drawer prc-drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div className="ph-drawer-overlay">
+      <div className="ph-drawer prc-drawer" role="dialog" aria-modal="true">
         <div className="ph-drawer-head">
           <span className="fa-iconbox" style={{ width: 46, height: 46, flex: 'none' }}><Icon name="tag" size={22} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>

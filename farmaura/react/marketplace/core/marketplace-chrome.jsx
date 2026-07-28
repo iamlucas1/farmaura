@@ -2,6 +2,7 @@ import React, { useState as _useStateChrome } from "react";
 
 import { fetchViaCepAddress, formatCep } from "./marketplace-address.js";
 import { MARKETPLACE_LOGO_MARK_URL } from "./marketplace-assets.js";
+import { useModalStack } from "./marketplace-components.jsx";
 import { Icon } from "./marketplace-icons.jsx";
 
 /* FARMAURA — chrome: Header, Footer, MobileDrawer. */
@@ -248,9 +249,10 @@ function Header({ cats, route, cartCount, query, user, portalData, onNav, onSear
 }
 
 function MobileDrawer({ cats, user, onNav, onClose, onChat, onPrescription }) {
+  useModalStack(true, onClose);
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100 }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(43,26,26,.4)', backdropFilter: 'blur(2px)' }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(43,26,26,.4)', backdropFilter: 'blur(2px)' }} />
       <div className="fa-fadein" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 'min(320px, 84vw)', background: 'var(--fa-bg)', padding: 20, display: 'flex', flexDirection: 'column', gap: 6, boxShadow: 'var(--fa-shadow-lg)', animationDuration: '.25s' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <Logo onClick={() => onNav({ name: 'home' })} />

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { brl } from "../../marketplace/core/marketplace-components.jsx";
+import { brl, useModalStack } from "../../marketplace/core/marketplace-components.jsx";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { OC_STATUS, SLA_TARGET, Topbar, fmtDur, minsSince, slaState } from "../core/internal-shell.jsx";
 
@@ -129,6 +129,7 @@ function OrderDrawer({ ctx }) {
     setPickupBusy(false);
     setDispatchingShipping(false);
   }, [drawerOrder]);
+  useModalStack(!!o, closeDrawer);
   if (!o) return null;
 
   const st = OC_STATUS[o.status];
@@ -176,7 +177,7 @@ function OrderDrawer({ ctx }) {
 
   return (
     <>
-      <div className="ph-drawer-overlay" onClick={closeDrawer} />
+      <div className="ph-drawer-overlay" />
       <div className="ph-drawer" role="dialog" aria-modal="true">
         <div className="ph-drawer-head">
           <span className="fa-iconbox" style={{ width: 46, height: 46, flex: 'none' }}><Icon name={o.fulfillment === 'pickup' ? 'store' : 'truck'} size={22} /></span>

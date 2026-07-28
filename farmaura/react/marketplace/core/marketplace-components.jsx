@@ -174,21 +174,54 @@ function Toggle({ on, onChange, ariaLabel }) {
   );
 }
 
-// ---- Modal shell (portaled to <body>; full-viewport overlay, viewport-centered,
-//      body scroll locked). Use directly for custom layouts (e.g. chat). ----
-function ModalShell({ open, onClose, children, maxw = 440, padded = true, className = '' }) {
+// ---- Modal stack: shared Escape-key hierarchy for every full-screen overlay/drawer in the app ----
+// Clicking the backdrop never closes a modal (too easy to lose in-progress form data by accident)
+// — only Esc does, and only the most recently opened one, one at a time, like a real dialog stack.
+// Any full-page overlay component (ModalShell below, or a bespoke drawer that doesn't go through
+// it) should call this hook instead of wiring its own keydown/body-overflow effect, so every modal
+// in the app shares one stack and closes in the right order regardless of which component opened it.
+let _modalStack = [];
+let _nextModalStackId = 1;
+
+function useModalStack(open, onClose) {
+  const idRef = React.useRef(null);
+  if (idRef.current === null) idRef.current = _nextModalStackId++;
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
+
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const id = idRef.current;
+    _modalStack.push({ id, close: () => onCloseRef.current() });
+
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      const top = _modalStack[_modalStack.length - 1];
+      if (top && top.id === id) {
+        e.stopPropagation();
+        top.close();
+      }
+    };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
-  }, [open, onClose]);
+
+    return () => {
+      _modalStack = _modalStack.filter((entry) => entry.id !== id);
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+}
+
+// ---- Modal shell (portaled to <body>; full-viewport overlay, viewport-centered,
+//      body scroll locked). Use directly for custom layouts (e.g. chat). ----
+function ModalShell({ open, onClose, children, maxw = 440, padded = true, className = '' }) {
+  useModalStack(open, onClose);
   if (!open) return null;
   const node = (
-    <div className="fa-modal-overlay" onClick={onClose}>
-      <div className={'fa-modal ' + className} style={{ maxWidth: maxw, padding: padded ? undefined : 0 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div className="fa-modal-overlay">
+      <div className={'fa-modal ' + className} style={{ maxWidth: maxw, padding: padded ? undefined : 0 }} role="dialog" aria-modal="true">
         <button className="fa-modal-x" onClick={onClose} aria-label="fechar"><Icon name="close" size={18} /></button>
         {children}
       </div>
@@ -231,4 +264,5 @@ export {
   QtyStepper,
   Stars,
   Toggle,
+  useModalStack,
 };

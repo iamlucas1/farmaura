@@ -180,13 +180,6 @@ function AcquisitionCostModal({ it, fetchInvoices, downloadInvoiceFile, onClose,
     return () => { active = false; };
   }, [it.id]);
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
-  }, [onClose]);
-
   const handleSave = async () => {
     setSaving(true);
     try {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ProductCard, brl } from "../core/marketplace-components.jsx";
+import { ProductCard, brl, useModalStack } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 
 /* FARMAURA — Catalog screen: category / search / offers with filters + sort. */
@@ -105,6 +105,7 @@ function ShopScreen({ ctx, mode }) {
   const [sort, setSort] = useState('relevance');
   const [view, setView] = useState(cardVariant);
   const [mobileFilters, setMobileFilters] = useState(false);
+  useModalStack(mobileFilters, () => setMobileFilters(false));
 
   useEffect(() => {
     setFilters(createInitialFilters());
@@ -237,7 +238,7 @@ function ShopScreen({ ctx, mode }) {
       </div>
       {mobileFilters && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100 }}>
-          <div onClick={() => setMobileFilters(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(43,26,26,.4)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(43,26,26,.4)' }} />
           <div className="fa-fadein" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 'min(360px,90vw)', background: 'var(--fa-bg)', padding: 20, overflowY: 'auto', boxShadow: 'var(--fa-shadow-lg)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <span style={{ fontWeight: 800, fontSize: 18 }}>Filtros</span>

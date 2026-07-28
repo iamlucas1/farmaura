@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { PharmacistChatInbox } from "../core/marketplace-care-actions.jsx";
-import { Modal, ProductCard, brl } from "../core/marketplace-components.jsx";
+import { Modal, ProductCard, brl, useModalStack } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { OrderCard, OrderTracker, resolveOrderLineProduct, resolveOrderLineTotal, resolveOrderStatusMeta } from "./account-shared.jsx";
 
@@ -186,6 +186,7 @@ function SavedProducts({ ctx }) {
 
 /* ============== MEUS PEDIDOS ============== */
 function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct, onOpenSupport }) {
+  useModalStack(!!order, onClose);
   if (!order) {
     return null;
   }
@@ -208,8 +209,8 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
     : 'Use este código como referência da entrega no atendimento e na conferência do pedido.';
 
   const drawerNode = (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end', width: '100vw', height: '100vh', background: 'rgba(18, 22, 29, 0.28)' }} onClick={onClose}>
-      <aside className="fa-fadein" onClick={(event) => event.stopPropagation()} style={{ width: 'min(560px, 100vw)', maxWidth: '100vw', height: '100vh', background: 'var(--fa-surface)', boxShadow: 'var(--fa-shadow-lg)', display: 'flex', flexDirection: 'column', borderRadius: 0 }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end', width: '100vw', height: '100vh', background: 'rgba(18, 22, 29, 0.28)' }}>
+      <aside className="fa-fadein" style={{ width: 'min(560px, 100vw)', maxWidth: '100vw', height: '100vh', background: 'var(--fa-surface)', boxShadow: 'var(--fa-shadow-lg)', display: 'flex', flexDirection: 'column', borderRadius: 0 }}>
         <div style={{ padding: '22px 22px 18px', borderBottom: '1px solid var(--fa-mist)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
