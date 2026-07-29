@@ -829,12 +829,12 @@ function QuoteImportModal({ suppliers, onAddSupplier, brands, onAddBrand, onClos
   const [groups, setGroups] = useState([]);
   const [failedFiles, setFailedFiles] = useState([]);
   const [fileProgress, setFileProgress] = useState([]);
+  const [htmlPasteOpen, setHtmlPasteOpen] = useState(false);
+  const [htmlPasteText, setHtmlPasteText] = useState('');
 
   const removeSelectedFile = (index) => setFiles((prev) => prev.filter((_, i) => i !== index));
 
-  const handleFilesSelected = (e) => {
-    const incoming = e.target.files ? Array.from(e.target.files) : [];
-    e.target.value = '';
+  const addFiles = (incoming) => {
     if (!incoming.length) return;
     setFiles((prev) => {
       const merged = [...prev];
@@ -848,6 +848,23 @@ function QuoteImportModal({ suppliers, onAddSupplier, brands, onAddBrand, onClos
       }
       return merged;
     });
+  };
+
+  const handleFilesSelected = (e) => {
+    const incoming = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = '';
+    addFiles(incoming);
+  };
+
+  // Wraps pasted HTML as a virtual .html File so it flows through the exact same
+  // upload/preview/confirm pipeline as a picked file — no separate paste-specific request path.
+  const handleAddPastedHtml = () => {
+    const html = htmlPasteText.trim();
+    if (!html) { notify('Cole o HTML da página antes de adicionar.', 'warn'); return; }
+    const file = new File([htmlPasteText], `pagina-colada-${Date.now()}.html`, { type: 'text/html' });
+    addFiles([file]);
+    setHtmlPasteText('');
+    setHtmlPasteOpen(false);
   };
 
   const previewFileWithRetry = async (file, index) => {
@@ -955,15 +972,39 @@ function QuoteImportModal({ suppliers, onAddSupplier, brands, onAddBrand, onClos
           <span className="fa-iconbox" style={{ width: 56, height: 56, marginBottom: 14 }}><Icon name="camera" size={28} /></span>
           <h2 className="fa-h3" style={{ fontSize: 22 }}>Importar orçamento com IA</h2>
           <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
-            Envie um ou mais orçamentos em PDF, imagem, planilha (XLSX) ou documento Word (DOCX) — inclusive de
-            fornecedores diferentes. A IA extrai fornecedor, marcas, produtos, preços, formas de pagamento, frete
-            e prazo de cada arquivo — você confere tudo, organizado por fornecedor, antes de salvar.
+            Envie um ou mais orçamentos em PDF, imagem, planilha (XLSX), documento Word (DOCX) ou página HTML
+            (arquivo ou colada de um site) — inclusive de fornecedores diferentes. A IA extrai fornecedor, marcas,
+            produtos, preços, formas de pagamento, frete e prazo de cada arquivo — você confere tudo, organizado por
+            fornecedor, antes de salvar.
           </p>
           <div className="fa-form2" style={{ marginTop: 18 }}>
             <div className="fa-field fa-span2">
               <label>Arquivos do orçamento (até {MAX_BATCH_FILES}, até 100MB cada — pode selecionar em mais de uma vez)</label>
-              <input className="fa-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              <input className="fa-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx,.html,.htm,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/html"
                 onChange={handleFilesSelected} />
+            </div>
+            <div className="fa-field fa-span2">
+              <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setHtmlPasteOpen((prev) => !prev)}>
+                <Icon name="tag" size={14} />{htmlPasteOpen ? 'Cancelar colagem de HTML' : 'Colar HTML de uma página'}
+              </button>
+              {htmlPasteOpen && (
+                <div className="fa-card" style={{ padding: 14, marginTop: 10, display: 'grid', gap: 10 }}>
+                  <p className="fa-muted" style={{ fontSize: 13, lineHeight: 1.5, margin: 0 }}>
+                    Abra a página do fornecedor no navegador, selecione o código-fonte (Ctrl+U) ou o conteúdo da
+                    página e cole abaixo. A IA lê a mesma página e extrai marca, fornecedor e produtos.
+                  </p>
+                  <textarea
+                    className="fa-input"
+                    style={{ minHeight: 140, fontFamily: 'monospace', fontSize: 12.5, resize: 'vertical' }}
+                    placeholder="Cole aqui o HTML da página do fornecedor..."
+                    value={htmlPasteText}
+                    onChange={(e) => setHtmlPasteText(e.target.value)}
+                  />
+                  <button type="button" className="fa-btn fa-btn-primary fa-btn-sm" style={{ justifySelf: 'start' }} disabled={!htmlPasteText.trim()} onClick={handleAddPastedHtml}>
+                    Adicionar HTML à lista
+                  </button>
+                </div>
+              )}
             </div>
             <div className="fa-field">
               <label>Provider de leitura</label>

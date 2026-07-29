@@ -6,9 +6,13 @@ Purchase quote AI import service for Farmaura.
 Responsibilities:
 - extract structured purchase quote data (supplier, payment terms, items,
   freight, delivery time) from a supplier document using AI;
-- support PDF/PNG/JPEG via the multimodal document prompt, and XLSX/DOCX by
+- support PDF/PNG/JPEG via the multimodal document prompt, and XLSX/DOCX/HTML by
   parsing them locally first (no multimodal support exists for those formats)
   and feeding the extracted text/table content through a text prompt;
+- HTML covers a supplier catalog/product page copied (view-source/save-page) from a
+  browser and pasted or uploaded as a .html file — same text-extraction-then-AI-normalize
+  path as XLSX/DOCX, just with a stdlib-only tag stripper instead of a spreadsheet/docx
+  parser (see LOCAL DOCUMENT PARSING below);
 - persist the human-reviewed result as a purchase quote, including the
   original source document, without ever touching sellable inventory;
 
@@ -39,6 +43,7 @@ import asyncio
 import base64
 import json
 from decimal import Decimal, InvalidOperation
+from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -75,6 +80,7 @@ from app.services.ai_service import AiDocumentExecutionRequest, AiExecutionReque
 from app.services.purchase_quote_service import PurchaseQuoteService
 
 DOCUMENT_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
+HTML_EXTENSIONS = {".html", ".htm"}
 # Bounds a batch import to a reasonable number of sequential AI extractions — files are processed
 # one at a time (see BATCH (MULTIPLE FILES) IMPORT below), so this is also a rough cap on how long
 # a single batch request can run for.
@@ -92,6 +98,72 @@ LOCAL_PARSE_MAX_CHARS = 200_000
 # them wastes LOCAL_PARSE_MAX_CHARS budget on 27-row per-state tax matrices and risks the AI
 # mistaking a state row (e.g. "SP, 0.04, 0.18, ...") for a product line.
 TAX_RATE_SHEET_MARKERS = ("estado", "aliquota", "alíquota", "mva")
+
+# Tags whose text content is markup/logic, never catalog content — skipped entirely so
+# script/style bodies never leak into the extracted text.
+_HTML_SKIP_TAGS = {"script", "style", "noscript", "head", "template", "svg"}
+# Block-level tags: a line break before/after keeps rows, paragraphs, and cards from
+# running into each other once tags are stripped.
+_HTML_BLOCK_TAGS = {
+    "p", "div", "tr", "table", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+    "section", "article", "header", "footer", "ul", "ol", "form",
+}
+_HTML_CELL_TAGS = {"td", "th"}
+
+
+class _HtmlTextExtractor(HTMLParser):
+    """Flatten HTML to plain text, joining table cells with " | " per row.
+
+    Stdlib-only (no bs4/lxml dependency) — sufficient here because, like the XLSX/DOCX
+    extraction above, this only needs to produce a readable flat text for the AI prompt to
+    normalize; it doesn't need a DOM or CSS-aware rendering of the page.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._skip_depth = 0
+        self._chunks: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _HTML_SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if tag == "br":
+            self._chunks.append("\n")
+        elif tag in _HTML_CELL_TAGS:
+            self._chunks.append(" | ")
+        elif tag in _HTML_BLOCK_TAGS:
+            self._chunks.append("\n")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "br" and not self._skip_depth:
+            self._chunks.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _HTML_SKIP_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+            return
+        if self._skip_depth:
+            return
+        if tag in _HTML_BLOCK_TAGS:
+            self._chunks.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        text = data.strip()
+        if text:
+            self._chunks.append(text + " ")
+
+    def get_text(self) -> str:
+        """Return the accumulated text, collapsed to one non-blank line per block."""
+
+        raw = "".join(self._chunks)
+        lines = (" ".join(line.split()) for line in raw.split("\n"))
+        return "\n".join(line for line in lines if line)
+
 
 PAYMENT_METHOD_ALIASES: dict[str, str] = {
     "pix": "pix",
@@ -165,16 +237,20 @@ class PurchaseQuoteAiService:
                 model=model,
             )
         else:
-            extracted_text = (
-                self._extract_xlsx_text(content)
-                if extension == ".xlsx"
-                else self._extract_docx_text(content)
-            )
+            extra_instructions = ""
+            if extension == ".xlsx":
+                extracted_text = self._extract_xlsx_text(content)
+            elif extension in HTML_EXTENSIONS:
+                extracted_text = self._extract_html_text(content)
+                extra_instructions = self._html_source_prompt_note()
+            else:
+                extracted_text = self._extract_docx_text(content)
             parsed, response_provider, response_model = await self._extract_text_payload(
                 extracted_text=extracted_text,
                 file_name=file_name,
                 provider=normalized_provider,
                 model=model,
+                extra_instructions=extra_instructions,
             )
         raw_header = parsed.get("quote")
         payment_terms_payload = parsed.get("payment_terms") or []
@@ -536,15 +612,17 @@ class PurchaseQuoteAiService:
         file_name: str,
         provider: str,
         model: str,
+        extra_instructions: str = "",
         max_split_depth: int = 2,
     ) -> tuple[dict[str, object], str, str]:
-        """Extract structured data from parsed XLSX/DOCX text, splitting by lines if truncated."""
+        """Extract structured data from parsed XLSX/DOCX/HTML text, splitting by lines if truncated."""
 
         response = await self.ai_service.execute_prompt(
             AiExecutionRequest(
                 provider=provider,
                 model=model,
                 prompt=self._quote_extraction_prompt(file_name)
+                + extra_instructions
                 + "\n\nConteudo extraido do arquivo:\n"
                 + extracted_text,
                 system_prompt=self._quote_system_prompt(),
@@ -582,6 +660,7 @@ class PurchaseQuoteAiService:
                 file_name=file_name,
                 provider=provider,
                 model=model,
+                extra_instructions=extra_instructions,
                 max_split_depth=max_split_depth - 1,
             )
             payloads.append(chunk_payload)
@@ -617,7 +696,7 @@ class PurchaseQuoteAiService:
         }
 
     # ========================================================================
-    # LOCAL DOCUMENT PARSING (XLSX / DOCX)
+    # LOCAL DOCUMENT PARSING (XLSX / DOCX / HTML)
     # ========================================================================
 
     def _extract_xlsx_text(self, content: bytes) -> str:
@@ -725,6 +804,52 @@ class PurchaseQuoteAiService:
                 detail="The DOCX file has no readable content.",
             )
         return text[:LOCAL_PARSE_MAX_CHARS]
+
+    def _extract_html_text(self, content: bytes) -> str:
+        """Extract visible text from a pasted/saved HTML supplier page.
+
+        Covers a supplier catalog page a user copies from the browser (view-source or
+        Ctrl+A/Ctrl+C on the rendered page saved as .html) and pastes or uploads for import.
+        Strips script/style/head content and flattens the rest to plain text, joining table
+        cells with " | " per row — the same flat shape the extraction prompt already expects
+        from the XLSX path — using only the stdlib parser (no new dependency) since, like
+        XLSX/DOCX, the AI does the real normalization work, not this deterministic pass.
+        """
+
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            text = content.decode("latin-1", errors="replace")
+        parser = _HtmlTextExtractor()
+        try:
+            parser.feed(text)
+            parser.close()
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Could not read the HTML content.",
+            ) from error
+        extracted = parser.get_text()
+        if not extracted.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The HTML content has no readable text.",
+            )
+        return extracted[:LOCAL_PARSE_MAX_CHARS]
+
+    def _html_source_prompt_note(self) -> str:
+        """Return the extra prompt note appended for HTML-sourced content.
+
+        Web pages carry navigation/header/footer/banner boilerplate a spreadsheet or DOCX
+        never has, so the base extraction prompt (written for tabular documents) needs an
+        explicit steer away from it.
+        """
+
+        return (
+            "\n\nO conteudo abaixo foi extraido de uma pagina web (HTML) copiada ou salva pelo "
+            "usuario — ignore menus de navegacao, cabecalho, rodape, banners, botoes e qualquer "
+            "texto que nao faca parte da lista de produtos, precos, marca ou fornecedor."
+        )
 
     # ========================================================================
     # PROMPTS

@@ -10,7 +10,10 @@ Responsibilities:
 
 Observations:
 - magic-byte inspection should be expanded with real parsers later;
-- SVG, HTML, JS, and executables are rejected by default;
+- SVG, JS, and executables are rejected by default; HTML is allowed only for purchase
+  quote imports (a pasted/saved supplier catalog page for AI extraction) — it is never
+  rendered inline, only parsed as text server-side or downloaded as an attachment, so it
+  carries no stored-XSS risk despite the relaxed allowlist;
 """
 
 from pathlib import Path
@@ -30,13 +33,14 @@ ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 INVOICE_ALLOWED_EXTENSIONS = {".pdf", ".xml"}
 INVOICE_ALLOWED_CONTENT_TYPES = {"application/pdf", "text/xml", "application/xml"}
 
-QUOTE_ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".xlsx", ".docx"}
+QUOTE_ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".xlsx", ".docx", ".html", ".htm"}
 QUOTE_ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "image/png",
     "image/jpeg",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/html",
 }
 
 
