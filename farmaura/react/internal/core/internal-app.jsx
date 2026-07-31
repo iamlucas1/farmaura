@@ -775,7 +775,7 @@ function PharmApp() {
     method: term.method,
     discount_percent: term.discountPercent === '' || term.discountPercent == null ? null : Number(term.discountPercent),
     surcharge_percent: term.surchargePercent === '' || term.surchargePercent == null ? null : Number(term.surchargePercent),
-    installment_count: term.installmentCount === '' || term.installmentCount == null ? null : Number(term.installmentCount),
+    installment_count: term.installmentCount === '' || term.installmentCount == null || Number(term.installmentCount) < 1 ? null : Number(term.installmentCount),
     days_to_pay: term.daysToPay === '' || term.daysToPay == null ? null : Number(term.daysToPay),
     notes: term.notes || '',
   });

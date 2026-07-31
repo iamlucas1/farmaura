@@ -275,7 +275,7 @@ class PurchaseQuoteAiService:
                 method=self._safe_payment_method(term.get("method")),
                 discount_percent=self._safe_optional_decimal(term.get("discount_percent")),
                 surcharge_percent=self._safe_optional_decimal(term.get("surcharge_percent")),
-                installment_count=self._safe_optional_int(term.get("installment_count")),
+                installment_count=self._safe_installment_count(term.get("installment_count")),
                 days_to_pay=self._safe_optional_int(term.get("days_to_pay")),
                 notes=self._safe_text(term.get("notes")),
             )
@@ -885,7 +885,7 @@ class PurchaseQuoteAiService:
                         "method": "pix",
                         "discount_percent": 0,
                         "surcharge_percent": 0,
-                        "installment_count": 0,
+                        "installment_count": None,
                         "days_to_pay": 0,
                         "notes": "",
                     }
@@ -918,6 +918,9 @@ class PurchaseQuoteAiService:
             "vazia. freight_type deve ser 'FOB', 'CIF' ou string vazia. method de cada forma de "
             "pagamento deve ser um destes valores: pix, boleto_avista, boleto_prazo, "
             "cartao_credito, cartao_debito, consignado, dinheiro, transferencia, outro. "
+            "installment_count e o numero de parcelas; use null (nao 0) quando a forma de "
+            "pagamento nao tiver parcelamento (ex.: pix, boleto a vista, dinheiro) ou quando o "
+            "numero de parcelas nao aparecer no documento. "
             "is_comodato indica que o item e um equipamento cedido pelo fornecedor (ex.: "
             "geladeira/freezer de marca) e nao um produto comprado; comodato_notes descreve as "
             "condicoes do comodato quando existirem. units_per_package e quantas unidades de "
@@ -1030,6 +1033,12 @@ class PurchaseQuoteAiService:
         except (InvalidOperation, ValueError, TypeError):
             return None
         return normalized if normalized >= 0 else None
+
+    def _safe_installment_count(self, value: object) -> int | None:
+        """Normalize installment_count, treating 0 (or absent) as 'no installments'."""
+
+        normalized = self._safe_optional_int(value)
+        return normalized if normalized and normalized >= 1 else None
 
     def _safe_payment_method(self, value: object) -> str:
         """Normalize a free-text payment method into the supported enum, defaulting to 'outro'."""

@@ -619,7 +619,7 @@ function groupFormFromPreview(payload) {
     freightCost: payload.header.freightCost != null ? payload.header.freightCost : '',
     deliveryTimeDays: payload.header.deliveryTimeDays != null ? payload.header.deliveryTimeDays : '',
     notes: payload.header.notes,
-    paymentTerms: payload.paymentTerms.length ? payload.paymentTerms.map((term) => ({ ...term, discountPercent: term.discountPercent ?? '', surchargePercent: term.surchargePercent ?? '', installmentCount: term.installmentCount ?? '', daysToPay: term.daysToPay ?? '' })) : [emptyPaymentTerm()],
+    paymentTerms: payload.paymentTerms.length ? payload.paymentTerms.map((term) => ({ ...term, discountPercent: term.discountPercent ?? '', surchargePercent: term.surchargePercent ?? '', installmentCount: term.installmentCount ? term.installmentCount : '', daysToPay: term.daysToPay ?? '' })) : [emptyPaymentTerm()],
     items: payload.items.map((item) => ({
       productId: item.matchCandidates[0] ? item.matchCandidates[0].id : '',
       description: item.description, brandId: item.matchedBrandId || '', brandName: item.brandName, skuSnapshot: item.sku, eanCodeSnapshot: item.eanCode,
@@ -867,6 +867,26 @@ function QuoteImportModal({ suppliers, onAddSupplier, brands, onAddBrand, onClos
     setHtmlPasteOpen(false);
   };
 
+  // Same idea for a screenshot/image copied to the clipboard: wraps it as a virtual image
+  // File so it flows through the exact same upload/preview/confirm pipeline as a picked file.
+  useEffect(() => {
+    if (stage !== 'upload') return undefined;
+    const handleWindowPaste = (e) => {
+      const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : [];
+      const imageItem = items.find((item) => item.kind === 'file' && item.type && item.type.startsWith('image/'));
+      if (!imageItem) return;
+      const blob = imageItem.getAsFile();
+      if (!blob) return;
+      e.preventDefault();
+      const extension = imageItem.type === 'image/png' ? 'png' : 'jpg';
+      const file = new File([blob], `colado-${Date.now()}.${extension}`, { type: imageItem.type });
+      addFiles([file]);
+      notify('Imagem colada adicionada à lista de arquivos.', 'success');
+    };
+    window.addEventListener('paste', handleWindowPaste);
+    return () => window.removeEventListener('paste', handleWindowPaste);
+  }, [stage]);
+
   const previewFileWithRetry = async (file, index) => {
     let lastResult = null;
     for (let attempt = 1; attempt <= MAX_PREVIEW_ATTEMPTS; attempt += 1) {
@@ -982,6 +1002,9 @@ function QuoteImportModal({ suppliers, onAddSupplier, brands, onAddBrand, onClos
               <label>Arquivos do orçamento (até {MAX_BATCH_FILES}, até 100MB cada — pode selecionar em mais de uma vez)</label>
               <input className="fa-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx,.html,.htm,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/html"
                 onChange={handleFilesSelected} />
+              <p className="fa-muted" style={{ fontSize: 12.5, marginTop: 6 }}>
+                Dica: você também pode colar (Ctrl+V) um print/imagem copiado da área de transferência para adicioná-lo à lista.
+              </p>
             </div>
             <div className="fa-field fa-span2">
               <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setHtmlPasteOpen((prev) => !prev)}>
