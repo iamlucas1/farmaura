@@ -81,9 +81,17 @@ class PurchaseQuoteItemRequest(StrictModel):
 
 
 class PurchaseQuoteItemResponse(PurchaseQuoteItemRequest):
-    """Represent one persisted quoted product line."""
+    """Represent one persisted quoted product line.
+
+    Overrides quantity_reference without the multiple_of=1 constraint added to the request model:
+    rows saved before that constraint existed can hold a fractional value (e.g. 0.997), and a
+    stricter response schema than what was valid at write time would break reading them back
+    (500 on every list/get endpoint touching that row) instead of only rejecting new fractional
+    input going forward.
+    """
 
     id: str
+    quantity_reference: Decimal | None = Field(default=None, ge=Decimal("0"))
 
 
 # ============================================================================
