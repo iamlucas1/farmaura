@@ -294,6 +294,14 @@ class PurchaseQuoteBatchImportConfirmResponse(StrictModel):
 # ============================================================================
 
 
+class PurchaseQuoteComparePaymentTermResponse(StrictModel):
+    """One payment method offered on a compared quote, with its price already applied."""
+
+    method: str
+    discount_percent: Decimal
+    effective_price: Decimal
+
+
 class PurchaseQuoteCompareEntryResponse(StrictModel):
     """Represent one supplier's offer for a compared product."""
 
@@ -313,6 +321,7 @@ class PurchaseQuoteCompareEntryResponse(StrictModel):
     best_payment_method: str
     best_payment_discount_percent: Decimal
     payment_methods: list[str]
+    payment_terms: list[PurchaseQuoteComparePaymentTermResponse]
     freight_type: str
     freight_cost: Decimal | None
     delivery_time_days: int | None

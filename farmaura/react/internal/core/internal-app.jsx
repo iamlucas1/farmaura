@@ -727,6 +727,11 @@ function PharmApp() {
       bestPaymentMethod: entry.best_payment_method || '',
       bestPaymentDiscountPercent: Number(entry.best_payment_discount_percent || 0),
       paymentMethods: Array.isArray(entry.payment_methods) ? entry.payment_methods : [],
+      paymentTerms: Array.isArray(entry.payment_terms) ? entry.payment_terms.map((term) => ({
+        method: term.method || '',
+        discountPercent: Number(term.discount_percent || 0),
+        effectivePrice: Number(term.effective_price || 0),
+      })) : [],
       freightType: entry.freight_type || '',
       freightCost: entry.freight_cost == null ? null : Number(entry.freight_cost),
       deliveryTimeDays: entry.delivery_time_days == null ? null : Number(entry.delivery_time_days),
@@ -744,6 +749,8 @@ function PharmApp() {
       classCCount: Number(payload.summary && payload.summary.class_c_count || 0),
       classAWithoutOfferCount: Number(payload.summary && payload.summary.class_a_without_offer_count || 0),
       totalRevenueAnalyzed: Number(payload.summary && payload.summary.total_revenue_analyzed || 0),
+      totalUnitsSoldPerMonth: Number(payload.summary && payload.summary.total_units_sold_per_month || 0),
+      urgentReorderCount: Number(payload.summary && payload.summary.urgent_reorder_count || 0),
     },
     items: Array.isArray(payload.items) ? payload.items.map((item) => ({
       productId: item.product_id,
@@ -759,6 +766,9 @@ function PharmApp() {
       currentStock: Number(item.current_stock || 0),
       coverageDays: item.coverage_days == null ? null : Number(item.coverage_days),
       suggestedPurchaseQuantity: Number(item.suggested_purchase_quantity || 0),
+      suggestedOrderDate: item.suggested_order_date || null,
+      reorderUrgency: item.reorder_urgency || '',
+      leadTimeMissing: !!item.lead_time_missing,
       bestOffer: item.best_offer ? {
         quoteId: item.best_offer.quote_id,
         supplierName: item.best_offer.supplier_name || '',

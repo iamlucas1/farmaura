@@ -23,7 +23,7 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_CEILING, Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -161,6 +161,8 @@ class PurchaseAnalyticsService:
         class_b_count = 0
         class_c_count = 0
         class_a_without_offer_count = 0
+        urgent_reorder_count = 0
+        total_units_sold_per_month = Decimal("0.00")
         items: list[PurchaseAnalyticsProductResponse] = []
         for product_id, product_stats in stats.items():
             product = identities.get(product_id)
@@ -174,8 +176,16 @@ class PurchaseAnalyticsService:
             suggested_quantity = self._suggested_purchase_quantity(
                 current_stock, product_stats.average_monthly_quantity
             )
-            best_offer = self._serialize_best_offer(offers_by_product.get(product_id))
+            best_offer_raw = offers_by_product.get(product_id)
+            best_offer = self._serialize_best_offer(best_offer_raw)
+            delivery_time_days = best_offer_raw[1].delivery_time_days if best_offer_raw else None
+            suggested_order_date, reorder_urgency, lead_time_missing = self._reorder_suggestion(
+                coverage_days, delivery_time_days, today
+            )
 
+            total_units_sold_per_month += product_stats.average_monthly_quantity
+            if reorder_urgency == "urgent":
+                urgent_reorder_count += 1
             if abc_class == "A":
                 class_a_count += 1
                 if best_offer is None:
@@ -205,6 +215,9 @@ class PurchaseAnalyticsService:
                     current_stock=current_stock,
                     coverage_days=coverage_days,
                     suggested_purchase_quantity=suggested_quantity,
+                    suggested_order_date=suggested_order_date,
+                    reorder_urgency=reorder_urgency,
+                    lead_time_missing=lead_time_missing,
                     best_offer=best_offer,
                 )
             )
@@ -220,6 +233,8 @@ class PurchaseAnalyticsService:
             class_c_count=class_c_count,
             class_a_without_offer_count=class_a_without_offer_count,
             total_revenue_analyzed=grand_total_revenue,
+            total_units_sold_per_month=total_units_sold_per_month.quantize(Decimal("0.01")),
+            urgent_reorder_count=urgent_reorder_count,
         )
         return PurchaseAnalyticsResponse(summary=summary, items=items)
 
@@ -296,6 +311,25 @@ class PurchaseAnalyticsService:
         if raw_suggestion <= 0:
             return 0
         return int(raw_suggestion.to_integral_value(rounding=ROUND_CEILING))
+
+    def _reorder_suggestion(
+        self, coverage_days: Decimal | None, delivery_time_days: int | None, today: date
+    ) -> tuple[date | None, str, bool]:
+        """Combine stock coverage with the best offer's lead time to say when to reorder.
+
+        A missing lead time never blocks a suggestion — it falls back to coverage alone
+        (lead_days=0) and is flagged via lead_time_missing so the UI can warn instead of hide it,
+        same fallback-with-warning pattern used for the purchase-mix screen's own missing data.
+        """
+
+        if coverage_days is None:
+            return None, "", False
+        lead_time_missing = delivery_time_days is None
+        lead_days = delivery_time_days if delivery_time_days is not None else 0
+        days_until_order = coverage_days - Decimal(lead_days)
+        urgency = "urgent" if days_until_order <= 0 else ("soon" if days_until_order <= 7 else "ok")
+        suggested_order_date = today + timedelta(days=int(max(days_until_order, Decimal("0"))))
+        return suggested_order_date, urgency, lead_time_missing
 
     def _months_ago_first_day(self, today: date, months: int) -> date:
         """Return the first day of the month that starts the analysis window."""

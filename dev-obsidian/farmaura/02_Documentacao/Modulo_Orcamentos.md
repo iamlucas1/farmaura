@@ -34,11 +34,15 @@ Cruza vendas reais (pedidos online + PDV) com os orçamentos da Fase 1 para suge
 - **ABC** (Pareto por receita acumulada no período): A ≤80%, B ≤95%, C >95%. Funciona desde o primeiro dia de venda.
 - **XYZ** (coeficiente de variação da quantidade mensal, com meses sem venda contados como zero): X <0,5 (estável), Y <1,0 (variável), Z ≥1,0 (errático). Exige ≥2 meses distintos com venda — antes disso, `xyz_class = ""` ("aguardando histórico") em vez de uma letra.
 - **Sem venda alguma no período**: resposta com `total_products_with_sales: 0`; a tela mostra estado vazio explicativo em vez de tabela vazia (com atalho para Cotações/Comparar fornecedores, que funcionam sem histórico).
-- **Sugestão de compra**: `consumo médio mensal × 1 mês de cobertura alvo − estoque atual`, nunca negativa. Cruza com a melhor oferta confirmada por produto (`PurchaseQuoteRepository.list_confirmed_items_by_product_ids`).
+- **Sugestão de compra (quantidade)**: `consumo médio mensal × 1 mês de cobertura alvo − estoque atual`, nunca negativa. Cruza com a melhor oferta confirmada por produto (`PurchaseQuoteRepository.list_confirmed_items_by_product_ids`).
+- **Sugestão de quando comprar** (`_reorder_suggestion` em `purchase_analytics_service.py`): combina `coverage_days` com o `delivery_time_days` da melhor oferta confirmada — `dias_até_pedir = cobertura − prazo_de_entrega`; `urgency` = `urgent` (≤0), `soon` (≤7) ou `ok`; `suggested_order_date = hoje + max(dias_até_pedir, 0)`. Quando a melhor oferta não tem `delivery_time_days` cadastrado, o prazo entra como 0 no cálculo (não bloqueia a sugestão) e o item fica marcado `lead_time_missing=true` — a tabela mostra um aviso persistente em vez de esconder a sugestão, mesmo padrão de "não descartar, avisar" adotado no mix de compra do "Comparar Fornecedores". Essa lógica substituiu o alerta antigo, que era um limiar fixo arbitrário (classe A + cobertura < 15 dias) sem relação com o prazo real do fornecedor.
+- **KPIs agregados**: `total_units_sold_per_month` (soma do consumo médio mensal de todos os produtos classificados) e `urgent_reorder_count` (produtos com `reorder_urgency = "urgent"`), ambos calculados sobre o conjunto completo antes dos filtros ABC/XYZ da tela — mesmo padrão das contagens por classe já existentes.
 
 **Endpoint**: `GET /purchase-analytics` (`app/api/v1/purchase_analytics.py`), filtros `months` (3/6/12), `category_id`, `abc_class`, `xyz_class`.
 
-**Frontend**: `purchase-analytics-screen.jsx` — KPIs (`StatCard`, reaproveitado de `dashboard-screen.jsx`), matriz ABC×XYZ (heatmap simples em CSS, um único tom sequencial sobre `--fa-primary`, sempre com o número escrito na célula), tabela de produtos com sugestão de compra.
+**Frontend**: `purchase-analytics-screen.jsx` — KPIs (`StatCard`, reaproveitado de `dashboard-screen.jsx`, incluindo os 2 novos acima), matriz ABC×XYZ (heatmap simples em CSS, um único tom sequencial sobre `--fa-primary`, sempre com o número escrito na célula), tabela de produtos com sugestão de compra + coluna "Comprar até" (data sugerida + badge de urgência; alerta antigo de limiar fixo removido em favor de `reorder_urgency`).
+
+**Nota de seed (armadilha não óbvia)**: `created_at` de `Order`/`OrderItem`/`PdvSale`/`PdvSaleItem` é um default Python-side (`datetime.now(tz=UTC)`, `TimestampedModel` em `app/models/base.py`) aplicado só quando não passado explicitamente no construtor — e nenhum gerador de venda do seed (nem o bloco em massa de `build_daily_operations`, nem os pedidos avulsos de `build_orders`) o define. Resultado: toda venda seedada cai no mês em que o script roda, então `months_with_sales` era sempre 1 e o XYZ nunca saía de "aguardando histórico". `build_purchase_analytics_history()` em `scripts/seed.py` corrige isso para um conjunto pequeno de produtos já cotados (Amoxicilina, Losartana, Paracetamol, Vitamina D3), gerando vendas online+PDV em 5 meses distintos com `created_at` retroativo explícito (ancorado em `datetime.now()`, não em `SEED_NOW`, porque a janela de análise usa `date.today()` real).
 
 ## Refinamentos pós-Fase 1 (item a item, comparação por produto/marca, Confirmar Compra)
 
@@ -395,6 +399,57 @@ identificável é comum), essa obrigatoriedade ficou restrita à conferência do
   nova pré-preenchida, igual ao `SupplierModal` já fazia). Ao salvar, chama `addBrand` (mesma função
   da tela de Marcas) e vincula a marca nova ao item automaticamente.
 
+## Reformulação "Comparar Fornecedores" — subtelas, filtros e mix de compra manual
+
+Sobre a tela em tabela já documentada acima, uma reformulação maior (só frontend, exceto o item de
+recálculo por forma de pagamento, que exigiu schema novo no backend):
+
+- **Duas subtelas** (`.ph-seg` dentro da tela, `quotes-compare-screen.jsx`): **Comparar produtos**
+  (a tabela item a item original, com KPIs e seleção manual via checkbox) e **Sugestão de compra**
+  (ver abaixo). Uma terceira subtela, "Análise por cotação" (uma linha por cotação confirmada, não
+  por produto), chegou a existir nesta reformulação e foi removida a pedido do usuário — código
+  (`groupByQuote`, `QuoteAnalysisTable`) retirado por completo, nada ficou desativado/oculto.
+- **Recálculo por forma de pagamento**: antes, filtrar por uma forma de pagamento específica (ex.
+  Boleto) só escondia ofertas sem essa forma — o preço exibido continuava sendo o melhor desconto
+  geral do orçamento (ex. Pix), não o da forma filtrada, distorcendo "melhor oferta". Corrigido
+  expondo o detalhamento completo de descontos por forma de pagamento no backend
+  (`PurchaseQuoteComparePaymentTermResponse`, novo campo `payment_terms` em
+  `PurchaseQuoteCompareEntryResponse`, calculado por `payment_offers()` em `app/core/pricing.py`) —
+  o frontend agora recalcula preço/desconto efetivo pra forma filtrada especificamente, e toda a
+  tela (ranking de melhor oferta, Sugestão de compra) reflete isso.
+- **Filtros "Fornecedores específicos" e "Produtos específicos"**: seleção múltipla via
+  `FilterDropdown` — botão compacto que abre um painel pequeno ancorado (busca + checkbox),
+  estilo filtro de planilha, fecha ao clicar fora ou Esc (não é modal, sem stack de Escape
+  hierárquico). Substituiu o dropdown de fornecedor único original.
+- **"Mostrar cotações vencidas"**: cotações com `valid_until` no passado ficam fora por padrão em
+  toda a tela (`isExpired`, já existente, agora vira filtro de fato) — checkbox as traz de volta,
+  com o selo "Vencido" posicionado junto da coluna "Cotado em".
+- **"Sugestão de compra"**: duas seções visualmente idênticas (mesma tabela `MixResultTable`,
+  agrupada por fornecedor com frete somado uma única vez por cotação via `groupBySupplier`) —
+  **Meu mix de compra** (primeiro, editável) e **Sugestão automática** (depois de um divisor,
+  somente leitura, com botão "Usar como meu mix" pra copiar pra seleção manual). "Meu mix" é
+  montado via filtro "Produtos do mix" (marcar um produto entra com a oferta mais barata que
+  atenda dois parâmetros extras — "Forma de pagamento do mix" e "Frete do mix", ambos opcionais)
+  mais um × por item na tabela pra remover — trocar o fornecedor de um item específico continua
+  sendo feito marcando outra linha na aba Comparar produtos. Mudar um parâmetro **recalcula
+  retroativamente** os produtos já no mix (`reconcileMixSelection`), não só as próximas marcações.
+  Produto sem nenhuma oferta que atenda ao parâmetro **nunca fica de fora**: entra/permanece pelo
+  melhor preço geral do produto, com um aviso persistente na tabela (badge amarelo,
+  `mixMismatchPayment`/`mixMismatchFreight`) — não um toast que some, já que a ideia é deixar claro
+  e duradouro que aquele item não tem o dado escolhido cadastrado. "Sugestão automática" segue a
+  mesma regra (`mixRankedRows`), então os dois parâmetros afetam as duas seções da aba, não só a
+  seleção manual. Seleção (`selectedIds`) persiste em `localStorage` por usuário
+  (`window.FA_PORTAL_CACHE`, mesmo helper usado por outras telas do console) — sobrevive a troca
+  de tela e reload, não só ao filtro.
+- **Seed** (`scripts/seed.py`, `build_purchase_quotes`): Losartana ganhou um caso de teste de
+  flip por forma de pagamento (Central vence no comparativo padrão via Pix, mas Farmalink fica mais
+  barata especificamente sob filtro `boleto_prazo`); uma 5ª cotação ("vencida", fornecedor avulso
+  novo) com `valid_until` no passado cotando Amoxicilina abaixo de todas as ofertas válidas, pra
+  testar o filtro de vencidas. Também corrigido bug de deriva: `SEED_NOW` é uma data fixa
+  (2026-06-11) e as cotações Central/Belezapura tinham `valid_until` a só 45/60 dias dela — como
+  esse não é o "agora" real, elas silenciosamente viraram "vencidas" com a passagem do tempo real
+  sem ninguém mexer no seed. Offset alargado pra 900 dias em ambas.
+
 ## Ver também
 
 - [[../00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|Adoção de Alembic em produção]] — como o schema desta feature foi migrado para o processo novo.
@@ -405,6 +460,37 @@ identificável é comum), essa obrigatoriedade ficou restrita à conferência do
 
 ## Atualizações
 
+- 2026-07-30: aplicado em produção o deploy do Painel de Compras ("quando comprar" + 2 KPIs) e da
+  reformulação "Comparar Fornecedores" (subtelas, recálculo por forma de pagamento, filtros multi-
+  seleção, cotações vencidas, mix de compra) documentados nas duas entradas de 2026-07-29 abaixo —
+  sem migration (`payment_terms`, `suggested_order_date`/`reorder_urgency`/`lead_time_missing` e as
+  2 KPIs novas são todos calculados em Python a partir de colunas já existentes, nada persistido).
+  As mudanças de `scripts/seed.py` ficaram de fora deste deploy — o seed não roda em produção
+  (bootstrap usa `production_admin.py`, ver [[../Hub.md|Hub]]), então essa parte segue só local.
+- 2026-07-30: corrigido erro de produção `installment_count` (a IA retornava `0` para formas de
+  pagamento sem parcelamento — Pix, Boleto à vista, Dinheiro — violando a validação `ge=1` no
+  confirm; normalizado para `null` em toda a cadeia: `_safe_installment_count` no serviço de IA,
+  exemplo/instrução do prompt de extração, e os dois pontos do frontend que montam o payload) e
+  adicionado colar imagem (Ctrl+V) da área de transferência no import de cotação com IA, reusando o
+  mesmo pipeline de upload já usado pra HTML colado.
+- 2026-07-29: Painel de Compras ganhou sugestão de "quando comprar" (`suggested_order_date`/
+  `reorder_urgency`/`lead_time_missing`, cruzando cobertura de estoque com o prazo de entrega da
+  melhor oferta confirmada) e 2 KPIs agregados (unidades vendidas/mês, contagem de compra urgente),
+  substituindo o alerta antigo de limiar fixo (classe A + cobertura < 15 dias). Seed ganhou
+  `build_purchase_analytics_history()` para gerar histórico de vendas em múltiplos meses reais
+  (achado: `created_at` de vendas nunca era definido explicitamente no seed, então tudo caía no mês
+  de execução do script). Ver seção "Fase 2 — Painel de Compras" acima.
+- 2026-07-29: "Comparar Fornecedores" reformulada em subtelas (Comparar produtos / Sugestão de
+  compra), recálculo de preço por forma de pagamento filtrada (schema novo, `payment_terms` por
+  oferta), filtros de fornecedor/produto multi-seleção estilo planilha, filtro de cotações vencidas
+  (oculto por padrão) e "Meu mix de compra" — seleção manual com parâmetros próprios de pagamento/
+  frete que recalculam retroativamente o mix inteiro a cada mudança (nunca removem produto por
+  falta de dado — caem pro melhor preço geral com aviso persistente na tabela), persistida em
+  `localStorage` por usuário. Uma terceira subtela, "Análise por cotação", chegou a ser construída
+  nesta mesma reformulação e foi removida a pedido do usuário ainda no mesmo dia. Seed ganhou caso
+  de teste de flip por pagamento, uma cotação vencida, e correção de deriva no `valid_until` de
+  duas cotações que iriam expirar sozinhas com o tempo real por causa do `SEED_NOW` fixo. Ver seção
+  [[#Reformulação "Comparar Fornecedores" — subtelas, filtros e mix de compra manual]] acima.
 - 2026-07-28: aplicada em produção a migration `20260727_01` (`purchase_quote_items.brand_id`) e
   feito o deploy do backend/frontend com o vínculo de marca por item, o vínculo automático
   marca↔fornecedor, o seletor de marca no formulário manual e o fix de extração de IA abaixo — tudo

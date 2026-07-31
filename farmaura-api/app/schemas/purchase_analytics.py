@@ -23,6 +23,7 @@ from app.schemas.common import StrictModel
 
 ABC_CLASS_PATTERN = "^(A|B|C)$"
 XYZ_CLASS_PATTERN = "^(X|Y|Z|)$"
+REORDER_URGENCY_PATTERN = "^(|ok|soon|urgent)$"
 
 
 # ============================================================================
@@ -59,6 +60,9 @@ class PurchaseAnalyticsProductResponse(StrictModel):
     current_stock: int
     coverage_days: Decimal | None
     suggested_purchase_quantity: int
+    suggested_order_date: date | None
+    reorder_urgency: str = Field(pattern=REORDER_URGENCY_PATTERN)
+    lead_time_missing: bool
     best_offer: PurchaseAnalyticsBestOfferResponse | None
 
 
@@ -73,6 +77,8 @@ class PurchaseAnalyticsSummaryResponse(StrictModel):
     class_c_count: int
     class_a_without_offer_count: int
     total_revenue_analyzed: Decimal
+    total_units_sold_per_month: Decimal
+    urgent_reorder_count: int
 
 
 class PurchaseAnalyticsResponse(StrictModel):

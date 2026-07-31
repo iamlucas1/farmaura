@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.file_storage import read_private_file
-from app.core.pricing import best_payment_offer
+from app.core.pricing import best_payment_offer, payment_offers
 from app.core.tenant_context import apply_tenant_context
 from app.models.purchase_quote import PurchaseQuote
 from app.models.purchase_quote_item import PurchaseQuoteItem
@@ -37,6 +37,7 @@ from app.schemas.auth import TokenSubject
 from app.schemas.inventory import InventoryInvoicePreviewResponse
 from app.schemas.purchase_quote import (
     PurchaseQuoteCompareEntryResponse,
+    PurchaseQuoteComparePaymentTermResponse,
     PurchaseQuoteCompareResponse,
     PurchaseQuoteCreateRequest,
     PurchaseQuoteItemResponse,
@@ -421,6 +422,12 @@ class PurchaseQuoteService:
             best_payment_method=best_method,
             best_payment_discount_percent=best_discount,
             payment_methods=sorted({term.method for term in quote.payment_terms}),
+            payment_terms=[
+                PurchaseQuoteComparePaymentTermResponse(
+                    method=method, discount_percent=discount, effective_price=price
+                )
+                for method, price, discount in payment_offers(item.unit_price, quote.payment_terms)
+            ],
             freight_type=quote.freight_type,
             freight_cost=quote.freight_cost,
             delivery_time_days=quote.delivery_time_days,
