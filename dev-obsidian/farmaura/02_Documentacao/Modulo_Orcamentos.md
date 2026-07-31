@@ -460,6 +460,15 @@ recálculo por forma de pagamento, que exigiu schema novo no backend):
 
 ## Atualizações
 
+- 2026-07-30: `quantity_reference` (Quantidade de referência, item cotado) agora tem default 1 em
+  vez de vazio/0 — mesmo bug do `installment_count` (ver entrada abaixo): a IA usava 0 como
+  placeholder de "não extraído", e como `quantity_reference * unit_price` calcula "Valor total",
+  isso zerava o total da maioria dos itens sem o usuário perceber (a maioria dos itens cotados é
+  por unidade). Também passou a rejeitar valor fracionário (ex.: 1,5) — schema com
+  `multiple_of=1`, IA arredonda qualquer extração fracionária, input com `step="1"`. Aplicado em
+  `_safe_quantity_reference` (`purchase_quote_ai_service.py`), no prompt de extração, e nos 3
+  pontos do frontend que preenchiam o campo em branco (`emptyItem`, `buildQuoteForm`,
+  `groupFormFromPreview`) — sem migration.
 - 2026-07-30: aplicado em produção o deploy do Painel de Compras ("quando comprar" + 2 KPIs) e da
   reformulação "Comparar Fornecedores" (subtelas, recálculo por forma de pagamento, filtros multi-
   seleção, cotações vencidas, mix de compra) documentados nas duas entradas de 2026-07-29 abaixo —
