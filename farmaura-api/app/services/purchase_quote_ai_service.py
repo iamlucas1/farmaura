@@ -42,7 +42,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
@@ -316,7 +316,7 @@ class PurchaseQuoteAiService:
                     ean_code=ean_code,
                     unit=self._safe_text(raw_item.get("unit"), fallback="un"),
                     units_per_package=units_per_package,
-                    quantity_reference=self._safe_optional_decimal(
+                    quantity_reference=self._safe_quantity_reference(
                         raw_item.get("quantity_reference")
                     ),
                     unit_price=self._safe_decimal(raw_item.get("unit_price")),
@@ -898,7 +898,7 @@ class PurchaseQuoteAiService:
                         "ean_code": "",
                         "unit": "un",
                         "units_per_package": 0,
-                        "quantity_reference": 0,
+                        "quantity_reference": 1,
                         "unit_price": 0,
                         "ncm_code": "",
                         "ipi_percentage": 0,
@@ -921,6 +921,9 @@ class PurchaseQuoteAiService:
             "installment_count e o numero de parcelas; use null (nao 0) quando a forma de "
             "pagamento nao tiver parcelamento (ex.: pix, boleto a vista, dinheiro) ou quando o "
             "numero de parcelas nao aparecer no documento. "
+            "quantity_reference e a quantidade a que o preco unitario cotado se refere; use 1 "
+            "(nao 0) quando o documento nao informar essa quantidade explicitamente — a maioria "
+            "dos itens cotados e por unidade. "
             "is_comodato indica que o item e um equipamento cedido pelo fornecedor (ex.: "
             "geladeira/freezer de marca) e nao um produto comprado; comodato_notes descreve as "
             "condicoes do comodato quando existirem. units_per_package e quantas unidades de "
@@ -1022,6 +1025,17 @@ class PurchaseQuoteAiService:
         except (InvalidOperation, ValueError, TypeError):
             return None
         return normalized if normalized >= Decimal("0.00") else None
+
+    def _safe_quantity_reference(self, value: object) -> Decimal:
+        """Normalize quantity_reference, defaulting to 1 (most quoted items are per unit) when
+        the AI didn't extract it or returned 0 — a 0 here always zeroes out "Valor total"
+        (quantity_reference * unit_price), which is never the intended reading of a quote line.
+        Always a whole number — the field doesn't accept fractional quantities (e.g. 1.5)."""
+
+        normalized = self._safe_optional_decimal(value)
+        if not normalized or normalized <= Decimal("0.00"):
+            return Decimal("1")
+        return normalized.to_integral_value(rounding=ROUND_HALF_UP)
 
     def _safe_optional_int(self, value: object) -> int | None:
         """Normalize an optional integer value, keeping None when the AI didn't extract it."""

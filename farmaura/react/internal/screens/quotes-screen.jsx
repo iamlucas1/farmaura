@@ -324,7 +324,7 @@ function QuotesScreen({ ctx }) {
 
 /* ===================== FORMAS DE PAGAMENTO E ITENS (linhas dinâmicas) ===================== */
 function emptyPaymentTerm() { return { method: 'pix', discountPercent: '', surchargePercent: '', installmentCount: '', daysToPay: '', notes: '' }; }
-function emptyItem() { return { productId: '', description: '', brandId: '', brandName: '', skuSnapshot: '', eanCodeSnapshot: '', unit: 'un', unitsPerPackage: '', quantityReference: '', unitPrice: '', ncmCode: '', ipiPercentage: '', icmsStValue: '', finalUnitPrice: '', isComodato: false, comodatoNotes: '', notes: '' }; }
+function emptyItem() { return { productId: '', description: '', brandId: '', brandName: '', skuSnapshot: '', eanCodeSnapshot: '', unit: 'un', unitsPerPackage: '', quantityReference: 1, unitPrice: '', ncmCode: '', ipiPercentage: '', icmsStValue: '', finalUnitPrice: '', isComodato: false, comodatoNotes: '', notes: '' }; }
 
 function PaymentTermsEditor({ terms, onChange }) {
   const setTerm = (index, patch) => onChange(terms.map((term, i) => i === index ? { ...term, ...patch } : term));
@@ -383,7 +383,7 @@ function ItemsEditor({ items, onChange, brands, onAddBrand, suppliers, notify })
             {PACKAGE_LIKE_UNITS.includes(item.unit) && (
               <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setItem(index, { unitsPerPackage: e.target.value })} placeholder="Ex.: 50" /></div>
             )}
-            <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="0.001" min="0" value={item.quantityReference} onChange={(e) => setItem(index, { quantityReference: e.target.value })} /></div>
+            <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="1" min="1" value={item.quantityReference} onChange={(e) => setItem(index, { quantityReference: e.target.value })} /></div>
             <div className="fa-field"><label>Preço unitário (R$) *</label><input className="fa-input" type="number" step="0.01" min="0" value={item.unitPrice} onChange={(e) => setItem(index, { unitPrice: e.target.value })} /></div>
             <div className="fa-field"><label>Valor total</label><input className="fa-input" value={brl(itemTotalValue(item))} disabled /></div>
             <div className="fa-field"><label>SKU</label><input className="fa-input" value={item.skuSnapshot} onChange={(e) => setItem(index, { skuSnapshot: e.target.value })} /></div>
@@ -530,7 +530,7 @@ function buildQuoteForm(quote) {
     deliveryTimeDays: quote && quote.deliveryTimeDays != null ? quote.deliveryTimeDays : '',
     notes: quote && quote.notes || '',
     paymentTerms: quote && quote.paymentTerms && quote.paymentTerms.length ? quote.paymentTerms.map((term) => ({ ...term, discountPercent: term.discountPercent ?? '', surchargePercent: term.surchargePercent ?? '', installmentCount: term.installmentCount ?? '', daysToPay: term.daysToPay ?? '' })) : [emptyPaymentTerm()],
-    items: quote && quote.items && quote.items.length ? quote.items.map((item) => ({ ...item, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference ?? '', ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '' })) : [emptyItem()],
+    items: quote && quote.items && quote.items.length ? quote.items.map((item) => ({ ...item, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference || 1, ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '' })) : [emptyItem()],
   };
 }
 
@@ -623,7 +623,7 @@ function groupFormFromPreview(payload) {
     items: payload.items.map((item) => ({
       productId: item.matchCandidates[0] ? item.matchCandidates[0].id : '',
       description: item.description, brandId: item.matchedBrandId || '', brandName: item.brandName, skuSnapshot: item.sku, eanCodeSnapshot: item.eanCode,
-      unit: item.unit, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference ?? '', unitPrice: item.unitPrice,
+      unit: item.unit, unitsPerPackage: item.unitsPerPackage ?? '', quantityReference: item.quantityReference || 1, unitPrice: item.unitPrice,
       ncmCode: item.ncmCode ?? '', ipiPercentage: item.ipiPercentage ?? '', icmsStValue: item.icmsStValue ?? '', finalUnitPrice: item.finalUnitPrice ?? '',
       isComodato: item.isComodato, comodatoNotes: item.comodatoNotes, notes: '',
       matchCandidates: item.matchCandidates,
@@ -750,7 +750,7 @@ function QuoteReviewGroup({ group, index, suppliers, onChange, onRemove, onAddSu
                   {PACKAGE_LIKE_UNITS.includes(item.unit) && (
                     <div className="fa-field"><label>Unidades por {item.unit}</label><input className="fa-input" type="number" step="1" min="1" value={item.unitsPerPackage} onChange={(e) => setItem(itemIndex, { unitsPerPackage: e.target.value })} placeholder="Ex.: 50" /></div>
                   )}
-                  <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="0.001" min="0" value={item.quantityReference} onChange={(e) => setItem(itemIndex, { quantityReference: e.target.value })} /></div>
+                  <div className="fa-field"><label>Quantidade de referência</label><input className="fa-input" type="number" step="1" min="1" value={item.quantityReference} onChange={(e) => setItem(itemIndex, { quantityReference: e.target.value })} /></div>
                   <div className="fa-field"><label>Preço unitário (R$) *</label><input className="fa-input" type="number" step="0.01" min="0" value={item.unitPrice} onChange={(e) => setItem(itemIndex, { unitPrice: e.target.value })} /></div>
                   <div className="fa-field"><label>Valor total</label><input className="fa-input" value={brl(itemTotalValue(item))} disabled /></div>
                   <div className="fa-field"><label>NCM</label><input className="fa-input" value={item.ncmCode} onChange={(e) => setItem(itemIndex, { ncmCode: e.target.value })} placeholder="Ex.: 34013000" /></div>

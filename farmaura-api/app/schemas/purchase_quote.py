@@ -69,7 +69,7 @@ class PurchaseQuoteItemRequest(StrictModel):
     ean_code_snapshot: str = Field(default="", max_length=32)
     unit: str = Field(default="un", max_length=16)
     units_per_package: Decimal | None = Field(default=None, gt=Decimal("0"))
-    quantity_reference: Decimal | None = Field(default=None, ge=Decimal("0"))
+    quantity_reference: Decimal | None = Field(default=None, ge=Decimal("0"), multiple_of=Decimal("1"))
     unit_price: Decimal = Field(ge=Decimal("0.00"))
     ncm_code: str = Field(default="", max_length=16)
     ipi_percentage: Decimal | None = Field(default=None, ge=Decimal("0"))
