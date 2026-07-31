@@ -460,6 +460,19 @@ recálculo por forma de pagamento, que exigiu schema novo no backend):
 
 ## Atualizações
 
+- 2026-07-31: **incidente em produção** — o deploy do `multiple_of=1` em `quantity_reference`
+  (entrada anterior, 2026-07-30) quebrou `GET /purchase-quotes` (listagem) com 500 pra qualquer
+  cotação que já tivesse um item com `quantity_reference` fracionário salvo antes da constraint
+  existir (achado em produção: um item com `0.997`). Causa: `PurchaseQuoteItemResponse` **herda**
+  de `PurchaseQuoteItemRequest` em vez de ser um schema independente, então a constraint adicionada
+  pra validar escrita nova passou a valer também pra deserializar linhas já persistidas — um schema
+  de resposta não pode ficar mais estrito do que os dados que ele precisa conseguir ler de volta.
+  Fix: `PurchaseQuoteItemResponse` agora sobrescreve `quantity_reference` sem o `multiple_of`
+  (mantém só `ge=0`); a constraint de número inteiro continua valendo normalmente pra
+  criar/confirmar cotação, só não pra listar/ler as existentes. Sem migration — dado antigo
+  permanece como está, só passa a ser lido sem erro. Diagnosticado via `docker logs farmaura_api`
+  no lumos-prd (traceback apontava `app/services/purchase_quote_service.py:376`,
+  `PurchaseQuoteItemResponse`, `ValidationError ... multiple_of`).
 - 2026-07-30: `quantity_reference` (Quantidade de referência, item cotado) agora tem default 1 em
   vez de vazio/0 — mesmo bug do `installment_count` (ver entrada abaixo): a IA usava 0 como
   placeholder de "não extraído", e como `quantity_reference * unit_price` calcula "Valor total",
