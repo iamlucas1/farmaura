@@ -704,34 +704,42 @@ function FlipDigit({ value }) {
   );
 }
 
+// Red/vinho-led on purpose — the muted, low-opacity palette this started with read as barely
+// there. Vital and primary (the two reds) are weighted to show up more often than the lighter
+// rose tones, so the field reads as "red confetti with brand accents", not a pale pink haze.
 const CONFETTI_PALETTE = [
-  { color: '#FFD6D9', kind: 'dot' },          // rose
-  { color: '#7A0D16', kind: 'pill', opacity: .22 }, // primary (vinho), muted
-  { color: '#C81D28', kind: 'pill', opacity: .2 },  // vital
-  { color: '#FFEDEE', kind: 'dot', opacity: .9 },   // rose-soft
-  { color: '#7A0D16', kind: 'dot', opacity: .16 },  // primary, faint
+  { color: '#C81D28', kind: 'pill', opacity: .88 },  // vital
+  { color: '#C81D28', kind: 'dot', opacity: .82 },   // vital
+  { color: '#7A0D16', kind: 'pill', opacity: .8 },   // primary (vinho)
+  { color: '#7A0D16', kind: 'dot', opacity: .75 },   // primary (vinho)
+  { color: '#C81D28', kind: 'pill', opacity: .85 },  // vital (repeated — bias the draw toward red)
+  { color: '#FFD6D9', kind: 'dot', opacity: .9 },    // rose accent
+  { color: '#FFEDEE', kind: 'dot', opacity: .85 },   // rose-soft accent
 ];
 
 const _randomBetween = (a, b) => a + Math.random() * (b - a);
 
+// Faster fall, wider/quicker sway, and quicker spin than a first pass at this — the original
+// speeds read as "static" per user feedback (barely perceptible drift). This is tuned to feel
+// like confetti actually falling, not dust settling.
 function _spawnConfettiParticle(width, height, edge) {
   const palette = CONFETTI_PALETTE[Math.floor(Math.random() * CONFETTI_PALETTE.length)];
   let x, y, vx;
-  if (edge === 'left') { x = -24; y = _randomBetween(0, height); vx = _randomBetween(22, 40); }
-  else if (edge === 'right') { x = width + 24; y = _randomBetween(0, height); vx = -_randomBetween(22, 40); }
-  else { x = _randomBetween(0, width); y = _randomBetween(-height, -10); vx = _randomBetween(-6, 6); }
+  if (edge === 'left') { x = -24; y = _randomBetween(0, height); vx = _randomBetween(50, 90); }
+  else if (edge === 'right') { x = width + 24; y = _randomBetween(0, height); vx = -_randomBetween(50, 90); }
+  else { x = _randomBetween(0, width); y = _randomBetween(-height, -10); vx = _randomBetween(-14, 14); }
   return {
     x, y, vx,
-    vy: _randomBetween(14, 30),
-    size: _randomBetween(5, 13),
+    vy: _randomBetween(40, 85),
+    size: _randomBetween(6, 15),
     rotation: _randomBetween(0, Math.PI * 2),
-    rotationSpeed: _randomBetween(-.6, .6),
+    rotationSpeed: _randomBetween(-2.2, 2.2),
     swayPhase: _randomBetween(0, Math.PI * 2),
-    swaySpeed: _randomBetween(.4, .9),
-    swayAmp: _randomBetween(8, 22),
+    swaySpeed: _randomBetween(1.1, 2.1),
+    swayAmp: _randomBetween(20, 42),
     kind: palette.kind,
     color: palette.color,
-    opacity: palette.opacity ?? _randomBetween(.45, .85),
+    opacity: palette.opacity ?? _randomBetween(.7, .9),
   };
 }
 
@@ -749,8 +757,8 @@ function LaunchConfetti() {
     const ctx = canvas.getContext('2d');
     const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const PARTICLE_COUNT = 44;
-    const MOUSE_INFLUENCE = 110;
+    const PARTICLE_COUNT = 68;
+    const MOUSE_INFLUENCE = 120;
 
     let width = 0;
     let height = 0;
@@ -831,14 +839,14 @@ function LaunchConfetti() {
         const dy = p.y - mouse.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < MOUSE_INFLUENCE) {
-          const force = (1 - dist / MOUSE_INFLUENCE) * 46;
+          const force = (1 - dist / MOUSE_INFLUENCE) * 95;
           const angle = Math.atan2(dy, dx);
           p.x += Math.cos(angle) * force * dt;
           p.y += Math.sin(angle) * force * dt;
         }
 
         p.swayPhase += p.swaySpeed * dt;
-        p.x += Math.sin(p.swayPhase) * p.swayAmp * dt * .6 + p.vx * dt * .15;
+        p.x += Math.sin(p.swayPhase) * p.swayAmp * dt + p.vx * dt * .4;
         p.y += p.vy * dt;
         p.rotation += p.rotationSpeed * dt;
 
