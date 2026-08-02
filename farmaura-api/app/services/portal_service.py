@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import ValidationError
 
+from app.core.config import get_settings
 from app.core.device_detection import detect_device_type
 from app.core.password_hashing import generate_temporary_password, hash_password
 from app.core.tenant_context import apply_first_access_context, apply_public_marketplace_context, apply_tenant_context
@@ -166,6 +167,29 @@ SETTING_KEY_DELIVERY_PRICING = 'delivery_pricing'
 SETTING_KEY_DELIVERY_AREAS = 'delivery_areas'
 SETTING_KEY_PDV_DISCOUNT_SETTINGS = 'pdv_discount_settings'
 SETTING_KEY_CNAE_SETTINGS = 'cnae_settings'
+# Real launch instant: 2026-09-05 09:00 America/Sao_Paulo (fixed UTC-3, no DST since 2019) == 12:00 UTC.
+_LAUNCH_MODE_PRODUCTION_LAUNCH_AT = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+
+
+def _default_launch_mode() -> PortalLaunchModeResponse:
+    """Return the launch-mode fallback used until a tenant has an explicit saved setting.
+
+    Production defaults to *enabled*, targeting the real launch instant, so the countdown goes
+    live automatically on a fresh deploy without anyone needing direct database access to flip
+    it — the admin turns it off later through the internal console once ready, same as any other
+    change to this setting. Every other environment (dev, tests) defaults to disabled.
+    """
+
+    if get_settings().environment.lower() == 'production':
+        return PortalLaunchModeResponse(
+            enabled=True,
+            launch_at=_LAUNCH_MODE_PRODUCTION_LAUNCH_AT,
+            headline='Estamos quase lá',
+            subtext='A drogaria Farmaura está chegando. Volte em breve para conferir novidades e ofertas de lançamento.',
+        )
+    return PortalLaunchModeResponse()
+
+
 WEEKDAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom']
 ZERO_FINANCIAL_MONTH = {
     'faturamento': 0, 'aluguel': 0, 'energia': 0, 'agua': 0, 'contab': 0,
@@ -1207,17 +1231,24 @@ class PortalService:
             return PortalHomeBrandsResponse()
 
     async def _resolve_launch_mode(self, *, tenant_id: str | None) -> PortalLaunchModeResponse:
-        """Return the tenant's marketplace pre-launch countdown gate configuration, defaulting to disabled."""
+        """Return the tenant's marketplace pre-launch countdown gate configuration.
 
+        Falls back to `_default_launch_mode()` — enabled automatically in production (targeting
+        the real launch instant), disabled everywhere else — until an admin explicitly saves a
+        value through the internal console (`PUT /internal/launch-mode`), at which point that
+        saved row always wins over the environment default, in either direction.
+        """
+
+        default = _default_launch_mode()
         if not tenant_id:
-            return PortalLaunchModeResponse()
+            return default
         stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_LAUNCH_MODE, default=None)
         if not stored_value:
-            return PortalLaunchModeResponse()
+            return default
         try:
             return PortalLaunchModeResponse.model_validate(stored_value)
         except ValidationError:
-            return PortalLaunchModeResponse()
+            return default
 
     async def _resolve_pdv_discount_settings(self, *, tenant_id: str) -> PortalPdvDiscountSettingsResponse:
         """Return the tenant's minimum average margin required to grant a PDV discount, defaulting to 20%."""
