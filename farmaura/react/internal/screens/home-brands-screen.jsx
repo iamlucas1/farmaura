@@ -15,10 +15,17 @@ const MAX_CIRCLES = 16;
 
 /* FARMAURA Console — "Marcas em destaque": tira de círculos clicáveis logo abaixo dos diferenciais
    da home, cada um levando à vitrine já filtrada pela marca (route.brand na URL do marketplace). */
+const BRAND_NAMES_DATALIST_ID = 'fa-home-brand-names';
+
 function HomeBrandsScreen({ ctx }) {
-  const { homeBrands, setHomeBrands, saveHomeBrands, homeBrandsBusy, notify } = ctx;
+  const { homeBrands, setHomeBrands, saveHomeBrands, homeBrandsBusy, notify, brands } = ctx;
   const mode = (homeBrands && homeBrands.mode) || 'off';
   const circles = (homeBrands && homeBrands.circles) || [];
+  // Sugestões vêm do catálogo real (mesma fonte que o picker de marca dos orçamentos de compra),
+  // então marcas e suas linhas/variantes já cadastradas separadamente (ex.: "Johnson & Johnson" x
+  // "Johnson & Johnson Baby") aparecem como opções distintas — o campo continua texto livre (o
+  // schema salva só o nome, sem brand_id), mas a sugestão evita digitar o nome errado/genérico.
+  const catalogBrandNames = [...new Set((brands || []).filter((brand) => brand.active && !brand.discarded).map((brand) => brand.name))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
   const patchCircle = (id, patch) => setHomeBrands({ circles: circles.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const removeCircle = (id) => setHomeBrands({ circles: circles.filter((c) => c.id !== id) });
@@ -77,7 +84,7 @@ function HomeBrandsScreen({ ctx }) {
           </button>
         </div>
         <div className="ph-cell-sub" style={{ marginBottom: 14 }}>
-          O logo de cada marca é salvo automaticamente ao enviar. O nome da marca precisa bater exatamente com o campo "Marca" cadastrado no produto (Catálogo → Marcas), pois é isso que filtra a vitrine ao clicar no círculo. "Sem marcas em destaque" só esconde a tira; as marcas continuam guardadas até você reativar.
+          O logo de cada marca é salvo automaticamente ao enviar. O nome da marca precisa bater exatamente com o campo "Marca" cadastrado no produto (Catálogo → Marcas), pois é isso que filtra a vitrine ao clicar no círculo — digite para ver sugestões das marcas já cadastradas no catálogo. Linhas específicas de uma marca (ex.: "Johnson & Johnson" e "Johnson & Johnson Baby") só ficam diferenciadas se estiverem cadastradas como marcas separadas em Catálogo → Marcas; escolha a sugestão exata correspondente, não o nome genérico. "Sem marcas em destaque" só esconde a tira; as marcas continuam guardadas até você reativar.
         </div>
 
         {mode === 'off' && circles.length > 0 && (
@@ -123,6 +130,7 @@ function HomeBrandsScreen({ ctx }) {
                   value={circle.brandName}
                   onChange={(e) => patchCircle(circle.id, { brandName: e.target.value })}
                   placeholder="Nome da marca"
+                  list={BRAND_NAMES_DATALIST_ID}
                 />
                 <input
                   className="fa-input"
@@ -138,6 +146,10 @@ function HomeBrandsScreen({ ctx }) {
             ))}
           </div>
         )}
+
+        <datalist id={BRAND_NAMES_DATALIST_ID}>
+          {catalogBrandNames.map((name) => <option key={name} value={name} />)}
+        </datalist>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
           <button className="fa-btn fa-btn-primary" disabled={homeBrandsBusy} onClick={handleSave}>

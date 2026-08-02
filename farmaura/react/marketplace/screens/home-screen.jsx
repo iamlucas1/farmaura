@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ProductCard } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 
@@ -166,21 +166,43 @@ function Differentials({ ctx }) {
 
 // Marcas em destaque: tira de círculos configurada no console interno (Marketplace → Marcas em
 // destaque). Cada círculo leva para a vitrine já filtrada pela marca (ShopScreen mode="brand"),
-// filtro comparado client-side contra CatalogItem.brand — mesmo esquema de `route.cat`.
+// filtro comparado client-side contra CatalogItem.brand — mesmo esquema de `route.cat`. Layout
+// espalha os círculos de ponta a ponta do container, igual ao menu de atalhos/categorias
+// (QuickCategories, `.fa-quickcats`) logo acima. Até 7 círculos cabem numa fileira só; a partir do
+// 8º, vira carrossel (mesmo idioma de rail com setas + scroll-snap já usado em
+// CartRecommendations, em cart-screen.jsx) em vez de quebrar linha.
+const BRAND_CIRCLES_VISIBLE = 7;
+
 function BrandCircles({ brands, onNav }) {
+  const trackRef = useRef(null);
   const mode = (brands && brands.mode) || 'off';
   const circles = (brands && brands.circles) || [];
   if (mode !== 'on' || !circles.length) {
     return null;
   }
+
+  const scrollTrack = (direction) => {
+    if (!trackRef.current) return;
+    const amount = trackRef.current.clientWidth * 0.9;
+    trackRef.current.scrollBy({ left: direction * amount, behavior: 'smooth' });
+  };
+
+  const items = circles.map((circle) => (
+    <button key={circle.id} className="fa-brand-circle" onClick={() => onNav({ name: 'brand', brand: circle.brandName })} title={circle.altText || circle.brandName}>
+      <span className="fa-brand-circle-img"><img src={circle.image} alt={circle.altText || circle.brandName} /></span>
+      <span className="fa-brand-circle-label">{circle.brandName}</span>
+    </button>
+  ));
+
+  if (circles.length <= BRAND_CIRCLES_VISIBLE) {
+    return <div className="fa-brands-strip">{items}</div>;
+  }
+
   return (
-    <div className="fa-brands-strip">
-      {circles.map((circle) => (
-        <button key={circle.id} className="fa-brand-circle" onClick={() => onNav({ name: 'brand', brand: circle.brandName })} title={circle.altText || circle.brandName}>
-          <span className="fa-brand-circle-img"><img src={circle.image} alt={circle.altText || circle.brandName} /></span>
-          <span className="fa-brand-circle-label">{circle.brandName}</span>
-        </button>
-      ))}
+    <div className="fa-brand-carousel">
+      <button type="button" className="fa-brand-carousel-arrow" data-side="prev" aria-label="Ver marcas anteriores" onClick={() => scrollTrack(-1)}><Icon name="chevL" size={17} /></button>
+      <button type="button" className="fa-brand-carousel-arrow" data-side="next" aria-label="Ver mais marcas" onClick={() => scrollTrack(1)}><Icon name="chevR" size={17} /></button>
+      <div ref={trackRef} className="fa-brands-strip fa-brands-strip--scroll fa-noscroll">{items}</div>
     </div>
   );
 }

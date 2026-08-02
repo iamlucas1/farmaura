@@ -667,17 +667,39 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 420px) { .fa-diff-grid { grid-template-columns: 1fr; } }
 
 /* ---------- Brand circles (admin-configured "marcas em destaque", each links to a brand-filtered shop) ---------- */
+/* Ponta a ponta como o menu de atalhos/categorias (.fa-quickcats) logo acima — mesma técnica
+   (space-between + wrap), não centralizado. */
 .fa-brands-strip {
-  display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 28px 34px;
+  display: flex; flex-wrap: wrap; justify-content: space-between;
+  gap: 20px 16px;
 }
+@media (max-width: 640px) { .fa-brands-strip { justify-content: center; } }
+/* Variante carrossel (mais de 7 marcas, ver BRAND_CIRCLES_VISIBLE em home-screen.jsx): fileira
+   única com scroll horizontal + snap, mesmo idioma de rail de CartRecommendations em cart-screen.jsx. */
+.fa-brands-strip--scroll {
+  flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto;
+  scroll-snap-type: x proximity; padding: 4px 6px;
+}
+.fa-brands-strip--scroll .fa-brand-circle { flex: 0 0 132px; scroll-snap-align: start; }
+.fa-brand-carousel { position: relative; }
+.fa-brand-carousel-arrow {
+  position: absolute; top: 62px; transform: translateY(-50%);
+  width: 40px; height: 40px; border-radius: 999px;
+  border: 1px solid var(--fa-mist); background: rgba(255,255,255,.96); color: var(--fa-primary);
+  display: grid; place-items: center; z-index: 2; box-shadow: var(--fa-shadow-md); cursor: pointer;
+  transition: background .16s ease, color .16s ease, border-color .16s ease;
+}
+.fa-brand-carousel-arrow:hover { background: var(--fa-primary); color: #fff; border-color: var(--fa-primary); }
+.fa-brand-carousel-arrow[data-side="prev"] { left: -14px; }
+.fa-brand-carousel-arrow[data-side="next"] { right: -14px; }
+@media (max-width: 640px) { .fa-brand-carousel-arrow { display: none; } }
 .fa-brand-circle {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
   background: none; border: none; cursor: pointer; padding: 2px;
-  width: 88px;
+  width: 132px;
 }
 .fa-brand-circle-img {
-  width: 76px; height: 76px; border-radius: 50%;
+  width: 112px; height: 112px; border-radius: 50%;
   overflow: hidden; flex: none;
   box-shadow: 0 0 0 1px var(--fa-mist);
   background: #fff;
@@ -686,15 +708,16 @@ a { color: inherit; text-decoration: none; }
 .fa-brand-circle-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .fa-brand-circle:hover .fa-brand-circle-img { box-shadow: 0 0 0 2px var(--fa-primary); transform: translateY(-3px); }
 .fa-brand-circle-label {
-  font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2);
+  font-size: 13.5px; font-weight: 700; color: var(--fa-ink-2);
   text-align: center; line-height: 1.25;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 .fa-brand-circle:hover .fa-brand-circle-label { color: var(--fa-primary); }
 @media (max-width: 420px) {
-  .fa-brands-strip { gap: 22px 20px; }
-  .fa-brand-circle { width: 72px; }
-  .fa-brand-circle-img { width: 62px; height: 62px; }
+  .fa-brands-strip { gap: 18px 16px; }
+  .fa-brands-strip--scroll .fa-brand-circle { flex: 0 0 104px; }
+  .fa-brand-circle { width: 104px; }
+  .fa-brand-circle-img { width: 84px; height: 84px; }
 }
 
 /* ---------- Cashback hero ---------- */
@@ -796,9 +819,41 @@ a { color: inherit; text-decoration: none; }
 
 /* ---------- Launch countdown (split-flap clock) ---------- */
 .cd-scene { position: relative; min-height: 100vh; overflow: hidden; background: var(--fa-bg); }
-.cd-confetti-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .cd-scene-content { position: relative; z-index: 1; }
 .cd-logo { height: 56px; width: auto; display: block; margin: 0 auto 22px; }
+
+/* Real catalog peeking through behind the countdown — see LaunchMarketplaceBackdrop. Sits full-
+   bleed behind the content; a radial fade (::after) keeps just the text/clock legible without
+   flattening the grid everywhere else, so the store still reads as colorful and real. */
+.cd-shop-grid {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px;
+  padding: 24px; overflow: hidden;
+}
+.cd-shop-grid::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 48% 50% at 50% 44%, var(--fa-bg) 32%, rgba(250,247,245,.78) 56%, rgba(250,247,245,0) 80%);
+}
+.cd-shop-card {
+  background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(43,26,26,.05);
+  aspect-ratio: 3/4; position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.cd-shop-thumb { flex: 1; background: var(--fa-mist-2); overflow: hidden; }
+.cd-shop-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cd-shop-name {
+  padding: 8px 10px 0; font-size: 11.5px; font-weight: 700; color: var(--fa-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cd-shop-price { padding: 2px 10px 9px; font-size: 12px; font-weight: 800; color: var(--fa-primary); }
+.cd-shop-badge {
+  position: absolute; top: 8px; left: 8px; z-index: 1;
+  background: var(--fa-vital); color: #fff; font-size: 10px; font-weight: 800;
+  padding: 3px 7px; border-radius: 6px;
+}
+@media (max-width: 860px) { .cd-shop-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 560px) { .cd-shop-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; } }
 
 .cd-clock {
   display: flex; align-items: flex-start; justify-content: center;

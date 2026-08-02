@@ -6,6 +6,7 @@ import "../../shared/portal-cache.js";
 import { MARKETPLACE_LOGO_FULL_URL } from "./marketplace-assets.js";
 import { PharmacistChatModal, PrescriptionModal } from "./marketplace-care-actions.jsx";
 import { Header, Footer } from "./marketplace-chrome.jsx";
+import { brl } from "./marketplace-components.jsx";
 import { Icon } from "./marketplace-icons.jsx";
 import { TweakColor, TweakRadio, TweakSection, TweakSelect, TweakSlider, TweakText, TweakToggle, TweaksPanel, useTweaks } from "./marketplace-tweaks-panel.jsx";
 import { AccountScreen, LoginScreen, UnlockAccountScreen } from "../screens/account-screen.jsx";
@@ -704,179 +705,46 @@ function FlipDigit({ value }) {
   );
 }
 
-// Red/vinho-led on purpose — the muted, low-opacity palette this started with read as barely
-// there. Vital and primary (the two reds) are weighted to show up more often than the lighter
-// rose tones, so the field reads as "red confetti with brand accents", not a pale pink haze.
-const CONFETTI_PALETTE = [
-  { color: '#C81D28', kind: 'pill', opacity: .88 },  // vital
-  { color: '#C81D28', kind: 'dot', opacity: .82 },   // vital
-  { color: '#7A0D16', kind: 'pill', opacity: .8 },   // primary (vinho)
-  { color: '#7A0D16', kind: 'dot', opacity: .75 },   // primary (vinho)
-  { color: '#C81D28', kind: 'pill', opacity: .85 },  // vital (repeated — bias the draw toward red)
-  { color: '#FFD6D9', kind: 'dot', opacity: .9 },    // rose accent
-  { color: '#FFEDEE', kind: 'dot', opacity: .85 },   // rose-soft accent
-];
-
-const _randomBetween = (a, b) => a + Math.random() * (b - a);
-
-// Faster fall, wider/quicker sway, and quicker spin than a first pass at this — the original
-// speeds read as "static" per user feedback (barely perceptible drift). This is tuned to feel
-// like confetti actually falling, not dust settling.
-function _spawnConfettiParticle(width, height, edge) {
-  const palette = CONFETTI_PALETTE[Math.floor(Math.random() * CONFETTI_PALETTE.length)];
-  let x, y, vx;
-  if (edge === 'left') { x = -24; y = _randomBetween(0, height); vx = _randomBetween(50, 90); }
-  else if (edge === 'right') { x = width + 24; y = _randomBetween(0, height); vx = -_randomBetween(50, 90); }
-  else { x = _randomBetween(0, width); y = _randomBetween(-height, -10); vx = _randomBetween(-14, 14); }
-  return {
-    x, y, vx,
-    vy: _randomBetween(40, 85),
-    size: _randomBetween(6, 15),
-    rotation: _randomBetween(0, Math.PI * 2),
-    rotationSpeed: _randomBetween(-2.2, 2.2),
-    swayPhase: _randomBetween(0, Math.PI * 2),
-    swaySpeed: _randomBetween(1.1, 2.1),
-    swayAmp: _randomBetween(20, 42),
-    kind: palette.kind,
-    color: palette.color,
-    opacity: palette.opacity ?? _randomBetween(.7, .9),
-  };
+function _resolveBackdropImageUrl(url) {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  const origin = (window.FA_API && window.FA_API.origin) || '';
+  return origin ? origin + url : url;
 }
 
-// Ambient confetti behind the countdown: falls slowly, a fraction of pieces drift in from the
-// left/right edges instead of only from the top, and pieces near the cursor get gently pushed
-// away (mouse "brushes" the confetti aside) before drifting back into their normal fall. Canvas
-// instead of ~40 animated DOM nodes for smoother motion. Respects prefers-reduced-motion by
-// painting one static frame and skipping the animation loop and mouse tracking entirely.
-function LaunchConfetti() {
-  const canvasRef = useRef(null);
+// The real catalog behind the countdown, not a decorative graphic — "there's an actual store
+// being built here". Reuses whatever `products` App() already fetched for the real marketplace
+// (syncMarketplaceData() runs regardless of the launch gate, see App()), so this is genuinely the
+// tenant's own products/photos/prices, not placeholders. Entirely inert: the grid is
+// `pointer-events: none` and every card omits click handlers on purpose — it's scenery, not a
+// functional catalog, so there's nothing to guard against being clicked.
+function LaunchMarketplaceBackdrop({ products }) {
+  const items = useMemo(
+    () => (products || []).filter((p) => p && p.imageUrl).slice(0, 24),
+    [products]
+  );
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return undefined;
-    const ctx = canvas.getContext('2d');
-    const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const PARTICLE_COUNT = 68;
-    const MOUSE_INFLUENCE = 120;
+  if (!items.length) return null;
 
-    let width = 0;
-    let height = 0;
-    let particles = [];
-    let frameId = null;
-    let lastTime = performance.now();
-    const mouse = { x: -9999, y: -9999 };
-
-    const resize = () => {
-      const rect = canvas.parentElement.getBoundingClientRect();
-      width = rect.width;
-      height = rect.height;
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      canvas.style.width = width + 'px';
-      canvas.style.height = height + 'px';
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-
-    const drawParticle = (p) => {
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rotation);
-      ctx.globalAlpha = p.opacity;
-      ctx.fillStyle = p.color;
-      if (p.kind === 'pill') {
-        const w = p.size * 1.8;
-        const h = p.size * .75;
-        const r = h / 2;
-        ctx.beginPath();
-        ctx.moveTo(-w / 2 + r, -h / 2);
-        ctx.arcTo(w / 2, -h / 2, w / 2, h / 2, r);
-        ctx.arcTo(w / 2, h / 2, -w / 2, h / 2, r);
-        ctx.arcTo(-w / 2, h / 2, -w / 2, -h / 2, r);
-        ctx.arcTo(-w / 2, -h / 2, w / 2, -h / 2, r);
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    };
-
-    resize();
-    particles = Array.from({ length: PARTICLE_COUNT }, () => {
-      const edge = Math.random() < .22 ? (Math.random() < .5 ? 'left' : 'right') : 'top';
-      const p = _spawnConfettiParticle(width, height, edge);
-      p.y = _randomBetween(0, height); // scatter across on first paint instead of starting off-screen
-      return p;
-    });
-
-    if (reduceMotion) {
-      ctx.clearRect(0, 0, width, height);
-      particles.forEach(drawParticle);
-      return () => {};
-    }
-
-    const handleMouseMove = (e) => {
-      const rect = canvas.getBoundingClientRect();
-      mouse.x = e.clientX - rect.left;
-      mouse.y = e.clientY - rect.top;
-    };
-    const handleMouseLeave = () => { mouse.x = -9999; mouse.y = -9999; };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseleave', handleMouseLeave);
-    window.addEventListener('resize', resize);
-
-    const step = (now) => {
-      const dt = Math.min((now - lastTime) / 1000, .05);
-      lastTime = now;
-      ctx.clearRect(0, 0, width, height);
-
-      for (const p of particles) {
-        const dx = p.x - mouse.x;
-        const dy = p.y - mouse.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < MOUSE_INFLUENCE) {
-          const force = (1 - dist / MOUSE_INFLUENCE) * 95;
-          const angle = Math.atan2(dy, dx);
-          p.x += Math.cos(angle) * force * dt;
-          p.y += Math.sin(angle) * force * dt;
-        }
-
-        p.swayPhase += p.swaySpeed * dt;
-        p.x += Math.sin(p.swayPhase) * p.swayAmp * dt + p.vx * dt * .4;
-        p.y += p.vy * dt;
-        p.rotation += p.rotationSpeed * dt;
-
-        if (p.y - p.size > height + 20 || p.x < -60 || p.x > width + 60) {
-          const edge = Math.random() < .25 ? (Math.random() < .5 ? 'left' : 'right') : 'top';
-          Object.assign(p, _spawnConfettiParticle(width, height, edge));
-        }
-        drawParticle(p);
-      }
-
-      frameId = requestAnimationFrame(step);
-    };
-    frameId = requestAnimationFrame(step);
-
-    return () => {
-      if (frameId) cancelAnimationFrame(frameId);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseleave', handleMouseLeave);
-      window.removeEventListener('resize', resize);
-    };
-  }, []);
-
-  return <canvas ref={canvasRef} className="cd-confetti-canvas" aria-hidden="true" />;
+  return (
+    <div className="cd-shop-grid" aria-hidden="true">
+      {items.map((p) => (
+        <div key={p.id} className="cd-shop-card">
+          {p.discount > 0 && <span className="cd-shop-badge">-{p.discount}%</span>}
+          <div className="cd-shop-thumb"><img src={_resolveBackdropImageUrl(p.imageUrl)} alt="" loading="lazy" /></div>
+          <div className="cd-shop-name">{p.name}</div>
+          <div className="cd-shop-price">{brl(p.price)}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // Full-page takeover: no Header/Footer/cart/login — every visitor, logged in or not, sees only
 // this until the configured instant passes (see PortalService._resolve_launch_mode). Ticks locally
 // against the client's own clock; onLaunch triggers a one-time reload so the real bootstrap
 // (already re-fetched periodically by the caller) takes over without the visitor refreshing by hand.
-function LaunchCountdownScreen({ launchMode, onLaunch }) {
+function LaunchCountdownScreen({ launchMode, onLaunch, products }) {
   const launchAtMs = useMemo(() => {
     const parsed = new Date(launchMode.launchAt).getTime();
     return Number.isNaN(parsed) ? 0 : parsed;
@@ -898,7 +766,7 @@ function LaunchCountdownScreen({ launchMode, onLaunch }) {
 
   return (
     <div className="cd-scene">
-      <LaunchConfetti />
+      <LaunchMarketplaceBackdrop products={products} />
       <div className="fa-wrap fa-fadein cd-scene-content" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', textAlign: 'center' }}>
         <div style={{ maxWidth: 560 }}>
           <img className="cd-logo" src={MARKETPLACE_LOGO_FULL_URL} alt="Farmaura" />
@@ -2012,7 +1880,7 @@ function App() {
   if (launchGateActive) {
     return (
       <div id="fa-root" data-density={t.density} style={rootStyle}>
-        <LaunchCountdownScreen launchMode={launchMode} onLaunch={() => window.location.reload()} />
+        <LaunchCountdownScreen launchMode={launchMode} onLaunch={() => window.location.reload()} products={products} />
       </div>
     );
   }
