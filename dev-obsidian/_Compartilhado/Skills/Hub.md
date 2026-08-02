@@ -23,11 +23,13 @@ Skills não são leitura de fundo — devem ser invocadas e aplicadas ativamente
 - [[security-vulnerability-testing]] — testar/auditar código já escrito contra SQLi, XSS, CSRF, race condition, brute force/DDoS/spam e drift de supply chain. Skill de *testar*, não de escrever — complementa as cinco acima.
 - [[qa-functional-review]] — passada de QA funcional: botão sem ação, função duplicada, estado de loading/vazio/erro ausente, rota órfã.
 - [[project-test-orientation]] — orientação de qual stack/porta/container testar; usada pelas duas skills de teste acima para não adivinhar o alvo.
+- [[contexto]] — carrega contexto (vault + arquivos de código reais do escopo) para começar a programar num projeto: geral, só documentação, por projeto, por área frontend/backend ou por módulo. Invocável direto com `/contexto`; **exceção de localização** — seu `SKILL.md` fica em `.claude/skills/contexto/`, não aqui, por exigência de descoberta automática do Claude Code (ver a nota da skill).
 
 Cada skill tem sua própria nota humana, com contexto e referências de aplicação no código deste repositório, e a definição operacional completa em seu respectivo diretório `SKILL.md`.
 
 ## Atualizações
 
+- 2026-07-30: adicionada a skill [[contexto]], com o `SKILL.md` excepcionalmente fora desta pasta (`.claude/skills/contexto/`) para ser invocável via `/contexto` no Claude Code.
 - 2026-07-20: definições operacionais `SKILL.md` passaram a viver nesta biblioteca; as notas `.md` permanecem para leitura humana.
 
 ## Navegação

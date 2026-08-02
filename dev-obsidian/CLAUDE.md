@@ -71,6 +71,26 @@ Ficam de fora desta convenção `00_Decisoes/` (ADR já é um registro pontual, 
 
 **Nunca** gravar segredos, chaves, tokens ou valores reais de `.env` em nenhuma nota. Documentar apenas o propósito/contrato de uma configuração, nunca seu valor.
 
+## Regras Operacionais Gerais
+
+Regras válidas para qualquer trabalho técnico neste repositório, não só para escrita de notas no cofre — aplicam mesmo quando a tarefa não envolve editar o cofre diretamente.
+
+### Escopo de escrita de código
+
+Qualquer alteração de código fica restrita à árvore `~/Documentos/desenvolvimento/dev/` (este repositório) e tudo que existe dentro dela. Nunca editar arquivos fora dela. Dentro dela, editar sempre o código-fonte real do projeto — nunca arquivos de cache de gerenciador de pacotes (ex: dentro de `.npm`, `node_modules`, `~/.cache`, `.venv/lib`, ou equivalentes de outros stacks). Se um problema aparentar estar numa dependência instalada, corrigir a causa no código do projeto ou na versão/configuração fixada da dependência — nunca editar o pacote em cache diretamente.
+
+### Regras de deploy
+
+Em produção, executar **somente** o que foi explicitamente pedido pelo usuário — nunca fazer deploy, restart de serviço, migration ou qualquer outra mudança de infraestrutura de produção por iniciativa própria (ver exemplo já registrado em [[farmaura/07_POPs_Processos/aplicar-migration-alembic-producao|aplicar-migration-alembic-producao]]: a IA gera e revisa migrations, mas não aplica em produção sem confirmação explícita — o mesmo princípio vale para qualquer ação de deploy). Todo acesso ao servidor de produção (`lumos-prd`) é feito exclusivamente via `ssh lumos-prd` (ver [[farmaura/05_Integracoes_Infra/Lumos_Gateway|Lumos_Gateway]] para a topologia de rede). Não usar outro método de acesso ao servidor sem pedido explícito do usuário.
+
+### Contexto de front-end antes de alterar
+
+Antes de modificar qualquer código de front-end (`farmaura/react/`, telas Blade/BFF de `lumosmed/`, etc.), ler a documentação de arquitetura/visão geral do projeto correspondente em `<projeto>/02_Documentacao/` (começando por `Visao_Geral.md` e os módulos relevantes) para entender o desenho do sistema antes de propor ou aplicar a mudança. A skill `contexto` (ver `_Compartilhado/Skills/contexto.md`) automatiza esse levantamento.
+
+### Documentação obrigatória
+
+Documentar sempre, sem esperar ser pedido: atualizações, pendências, decisões, incidentes e problemas de segurança — usando as categorias já definidas acima (`00_Decisoes`, `04_Seguranca_Riscos`, `06_Pendencias`, etc., ver seção "Como a IA deve atuar" logo abaixo). Um incidente de produção (erro, indisponibilidade, dado corrompido, chave exposta) é sempre registrado em `04_Seguranca_Riscos/` como runbook de incidente, mesmo quando não é estritamente uma vulnerabilidade.
+
 ## Como a IA deve atuar
 
 - Atualizar `<projeto>/00_Decisoes/` proativamente sempre que uma decisão de arquitetura, trade-off relevante ou mudança de direção for tomada durante o trabalho — sem esperar o usuário pedir.

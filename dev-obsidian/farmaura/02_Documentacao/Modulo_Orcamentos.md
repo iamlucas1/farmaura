@@ -206,8 +206,7 @@ prompt de extração (`purchase_quote_ai_service.py`) contra padrões reais, nã
   "12 x 120g" (o número antes do "x" é `units_per_package`); distinção explícita entre uma coluna
   de conversão de embalagem real ("CX", "Cx.", "Caixa de Embarque") e uma coluna de "Múltiplo de
   Venda"/quantidade mínima de pedido (regra de pedido, não conversão — não deve virar
-  `units_per_package`); ignorar linhas de resumo/total ("TOTAL <marca>", lista de categorias com
-  valor zerado no topo de formulário de pedido); e combinar num único item quando o mesmo
+  `units_per_package`); ignorar linhas de resumo/total ("TOTAL < marca >", lista de categorias com valor zerado no topo de formulário de pedido); e combinar num único item quando o mesmo
   código/EAN aparece em mais de uma aba do mesmo arquivo (ex.: aba resumida + aba "Cadastro" mais
   completa), preferindo o valor mais detalhado por campo em vez de duplicar o item.
 - **Bug real encontrado: título de bloco/coleção virando `brand_name`**. Planilhas que repetem
