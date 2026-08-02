@@ -118,6 +118,8 @@ class CustomerService:
         customer.gender = payload.gender.strip()
         customer.marital_status = payload.marital_status.strip()
         customer.children_count = payload.children_count
+        customer.marketing_program_preferences = list(payload.marketing_program_preferences)
+        customer.communication_channel_preferences = list(payload.communication_channel_preferences)
         await self.customer_repository.save(customer)
         await self.session.commit()
         await apply_tenant_context(self.session, subject)
@@ -596,4 +598,6 @@ class CustomerService:
             avatar_url=getattr(customer, "avatar_url", "") or "",
             two_factor_enabled=bool(getattr(user, "two_factor_enabled", False)),
             member_since_label=getattr(customer, "member_since_label", "") or "",
+            marketing_program_preferences=list(getattr(customer, "marketing_program_preferences", None) or []),
+            communication_channel_preferences=list(getattr(customer, "communication_channel_preferences", None) or []),
         )

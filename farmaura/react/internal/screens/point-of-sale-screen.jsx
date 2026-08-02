@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ModalShell, QtyStepper, brl } from "../../marketplace/core/marketplace-components.jsx";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { fetchViaCepAddress, formatCep } from "../../marketplace/core/marketplace-address.js";
+import { resolveMarketplaceCoupon } from "../../marketplace/screens/cart-screen.jsx";
 import { RecurringBadge, Topbar } from "../core/internal-shell.jsx";
 
 /* FARMAURA Console — Balcão / PDV: venda no momento + emissão de nota fiscal (NFC-e).
@@ -452,12 +453,15 @@ const PRESCRIPTION_STATUS_META = {
 };
 
 function PdvScreen({ ctx }) {
-  const { inventory, pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, onLogout, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
+  const { inventory, coupons = [], pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, onLogout, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [expandedResultId, setExpandedResultId] = useState(null);
   const [pay, setPay] = useState('pix');
   const [discount, setDiscount] = useState(0);
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponError, setCouponError] = useState('');
   const [cpfNota, setCpfNota] = useState(true);
   const [operator, setOperator] = useState('pharm');
   const [caixaReady, setCaixaReady] = useState(false); // paciente confirmado — atendimento iniciado
@@ -639,6 +643,7 @@ function PdvScreen({ ctx }) {
   const resetAtendimento = () => {
     if (draftId && deletePdvDraft) deletePdvDraft(draftId);
     pdvClear(); setPdvCustomer(null); setDiscount(0); setDiscountLimit(100); setCashWanted(0);
+    setAppliedCoupon(null); setCouponCode(''); setCouponError('');
     setCaixaReady(false); setStartedAt(null); setElapsed(0); setDelivery({ fulfillmentType: 'pickup' });
     setDraftId(null);
   };
@@ -651,6 +656,7 @@ function PdvScreen({ ctx }) {
       if (savedId) setDraftId(savedId);
     }
     pdvClear(); setPdvCustomer(null); setDiscount(0); setDiscountLimit(100); setCashWanted(0);
+    setAppliedCoupon(null); setCouponCode(''); setCouponError('');
     setCaixaReady(false); setStartedAt(null); setElapsed(0); setDelivery({ fulfillmentType: 'pickup' });
     setDraftId(null);
   };
@@ -662,7 +668,23 @@ function PdvScreen({ ctx }) {
   const lines = pdvCart.filter((l) => l.id);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
-  const discVal = subtotal * (discount / 100);
+
+  /* Aplica um cupom ao carrinho — apenas preview local; o backend revalida tudo ao enviar ao caixa. */
+  const applyCoupon = () => {
+    const result = resolveMarketplaceCoupon(coupons, inventory, lines.map((l) => ({ id: l.id, qty: l.qty })), couponCode, [], null);
+    if (result.ok) {
+      setAppliedCoupon(result.coupon);
+      setCouponError('');
+      setDiscount(0);
+    } else {
+      setAppliedCoupon(null);
+      setCouponError(result.message || 'Cupom inválido.');
+    }
+  };
+  const removeCoupon = () => { setAppliedCoupon(null); setCouponCode(''); setCouponError(''); };
+
+  const manualDiscVal = subtotal * (discount / 100);
+  const discVal = appliedCoupon ? appliedCoupon.discountAmount : manualDiscVal;
   const afterDisc = Math.max(0, subtotal - discVal);
   const cashAvailable = pdvCustomer ? (pdvCustomer.cashback || 0) : 0;
   const cashApplied = Math.max(0, Math.min(cashWanted, cashAvailable, afterDisc));
@@ -1014,14 +1036,30 @@ function PdvScreen({ ctx }) {
               <div className="pdv-totrow"><span>Valor bruto</span><span>{brl(subtotal)}</span></div>
               <div className="fa-field" style={{ margin: '8px 0' }}>
                 <label>Desconto (%)</label>
-                <input className="fa-input" type="number" min="0" max={discountLimit} value={discount} onChange={(e) => setDiscount(Math.max(0, Math.min(discountLimit, +e.target.value)))} />
+                <input className="fa-input" type="number" min="0" max={discountLimit} value={discount} disabled={!!appliedCoupon} onChange={(e) => setDiscount(Math.max(0, Math.min(discountLimit, +e.target.value)))} />
                 {discountLimit < 100 && (
                   <div className="ph-cell-sub" style={{ marginTop: 4 }}>
                     Desconto máximo permitido: {discountLimit}% — limite de margem do produto{cashAvailable > 0 ? ' e cashback do cliente' : ''}
                   </div>
                 )}
               </div>
-              {discVal > 0 && <div className="pdv-totrow" style={{ color: 'var(--fa-success)' }}><span>Desconto aplicado</span><span>− {brl(discVal)}</span></div>}
+              <div className="fa-field" style={{ margin: '8px 0' }}>
+                <label>Cupom</label>
+                {appliedCoupon ? (
+                  <div className="cpn-code" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <span><Icon name="tag" size={13} />{appliedCoupon.code}</span>
+                    <button type="button" className="fa-iconbtn" style={{ width: 22, height: 22 }} onClick={removeCoupon}><Icon name="close" size={13} /></button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className="fa-input" style={{ textTransform: 'uppercase' }} disabled={discount > 0} value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} placeholder="Código do cupom" />
+                    <button type="button" className="fa-btn fa-btn-soft" disabled={discount > 0 || !couponCode.trim()} onClick={applyCoupon}>Aplicar</button>
+                  </div>
+                )}
+                {discount > 0 && <div className="ph-cell-sub" style={{ marginTop: 4 }}>Zere o desconto manual para aplicar um cupom.</div>}
+                {couponError && <div className="ph-cell-sub" style={{ marginTop: 4, color: 'var(--fa-error)' }}>{couponError}</div>}
+              </div>
+              {discVal > 0 && <div className="pdv-totrow" style={{ color: 'var(--fa-success)' }}><span>{appliedCoupon ? 'Cupom aplicado' : 'Desconto aplicado'}</span><span>− {brl(discVal)}</span></div>}
               {cashApplied > 0 && <div className="pdv-totrow" style={{ color: 'var(--fa-primary)' }}><span>Cashback aplicado</span><span>− {brl(cashApplied)}</span></div>}
               <div className="pdv-totrow"><span>Itens</span><span>{count}</span></div>
               <div style={{ height: 1, background: 'var(--fa-mist)', margin: '12px 0' }} />
@@ -1033,7 +1071,7 @@ function PdvScreen({ ctx }) {
 
               {operator === 'pharm' ? (
                 <>
-                  <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" style={{ marginTop: 16 }} disabled={lines.length === 0} onClick={async () => { const ok = await pdvSendToCashier({ customer: pdvCustomer, items: pdvCart, discount, delivery, draftId }); if (ok) { setDraftId(null); finalizeSale && finalizeSale('Pedido enviado ao caixa'); setSentModal(true); } }}>
+                  <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" style={{ marginTop: 16 }} disabled={lines.length === 0} onClick={async () => { const ok = await pdvSendToCashier({ customer: pdvCustomer, items: pdvCart, discount, couponCode: appliedCoupon ? appliedCoupon.code : '', delivery, draftId }); if (ok) { setDraftId(null); finalizeSale && finalizeSale('Pedido enviado ao caixa'); setSentModal(true); } }}>
                     <Icon name="arrowR" size={18} />Enviar para o caixa
                   </button>
                   <div className="ph-cell-sub" style={{ textAlign: 'center', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Icon name="cash" size={13} />O caixa recebe o pagamento e emite a nota</div>

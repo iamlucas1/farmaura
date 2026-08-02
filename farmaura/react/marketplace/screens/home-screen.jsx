@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { AuraLayer, ProductCard } from "../core/marketplace-components.jsx";
+import { ProductCard } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 
 /* FARMAURA — Home / painel principal. */
@@ -17,22 +17,30 @@ function SectionHead({ eyebrow, title, action, onAction }) {
 }
 
 function QuickCategories({ cats, onNav }) {
-  const categoryShortcuts = (cats || []).map((cat) => ({
+  // One single row: four real, backend-driven shortcuts first, then the real category
+  // catalog managed in the internal console (Categorias) — not a mix of decorative
+  // atalhos, every tile here navigates somewhere backed by real data:
+  // - "Mais buscados" ranks by real sales volume (online + PDV), see catalog_service.list_most_searched_products.
+  // - "Produtos salvos" is the customer's real favorites list.
+  // - "Ofertas" is products with an active PricingPromotion/product_discount applied.
+  // - "Serviços de saúde" is the real procedure catalog managed in Catálogo → Serviços de saúde.
+  // - the rest are the tenant's real product categories.
+  const shortcuts = [
+    { id: 'sc-buscados', label: 'Mais buscados', glyph: 'search', go: { name: 'discover' } },
+    { id: 'sc-salvos', label: 'Produtos salvos', glyph: 'heart', go: { name: 'saved' } },
+    { id: 'sc-ofertas', label: 'Ofertas', glyph: 'percent', go: { name: 'offers' } },
+    { id: 'sc-servicos', label: 'Serviços de saúde', glyph: 'activity', go: { name: 'services' } },
+  ];
+  const categoryItems = (cats || []).map((cat) => ({
     id: 'qc-cat-' + cat.id,
     label: cat.label,
     glyph: cat.glyph || 'pill',
     go: { name: 'category', cat: cat.id },
   }));
-  const shortcuts = [
-    { id: 'qc-buscados', label: 'Mais buscados', glyph: 'search', go: { name: 'discover' } },
-    { id: 'qc-salvos', label: 'Produtos salvos', glyph: 'heart', go: { name: 'saved' } },
-    { id: 'qc-ofertas', label: 'Ofertas', glyph: 'percent', go: { name: 'offers' } },
-    ...categoryShortcuts,
-    { id: 'qc-servicos', label: 'Serviços de saúde', glyph: 'activity', go: { name: 'services' } },
-  ];
+  const items = [...shortcuts, ...categoryItems];
   return (
-    <nav className="fa-quickcats fa-noscroll" aria-label="Atalhos">
-      {shortcuts.map((c) => (
+    <nav className="fa-quickcats" aria-label="Atalhos e categorias">
+      {items.map((c) => (
         <button key={c.id} className="fa-quickcat" onClick={() => onNav(c.go)}>
           <span className="fa-quickcat-tile"><Icon name={c.glyph} size={26} stroke={2} /></span>
           <span className="fa-quickcat-label">{c.label}</span>
@@ -42,119 +50,106 @@ function QuickCategories({ cats, onNav }) {
   );
 }
 
-const BANNER_SLIDES = [
-  {
-    id: 'cuidado', bg: 'var(--fa-primary)', color: '#fff', auraTone: '#fff',
-    badge: 'Nova forma de cuidar', glyph: 'bag',
-    title: 'Cuidado que acompanha você',
-    lead: 'Saúde, bem-estar e conveniência numa experiência mais próxima. Entrega em 60 minutos e farmacêutico sempre por perto.',
-    actions: [
-      { label: 'Ver ofertas', icon: 'percent', cls: 'fa-btn-vital', go: { name: 'offers' } },
-      { label: 'Enviar receita', icon: 'rx', cls: '', soft: true, rx: true },
-    ],
-  },
-  {
-    id: 'desconto', bg: 'var(--fa-vital)', color: '#fff', auraTone: '#fff',
-    badge: 'Semana do desconto', glyph: 'tag',
-    title: 'Produtos com até 95% de desconto',
-    lead: 'Uma seleção de medicamentos, dermocosméticos e bem-estar com preços que cuidam do seu bolso. Por tempo limitado.',
-    actions: [
-      { label: 'Aproveitar agora', icon: 'bolt', cls: 'fa-btn', light: true, go: { name: 'offers' } },
-    ],
-  },
-  {
-    id: 'servicos', bg: 'var(--fa-rose-soft)', color: 'var(--fa-primary-ink)', auraTone: 'var(--fa-primary)',
-    badge: 'Na sua farmácia', glyph: 'activity', dark: true,
-    title: 'Serviços de saúde sem sair do bairro',
-    lead: 'Vacinas, testes rápidos, aferições e aplicações com nossos farmacêuticos. Agende em poucos toques.',
-    actions: [
-      { label: 'Ver serviços', icon: 'activity', cls: 'fa-btn-primary', go: { name: 'services' } },
-      { label: 'Receita digital', icon: 'rx', cls: 'fa-btn-ghost', rx: true },
-    ],
-  },
-];
+// Home banner: mode/slides come from PortalService (admin-configured in Catálogo/Marketplace
+// → Banner da vitrine). "off" renders nothing; "image" is a real carousel (or a static single
+// banner when there's only one slide) whose slides can each be an image or the tenant's own
+// sanitized HTML (nh3-cleaned server-side, see PortalService._sanitize_home_banner_html).
+function resolveBannerSlideNav(slide, { onNav, onPrescription }) {
+  switch (slide.linkType) {
+    case 'offers': return () => onNav({ name: 'offers' });
+    case 'services': return () => onNav({ name: 'services' });
+    case 'prescricao': return () => onPrescription && onPrescription();
+    case 'category': return slide.linkCategory ? () => onNav({ name: 'category', cat: slide.linkCategory }) : null;
+    case 'external': return /^https?:\/\//i.test(slide.linkUrl) ? () => window.open(slide.linkUrl, '_blank', 'noopener,noreferrer') : null;
+    default: return null;
+  }
+}
 
-function BannerSlider({ onNav, onPrescription }) {
+function BannerSlider({ banner, onNav, onPrescription }) {
+  const slides = (banner && banner.slides) || [];
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
-  const total = BANNER_SLIDES.length;
+  const total = slides.length;
   const go = (nextIndex) => setIndex((nextIndex + total) % total);
 
+  useEffect(() => { setIndex(0); }, [total]);
+
   useEffect(() => {
-    if (paused) {
+    if (paused || total <= 1) {
       return undefined;
     }
-    const timer = setInterval(() => setIndex((current) => (current + 1) % total), 5800);
+    const timer = setInterval(() => setIndex((current) => (current + 1) % total), 3200);
     return () => clearInterval(timer);
   }, [paused, total]);
+
+  if (!total) {
+    return null;
+  }
 
   return (
     <section className="fa-slider" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} aria-roledescription="carrossel">
       <div className="fa-slider-track" style={{ transform: `translateX(-${index * 100}%)` }}>
-        {BANNER_SLIDES.map((slide) => (
-          <div key={slide.id} className="fa-slide" style={{ background: slide.bg, color: slide.color }}>
-            <AuraLayer tone={slide.auraTone} />
-            <div className="fa-slide-content">
-              <span className="fa-badge fa-badge-rose" style={slide.dark ? { background: 'var(--fa-primary)', color: '#fff' } : {}}>
-                <Icon name="sparkle" size={13} stroke={2} />{slide.badge}
-              </span>
-              <h1 className="fa-h1" style={{ color: slide.color, marginTop: 16 }}>{slide.title}</h1>
-              <p className="fa-slide-lead" style={{ color: slide.dark ? 'var(--fa-ink-2)' : 'rgba(255,255,255,.92)' }}>{slide.lead}</p>
-              <div className="fa-slide-actions">
-                {slide.actions.map((action, actionIndex) => (
-                  <button
-                    key={actionIndex}
-                    className={`fa-btn fa-btn-lg ${action.cls}`}
-                    style={action.soft ? { background: 'rgba(255,255,255,.16)', color: '#fff' } : action.light ? { background: '#fff', color: 'var(--fa-vital)' } : undefined}
-                    onClick={() => {
-                      if (action.rx) {
-                        onPrescription && onPrescription();
-                      } else if (action.go) {
-                        onNav(action.go);
-                      }
-                    }}
-                  >
-                    <Icon name={action.icon} size={18} stroke={2} />{action.label}
-                  </button>
-                ))}
+        {slides.map((slide) => {
+          if (slide.kind === 'html') {
+            return (
+              <div key={slide.id} className="fa-slide-item">
+                <div className="fa-slide-item-html" dangerouslySetInnerHTML={{ __html: slide.html }} />
               </div>
+            );
+          }
+          const onClick = resolveBannerSlideNav(slide, { onNav, onPrescription });
+          return (
+            <div key={slide.id} className="fa-slide-item">
+              {onClick ? (
+                <button onClick={onClick} aria-label={slide.altText || 'Banner'}>
+                  <img src={slide.image} alt={slide.altText || ''} />
+                </button>
+              ) : (
+                <img src={slide.image} alt={slide.altText || ''} />
+              )}
             </div>
-            <div className="fa-slide-art fa-hero-art">
-              <div className="fa-slide-art-box" style={{ borderColor: slide.dark ? 'var(--fa-rose)' : 'rgba(255,255,255,.18)', background: slide.dark ? 'rgba(122,13,22,.06)' : 'rgba(255,255,255,.10)' }}>
-                <Icon name={slide.glyph} size={86} stroke={1.1} style={{ color: slide.dark ? 'var(--fa-primary)' : 'rgba(255,255,255,.5)' }} />
-                <span className="fa-mono" style={{ position: 'absolute', bottom: 16, fontSize: 11, letterSpacing: '.06em', color: slide.dark ? 'var(--fa-ink-3)' : 'rgba(255,255,255,.55)' }}>banner image</span>
-              </div>
-            </div>
+          );
+        })}
+      </div>
+
+      {total > 1 && (
+        <>
+          <button className="fa-slider-arrow" data-side="prev" onClick={() => go(index - 1)} aria-label="Anterior"><Icon name="chevL" size={20} stroke={2.2} /></button>
+          <button className="fa-slider-arrow" data-side="next" onClick={() => go(index + 1)} aria-label="Próximo"><Icon name="chevR" size={20} stroke={2.2} /></button>
+          <div className="fa-slider-dots">
+            {slides.map((slide, dotIndex) => (
+              <button key={slide.id} className="fa-slider-dot" data-on={dotIndex === index ? '1' : '0'} onClick={() => go(dotIndex)} aria-label={`Banner ${dotIndex + 1}`} />
+            ))}
           </div>
-        ))}
-      </div>
-
-      <button className="fa-slider-arrow" data-side="prev" onClick={() => go(index - 1)} aria-label="Anterior"><Icon name="chevL" size={20} stroke={2.2} /></button>
-      <button className="fa-slider-arrow" data-side="next" onClick={() => go(index + 1)} aria-label="Próximo"><Icon name="chevR" size={20} stroke={2.2} /></button>
-
-      <div className="fa-slider-dots">
-        {BANNER_SLIDES.map((slide, dotIndex) => (
-          <button key={slide.id} className="fa-slider-dot" data-on={dotIndex === index ? '1' : '0'} onClick={() => go(dotIndex)} aria-label={`Banner ${dotIndex + 1}`} />
-        ))}
-      </div>
+        </>
+      )}
     </section>
   );
+}
+
+function HomeBanner({ banner, onNav, onPrescription }) {
+  const mode = (banner && banner.mode) || 'off';
+  if (mode === 'image') {
+    return <BannerSlider banner={banner} onNav={onNav} onPrescription={onPrescription} />;
+  }
+  return null;
 }
 
 function Differentials({ ctx }) {
   const { onNav, requireAuth, openPrescription } = ctx;
   const items = [
     { icon: 'truck', t: 'Entrega em até 1 hora', d: 'Receba seu pedido em casa no mesmo dia.', cta: 'Ver ofertas', acc: 'var(--fa-success)', action: () => onNav({ name: 'offers' }) },
-    { icon: 'gift', t: 'Cashback da farmácia', d: 'Acumule e use em compras futuras.', cta: 'Meu saldo', acc: 'var(--fa-warn)', action: () => requireAuth(() => onNav({ name: 'cashback' })) },
-    { icon: 'pin', t: 'Retire na farmácia em 20 min', d: 'Compre online e busque na loja mais perto.', cta: 'Ver medicamentos', acc: 'var(--fa-info)', action: () => onNav({ name: 'category', cat: 'medicamentos' }) },
+    { icon: 'gift', t: 'Cashback nas suas compras', d: 'Acumule e use em compras futuras.', cta: 'Meu saldo', acc: 'var(--fa-warn)', action: () => requireAuth(() => onNav({ name: 'cashback' })) },
+    { icon: 'pin', t: 'Retire na farmácia em 15 min', d: 'Compre online e busque na loja mais perto.', cta: 'Ver medicamentos', acc: 'var(--fa-info)', action: () => onNav({ name: 'category', cat: 'medicamentos' }) },
     { icon: 'rx', t: 'Receita digital', d: 'Envie sua receita e compre com facilidade.', cta: 'Enviar receita', acc: 'var(--fa-primary)', action: () => openPrescription() },
+    { icon: 'card', t: 'Parcele em até 3x sem juros', d: 'Divida o valor da sua compra sem taxas extras.', cta: 'Ver carrinho', acc: 'var(--fa-vital)', action: () => onNav({ name: 'cart' }) },
   ];
   return (
-    <div className="fa-grid" style={{ '--fa-grid-min': '236px' }}>
+    <div className="fa-diff-grid">
       {items.map((item) => (
         <button key={item.t} className="fa-diff" style={{ '--acc': item.acc }} onClick={item.action}>
-          <Icon name={item.icon} size={104} stroke={1.4} className="fa-diff-glyph" />
-          <span className="fa-diff-badge"><Icon name={item.icon} size={24} stroke={2} /></span>
+          <Icon name={item.icon} size={108} stroke={1} className="fa-diff-glyph" />
+          <Icon name={item.icon} size={28} stroke={1.6} className="fa-diff-icon" />
           <div className="fa-diff-t">{item.t}</div>
           <p className="fa-diff-d">{item.d}</p>
           <span className="fa-diff-link">
@@ -169,8 +164,29 @@ function Differentials({ ctx }) {
   );
 }
 
+// Marcas em destaque: tira de círculos configurada no console interno (Marketplace → Marcas em
+// destaque). Cada círculo leva para a vitrine já filtrada pela marca (ShopScreen mode="brand"),
+// filtro comparado client-side contra CatalogItem.brand — mesmo esquema de `route.cat`.
+function BrandCircles({ brands, onNav }) {
+  const mode = (brands && brands.mode) || 'off';
+  const circles = (brands && brands.circles) || [];
+  if (mode !== 'on' || !circles.length) {
+    return null;
+  }
+  return (
+    <div className="fa-brands-strip">
+      {circles.map((circle) => (
+        <button key={circle.id} className="fa-brand-circle" onClick={() => onNav({ name: 'brand', brand: circle.brandName })} title={circle.altText || circle.brandName}>
+          <span className="fa-brand-circle-img"><img src={circle.image} alt={circle.altText || circle.brandName} /></span>
+          <span className="fa-brand-circle-label">{circle.brandName}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function HomeScreen({ ctx }) {
-  const { products, cats, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, recent } = ctx;
+  const { products, cats, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, recent, homeBanner, homeBrands } = ctx;
   const offers = products.filter((product) => product.discount > 0).slice(0, 10);
   const bestsellers = products.filter((product) => product.tags.includes('mais-vendido'));
   const featuredFill = products.filter((product) => product.rating >= 4.7 && !bestsellers.includes(product));
@@ -185,8 +201,9 @@ function HomeScreen({ ctx }) {
   return (
     <div className="fa-wrap fa-fadein" style={{ paddingTop: 28, paddingBottom: 20, display: 'flex', flexDirection: 'column', gap: 44 }}>
       <QuickCategories cats={cats} onNav={onNav} />
-      <BannerSlider onNav={onNav} onPrescription={openPrescription} />
+      <HomeBanner banner={homeBanner} onNav={onNav} onPrescription={openPrescription} />
       <Differentials ctx={ctx} />
+      <BrandCircles brands={homeBrands} onNav={onNav} />
       <div className="fa-feed">
         <section className="fa-feed-sec fa-feed-tight">
           <SectionHead eyebrow="Economize" title="Produtos com até 95% de desconto" action="Ver todas" onAction={() => onNav({ name: 'offers' })} />
@@ -209,4 +226,4 @@ function HomeScreen({ ctx }) {
   );
 }
 
-export { BANNER_SLIDES, BannerSlider, Differentials, HomeScreen, QuickCategories, SectionHead };
+export { BannerSlider, BrandCircles, Differentials, HomeBanner, HomeScreen, QuickCategories, SectionHead };

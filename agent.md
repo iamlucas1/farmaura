@@ -23,7 +23,7 @@ This repository hosts more than one product. Know which folder you are in before
 
 ## Knowledge Vault
 
-Decisions, evolving documentation, standards, policies, business rules, integrations, APIs, databases, infrastructure, risks, vulnerabilities, pending items, architecture, and operating procedures for this repository (and any other project the user develops) live in an Obsidian vault at `dev-obsidian/` in this repository's root — tracked in this same git repository. Its `dev-obsidian/CLAUDE.md` is the authoritative governance file: read it before writing anything there.
+Decisions, evolving documentation, standards, policies, business rules, integrations, APIs, databases, infrastructure, risks, vulnerabilities, pending items, architecture, and operating procedures for this repository (and any other project the user develops) live in an Obsidian vault at `dev-obsidian/` in this repository's root — tracked in this same git repository. Its `dev-obsidian/CLAUDE.md` is the authoritative governance file: read it before writing anything there. It also documents general operating rules for *any* technical work in this repository, not only vault edits — code-writing scope, production deploy access, mandatory front-end context reading, and mandatory documentation — under its "Regras Operacionais Gerais" section; read that section too, even for changes that never touch the vault.
 
 The vault is organized **project-first**, not by category — each product gets its own top-level folder:
 

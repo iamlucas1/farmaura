@@ -9,13 +9,33 @@ import { SectionHead } from "./home-screen.jsx";
 function PriceBlock({ p, big, paymentRules }) {
   const breakdown = resolvePaymentBreakdown(p.price, paymentRules);
   const bestInstallment = breakdown.bestInstallmentLabel;
+  const discount = p.discount > 0;
+  const isSuperpromo = discount && p.promotionHighlight === 'superpromo';
+  const isFixedDiscount = p.discountType === 'fixed';
+  const discountAmount = discount && p.old != null ? Math.max(0, Number(p.old) - Number(p.price)) : 0;
+  const shortDiscountLabel = isFixedDiscount && discountAmount > 0 ? brl(discountAmount) + ' OFF' : '-' + p.discount + '% OFF';
   return (
     <div>
+      {isSuperpromo && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--fa-vital)', fontWeight: 800, fontSize: 13.5, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.02em' }}>
+          <Icon name="bolt" size={15} stroke={2.6} />Desconto imperdível — só por tempo limitado
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <span className="fa-price" style={{ fontSize: big ? 38 : 30 }}>{brl(p.price)}</span>
         {p.old && <span className="fa-price-old" style={{ fontSize: 17 }}>{brl(p.old)}</span>}
-        {p.discount > 0 && <span className="fa-badge fa-badge-vital" style={{ fontSize: 13, padding: '6px 11px' }}>-{p.discount}% OFF</span>}
+        {discount && <span className="fa-badge fa-badge-vital" style={{ fontSize: isSuperpromo ? 15 : 13, padding: isSuperpromo ? '7px 13px' : '6px 11px' }}>{shortDiscountLabel}</span>}
       </div>
+      {discountAmount > 0 && (
+        <div style={{ fontWeight: 800, fontSize: isSuperpromo ? 16 : 13.5, color: 'var(--fa-success)', marginTop: 6 }}>
+          Você economiza {brl(discountAmount)}
+        </div>
+      )}
+      {p.urgencyLabel && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 700, color: '#b9772a', marginTop: 6 }}>
+          <Icon name="alert" size={13} stroke={2.6} />{p.urgencyLabel}
+        </div>
+      )}
       <div className="fa-muted" style={{ fontSize: 13, marginTop: 6 }}>
         {bestInstallment && bestInstallment.n > 1 && (
           <>ou {bestInstallment.n}x de {brl(bestInstallment.installmentValue)}{bestInstallment.hasInterest ? '' : ' sem juros'} · </>

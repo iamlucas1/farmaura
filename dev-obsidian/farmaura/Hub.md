@@ -19,19 +19,18 @@ Produto principal: marketplace farmacêutico — frontend em React (Vite) para c
 
 Cada domínio tem seu módulo de rota em `app/api/v1/`, serviço em `app/services/` e repositório em `app/repositories/` quando aplicável:
 
-- **Catálogo** — `catalog.py` / `catalog_service.py`
-- **Carrinho** — `cart.py` (lógica majoritariamente em `order_service.py`/`marketplace_projection.py`)
-- **Pedidos** — `orders.py` / `order_service.py`
-- **Prescrições** — `prescriptions.py` / `prescription_service.py`
-- **Estoque** — `inventory.py`, `inventory_lots.py` / `inventory_service.py`, `inventory_lot_service.py`, `inventory_stock_sync.py`, `inventory_invoice_service.py`, `inventory_ai_service.py`
-- **PDV (balcão)** — `pdv.py` / `pdv_service.py` (ver [[06_Pendencias/queries-em-loop-checkout-pdv|queries-em-loop-checkout-pdv]])
-- **CRM** (cashback, cupons, assinaturas) — `crm.py`, `customers.py` / `crm_service.py`, `customer_service.py`, `purchase_history_service.py`
-- **Entrega** — `deliveries.py` / `delivery_pricing_service.py` (ver [[03_Padroes_Politicas/excecao-delivery-pricing-cross-service|excecao-delivery-pricing-cross-service]])
-- **Documentos fiscais** — `fiscal.py` / `fiscal_service.py`, `fiscal_scheduler.py`
-- **Chat** — `chat.py` / `chat_service.py`
-- **Portal/config interna** — `portal.py` / `portal_service.py`
-- **Auth** — `auth.py` / `auth_service.py` (e-mail transacional de primeiro acesso via [[05_Integracoes_Infra/SMTP|SMTP]])
-- **Lojas, fornecedores, equipe** — `stores.py`, `suppliers.py`, `team.py`
+- **Catálogo** — `catalog.py` / `catalog_service.py` — ver [[02_Documentacao/Modulo_Catalogo|Modulo_Catalogo]]
+- **Carrinho e Pedidos** — `cart.py`/`orders.py` (lógica majoritariamente em `order_service.py`/`marketplace_projection.py`) — ver [[02_Documentacao/Modulo_Carrinho_Pedidos|Modulo_Carrinho_Pedidos]]
+- **Prescrições** — `prescriptions.py` / `prescription_service.py` — ver [[02_Documentacao/Modulo_Prescricoes|Modulo_Prescricoes]]
+- **Estoque** — `inventory.py`, `inventory_lots.py` / `inventory_service.py`, `inventory_lot_service.py`, `inventory_stock_sync.py`, `inventory_invoice_service.py`, `inventory_ai_service.py` — ver [[02_Documentacao/Modulo_Estoque|Modulo_Estoque]]
+- **PDV (balcão)** — `pdv.py` / `pdv_service.py` (ver [[06_Pendencias/queries-em-loop-checkout-pdv|queries-em-loop-checkout-pdv]]) — ver [[02_Documentacao/Modulo_PDV|Modulo_PDV]]
+- **CRM** (cashback, cupons, assinaturas) — `crm.py`, `customers.py` / `crm_service.py`, `customer_service.py`, `purchase_history_service.py` — ver [[02_Documentacao/Modulo_CRM|Modulo_CRM]]
+- **Entrega** — `deliveries.py` / `delivery_pricing_service.py` (ver [[03_Padroes_Politicas/excecao-delivery-pricing-cross-service|excecao-delivery-pricing-cross-service]]) — ver [[02_Documentacao/Modulo_Entrega|Modulo_Entrega]]
+- **Documentos fiscais** — `fiscal.py` / `fiscal_service.py`, `fiscal_scheduler.py` — ver [[02_Documentacao/Modulo_Fiscal|Modulo_Fiscal]]
+- **Chat** — `chat.py` / `chat_service.py` — ver [[02_Documentacao/Modulo_Chat|Modulo_Chat]]
+- **Portal/config interna** — `portal.py` / `portal_service.py` — ver [[02_Documentacao/Modulo_Portal|Modulo_Portal]]
+- **Auth** — `auth.py` / `auth_service.py` (e-mail transacional de primeiro acesso via [[05_Integracoes_Infra/SMTP|SMTP]]) — ver [[02_Documentacao/Modulo_Auth|Modulo_Auth]]
+- **Lojas, fornecedores, equipe** — `stores.py`, `suppliers.py`, `team.py` — ver [[02_Documentacao/Modulo_Lojas_Fornecedores_Equipe|Modulo_Lojas_Fornecedores_Equipe]]
 - **Orçamentos** (cotações de compra, comparativo de fornecedores, painel ABC/XYZ) — `purchase_quotes.py`, `purchase_analytics.py` / `purchase_quote_service.py`, `purchase_quote_ai_service.py`, `purchase_analytics_service.py` — ver [[02_Documentacao/Modulo_Orcamentos|Modulo_Orcamentos]]
 
 ## Dependências de Infraestrutura Compartilhada
@@ -42,6 +41,7 @@ Cada domínio tem seu módulo de rota em `app/api/v1/`, serviço em `app/service
 ## Navegação
 
 - Visão geral / arquitetura: [[02_Documentacao/Visao_Geral|Visão Geral]]
+- Documentação por módulo (`02_Documentacao/`): [[02_Documentacao/Modulo_Catalogo|Catálogo]], [[02_Documentacao/Modulo_Carrinho_Pedidos|Carrinho e Pedidos]], [[02_Documentacao/Modulo_Prescricoes|Prescrições]], [[02_Documentacao/Modulo_Estoque|Estoque]], [[02_Documentacao/Modulo_PDV|PDV]], [[02_Documentacao/Modulo_CRM|CRM]], [[02_Documentacao/Modulo_Entrega|Entrega]], [[02_Documentacao/Modulo_Fiscal|Fiscal]], [[02_Documentacao/Modulo_Chat|Chat]], [[02_Documentacao/Modulo_Portal|Portal]], [[02_Documentacao/Modulo_Auth|Auth]], [[02_Documentacao/Modulo_Lojas_Fornecedores_Equipe|Lojas/Fornecedores/Equipe]], [[02_Documentacao/Modulo_Orcamentos|Orçamentos]]
 - Decisões (ADRs): `00_Decisoes/` — cadeia de decisões de pagamento: [[00_Decisoes/2026-07-12-restringir-checkout-pix-cartao|restringir checkout]] → [[00_Decisoes/2026-07-12-tokenizacao-cartao-real-asaas|tokenização]] → [[00_Decisoes/2026-07-12-pagamentos-pix-cartao-via-asaas|pagamento real]] → [[00_Decisoes/2026-07-12-diferir-emissao-fiscal-7-dias|diferimento fiscal]]; ver também [[00_Decisoes/2026-07-12-precificacao-entrega-por-distancia|precificação de entrega por distância]], [[00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|adoção de Alembic em produção]] e [[00_Decisoes/2026-07-23-confirmar-compra-cruza-orcamentos-e-estoque|Confirmar Compra cruza orçamentos e estoque]]
 - Contexto de negócio (só o usuário escreve): `01_Contexto_Usuario/`
 - Padrões, políticas, premissas e regras de negócio não cobertas pelo `claude.md`/`agent.md`: `03_Padroes_Politicas/`

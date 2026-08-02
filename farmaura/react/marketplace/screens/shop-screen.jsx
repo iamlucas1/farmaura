@@ -85,20 +85,32 @@ const SORTS = [
 ];
 
 function ShopScreen({ ctx, mode }) {
-  const { cats, products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant } = ctx;
+  const { cats, products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant, mostSearchedProductIds } = ctx;
   const category = mode === 'category' ? cats.find((entry) => entry.id === route.cat) : null;
   const query = mode === 'search' ? (route.query || '') : '';
   const source = useMemo(() => {
     if (mode === 'category') return products.filter((product) => product.cat === route.cat);
+    if (mode === 'brand') return products.filter((product) => product.brand === route.brand);
     if (mode === 'offers') return products.filter((product) => product.discount > 0);
-    if (mode === 'mostsearched') return [...products].sort((left, right) => right.reviews - left.reviews);
+    if (mode === 'mostsearched') {
+      // Real demand ranking (online + PDV sales volume) first, in server-computed order;
+      // products with no sales history yet fall back after it, sorted by reviews so the
+      // listing is never emptier than the plain catalog.
+      const rank = new Map((mostSearchedProductIds || []).map((id, index) => [id, index]));
+      return [...products].sort((left, right) => {
+        const leftRank = rank.has(left.id) ? rank.get(left.id) : Infinity;
+        const rightRank = rank.has(right.id) ? rank.get(right.id) : Infinity;
+        if (leftRank !== rightRank) return leftRank - rightRank;
+        return right.reviews - left.reviews;
+      });
+    }
     if (mode === 'saved') return products.filter((product) => fav.includes(product.id));
     if (mode === 'search') {
       const normalizedQuery = query.toLowerCase();
       return products.filter((product) => (product.name + ' ' + product.brand + ' ' + product.sub + ' ' + product.cat).toLowerCase().includes(normalizedQuery));
     }
     return products;
-  }, [fav, mode, products, query, route.cat]);
+  }, [fav, mode, products, query, route.cat, route.brand]);
   const maxPrice = useMemo(() => Math.max(60, ...source.map((product) => Math.ceil(product.price / 10) * 10)), [source]);
   const createInitialFilters = () => ({ subs: [], brands: [], onlyOffers: mode === 'offers', onlySub: false, noRx: false, topRated: false, maxPrice });
   const [filters, setFilters] = useState(createInitialFilters);
@@ -110,7 +122,7 @@ function ShopScreen({ ctx, mode }) {
   useEffect(() => {
     setFilters(createInitialFilters());
     setView(cardVariant);
-  }, [cardVariant, mode, route.cat, route.query, maxPrice]);
+  }, [cardVariant, mode, route.cat, route.brand, route.query, maxPrice]);
 
   const result = useMemo(() => {
     const filtered = source.filter((product) => {
@@ -149,6 +161,8 @@ function ShopScreen({ ctx, mode }) {
 
   const header = mode === 'category'
     ? { eyebrow: 'Categoria', title: category ? category.label : '', desc: category ? category.desc : '' }
+    : mode === 'brand'
+      ? { eyebrow: 'Marca', title: route.brand || '', desc: `${result.length} ${result.length === 1 ? 'produto encontrado' : 'produtos encontrados'} da marca ${route.brand || ''}.` }
     : mode === 'offers'
       ? { eyebrow: 'Economize', title: 'Ofertas da semana', desc: 'Descontos selecionados com proporção controlada — aproveite enquanto duram.' }
       : mode === 'mostsearched'

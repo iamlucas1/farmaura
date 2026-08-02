@@ -27,6 +27,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.customer import Customer
 from app.models.customer_address import CustomerAddress
 from app.models.pricing_promotion import PricingPromotion
+from app.services.marketplace_projection import compute_effective_price, quantize_money
+
+
+# ============================================================================
+# LOYALTY TIER
+# ============================================================================
+
+
+# Ordered thresholds (minimum completed orders required), evaluated from the top down.
+# Fixed in code rather than admin-configurable — see farmaura/06_Pendencias in dev-obsidian.
+LOYALTY_TIER_THRESHOLDS: tuple[tuple[str, int], ...] = (
+    ("Platina", 60),
+    ("Diamante", 30),
+    ("Ouro", 15),
+    ("Prata", 5),
+    ("Bronze", 1),
+)
+
+
+def compute_loyalty_tier(orders_count: int) -> str:
+    """Return the loyalty tier label for one customer's completed-order count."""
+
+    count = max(0, int(orders_count or 0))
+    for label, minimum in LOYALTY_TIER_THRESHOLDS:
+        if count >= minimum:
+            return label
+    return "Novo"
 
 
 # ============================================================================
@@ -45,6 +72,7 @@ class CustomerPromotionProfile:
     children_count: int | None
     is_new: bool
     is_recurring: bool
+    loyalty_tier: str
 
 
 def compute_age(birth_date: str, *, today: date | None = None) -> int | None:
@@ -68,7 +96,11 @@ def resolve_customer_promotion_profile(
     primary_address: CustomerAddress | None,
     device_type: str,
 ) -> CustomerPromotionProfile:
-    """Build the promotion profile used to evaluate audience targeting for one customer."""
+    """Build the promotion profile used to evaluate audience targeting for one customer.
+
+    ``regions`` accepts state, city, district (bairro), or a 5-digit CEP prefix — every axis
+    an admin can target under the same free-text "regions" list, matched case-insensitively.
+    """
 
     regions: list[str] = []
     if primary_address is not None:
@@ -76,6 +108,11 @@ def resolve_customer_promotion_profile(
             regions.append(primary_address.state_code.strip().upper())
         if primary_address.city:
             regions.append(primary_address.city.strip().lower())
+        if primary_address.district:
+            regions.append(primary_address.district.strip().lower())
+        postal_digits = "".join(char for char in str(primary_address.postal_code or "") if char.isdigit())
+        if len(postal_digits) >= 5:
+            regions.append(postal_digits[:5])
     elif customer.city_label:
         regions.append(customer.city_label.strip().lower())
     return CustomerPromotionProfile(
@@ -86,6 +123,7 @@ def resolve_customer_promotion_profile(
         children_count=customer.children_count,
         is_new=int(customer.orders_count or 0) <= 0,
         is_recurring=bool(customer.is_recurring),
+        loyalty_tier=str(customer.loyalty_tier or "").strip().lower(),
     )
 
 
@@ -142,7 +180,25 @@ def _matches_scope(promotion: PricingPromotion, *, category: str, product_name: 
     if promotion.scope_type == "products":
         allowed = {value.strip().lower() for value in promotion.target_products}
         return product_name.strip().lower() in allowed
+    if promotion.scope_type == "services":
+        # A services-scoped promotion never discounts a catalog product — see
+        # find_best_service_promotion for the mirrored, service-only matching path.
+        return False
     return True
+
+
+def _matches_service_scope(promotion: PricingPromotion, *, service_name: str) -> bool:
+    """Return whether one health service falls within the promotion's scope.
+
+    Deliberately narrower than _matches_scope: only scope_type="services" ever
+    matches here — a generic scope_type="all"/"categories"/"products" campaign is a
+    catalog-product campaign and must never silently also discount a service booking.
+    """
+
+    if promotion.scope_type != "services":
+        return False
+    allowed = {value.strip().lower() for value in promotion.target_services}
+    return service_name.strip().lower() in allowed
 
 
 def _matches_audience_criteria(
@@ -156,6 +212,7 @@ def _matches_audience_criteria(
     min_children: int | None,
     max_children: int | None,
     customer_segment: str,
+    loyalty_tiers: list[str] | None = None,
 ) -> bool:
     """Return whether one customer profile satisfies a set of audience filters."""
 
@@ -183,6 +240,10 @@ def _matches_audience_criteria(
         return False
     if customer_segment == "recurring" and not profile.is_recurring:
         return False
+    if loyalty_tiers:
+        allowed = {value.strip().lower() for value in loyalty_tiers}
+        if profile.loyalty_tier not in allowed:
+            return False
     return True
 
 
@@ -199,6 +260,27 @@ def _matches_audience(promotion: PricingPromotion, *, profile: CustomerPromotion
         min_children=promotion.min_children,
         max_children=promotion.max_children,
         customer_segment=promotion.customer_segment,
+        loyalty_tiers=promotion.target_loyalty_tiers,
+    )
+
+
+def promotion_has_audience_restrictions(promotion: PricingPromotion) -> bool:
+    """Return whether a promotion restricts on any audience axis (age, region, device, etc.).
+
+    A promotion with no audience restriction is the only kind safe to show to an anonymous,
+    logged-out visitor — there is no customer profile to evaluate a restriction against.
+    """
+
+    return bool(
+        promotion.min_age is not None
+        or promotion.max_age is not None
+        or promotion.regions
+        or promotion.device_types
+        or promotion.marital_statuses
+        or promotion.min_children is not None
+        or promotion.max_children is not None
+        or (promotion.customer_segment and promotion.customer_segment != "all")
+        or promotion.target_loyalty_tiers
     )
 
 
@@ -250,6 +332,53 @@ def find_best_promotion(
     )
 
 
+def find_best_service_promotion(
+    promotions: list[PricingPromotion],
+    *,
+    service_name: str,
+    profile: CustomerPromotionProfile,
+    now: datetime,
+) -> PricingPromotion | None:
+    """Return the best-matching active promotion for one health service and customer, if any."""
+
+    candidates = [
+        promotion
+        for promotion in promotions
+        if promotion.is_active
+        and _matches_schedule(promotion, now=now)
+        and _matches_service_scope(promotion, service_name=service_name)
+        and _matches_audience(promotion, profile=profile)
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda promotion: (promotion.priority, compute_discount_percent(promotion, base_price=Decimal("100"))),
+    )
+
+
+def apply_promotion_to_health_service(
+    *,
+    base_price: Decimal,
+    service_name: str,
+    promotions: list[PricingPromotion],
+    profile: CustomerPromotionProfile,
+    now: datetime,
+) -> tuple[Decimal, PricingPromotion | None]:
+    """Return the best-effort discounted price for one health-service booking, and the promotion applied (if any).
+
+    Mirrors apply_promotion_to_catalog_item's shared-computation guarantee: this is the
+    same function called for a live price preview and for the booking that actually
+    charges the customer, so the two can never drift.
+    """
+
+    promotion = find_best_service_promotion(promotions, service_name=service_name, profile=profile, now=now)
+    if promotion is None:
+        return quantize_money(base_price), None
+    percent = compute_discount_percent(promotion, base_price=base_price)
+    return compute_effective_price(base_price, percent), promotion
+
+
 # ============================================================================
 # AUDIENCE SIZE ESTIMATION
 # ============================================================================
@@ -267,6 +396,7 @@ async def estimate_audience_size(
     min_children: int | None,
     max_children: int | None,
     customer_segment: str,
+    loyalty_tiers: list[str] | None = None,
 ) -> int:
     """Return how many active customers of one tenant match the given audience filters."""
 
@@ -312,6 +442,51 @@ async def estimate_audience_size(
             min_children=min_children,
             max_children=max_children,
             customer_segment=customer_segment,
+            loyalty_tiers=loyalty_tiers,
         ):
             matches += 1
     return matches
+
+
+# ============================================================================
+# SHARED PRICE APPLICATION (catalog listing + checkout — same computation, same result)
+# ============================================================================
+
+
+def apply_promotion_to_catalog_item(
+    item: dict[str, object],
+    *,
+    promotions: list[PricingPromotion],
+    profile: CustomerPromotionProfile,
+    now: datetime,
+) -> None:
+    """Override one grouped catalog item's price in place with its best-matching promotion.
+
+    Shared by catalog listing (``catalog_service``) and marketplace checkout
+    (``order_service``) so the discounted price a customer sees is exactly the price they are
+    charged — a promotion is never applied only for display. Never lowers below a discount
+    already baked into the item (e.g. a manually configured ``promotional_discount_percent``);
+    the strongest discount always wins, so a promotion can only improve the customer's price.
+    """
+
+    old_price_raw = item.get("old_price")
+    base_price = quantize_money(Decimal(str(old_price_raw)) if old_price_raw is not None else Decimal(str(item["price"])))
+    promotion = find_best_promotion(promotions, category=str(item["cat"]), product_name=str(item["name"]), profile=profile, now=now)
+    if promotion is None:
+        return
+    promo_percent = compute_discount_percent(promotion, base_price=base_price)
+    current_discount_percent = int(str(item["discount_percent"]))
+    if promo_percent <= current_discount_percent:
+        return
+    item["price"] = compute_effective_price(base_price, promo_percent)
+    item["old_price"] = base_price
+    item["discount_percent"] = int(promo_percent)
+    tags = item["tags"]
+    if isinstance(tags, list) and "oferta" not in tags:
+        item["tags"] = [*tags, "oferta"]
+    item["promotion_highlight"] = "superpromo" if promotion.highlight_style == "superpromo" else ""
+    # Lets the marketplace card show "economize R$X" instead of a percent when the admin
+    # configured the promotion as a flat R$ discount — a small percent can undersell a real
+    # fixed discount, and vice versa, so the display should follow how the promo was set up.
+    item["discount_type"] = promotion.discount_type
+    item["urgency_label"] = promotion.urgency_label

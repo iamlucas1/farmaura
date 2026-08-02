@@ -74,6 +74,13 @@ function QtyStepper({ value, onChange, min = 1, max = 99 }) {
 // ---- Product card. variant: 'standard' | 'image' | 'list' ----
 function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onFav, notified, onNotify }) {
   const discount = p.discount > 0;
+  const isSuperpromo = discount && p.promotionHighlight === 'superpromo';
+  const isFixedDiscount = p.discountType === 'fixed';
+  const discountAmount = discount && p.old != null ? Math.max(0, Number(p.old) - Number(p.price)) : 0;
+  // Um desconto fixo em R$ vende melhor mostrado em reais ("R$10 OFF") do que convertido pra um
+  // percentual pequeno e pouco chamativo — segue o que o admin configurou na promoção.
+  const shortDiscountLabel = isFixedDiscount && discountAmount > 0 ? brl(discountAmount) + ' OFF' : '-' + p.discount + '%';
+  const savingsLabel = discountAmount > 0 ? 'Economize ' + brl(discountAmount) : '';
   const outOfStock = Number(p.stock || 0) <= 0;
   const notifyBtn = (
     <button
@@ -86,7 +93,9 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
   );
   const flags = (
     <div className="fa-pc-flags">
-      {discount && <span className="fa-badge fa-badge-vital">-{p.discount}%</span>}
+      {isSuperpromo
+        ? <span className="fa-pc-superbadge"><Icon name="bolt" size={14} stroke={2.6} />{shortDiscountLabel}</span>
+        : discount && <span className="fa-badge fa-badge-vital fa-pc-discount-badge">{shortDiscountLabel}</span>}
       {p.tags.includes('mais-vendido') && variant !== 'list' && <span className="fa-badge fa-badge-rose"><Icon name="bolt" size={11} stroke={2.2} />Top</span>}
       {p.rx && <span className="fa-badge fa-badge-rx"><Icon name="rx" size={11} stroke={2.2} />Receita</span>}
       {outOfStock && <span className="fa-badge fa-badge-mist"><Icon name="minus" size={11} stroke={2.2} />Sem estoque</span>}
@@ -98,10 +107,16 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
       <Icon name="heart" size={17} style={fav ? { fill: 'currentColor' } : undefined} />
     </button>
   );
+  const savingsChip = savingsLabel && (
+    <span className={isSuperpromo ? 'fa-pc-savings' : 'fa-pc-savings fa-pc-savings-mini'} data-super={isSuperpromo ? '1' : '0'}>{savingsLabel}</span>
+  );
+  const urgencyLine = p.urgencyLabel && (
+    <div className="fa-pc-urgency"><Icon name="alert" size={12} stroke={2.6} />{p.urgencyLabel}</div>
+  );
 
   if (variant === 'list') {
     return (
-      <div className="fa-pc" data-style="list" data-out={outOfStock ? '1' : '0'} onClick={() => onOpen(p)}>
+      <div className="fa-pc" data-style="list" data-out={outOfStock ? '1' : '0'} data-superpromo={isSuperpromo ? '1' : '0'} onClick={() => onOpen(p)}>
         <ProductVisual product={p} label={p.sub} />
         <div className="fa-pc-body">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{flags}</div>
@@ -111,8 +126,10 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
           <div className="fa-pc-price-row">
             <span className="fa-price">{brl(p.price)}</span>
             {p.old && <span className="fa-price-old">{brl(p.old)}</span>}
+            {savingsChip}
             {p.tags.includes('assinatura') && <span className="fa-badge fa-badge-health"><Icon name="repeat" size={11} stroke={2.1} />Assinar</span>}
           </div>
+          {urgencyLine}
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end' }}>
           {outOfStock ? notifyBtn : (
@@ -134,6 +151,8 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
         <span className="fa-price">{brl(p.price)}</span>
         {p.old && <span className="fa-price-old">{brl(p.old)}</span>}
       </div>
+      {savingsChip}
+      {urgencyLine}
       <div className="fa-pc-foot">
         {outOfStock ? notifyBtn : (
           <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={(e) => { e.stopPropagation(); onAdd(p); }}>
@@ -146,7 +165,7 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
 
   if (variant === 'image') {
     return (
-      <div className="fa-pc" data-style="image" data-out={outOfStock ? '1' : '0'} onClick={() => onOpen(p)}>
+      <div className="fa-pc" data-style="image" data-out={outOfStock ? '1' : '0'} data-superpromo={isSuperpromo ? '1' : '0'} onClick={() => onOpen(p)}>
         {flags}{favBtn}
         <ProductVisual product={p} label={p.sub} style={{ aspectRatio: '4/3' }} />
         <div className="fa-pc-body">{body}</div>
@@ -156,7 +175,7 @@ function ProductCard({ product: p, variant = 'standard', onOpen, onAdd, fav, onF
 
   // standard
   return (
-    <div className="fa-pc" data-out={outOfStock ? '1' : '0'} onClick={() => onOpen(p)}>
+    <div className="fa-pc" data-out={outOfStock ? '1' : '0'} data-superpromo={isSuperpromo ? '1' : '0'} onClick={() => onOpen(p)}>
       {flags}{favBtn}
       <ProductVisual product={p} label={p.sub} />
       {body}

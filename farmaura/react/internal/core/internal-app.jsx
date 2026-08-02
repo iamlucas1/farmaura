@@ -8,6 +8,10 @@ import { FontTweaks } from "./internal-tweaks.jsx";
 import { AcquisitionCostsScreen } from "../screens/acquisition-costs-screen.jsx";
 import { AnalyticsScreen } from "../screens/analytics-screen.jsx";
 import { BrandsScreen } from "../screens/brands-screen.jsx";
+import { HealthServicesScreen } from "../screens/health-services-screen.jsx";
+import { HomeBannerScreen } from "../screens/home-banner-screen.jsx";
+import { LaunchModeScreen } from "../screens/launch-mode-screen.jsx";
+import { HomeBrandsScreen } from "../screens/home-brands-screen.jsx";
 import { CategoriesScreen } from "../screens/categories-screen.jsx";
 import { CrmScreen } from "../screens/crm-screen.jsx";
 import { Dashboard } from "../screens/dashboard-screen.jsx";
@@ -152,6 +156,7 @@ function PharmApp() {
     usageCount: Number(item.usage_count || 0),
     perCustomerLimit: Number(item.per_customer_limit || 1),
     audience: item.audience || 'all',
+    channelScope: item.channel_scope || 'all',
     scopeType: item.scope_type || 'all',
     targetCategories: Array.isArray(item.target_categories) ? item.target_categories : [],
     targetProducts: Array.isArray(item.target_products) ? item.target_products : [],
@@ -176,6 +181,7 @@ function PharmApp() {
     usage_limit: payload.usageLimit === '' || payload.usageLimit == null ? null : Number(payload.usageLimit || 0),
     per_customer_limit: payload.perCustomerLimit === '' || payload.perCustomerLimit == null ? 1 : Number(payload.perCustomerLimit || 1),
     audience: payload.audience || 'all',
+    channel_scope: payload.channelScope || 'all',
     scope_type: payload.scopeType || 'all',
     target_categories: Array.isArray(payload.targetCategories) ? payload.targetCategories : [],
     target_products: Array.isArray(payload.targetProducts) ? payload.targetProducts : [],
@@ -189,6 +195,7 @@ function PharmApp() {
     name: item.name || '',
     description: item.description || '',
     active: !!item.active,
+    kind: item.kind === 'product_discount' ? 'product_discount' : 'campaign',
     discountType: item.discount_type || 'percent',
     discountValue: Number(item.discount_value || 0),
     maxDiscountValue: item.max_discount_value == null ? null : Number(item.max_discount_value),
@@ -208,6 +215,10 @@ function PharmApp() {
     minChildren: item.min_children == null ? null : Number(item.min_children),
     maxChildren: item.max_children == null ? null : Number(item.max_children),
     customerSegment: item.customer_segment || 'all',
+    targetLoyaltyTiers: Array.isArray(item.target_loyalty_tiers) ? item.target_loyalty_tiers : [],
+    guestVisible: !!item.guest_visible,
+    highlightStyle: item.highlight_style || 'standard',
+    urgencyLabel: item.urgency_label || '',
     priority: Number(item.priority || 0),
     notes: item.notes || '',
     createdAt: item.created_at || '',
@@ -217,6 +228,7 @@ function PharmApp() {
     name: String(payload.name || '').trim(),
     description: String(payload.description || '').trim(),
     active: payload.active !== false,
+    kind: payload.kind === 'product_discount' ? 'product_discount' : 'campaign',
     discount_type: payload.discountType === 'fixed' ? 'fixed' : 'percent',
     discount_value: Number(payload.discountValue || 0),
     max_discount_value: payload.maxDiscountValue === '' || payload.maxDiscountValue == null ? null : Number(payload.maxDiscountValue || 0),
@@ -236,6 +248,10 @@ function PharmApp() {
     min_children: payload.minChildren === '' || payload.minChildren == null ? null : Number(payload.minChildren),
     max_children: payload.maxChildren === '' || payload.maxChildren == null ? null : Number(payload.maxChildren),
     customer_segment: payload.customerSegment || 'all',
+    target_loyalty_tiers: Array.isArray(payload.targetLoyaltyTiers) ? payload.targetLoyaltyTiers : [],
+    guest_visible: !!payload.guestVisible,
+    highlight_style: payload.highlightStyle === 'superpromo' ? 'superpromo' : 'standard',
+    urgency_label: String(payload.urgencyLabel || '').trim(),
     priority: payload.priority === '' || payload.priority == null ? 0 : Number(payload.priority),
     notes: String(payload.notes || '').trim(),
   });
@@ -400,7 +416,6 @@ function PharmApp() {
       price: Number(item.sale_price ?? item.price ?? 0),
       cost: Number(item.acquisition_cost ?? item.cost ?? 0),
       ref: Number(item.market_reference_price ?? item.ref ?? 0),
-      promo: Number(item.promotional_discount_percent ?? item.promo ?? 0),
       controlled: !!(item.is_controlled ?? item.controlled),
       controlledCategory: item.controlled_category || item.controlledCategory || "none",
       isGeneric: !!(item.is_generic ?? item.isGeneric),
@@ -779,6 +794,53 @@ function PharmApp() {
         deliveryTimeDays: item.best_offer.delivery_time_days == null ? null : Number(item.best_offer.delivery_time_days),
         quoteDate: item.best_offer.quote_date || '',
       } : null,
+    })) : [],
+  });
+  const _couponAnalyticsFromResponse = (payload) => ({
+    summary: {
+      totalCoupons: Number(payload.summary && payload.summary.total_coupons || 0),
+      activeCount: Number(payload.summary && payload.summary.active_count || 0),
+      scheduledCount: Number(payload.summary && payload.summary.scheduled_count || 0),
+      expiringCount: Number(payload.summary && payload.summary.expiring_count || 0),
+      expiredCount: Number(payload.summary && payload.summary.expired_count || 0),
+      exhaustedCount: Number(payload.summary && payload.summary.exhausted_count || 0),
+      inactiveCount: Number(payload.summary && payload.summary.inactive_count || 0),
+      nearLimitCount: Number(payload.summary && payload.summary.near_limit_count || 0),
+      totalRedemptions: Number(payload.summary && payload.summary.total_redemptions || 0),
+      totalDiscountGranted: Number(payload.summary && payload.summary.total_discount_granted || 0),
+    },
+    items: Array.isArray(payload.items) ? payload.items.map((item) => ({
+      couponId: item.coupon_id,
+      code: item.code || '',
+      title: item.title || '',
+      status: item.status || '',
+      usageCount: Number(item.usage_count || 0),
+      usageLimit: item.usage_limit == null ? null : Number(item.usage_limit),
+      usageProgressPercent: item.usage_progress_percent == null ? null : Number(item.usage_progress_percent),
+      daysUntilExpiry: item.days_until_expiry == null ? null : Number(item.days_until_expiry),
+      totalRedemptions: Number(item.total_redemptions || 0),
+      totalDiscountGranted: Number(item.total_discount_granted || 0),
+      paymentBreakdown: Array.isArray(item.payment_breakdown) ? item.payment_breakdown.map((entry) => ({
+        label: entry.label || '',
+        count: Number(entry.count || 0),
+        amount: Number(entry.amount || 0),
+      })) : [],
+      channelBreakdown: {
+        onlineCount: Number(item.channel_breakdown && item.channel_breakdown.online_count || 0),
+        pdvCount: Number(item.channel_breakdown && item.channel_breakdown.pdv_count || 0),
+        onlineAmount: Number(item.channel_breakdown && item.channel_breakdown.online_amount || 0),
+        pdvAmount: Number(item.channel_breakdown && item.channel_breakdown.pdv_amount || 0),
+      },
+      fulfillmentBreakdown: {
+        pickupCount: Number(item.fulfillment_breakdown && item.fulfillment_breakdown.pickup_count || 0),
+        deliveryCount: Number(item.fulfillment_breakdown && item.fulfillment_breakdown.delivery_count || 0),
+        shippingCount: Number(item.fulfillment_breakdown && item.fulfillment_breakdown.shipping_count || 0),
+      },
+      segmentBreakdown: Array.isArray(item.segment_breakdown) ? item.segment_breakdown.map((entry) => ({
+        segment: entry.segment || '',
+        count: Number(entry.count || 0),
+      })) : [],
+      topCustomerSegment: item.top_customer_segment || null,
     })) : [],
   });
   const _purchaseQuotePaymentTermToPayload = (term) => ({
@@ -1161,6 +1223,148 @@ function PharmApp() {
       setMarketplaceMetaBusy(false);
     }
   };
+  // Banner da vitrine: configurável (sem banner, imagens em carrossel, ou HTML próprio)
+  const [homeBanner, setHomeBannerState] = useState(() => ({ mode: 'off', slides: [], targetWidth: 1600, targetHeight: 480, ...readInternalCache(null, 'home_banner', {}) }));
+  useEffect(() => { writeInternalCache(user, 'home_banner', homeBanner); }, [user && user.id, homeBanner]);
+  const [homeBannerBusy, setHomeBannerBusy] = useState(false);
+  const setHomeBanner = (patch) => setHomeBannerState((b) => ({ ...b, ...patch }));
+  // `patch` lets a caller save a value that hasn't landed in `homeBanner` state yet (e.g. "set mode
+  // to off AND persist it" in one shot) without racing React's async setState — reading `homeBanner`
+  // from the closure right after a same-tick setHomeBanner() would still see the old value.
+  const saveHomeBanner = async (patch, options) => {
+    const silent = !!(options && options.silent);
+    const next = { ...homeBanner, ...(patch || {}) };
+    if (isFilePreview || !user) {
+      setHomeBannerState(next);
+      if (!silent) showToast('Banner da vitrine salvo', 'success');
+      return;
+    }
+    setHomeBannerBusy(true);
+    try {
+      const response = await authClient.request('/portal/internal/home-banner', {
+        method: 'PUT',
+        body: JSON.stringify({
+          mode: next.mode || 'off',
+          slides: (next.slides || []).map((s) => ({
+            id: s.id || '',
+            kind: s.kind === 'html' ? 'html' : 'image',
+            image: s.image || '',
+            original_image: s.originalImage || '',
+            html: s.html || '',
+            alt_text: s.altText || '',
+            link_type: s.linkType || 'none',
+            link_category: s.linkCategory || '',
+            link_url: s.linkUrl || '',
+          })),
+          target_width: Number(next.targetWidth || 1600),
+          target_height: Number(next.targetHeight || 480),
+        }),
+      });
+      setHomeBannerState({
+        mode: response.mode || 'off',
+        slides: (response.slides || []).map((s) => ({
+          id: s.id || '',
+          kind: s.kind === 'html' ? 'html' : 'image',
+          image: s.image || '',
+          originalImage: s.original_image || '',
+          html: s.html || '',
+          altText: s.alt_text || '',
+          linkType: s.link_type || 'none',
+          linkCategory: s.link_category || '',
+          linkUrl: s.link_url || '',
+        })),
+        targetWidth: Number(response.target_width || 1600),
+        targetHeight: Number(response.target_height || 480),
+      });
+      if (!silent) showToast('Banner da vitrine salvo', 'success');
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível salvar o banner.', 'warn');
+    } finally {
+      setHomeBannerBusy(false);
+    }
+  };
+  // Marcas em destaque: circulos clicáveis logo abaixo dos diferenciais, cada um levando à vitrine
+  // filtrada por marca (mesmo contrato "off preserva os itens" do banner da vitrine).
+  const [homeBrands, setHomeBrandsState] = useState(() => ({ mode: 'off', circles: [], ...readInternalCache(null, 'home_brands', {}) }));
+  useEffect(() => { writeInternalCache(user, 'home_brands', homeBrands); }, [user && user.id, homeBrands]);
+  const [homeBrandsBusy, setHomeBrandsBusy] = useState(false);
+  const setHomeBrands = (patch) => setHomeBrandsState((b) => ({ ...b, ...patch }));
+  const saveHomeBrands = async (patch, options) => {
+    const silent = !!(options && options.silent);
+    const next = { ...homeBrands, ...(patch || {}) };
+    if (isFilePreview || !user) {
+      setHomeBrandsState(next);
+      if (!silent) showToast('Marcas em destaque salvas', 'success');
+      return;
+    }
+    setHomeBrandsBusy(true);
+    try {
+      const response = await authClient.request('/portal/internal/home-brands', {
+        method: 'PUT',
+        body: JSON.stringify({
+          mode: next.mode || 'off',
+          circles: (next.circles || []).map((c) => ({
+            id: c.id || '',
+            image: c.image || '',
+            alt_text: c.altText || '',
+            brand_name: c.brandName || '',
+          })),
+        }),
+      });
+      setHomeBrandsState({
+        mode: response.mode || 'off',
+        circles: (response.circles || []).map((c) => ({
+          id: c.id || '',
+          image: c.image || '',
+          altText: c.alt_text || '',
+          brandName: c.brand_name || '',
+        })),
+      });
+      if (!silent) showToast('Marcas em destaque salvas', 'success');
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível salvar as marcas em destaque.', 'warn');
+    } finally {
+      setHomeBrandsBusy(false);
+    }
+  };
+  // Modo de lançamento: página de "em breve"/contador que substitui a vitrine inteira do
+  // marketplace, para todo visitante, até a data configurada — sem bypass para logado/equipe.
+  const [launchMode, setLaunchModeState] = useState(() => ({ enabled: false, launchAt: '', headline: '', subtext: '', ...readInternalCache(null, 'launch_mode', {}) }));
+  useEffect(() => { writeInternalCache(user, 'launch_mode', launchMode); }, [user && user.id, launchMode]);
+  const [launchModeBusy, setLaunchModeBusy] = useState(false);
+  const setLaunchMode = (patch) => setLaunchModeState((s) => ({ ...s, ...patch }));
+  const saveLaunchMode = async (patch, options) => {
+    const silent = !!(options && options.silent);
+    const next = { ...launchMode, ...(patch || {}) };
+    if (isFilePreview || !user) {
+      setLaunchModeState(next);
+      if (!silent) showToast('Modo de lançamento salvo', 'success');
+      return;
+    }
+    setLaunchModeBusy(true);
+    try {
+      const response = await authClient.request('/portal/internal/launch-mode', {
+        method: 'PUT',
+        body: JSON.stringify({
+          enabled: !!next.enabled,
+          launch_at: next.launchAt || new Date().toISOString(),
+          headline: next.headline || '',
+          subtext: next.subtext || '',
+        }),
+      });
+      setLaunchModeState({
+        enabled: !!response.enabled,
+        launchAt: response.launch_at || '',
+        headline: response.headline || '',
+        subtext: response.subtext || '',
+      });
+      if (!silent) showToast('Modo de lançamento salvo', 'success');
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível salvar o modo de lançamento.', 'warn');
+    } finally {
+      setLaunchModeBusy(false);
+    }
+  };
   // Desconto no PDV: margem média mínima que o carrinho deve manter para liberar um desconto
   const [pdvDiscountSettings, setPdvDiscountSettingsState] = useState({ minMarginPercent: 20 });
   const [pdvDiscountSettingsBusy, setPdvDiscountSettingsBusy] = useState(false);
@@ -1314,7 +1518,7 @@ function PharmApp() {
   const [coupons, setCoupons] = useState([]);
   const [couponModalState, setCouponModalState] = useState({ open: false, mode: 'create', couponId: null });
   const [promotions, setPromotions] = useState([]);
-  const [promotionModalState, setPromotionModalState] = useState({ open: false, mode: 'create', promotionId: null });
+  const [promotionModalState, setPromotionModalState] = useState({ open: false, mode: 'create', promotionId: null, initialDraft: null });
   const [drawerOrder, setDrawerOrder] = useState(null);
   const [toast, setToast] = useState(null);
   const [collapsed, setCollapsed] = useState(() => !!readInternalCache(null, 'collapsed', false));
@@ -1905,6 +2109,65 @@ function PharmApp() {
     return _brandFromResponse(response);
   };
 
+  // ---------- Serviços de saúde (procedimentos oferecidos pela farmácia) ----------
+  const [healthServicesAdmin, setHealthServicesAdmin] = useState([]);
+  const _healthServiceFromResponse = (item) => ({
+    id: item.id,
+    code: item.code || '',
+    name: item.name || '',
+    group: item.group || '',
+    icon: item.icon || 'activity',
+    description: item.description || '',
+    durationLabel: item.duration_label || '',
+    durationMinutes: Number(item.duration_minutes || 0),
+    price: Number(item.price_amount || 0),
+    active: !!item.is_active,
+  });
+  const refreshHealthServicesAdmin = async () => {
+    try {
+      const response = await authClient.request('/portal/internal/health-services');
+      setHealthServicesAdmin(Array.isArray(response.items) ? response.items.map(_healthServiceFromResponse) : []);
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível carregar os serviços de saúde.', 'warn');
+    }
+  };
+  useEffect(() => {
+    if (!user || !window.FA_ACCESS.canAccessInternalRoute(user, 'health-services')) {
+      return;
+    }
+    refreshHealthServicesAdmin();
+  }, [user]);
+  const addHealthService = async (payload) => {
+    const response = await authClient.request('/portal/internal/health-services', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: payload.name, group: payload.group || '', icon: payload.icon || 'activity',
+        description: payload.description || '', duration_label: payload.durationLabel || '',
+        duration_minutes: Number(payload.durationMinutes || 0), price_amount: String(payload.price ?? '0'),
+      }),
+    });
+    await refreshHealthServicesAdmin();
+    return _healthServiceFromResponse(response);
+  };
+  const updateHealthService = async (serviceId, payload) => {
+    const response = await authClient.request('/portal/internal/health-services/' + serviceId, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: payload.name, group: payload.group || '', icon: payload.icon || 'activity',
+        description: payload.description || '', duration_label: payload.durationLabel || '',
+        duration_minutes: Number(payload.durationMinutes || 0), price_amount: String(payload.price ?? '0'),
+        is_active: payload.active !== undefined ? !!payload.active : true,
+      }),
+    });
+    await refreshHealthServicesAdmin();
+    return _healthServiceFromResponse(response);
+  };
+  const setHealthServiceActive = async (serviceId, isActive) => {
+    const current = healthServicesAdmin.find((service) => service.id === serviceId);
+    if (!current) return;
+    return updateHealthService(serviceId, { ...current, active: isActive });
+  };
+
   // ---------- Categorias de produto ----------
   const _categoryFromResponse = (item) => ({
     id: item.id,
@@ -2322,7 +2585,7 @@ function PharmApp() {
     }
   };
   // Farmacêutico envia o pedido montado para a fila do caixa.
-  const pdvSendToCashier = async ({ customer, items, discount, delivery, draftId }) => {
+  const pdvSendToCashier = async ({ customer, items, discount, couponCode, delivery, draftId }) => {
     if (!isFilePreview && user) {
       try {
         const response = await authClient.request('/pdv/orders', {
@@ -2331,6 +2594,7 @@ function PharmApp() {
             customer: _customerToBackend(customer),
             items: (items || []).map((entry) => ({ id: entry.id, qty: Number(entry.qty || 0), location_id: entry.locationId || '' })),
             discount: Number(discount || 0),
+            coupon_code: couponCode || '',
             notes: '',
             delivery: _deliveryToBackend(delivery),
             draft_id: draftId || null,
@@ -2597,6 +2861,40 @@ function PharmApp() {
           maxInstallments: Number(bootstrap.marketplace && (bootstrap.marketplace.max_installments ?? bootstrap.marketplace.maxInstallments) || 1),
           interestFreeInstallments: Number(bootstrap.marketplace && (bootstrap.marketplace.interest_free_installments ?? bootstrap.marketplace.interestFreeInstallments) || 1),
           installmentInterestPercent: Number(bootstrap.marketplace && (bootstrap.marketplace.installment_interest_percent ?? bootstrap.marketplace.installmentInterestPercent) || 0),
+        });
+        const homeBannerPayload = bootstrap.home_banner || bootstrap.homeBanner || null;
+        setHomeBannerState({
+          mode: (homeBannerPayload && homeBannerPayload.mode) || 'off',
+          slides: ((homeBannerPayload && homeBannerPayload.slides) || []).map((s) => ({
+            id: s.id || '',
+            kind: s.kind === 'html' ? 'html' : 'image',
+            image: s.image || '',
+            originalImage: s.original_image ?? s.originalImage ?? '',
+            html: s.html || '',
+            altText: s.alt_text ?? s.altText ?? '',
+            linkType: s.link_type ?? s.linkType ?? 'none',
+            linkCategory: s.link_category ?? s.linkCategory ?? '',
+            linkUrl: s.link_url ?? s.linkUrl ?? '',
+          })),
+          targetWidth: Number((homeBannerPayload && (homeBannerPayload.target_width ?? homeBannerPayload.targetWidth)) || 1600),
+          targetHeight: Number((homeBannerPayload && (homeBannerPayload.target_height ?? homeBannerPayload.targetHeight)) || 480),
+        });
+        const homeBrandsPayload = bootstrap.home_brands || bootstrap.homeBrands || null;
+        setHomeBrandsState({
+          mode: (homeBrandsPayload && homeBrandsPayload.mode) || 'off',
+          circles: ((homeBrandsPayload && homeBrandsPayload.circles) || []).map((c) => ({
+            id: c.id || '',
+            image: c.image || '',
+            altText: c.alt_text ?? c.altText ?? '',
+            brandName: c.brand_name ?? c.brandName ?? '',
+          })),
+        });
+        const launchModePayload = bootstrap.launch_mode || bootstrap.launchMode || null;
+        setLaunchModeState({
+          enabled: !!(launchModePayload && launchModePayload.enabled),
+          launchAt: (launchModePayload && launchModePayload.launch_at) || '',
+          headline: (launchModePayload && launchModePayload.headline) || '',
+          subtext: (launchModePayload && launchModePayload.subtext) || '',
         });
         const pdvDiscountSettingsPayload = bootstrap.pdv_discount_settings || bootstrap.pdvDiscountSettings || null;
         setPdvDiscountSettings({
@@ -2970,9 +3268,9 @@ function PharmApp() {
     }
   };
 
-  const openPromotionCreate = () => setPromotionModalState({ open: true, mode: 'create', promotionId: null });
+  const openPromotionCreate = (initialDraft) => setPromotionModalState({ open: true, mode: 'create', promotionId: null, initialDraft: initialDraft || null });
   const openPromotionEdit = (promotionId) => setPromotionModalState({ open: true, mode: 'edit', promotionId });
-  const closePromotionModal = () => setPromotionModalState({ open: false, mode: 'create', promotionId: null });
+  const closePromotionModal = () => setPromotionModalState({ open: false, mode: 'create', promotionId: null, initialDraft: null });
   const createPromotion = async (payload) => {
     try {
       const response = await authClient.request('/portal/internal/promotions', {
@@ -3048,6 +3346,7 @@ function PharmApp() {
         min_children: criteria.minChildren,
         max_children: criteria.maxChildren,
         customer_segment: criteria.customerSegment,
+        target_loyalty_tiers: criteria.targetLoyaltyTiers,
       }),
     });
     return {
@@ -3262,7 +3561,6 @@ function PharmApp() {
         sale_price: Number(item.price || 0),
         acquisition_cost: Number(item.cost || 0),
         market_reference_price: Number(item.ref || 0),
-        promotional_discount_percent: Number(item.promo || 0),
         note: item.note || '',
       }),
     });
@@ -3288,7 +3586,6 @@ function PharmApp() {
           sale_price: Number(item.price || 0),
           acquisition_cost: Number(item.cost || 0),
           market_reference_price: Number(item.ref || 0),
-          promotional_discount_percent: Number(item.promo || 0),
           is_active: item.active == null ? true : !!item.active,
           is_marketplace_visible: item.marketplaceVisible == null ? (current ? !!current.marketplaceVisible : true) : !!item.marketplaceVisible,
           note: item.note || '',
@@ -3624,6 +3921,10 @@ function PharmApp() {
     const payload = await authClient.request('/purchase-analytics?' + params.toString(), { method: 'GET' });
     return _purchaseAnalyticsFromResponse(payload);
   };
+  const fetchCouponAnalytics = async () => {
+    const payload = await authClient.request('/coupon-analytics', { method: 'GET' });
+    return _couponAnalyticsFromResponse(payload);
+  };
 
   const confirmInventoryInvoice = async (payload) => {
     const response = await authClient.request('/inventory/invoice-confirm', {
@@ -3700,7 +4001,6 @@ function PharmApp() {
           sale_price: Number(nextItem.price || 0),
           acquisition_cost: Number(nextItem.cost || 0),
           market_reference_price: Number(nextItem.ref || 0),
-          promotional_discount_percent: Number(nextItem.promo || 0),
           is_active: nextItem.active == null ? true : !!nextItem.active,
           is_marketplace_visible: !!nextItem.marketplaceVisible,
           note: nextItem.note || '',
@@ -3905,15 +4205,21 @@ function PharmApp() {
     fetchPurchaseQuotes, fetchPurchaseQuote, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,
     downloadPurchaseQuoteFile, previewPurchaseQuoteImportOne, previewPurchaseQuoteImportBatch, confirmPurchaseQuoteImportBatch, fetchPurchaseQuoteCompare,
     fetchPurchaseAnalytics,
+    fetchCouponAnalytics,
     previewPurchaseQuoteReceiving, pendingPurchaseQuoteId, setPendingPurchaseQuoteId,
     products, refreshProducts, addProduct, updateProduct, setProductActive, setProductDiscarded, fetchProductStoreLinks, linkProductToStore,
     brands, refreshBrands, addBrand, updateBrand, setBrandActive, setBrandDiscarded,
+    healthServicesAdmin, refreshHealthServicesAdmin, addHealthService, updateHealthService, setHealthServiceActive,
     categories, refreshCategories, addCategory, updateCategory, setCategoryActive, setCategoryDiscarded,
     therapeuticClasses, refreshTherapeuticClasses, addTherapeuticClass, updateTherapeuticClass, setTherapeuticClassActive, setTherapeuticClassDiscarded,
     storeDirectory, refreshStoreDirectory, addStoreEntry, updateStoreEntry, setStoreEntryActive,
     pdvQueue, pdvSendToCashier, pdvClaimFromQueue,
     pdvSales, recordSale, sendFiscalDocumentEmail,
-    marketplace, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy, setItemPricing, notify: showToast,
+    marketplace, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy,
+    homeBanner, setHomeBanner, saveHomeBanner, homeBannerBusy,
+    homeBrands, setHomeBrands, saveHomeBrands, homeBrandsBusy,
+    launchMode, setLaunchMode, saveLaunchMode, launchModeBusy,
+    setItemPricing, notify: showToast,
     pdvDiscountSettings, setPdvDiscountSettings, savePdvDiscountSettings, pdvDiscountSettingsBusy,
     cnaeSettings, setCnaeItems, setTaxRegime, saveCnaeSettings, cnaeSettingsBusy,
     stores, selectedStoreId, setSelectedStoreId,
@@ -3946,6 +4252,9 @@ function PharmApp() {
       case 'crm': return <CrmScreen ctx={ctx} />;
       case 'pdv': return <PdvScreen ctx={ctx} />;
       case 'sales': return <SalesScreen ctx={ctx} />;
+      case 'home-banner': return <HomeBannerScreen ctx={ctx} />;
+      case 'home-brands': return <HomeBrandsScreen ctx={ctx} />;
+      case 'launch-mode': return <LaunchModeScreen ctx={ctx} />;
       case 'pricing': return <PricingScreen ctx={ctx} />;
       case 'coupons': return <CouponsScreen ctx={ctx} />;
       case 'promotions': return <PromotionsScreen ctx={ctx} />;
@@ -3959,6 +4268,7 @@ function PharmApp() {
       case 'purchase-receiving': return <PurchaseReceivingScreen ctx={ctx} />;
       case 'products': return <ProductsScreen ctx={ctx} />;
       case 'brands': return <BrandsScreen ctx={ctx} />;
+      case 'health-services': return <HealthServicesScreen ctx={ctx} />;
       case 'categories': return <CategoriesScreen ctx={ctx} />;
       case 'therapeutic-classes': return <TherapeuticClassesScreen ctx={ctx} />;
       case 'stores': return <StoresScreen ctx={ctx} />;
@@ -3986,6 +4296,7 @@ function PharmApp() {
           mode={couponModalState.mode}
           coupon={coupons.find((item) => item.id === couponModalState.couponId) || null}
           inventory={inventory}
+          healthServices={healthServicesAdmin}
           onClose={closeCouponModal}
           onCreate={createCoupon}
           onUpdate={updateCoupon}
@@ -3995,7 +4306,9 @@ function PharmApp() {
         <PromotionModal
           mode={promotionModalState.mode}
           promotion={promotions.find((item) => item.id === promotionModalState.promotionId) || null}
+          initialDraft={promotionModalState.initialDraft}
           inventory={inventory}
+          healthServices={healthServicesAdmin}
           customers={customers}
           mkt={marketplace}
           cnaeSettings={cnaeSettings}

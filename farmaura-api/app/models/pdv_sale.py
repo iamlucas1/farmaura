@@ -51,6 +51,7 @@ class PdvSale(Base, UuidModel, TimestampedModel):
     include_cpf_on_invoice: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     customer_display_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     customer_document_snapshot: Mapped[str] = mapped_column(String(20), default="", nullable=False)
+    coupon_code: Mapped[str] = mapped_column(String(24), default="", nullable=False)
     subtotal_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     cashback_applied_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)

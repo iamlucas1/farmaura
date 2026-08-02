@@ -572,6 +572,8 @@ function AccountScreen({ ctx }) {
   }, [ctx.profile, user.name, user.email]);
   const [programs, setPrograms] = useState(ctx.privacyPrograms);
   const [channels, setChannels] = useState(ctx.commChannels);
+  useEffect(() => { setPrograms(ctx.privacyPrograms); }, [ctx.privacyPrograms]);
+  useEffect(() => { setChannels(ctx.commChannels); }, [ctx.commChannels]);
 
   const acct = { profile, setProfile, programs, setPrograms, channels, setChannels };
 

@@ -14,7 +14,7 @@ Observations:
 */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Toggle } from "../core/marketplace-components.jsx";
+import { Modal, Toggle } from "../core/marketplace-components.jsx";
 import {
   buildAddressLine,
   buildAddressSecondaryLine,
@@ -400,25 +400,52 @@ function ProfileManage({ ctx, acct }) {
 }
 
 function DataPrivacy({ ctx, acct }) {
-  /** Render the privacy and communication preferences tab. */
+  /** Render the privacy and communication preferences tab.
+
+   * A toggle here is a real consent decision, not decoration — every click persists
+   * immediately to the backend (Customer.marketing_program_preferences /
+   * communication_channel_preferences), so "aceitar" here has the same legal weight as
+   * checking a consent box anywhere else in the app. */
 
   const { programs, setPrograms, channels, setChannels } = acct;
-  const toggleProgram = (id, value) => setPrograms((list) => list.map((program) => program.id === id ? { ...program, on: value } : program));
-  const setChannel = (id, value) => setChannels((list) => list.map((channel) => channel.id === id ? { ...channel, accept: value } : channel));
+  const [prefError, setPrefError] = useState('');
+  const toggleProgram = async (name, value) => {
+    const next = programs.map((program) => program.name === name ? { ...program, enabled: value } : program);
+    setPrograms(next);
+    try {
+      setPrefError('');
+      await ctx.saveCustomerPrivacyPreferences(next, channels);
+    } catch (error) {
+      setPrograms(programs);
+      setPrefError(error && error.message ? error.message : 'Não foi possível salvar sua preferência agora.');
+    }
+  };
+  const setChannel = async (channelId, value) => {
+    const next = channels.map((channel) => channel.channel === channelId ? { ...channel, enabled: value } : channel);
+    setChannels(next);
+    try {
+      setPrefError('');
+      await ctx.saveCustomerPrivacyPreferences(programs, next);
+    } catch (error) {
+      setChannels(channels);
+      setPrefError(error && error.message ? error.message : 'Não foi possível salvar sua preferência agora.');
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <h1 className="fa-h2" style={{ marginBottom: 2 }}>Privacidade de dados</h1>
+      {prefError ? <div style={{ color: 'var(--fa-error)', fontSize: 12.5 }}>{prefError}</div> : null}
 
       <Block icon="shield" title="Ofertas, comunicação e relacionamento" sub="Escolha como a Farmaura pode usar seus dados para personalizar sua experiência.">
         <div>
           {programs.map((program) => (
-            <div className="fa-row" key={program.id}>
+            <div className="fa-row" key={program.name}>
               <div className="fa-row-main">
                 <div className="fa-row-label">{program.label}</div>
                 <div className="fa-row-desc">{program.desc}</div>
               </div>
-              <Toggle on={program.on} onChange={(value) => toggleProgram(program.id, value)} ariaLabel={program.label} />
+              <Toggle on={program.enabled} onChange={(value) => toggleProgram(program.name, value)} ariaLabel={program.label} />
             </div>
           ))}
         </div>
@@ -427,15 +454,15 @@ function DataPrivacy({ ctx, acct }) {
       <Block icon="bell" title="Por onde aceita receber comunicação?" sub="Defina os canais em que você quer (ou não) ser contatada.">
         <div>
           {channels.map((channel) => (
-            <div className="fa-row" key={channel.id}>
+            <div className="fa-row" key={channel.channel}>
               <span className="fa-iconbox" style={{ width: 42, height: 42 }}><Icon name={channel.icon} size={20} /></span>
               <div className="fa-row-main">
                 <div className="fa-row-label">{channel.label}</div>
                 <div className="fa-row-desc">{channel.desc}</div>
               </div>
               <div className="fa-segpill">
-                <button data-on={channel.accept ? '1' : '0'} onClick={() => setChannel(channel.id, true)}>Aceito</button>
-                <button data-on={!channel.accept ? '1' : '0'} data-no="1" onClick={() => setChannel(channel.id, false)}>Recuso</button>
+                <button data-on={channel.enabled ? '1' : '0'} onClick={() => setChannel(channel.channel, true)}>Aceito</button>
+                <button data-on={!channel.enabled ? '1' : '0'} data-no="1" onClick={() => setChannel(channel.channel, false)}>Recuso</button>
               </div>
             </div>
           ))}
@@ -447,6 +474,81 @@ function DataPrivacy({ ctx, acct }) {
         Suas preferências valem para toda a Farmaura e podem ser alteradas quando quiser. Tratamos seus dados conforme a LGPD.
       </p>
     </div>
+  );
+}
+
+const PROFILE_NUDGE_DISMISS_KEY = 'farmaura_profile_nudge_dismissed_at';
+const PROFILE_NUDGE_COOLDOWN_DAYS = 14;
+
+/** Return whether the customer's promotion-relevant profile fields are still incomplete.
+ *
+ * This is a client-side UX heuristic only — it decides whether to show a friendly nudge, never
+ * whether a promotion applies. The server always re-evaluates real eligibility from the
+ * persisted Customer record (see pricing_promotion_service.py), so an outdated or bypassed
+ * client check here has zero effect on what discount is actually applied.
+ */
+function isCustomerPromotionProfileIncomplete(profile, addresses) {
+  if (!profile) return false;
+  const hasPrimaryAddress = Array.isArray(addresses) && addresses.some((address) => address && address.primary);
+  return !profile.gender || !profile.maritalStatus || profile.childrenCount === '' || profile.childrenCount == null || !hasPrimaryAddress;
+}
+
+function ProfileCompletionNudge({ ctx }) {
+  /** Render a dismissible popup inviting the logged customer to complete their profile.
+   *
+   * Clicking the primary action is an explicit opt-in: it marks the "Promoções e ofertas
+   * personalizadas" program as accepted (persisted via saveCustomerPrivacyPreferences), the
+   * same real consent record used everywhere else — this popup is just a friendlier entry
+   * point to it, not a separate consent mechanism.
+   */
+
+  const { user, profile, addresses, privacyPrograms, saveCustomerPrivacyPreferences, onNav } = ctx;
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setOpen(false); return; }
+    // Give the async profile/address fetch time to resolve after login before judging completeness.
+    const timer = window.setTimeout(() => {
+      if (!isCustomerPromotionProfileIncomplete(profile, addresses)) return;
+      const dismissedAt = Number(window.localStorage.getItem(PROFILE_NUDGE_DISMISS_KEY) || 0);
+      const cooldownMs = PROFILE_NUDGE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+      if (dismissedAt && Date.now() - dismissedAt < cooldownMs) return;
+      setOpen(true);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [user, profile, addresses]);
+
+  const dismiss = () => {
+    window.localStorage.setItem(PROFILE_NUDGE_DISMISS_KEY, String(Date.now()));
+    setOpen(false);
+  };
+
+  const acceptAndComplete = async () => {
+    try {
+      const nextPrograms = privacyPrograms.map((program) => program.name === 'Promoções e ofertas personalizadas' ? { ...program, enabled: true } : program);
+      await saveCustomerPrivacyPreferences(nextPrograms, ctx.commChannels);
+    } catch (error) {
+      // Best-effort: navigating to the profile screen still lets the customer complete it manually.
+    }
+    window.localStorage.setItem(PROFILE_NUDGE_DISMISS_KEY, String(Date.now()));
+    setOpen(false);
+    onNav({ name: 'account', tab: 'profile' });
+  };
+
+  return (
+    <Modal open={open} onClose={dismiss} icon="gift" title="Quer promoções feitas pra você?"
+      sub="Complete seu cadastro — gênero, estado civil, filhos e endereço — e a gente mostra ofertas mais relevantes no seu perfil.">
+      <p className="fa-faint" style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 4, marginBottom: 18 }}>
+        Ao continuar, você concorda em receber promoções personalizadas da Farmaura no aplicativo. Você pode mudar de
+        ideia quando quiser em Minha Conta → Privacidade de dados.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <button className="fa-btn fa-btn-primary fa-btn-block" style={{ whiteSpace: 'normal', textAlign: 'center', height: 'auto', minHeight: 46 }} onClick={acceptAndComplete}>
+          <Icon name="check" size={16} stroke={2.4} style={{ flex: 'none' }} />Completar cadastro e aceitar promoções
+        </button>
+        <button className="fa-btn fa-btn-soft fa-btn-block" onClick={dismiss}>Agora não</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -543,4 +645,4 @@ function MyCards({ ctx }) {
   );
 }
 
-export { AddressForm, Block, CardForm, DataPrivacy, MyCards, ProfileManage, TwoFactorModal };
+export { AddressForm, Block, CardForm, DataPrivacy, MyCards, ProfileCompletionNudge, ProfileManage, TwoFactorModal };

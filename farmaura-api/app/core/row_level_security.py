@@ -133,6 +133,47 @@ RLS_STATEMENTS: tuple[str, ...] = (
             $$;
     """,
     """
+    CREATE OR REPLACE FUNCTION app_private.public_monthly_product_sales(p_tenant_id text, p_since timestamptz)
+            RETURNS TABLE(product_id text, month date, quantity bigint, revenue numeric)
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = pg_catalog, public, app_private
+            AS $$
+                -- Narrow, read-only aggregate bypass for the public "most searched" marketplace
+                -- ranking: returns per-product monthly totals only, never a customer_id/order_id,
+                -- so an anonymous visitor's RLS-scoped session (role='customer') can compute
+                -- cross-customer demand ranking without ever reading another customer's order row.
+                SELECT product_id, month, SUM(quantity)::bigint AS quantity, SUM(revenue) AS revenue
+                FROM (
+                    SELECT ii.product_id::text AS product_id,
+                           date_trunc('month', oi.created_at)::date AS month,
+                           oi.quantity AS quantity,
+                           oi.line_total AS revenue
+                    FROM order_items oi
+                    JOIN orders o ON o.id = oi.order_id
+                    JOIN inventory_items ii ON ii.id = oi.inventory_item_id
+                    WHERE o.tenant_id = p_tenant_id
+                      AND o.status <> 'cancelled'
+                      AND o.payment_status = 'paid'
+                      AND oi.inventory_item_id IS NOT NULL
+                      AND oi.created_at >= p_since
+                    UNION ALL
+                    SELECT ii.product_id::text AS product_id,
+                           date_trunc('month', psi.created_at)::date AS month,
+                           psi.quantity AS quantity,
+                           psi.line_total AS revenue
+                    FROM pdv_sale_items psi
+                    JOIN pdv_sales ps ON ps.id = psi.pdv_sale_id
+                    JOIN inventory_items ii ON ii.id = psi.inventory_item_id
+                    WHERE ps.tenant_id = p_tenant_id
+                      AND psi.inventory_item_id IS NOT NULL
+                      AND psi.created_at >= p_since
+                ) combined
+                GROUP BY product_id, month
+            $$;
+    """,
+    """
     CREATE OR REPLACE FUNCTION app_private.current_login_email()
             RETURNS text
             LANGUAGE sql

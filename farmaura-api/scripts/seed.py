@@ -57,6 +57,7 @@ from app.core.file_storage import write_private_file
 from app.models.brand import Brand
 from app.models.brand_supplier import BrandSupplier
 from app.models.category import Category
+from app.models.coupon_campaign import CouponCampaign
 from app.models.inventory_audit_entry import InventoryAuditEntry
 from app.models.inventory_invoice_record import InventoryInvoiceRecord
 from app.models.inventory_item import InventoryItem
@@ -67,6 +68,7 @@ from app.models.inventory_product import InventoryProduct
 from app.models.inventory_stock_lot import InventoryStockLot
 from app.models.marketplace_listing import MarketplaceListing
 from app.models.order import Order
+from app.models.pricing_promotion import PricingPromotion
 from app.models.order_fulfillment import OrderFulfillment
 from app.models.order_item import OrderItem
 from app.models.order_status_event import OrderStatusEvent
@@ -1216,6 +1218,11 @@ def build_catalog() -> dict[str, dict[str, object]]:
     inventory: dict[str, InventoryItem] = {}
     listings: dict[str, MarketplaceListing] = {}
     rules: dict[str, CashbackRule] = {}
+    # A per-product "promo" > 0 in product_specs used to write straight to
+    # InventoryItem.promotional_discount_percent — that field is gone (see the ADR for this
+    # session), so it now seeds an equivalent standalone PricingPromotion(kind="product_discount")
+    # instead, keeping the same products on sale in the demo data.
+    pricing_promotions: dict[str, PricingPromotion] = {}
 
     for spec in product_specs:
         key = str(spec["key"])
@@ -1277,9 +1284,23 @@ def build_catalog() -> dict[str, dict[str, object]]:
             sale_price=money(str(spec["price"])),
             acquisition_cost=money(str(spec["acquisition_cost"])),
             market_reference_price=money(str(spec["market_reference_price"])),
-            promotional_discount_percent=money(str(spec["promo"])),
             is_active=True,
         )
+        promo_percent = money(str(spec["promo"]))
+        if promo_percent > Decimal("0.00"):
+            pricing_promotions[key] = PricingPromotion(
+                id=seed_uuid("pricing-promotion-product-discount-" + key),
+                tenant_id=TENANT_ID,
+                name="Desconto de produto — " + str(spec["name"]),
+                description="Desconto direto seedado para demonstração.",
+                is_active=True,
+                kind="product_discount",
+                discount_type="percent",
+                discount_value=promo_percent,
+                scope_type="products",
+                target_products=[str(spec["name"])],
+                guest_visible=True,
+            )
         listings[key] = MarketplaceListing(
             id=seed_uuid("listing-" + key),
             tenant_id=TENANT_ID,
@@ -1345,7 +1366,6 @@ def build_catalog() -> dict[str, dict[str, object]]:
             sale_price=money(str(spec["price"])),
             acquisition_cost=money(str(spec["acquisition_cost"])),
             market_reference_price=money(str(spec["market_reference_price"])),
-            promotional_discount_percent=money(str(spec["promo"])),
             is_active=True,
         )
 
@@ -1377,7 +1397,6 @@ def build_catalog() -> dict[str, dict[str, object]]:
             sale_price=money(str(spec["price"])),
             acquisition_cost=money(str(spec["acquisition_cost"])),
             market_reference_price=money(str(spec["market_reference_price"])),
-            promotional_discount_percent=money(str(spec["promo"])),
             is_active=True,
         )
 
@@ -1389,7 +1408,343 @@ def build_catalog() -> dict[str, dict[str, object]]:
         "inventory": inventory,
         "listings": listings,
         "rules": rules,
+        "pricing_promotions": pricing_promotions,
         "bulk_product_keys": [row[0] for row in bulk_product_rows],
+    }
+
+
+def build_coupon_campaigns() -> dict[str, CouponCampaign]:
+    """Build marketplace coupon campaigns covering every status/scope the coupons screen renders.
+
+    Schedule-sensitive coupons (expiring soon, scheduled, expired) anchor off the real
+    current time rather than SEED_NOW, since order_service._resolve_coupon checks
+    datetime.now(UTC) — anchoring to the fixed SEED_NOW would make these drift out of
+    their intended status as real time moves further past it.
+    """
+
+    now = datetime.now(UTC)
+
+    def coupon(
+        key: str,
+        code: str,
+        *,
+        title: str,
+        description: str,
+        discount_type: str = "percent",
+        shipping_discount_mode: str = "full",
+        discount_value: Decimal,
+        minimum_order_value: Decimal = Decimal("0.00"),
+        max_discount_value: Decimal | None = None,
+        starts_at: datetime | None = None,
+        ends_at: datetime | None = None,
+        usage_limit: int | None = None,
+        usage_count: int = 0,
+        per_customer_limit: int = 1,
+        audience: str = "all",
+        channel_scope: str = "all",
+        scope_type: str = "all",
+        target_categories: list[str] | None = None,
+        target_products: list[str] | None = None,
+        first_purchase_only: bool = False,
+        stackable: bool = False,
+        active: bool = True,
+        notes: str = "",
+        created_days_ago: int = 0,
+    ) -> CouponCampaign:
+        created_at = SEED_NOW - timedelta(days=created_days_ago)
+        return CouponCampaign(
+            id=seed_uuid("coupon-" + key),
+            tenant_id=TENANT_ID,
+            code=code,
+            title=title,
+            description=description,
+            discount_type=discount_type,
+            shipping_discount_mode=shipping_discount_mode,
+            discount_value=discount_value,
+            minimum_order_value=minimum_order_value,
+            max_discount_value=max_discount_value,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            usage_limit=usage_limit,
+            usage_count=usage_count,
+            per_customer_limit=per_customer_limit,
+            audience=audience,
+            channel_scope=channel_scope,
+            scope_type=scope_type,
+            target_categories_json=json_text(target_categories or []),
+            target_products_json=json_text(target_products or []),
+            first_purchase_only=first_purchase_only,
+            stackable=stackable,
+            is_active=active,
+            notes=notes,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+
+    return {
+        "bem-vindo": coupon(
+            "bem-vindo", "BEMVINDO10",
+            title="Boas-vindas — primeira compra",
+            description="Desconto de captação para clientes novos no marketplace.",
+            discount_value=Decimal("10.00"),
+            audience="new_customers",
+            first_purchase_only=True,
+            created_days_ago=40,
+        ),
+        "saude-teto": coupon(
+            "saude-teto", "SAUDE15",
+            title="Saúde em dia — 15% até R$15",
+            description="Percentual em medicamentos com teto de desconto para proteger a margem.",
+            discount_value=Decimal("15.00"),
+            max_discount_value=Decimal("15.00"),
+            minimum_order_value=Decimal("50.00"),
+            scope_type="categories",
+            target_categories=["Medicamentos"],
+            created_days_ago=25,
+        ),
+        "frete-gratis": coupon(
+            "frete-gratis", "FRETEGRATIS",
+            title="Frete grátis acima de R$80",
+            description="Zera a taxa de entrega para incentivar ticket médio maior.",
+            discount_type="shipping",
+            shipping_discount_mode="full",
+            discount_value=Decimal("0.00"),
+            minimum_order_value=Decimal("80.00"),
+            channel_scope="online",
+            created_days_ago=18,
+        ),
+        "cliente-fiel": coupon(
+            "cliente-fiel", "FIEL5",
+            title="Cliente fiel",
+            description="Recompensa fixa para clientes recorrentes, uso limitado por conta. Resgatável só no balcão.",
+            discount_type="fixed",
+            discount_value=Decimal("5.00"),
+            audience="recurring",
+            channel_scope="pdv",
+            per_customer_limit=3,
+            usage_limit=200,
+            usage_count=34,
+            created_days_ago=60,
+        ),
+        "vitamina-c": coupon(
+            "vitamina-c", "VITC10",
+            title="Vitamina C em foco",
+            description="Campanha de produto específico, acumulável com outras promoções.",
+            discount_value=Decimal("10.00"),
+            scope_type="products",
+            target_products=["Vitamina C 1g 30 comprimidos efervescentes"],
+            stackable=True,
+            created_days_ago=10,
+        ),
+        "expira-em-breve": coupon(
+            "expira-em-breve", "EXPIRA2D",
+            title="Última chamada",
+            description="Campanha relâmpago prestes a encerrar — mostra o alerta de expiração.",
+            discount_value=Decimal("20.00"),
+            starts_at=now - timedelta(days=20),
+            ends_at=now + timedelta(days=2),
+            created_days_ago=20,
+        ),
+        "agendado": coupon(
+            "agendado", "PROXIMA25",
+            title="Próxima campanha",
+            description="Campanha já configurada, ainda não iniciada.",
+            discount_value=Decimal("25.00"),
+            starts_at=now + timedelta(days=15),
+            ends_at=now + timedelta(days=45),
+            created_days_ago=5,
+        ),
+        "esgotado": coupon(
+            "esgotado", "ESGOTADO8",
+            title="Campanha esgotada",
+            description="Atingiu o limite total de resgates configurado.",
+            discount_type="fixed",
+            discount_value=Decimal("8.00"),
+            usage_limit=10,
+            usage_count=10,
+            created_days_ago=45,
+        ),
+        "vencido": coupon(
+            "vencido", "VENCIDO20",
+            title="Campanha encerrada",
+            description="Janela de vigência já passou — mantida para histórico.",
+            discount_value=Decimal("20.00"),
+            starts_at=now - timedelta(days=40),
+            ends_at=now - timedelta(days=10),
+            created_days_ago=50,
+        ),
+        "pausado": coupon(
+            "pausado", "PAUSADA12",
+            title="Campanha pausada",
+            description="Desativada manualmente pelo time de marketing.",
+            discount_type="fixed",
+            discount_value=Decimal("12.00"),
+            active=False,
+            created_days_ago=15,
+        ),
+    }
+
+
+def build_coupon_redemption_history(
+    customers: dict[str, Customer],
+    users: dict[str, User],
+    catalog: dict[str, dict[str, object]],
+    coupon_campaigns: dict[str, CouponCampaign],
+) -> dict[str, list[object]]:
+    """Backdate a handful of real coupon redemptions across both sales channels.
+
+    Without this, /coupon-analytics has nothing to aggregate — coupons exist but no
+    Order/PdvSale row ever references them, so every payment/channel/fulfillment/
+    segment breakdown renders empty. Anchors off real "now" (not SEED_NOW) for the
+    same reason build_purchase_analytics_history does: coupon window/status checks
+    run against wall-clock time.
+
+    usage_count on the three coupons redeemed here is set to match exactly how many
+    rows this function seeds for them, so the usage progress bar and the real
+    redemption count agree. FIEL5 is the deliberate exception — it keeps the larger
+    hand-picked usage_count from build_coupon_campaigns() (34) to also demonstrate a
+    near-capacity progress bar without needing 34 real rows, the same way a real
+    counter would predate detailed per-order analytics.
+    """
+
+    inventory = catalog["inventory"]
+    listings = catalog["listings"]
+    cashier = users["cashier_lead"]
+    pharmacist = users["pharmacist_lead"]
+    now = datetime.now(tz=UTC)
+
+    def discount_amount(campaign: CouponCampaign, subtotal: Decimal) -> Decimal:
+        if campaign.discount_type == "fixed":
+            return min(subtotal, campaign.discount_value).quantize(Decimal("0.01"))
+        raw = (subtotal * campaign.discount_value / Decimal("100")).quantize(Decimal("0.01"))
+        return min(raw, campaign.max_discount_value) if campaign.max_discount_value is not None else raw
+
+    online_orders: list[Order] = []
+    online_items: list[OrderItem] = []
+    pdv_sales: list[PdvSale] = []
+    pdv_sale_items: list[PdvSaleItem] = []
+
+    # (slug, coupon key, customer key, product key, qty, payment label, fulfillment, days ago)
+    online_plan = [
+        ("saude15-online", "saude-teto", "mariana", "losartan", 4, "Cartão de crédito", "delivery", 6),
+        ("bemvindo10-online", "bem-vindo", "lucas", "paracetamol", 2, "Pix", "pickup", 4),
+        ("vitc10-online", "vitamina-c", "camila", "vitamin_c", 3, "Cartão de débito", "shipping", 2),
+    ]
+    for slug, coupon_key, customer_key, product_key, qty, payment_label, fulfillment_type, days_ago in online_plan:
+        campaign = coupon_campaigns[coupon_key]
+        buyer = customers[customer_key]
+        item = inventory[product_key]
+        listing = listings[product_key]
+        sale_at = now - timedelta(days=days_ago)
+        subtotal = (item.sale_price * qty).quantize(Decimal("0.01"))
+        discount = discount_amount(campaign, subtotal)
+        order_id = seed_uuid(f"coupon-redemption-order-{slug}")
+        online_orders.append(Order(
+            id=order_id,
+            tenant_id=TENANT_ID,
+            store_id=STORE_ID,
+            customer_id=buyer.id,
+            selected_address_id=None,
+            selected_payment_method_id=None,
+            order_code=f"FA-CPN-{slug.upper()}",
+            channel="app",
+            status=OrderStatus.DELIVERED.value,
+            fulfillment_type=fulfillment_type,
+            payment_method_label=payment_label,
+            payment_status="paid",
+            customer_display_name=buyer.full_name,
+            customer_document_snapshot=buyer.cpf,
+            customer_phone_snapshot=buyer.phone,
+            customer_email_snapshot=buyer.email,
+            subtotal_amount=subtotal,
+            discount_amount=discount,
+            coupon_code=campaign.code,
+            total_amount=(subtotal - discount).quantize(Decimal("0.01")),
+            placed_at_label=label(sale_at),
+            completed_at_label=label(sale_at),
+            internal_note="Resgate de cupom gerado pelo seed para testar as análises de cupons.",
+            is_active=True,
+            created_at=sale_at,
+        ))
+        online_items.append(OrderItem(
+            id=seed_uuid(f"coupon-redemption-order-item-{slug}"),
+            order_id=order_id,
+            inventory_item_id=item.id,
+            marketplace_listing_id=listing.id,
+            item_sku=str(listing.listing_sku),
+            item_name_snapshot=str(listing.title),
+            brand_name_snapshot=str(listing.brand_name),
+            category_name_snapshot=str(listing.category_name),
+            ean_code_snapshot=str(listing.ean_code),
+            storage_location_snapshot=str(item.storage_location),
+            quantity=qty,
+            unit_price=item.sale_price,
+            line_total=subtotal,
+            picked_for_fulfillment=True,
+            picked_at_label=label(sale_at),
+            created_at=sale_at,
+        ))
+
+    # (slug, coupon key, customer key, product key, qty, payment method, fulfillment, days ago)
+    pdv_plan = [
+        ("saude15-pdv", "saude-teto", "rafael", "losartan", 3, "pix", "pickup", 5),
+        ("bemvindo10-pdv", "bem-vindo", "camila", "paracetamol", 2, "credit", "delivery", 3),
+        ("vitc10-pdv", "vitamina-c", "mariana", "vitamin_c", 2, "cash", "pickup", 2),
+        ("fiel5-pdv", "cliente-fiel", "lucas", "losartan", 1, "pix", "pickup", 1),
+    ]
+    for slug, coupon_key, customer_key, product_key, qty, payment_method, fulfillment_type, days_ago in pdv_plan:
+        campaign = coupon_campaigns[coupon_key]
+        buyer = customers[customer_key]
+        item = inventory[product_key]
+        sale_at = now - timedelta(days=days_ago)
+        subtotal = (item.sale_price * qty).quantize(Decimal("0.01"))
+        discount = discount_amount(campaign, subtotal)
+        sale_id = seed_uuid(f"coupon-redemption-sale-{slug}")
+        pdv_sales.append(PdvSale(
+            id=sale_id,
+            tenant_id=TENANT_ID,
+            store_id=STORE_ID,
+            sale_code=f"PS-CPN-{slug.upper()}",
+            pdv_order_id=None,
+            customer_id=buyer.id,
+            cashier_user_id=cashier.id,
+            pharmacist_user_id=pharmacist.id,
+            payment_method=payment_method,
+            payment_status="paid",
+            sale_status="completed",
+            customer_display_name=buyer.full_name,
+            customer_document_snapshot=buyer.cpf,
+            coupon_code=campaign.code,
+            subtotal_amount=subtotal,
+            discount_amount=discount,
+            total_amount=(subtotal - discount).quantize(Decimal("0.01")),
+            completed_at_label=label(sale_at),
+            fulfillment_type=fulfillment_type,
+            created_at=sale_at,
+        ))
+        pdv_sale_items.append(PdvSaleItem(
+            id=seed_uuid(f"coupon-redemption-sale-item-{slug}"),
+            pdv_sale_id=sale_id,
+            inventory_item_id=item.id,
+            item_name_snapshot=str(item.name),
+            brand_name_snapshot=str(item.brand_name),
+            storage_location_snapshot=str(item.storage_location),
+            quantity=qty,
+            unit_price=item.sale_price,
+            line_total=subtotal,
+            created_at=sale_at,
+        ))
+
+    coupon_campaigns["saude-teto"].usage_count = 2
+    coupon_campaigns["bem-vindo"].usage_count = 2
+    coupon_campaigns["vitamina-c"].usage_count = 2
+    coupon_campaigns["cliente-fiel"].usage_count = max(coupon_campaigns["cliente-fiel"].usage_count, 1)
+
+    return {
+        "online_orders": online_orders,
+        "online_items": online_items,
+        "pdv_sales": pdv_sales,
+        "pdv_sale_items": pdv_sale_items,
     }
 
 
@@ -1767,7 +2122,15 @@ def build_purchase_quotes(
     panel screens all have representative data to render. `brand_name` on every
     overlapping item intentionally matches the real registered `Brand.name` for
     that product (see `spec["brand"]` in `build_catalog`), so brand-based
-    comparison also has consistent data to match against.
+    comparison also has consistent data to match against. Losartana also
+    covers a payment-method-specific price flip: Central wins the default
+    comparison (best discount overall, via pix), but Farmalink undercuts it
+    specifically under a boleto_prazo filter — exercises the compare screen's
+    per-payment-method recalculation, not just filtering. A 5th quote ("vencida",
+    another unregistered supplier) is the only one with valid_until in the past,
+    quoting Amoxicilina below every other supplier's effective price — exercises
+    the "Mostrar cotações vencidas" filter (hidden by default, and changes who
+    wins the comparison once shown) without touching any other scenario above.
     """
 
     products = catalog["inventory_products"]
@@ -1781,7 +2144,9 @@ def build_purchase_quotes(
             supplier_name_snapshot=suppliers["central"].legal_name,
             supplier_document_snapshot=suppliers["central"].cnpj,
             quote_date=(SEED_NOW - timedelta(days=5)).date(),
-            valid_until=(SEED_NOW + timedelta(days=45)).date(),
+            # SEED_NOW is fixed (not real "now"), so a short offset here silently expires this
+            # quote as real time passes past it — large offset keeps it valid for years.
+            valid_until=(SEED_NOW + timedelta(days=900)).date(),
             status="confirmed",
             freight_type="CIF",
             freight_cost=Decimal("45.00"),
@@ -1823,7 +2188,7 @@ def build_purchase_quotes(
             supplier_name_snapshot=suppliers["belezapura"].legal_name,
             supplier_document_snapshot=suppliers["belezapura"].cnpj,
             quote_date=(SEED_NOW - timedelta(days=2)).date(),
-            valid_until=(SEED_NOW + timedelta(days=60)).date(),
+            valid_until=(SEED_NOW + timedelta(days=900)).date(),
             status="confirmed",
             freight_type="CIF",
             freight_cost=Decimal("35.00"),
@@ -1858,12 +2223,39 @@ def build_purchase_quotes(
             notes="Fornecedor avulso, ainda não cadastrado em Fornecedores.",
             created_by_user_id=admin_id,
         ),
+        # Cotação vencida (valid_until no passado) — nenhuma outra cotação seedada expira, então
+        # sem essa o filtro "Mostrar cotações vencidas" da tela Comparar fornecedores não tinha
+        # nada pra revelar. Preço da Amoxicilina agressivo de propósito (efetivo abaixo de todas
+        # as outras ofertas do produto) pra deixar claro, ao ligar o filtro, que ela mudaria a
+        # "melhor oferta" se ainda estivesse válida — e some de novo ao desligar.
+        PurchaseQuote(
+            id=seed_uuid("purchase-quote-vencida-01"),
+            tenant_id=TENANT_ID,
+            supplier_id=None,
+            supplier_name_snapshot="Distribuidora Preco Bom Ltda",
+            supplier_document_snapshot="11222333000144",
+            quote_date=(SEED_NOW - timedelta(days=70)).date(),
+            valid_until=(SEED_NOW - timedelta(days=10)).date(),
+            status="confirmed",
+            freight_type="FOB",
+            freight_cost=None,
+            delivery_time_days=10,
+            source_provider="",
+            source_model="",
+            file_name="",
+            content_type="",
+            size_bytes=None,
+            storage_key="",
+            notes="Cotação vencida, mantida como histórico — testa o filtro 'Mostrar cotações vencidas'.",
+            created_by_user_id=admin_id,
+        ),
     ]
     quote_by_key = {
         "central": quotes[0],
         "farmalink": quotes[1],
         "belezapura": quotes[2],
         "avulso": quotes[3],
+        "vencida": quotes[4],
     }
 
     payment_terms = [
@@ -1899,6 +2291,22 @@ def build_purchase_quotes(
             installment_count=None,
             days_to_pay=None,
             notes="",
+        ),
+        # Mesmo método (boleto_prazo) que a Central oferece sem desconto (ver acima), mas com
+        # desconto aqui — faz a Farmalink ficar mais barata que a Central na Losartana *apenas*
+        # quando o filtro "Forma de pagamento" da tela Comparar fornecedores é boleto_prazo,
+        # mesmo a Central vencendo no comparativo padrão (via pix). Dado de teste deliberado para
+        # o recalculo de "melhor oferta" por forma de pagamento filtrada.
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-farmalink-boleto-prazo"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["farmalink"].id,
+            method="boleto_prazo",
+            discount_percent=Decimal("10.00"),
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=45,
+            notes="Desconto especial para boleto a prazo.",
         ),
         PurchaseQuotePaymentTerm(
             id=seed_uuid("purchase-quote-payment-farmalink-cartao"),
@@ -1939,6 +2347,17 @@ def build_purchase_quotes(
             quote_id=quote_by_key["avulso"].id,
             method="pix",
             discount_percent=Decimal("4.00"),
+            surcharge_percent=None,
+            installment_count=None,
+            days_to_pay=None,
+            notes="",
+        ),
+        PurchaseQuotePaymentTerm(
+            id=seed_uuid("purchase-quote-payment-vencida-pix"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["vencida"].id,
+            method="pix",
+            discount_percent=Decimal("8.00"),
             surcharge_percent=None,
             installment_count=None,
             days_to_pay=None,
@@ -2255,6 +2674,25 @@ def build_purchase_quotes(
             unit="cx",
             quantity_reference=Decimal("55"),
             unit_price=Decimal("6.40"),
+            is_comodato=False,
+            comodato_notes="",
+            notes="",
+        ),
+        # Vencida — mesma Amoxicilina que Central/Farmalink/Avulso cotam acima, preço agressivo
+        # (efetivo R$17,94 com pix vs R$20,06 da melhor oferta válida) pra deixar visível, ao ligar
+        # "Mostrar cotações vencidas", que ela mudaria quem vence a comparação.
+        PurchaseQuoteItem(
+            id=seed_uuid("purchase-quote-item-vencida-amoxicillin"),
+            tenant_id=TENANT_ID,
+            quote_id=quote_by_key["vencida"].id,
+            product_id=products["amoxicillin"].id,
+            description=products["amoxicillin"].name,
+            brand_name="EMS",
+            sku_snapshot=products["amoxicillin"].sku,
+            ean_code_snapshot=products["amoxicillin"].ean_code,
+            unit="cx",
+            quantity_reference=Decimal("40"),
+            unit_price=Decimal("19.50"),
             is_comodato=False,
             comodato_notes="",
             notes="",
@@ -2858,6 +3296,7 @@ def build_services(users: dict[str, User], customers: dict[str, Customer]) -> di
             scheduled_time_label="10:30",
             completed_at_label="",
             cancelled_at_label="",
+            original_price_amount=money("89.90"),
             price_amount=money("89.90"),
             notes="Cliente solicita comprovante para convênio.",
         ),
@@ -2878,6 +3317,7 @@ def build_services(users: dict[str, User], customers: dict[str, Customer]) -> di
             scheduled_time_label="09:00",
             completed_at_label="10/06/2026 09:18 UTC",
             cancelled_at_label="",
+            original_price_amount=money("24.90"),
             price_amount=money("24.90"),
             notes="Resultado compartilhado no CRM.",
         ),
@@ -2898,6 +3338,7 @@ def build_services(users: dict[str, User], customers: dict[str, Customer]) -> di
             scheduled_time_label="16:00",
             completed_at_label="",
             cancelled_at_label="12/06/2026 13:05 UTC",
+            original_price_amount=money("39.90"),
             price_amount=money("39.90"),
             notes="Cancelado por indisponibilidade da cliente.",
         ),
@@ -3578,6 +4019,143 @@ def build_orders(
         "items": order_items,
         "fulfillments": fulfillments,
         "events": events,
+    }
+
+
+# Multi-month demand history for the Painel de Compras (ABC/XYZ + reorder suggestion). Every
+# other order/PDV-sale generator in this file leaves `created_at` on its Python-side default
+# (real insertion time), so all of them land in whatever single calendar month the seed script
+# happens to run in — `months_with_sales` is then always 1 for every product, XYZ never leaves
+# "aguardando histórico", and average_monthly_quantity gets diluted by the full lookback window.
+# This generator explicitly backdates `created_at` across several real past months for a small
+# set of products already covered by confirmed purchase quotes with known delivery_time_days
+# (Losartana=5d, Paracetamol=5d, Vitamina D3=3d — Amoxicilina's best offer is the avulso supplier
+# with no delivery_time_days on file, deliberately exercising the lead_time_missing fallback), so
+# the ABC/XYZ classification and the reorder-suggestion logic have real, varied data to classify.
+PURCHASE_ANALYTICS_HISTORY_PLAN: dict[str, list[int]] = {
+    # oldest -> most recent month; deliberately volatile (high coefficient of variation -> XYZ=Z)
+    "amoxicillin": [5, 55, 8, 60, 12],
+    # steady month over month (low coefficient of variation -> XYZ=X)
+    "losartan": [33, 31, 32, 30, 34],
+    "vitamin_d3": [92, 88, 95, 85, 90],
+    # moderate swings (mid coefficient of variation -> XYZ=Y)
+    "paracetamol": [45, 15, 60, 20, 50],
+}
+
+
+def build_purchase_analytics_history(
+    customers: dict[str, Customer], users: dict[str, User], catalog: dict[str, dict[str, object]]
+) -> dict[str, list[object]]:
+    """Backdate online + PDV sales across several months for the purchase-planning panel."""
+
+    inventory = catalog["inventory"]
+    listings = catalog["listings"]
+    buyer = customers["mariana"]
+    cashier = users["cashier_lead"]
+    pharmacist = users["pharmacist_lead"]
+    now = datetime.now(tz=UTC)
+    anchor = datetime(now.year, now.month, 1, 12, 0, tzinfo=UTC)
+
+    online_orders: list[Order] = []
+    online_items: list[OrderItem] = []
+    pdv_sales: list[PdvSale] = []
+    pdv_sale_items: list[PdvSaleItem] = []
+
+    for product_key, monthly_quantities in PURCHASE_ANALYTICS_HISTORY_PLAN.items():
+        item = inventory[product_key]
+        listing = listings[product_key]
+        months_ago_oldest_first = list(reversed(range(1, len(monthly_quantities) + 1)))
+        for months_ago, quantity in zip(months_ago_oldest_first, monthly_quantities, strict=True):
+            total_months = anchor.year * 12 + (anchor.month - 1) - months_ago
+            year, month_index = divmod(total_months, 12)
+            sale_at = datetime(year, month_index + 1, 15, 11, 0, tzinfo=UTC)
+            online_quantity = max(1, quantity // 2)
+            pdv_quantity = max(1, quantity - online_quantity)
+
+            order_id = seed_uuid(f"analytics-history-order-{product_key}-{months_ago}")
+            online_total = (item.sale_price * online_quantity).quantize(Decimal("0.01"))
+            online_orders.append(Order(
+                id=order_id,
+                tenant_id=TENANT_ID,
+                store_id=STORE_ID,
+                customer_id=buyer.id,
+                selected_address_id=None,
+                selected_payment_method_id=None,
+                order_code=f"FA-HIST-{product_key[:4].upper()}-{months_ago}",
+                channel="app",
+                status=OrderStatus.DELIVERED.value,
+                fulfillment_type="pickup",
+                payment_method_label="pix",
+                payment_status="paid",
+                customer_display_name=buyer.full_name,
+                customer_document_snapshot=buyer.cpf,
+                customer_phone_snapshot=buyer.phone,
+                customer_email_snapshot=buyer.email,
+                subtotal_amount=money(str(online_total)),
+                total_amount=money(str(online_total)),
+                placed_at_label=label(sale_at),
+                completed_at_label=label(sale_at),
+                internal_note="Historico gerado pelo seed para o Painel de Compras (ABC/XYZ).",
+                is_active=True,
+                created_at=sale_at,
+            ))
+            online_items.append(OrderItem(
+                id=seed_uuid(f"analytics-history-order-item-{product_key}-{months_ago}"),
+                order_id=order_id,
+                inventory_item_id=item.id,
+                marketplace_listing_id=listing.id,
+                item_sku=str(listing.listing_sku),
+                item_name_snapshot=str(listing.title),
+                brand_name_snapshot=str(listing.brand_name),
+                category_name_snapshot=str(listing.category_name),
+                ean_code_snapshot=str(listing.ean_code),
+                storage_location_snapshot=str(item.storage_location),
+                quantity=online_quantity,
+                unit_price=item.sale_price,
+                line_total=online_total,
+                picked_for_fulfillment=True,
+                picked_at_label=label(sale_at),
+                created_at=sale_at,
+            ))
+
+            sale_id = seed_uuid(f"analytics-history-sale-{product_key}-{months_ago}")
+            pdv_total = (item.sale_price * pdv_quantity).quantize(Decimal("0.01"))
+            pdv_sales.append(PdvSale(
+                id=sale_id,
+                tenant_id=TENANT_ID,
+                store_id=STORE_ID,
+                sale_code=f"PS-HIST-{product_key[:4].upper()}-{months_ago}",
+                pdv_order_id=None,
+                customer_id=None,
+                cashier_user_id=cashier.id,
+                pharmacist_user_id=pharmacist.id,
+                payment_method="cash",
+                payment_status="paid",
+                sale_status="completed",
+                customer_display_name="Cliente balcao",
+                subtotal_amount=money(str(pdv_total)),
+                total_amount=money(str(pdv_total)),
+                completed_at_label=label(sale_at),
+                created_at=sale_at,
+            ))
+            pdv_sale_items.append(PdvSaleItem(
+                id=seed_uuid(f"analytics-history-sale-item-{product_key}-{months_ago}"),
+                pdv_sale_id=sale_id,
+                inventory_item_id=item.id,
+                item_name_snapshot=str(item.name),
+                brand_name_snapshot=str(item.brand_name),
+                storage_location_snapshot=str(item.storage_location),
+                quantity=pdv_quantity,
+                unit_price=item.sale_price,
+                line_total=pdv_total,
+                created_at=sale_at,
+            ))
+
+    return {
+        "online_orders": online_orders,
+        "online_items": online_items,
+        "pdv_sales": pdv_sales,
+        "pdv_sale_items": pdv_sale_items,
     }
 
 
@@ -5334,6 +5912,8 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     users = build_users(password_hash)
     customers = build_customers()
     catalog = build_catalog()
+    coupon_campaigns = build_coupon_campaigns()
+    coupon_redemptions = build_coupon_redemption_history(customers, users, catalog, coupon_campaigns)
     suppliers = build_suppliers()
     brand_suppliers = build_brand_suppliers(catalog, suppliers)
     purchase_quotes = build_purchase_quotes(catalog, suppliers, users)
@@ -5344,6 +5924,7 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     orders_data = build_orders(customers, customer_assets, catalog)
     logistics = build_logistics(users, customers, orders_data)
     pdv_data = build_pdv(users, customers, catalog)
+    analytics_history = build_purchase_analytics_history(customers, users, catalog)
     fiscal_documents = build_fiscal_documents(users, customers, orders_data, pdv_data)
     prescription_data = build_prescriptions(users, orders_data, customers, catalog)
     saved_and_subscriptions = build_saved_and_subscriptions(customers, catalog)
@@ -5376,6 +5957,8 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
         await upsert_many(session, inventory_operations["invoice_records"])
         await upsert_many(session, list(catalog["listings"].values()))
         await upsert_many(session, list(catalog["rules"].values()))
+        await upsert_many(session, list(catalog["pricing_promotions"].values()))
+        await upsert_many(session, list(coupon_campaigns.values()))
         await upsert_many(session, customer_assets["addresses"])
         await upsert_many(session, customer_assets["payment_methods"])
         await upsert_many(session, customer_assets["wallets"])
@@ -5383,16 +5966,16 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
         await upsert_many(session, services["appointments"])
         await upsert_many(session, saved_and_subscriptions["saved_products"])
         await upsert_many(session, saved_and_subscriptions["subscriptions"])
-        await upsert_many(session, list(orders_data["orders"].values()) + daily["online_orders"])
-        await upsert_many(session, orders_data["items"] + daily["online_items"])
+        await upsert_many(session, list(orders_data["orders"].values()) + daily["online_orders"] + analytics_history["online_orders"] + coupon_redemptions["online_orders"])
+        await upsert_many(session, orders_data["items"] + daily["online_items"] + analytics_history["online_items"] + coupon_redemptions["online_items"])
         await upsert_many(session, orders_data["fulfillments"] + daily["online_fulfillments"])
         await upsert_many(session, orders_data["events"] + daily["online_events"])
         await upsert_many(session, logistics["routes"] + daily["routes"])
         await upsert_many(session, logistics["stops"] + daily["stops"])
         await upsert_many(session, list(pdv_data["orders"].values()) + daily["pdv_orders"])
         await upsert_many(session, pdv_data["items"] + daily["pdv_order_items"])
-        await upsert_many(session, list(pdv_data["sales"].values()) + daily["pdv_sales"])
-        await upsert_many(session, pdv_data["sale_items"] + daily["pdv_sale_items"])
+        await upsert_many(session, list(pdv_data["sales"].values()) + daily["pdv_sales"] + analytics_history["pdv_sales"] + coupon_redemptions["pdv_sales"])
+        await upsert_many(session, pdv_data["sale_items"] + daily["pdv_sale_items"] + analytics_history["pdv_sale_items"] + coupon_redemptions["pdv_sale_items"])
         await upsert_many(session, fiscal_documents + daily["fiscal_documents"])
         await upsert_many(session, prescription_data["file_assets"])
         await upsert_many(session, prescription_data["prescriptions"])
@@ -5426,6 +6009,7 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     print("Segredo TOTP para contas com 2FA:", MFA_SECRET)
     print("Produtos unicos cadastrados:", len(catalog["inventory_products"]))
     print("Itens de estoque (todas as lojas):", len(catalog["inventory"]))
+    print("Promoções cadastradas (descontos de produto):", len(catalog["pricing_promotions"]))
     print("Orcamentos cadastrados:", len(purchase_quotes["quotes"]))
     print("Itens cotados nos orcamentos:", len(purchase_quotes["items"]))
     print("Clientes cadastrados:", len(customers))

@@ -54,6 +54,9 @@ class PublicCatalogItem(StrictModel):
     stock: int
     tags: list[str]
     info: str
+    promotion_highlight: str = ""
+    discount_type: str = "percent"
+    urgency_label: str = ""
     review_summary: CatalogReviewSummary = Field(default_factory=CatalogReviewSummary)
 
 
@@ -64,6 +67,20 @@ class PublicCatalogListResponse(StrictModel):
     page: int
     page_size: int
     total: int
+
+
+class MostSearchedProductResponse(StrictModel):
+    """Represent one product's rank in the "most searched" demand ranking."""
+
+    product_id: str
+    rank: int
+    xyz_class: str = ""
+
+
+class MostSearchedProductsResponse(StrictModel):
+    """Represent the ranked "most searched" product list for the marketplace home page."""
+
+    items: list[MostSearchedProductResponse] = Field(default_factory=list)
 
 
 class CatalogItem(StrictModel):
@@ -91,6 +108,9 @@ class CatalogItem(StrictModel):
     info: str
     aliases: list[str]
     inventory_ids: list[str]
+    promotion_highlight: str = ""
+    discount_type: str = "percent"
+    urgency_label: str = ""
     review_summary: CatalogReviewSummary = Field(default_factory=CatalogReviewSummary)
 
 

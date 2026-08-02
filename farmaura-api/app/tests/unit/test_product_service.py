@@ -195,7 +195,7 @@ async def test_link_store_creates_zero_quantity_item() -> None:
         storage_location="", batch_code="", expiry_label="", minimum_quantity=0, low_stock_threshold=0,
         attention_stock_threshold=0, normal_stock_threshold=0, sale_price=Decimal("0.00"),
         acquisition_cost=Decimal("0.00"), market_reference_price=Decimal("0.00"),
-        promotional_discount_percent=Decimal("0.00"), is_controlled=False, controlled_category="none",
+        is_controlled=False, controlled_category="none",
         is_generic=False, is_active=True, is_marketplace_visible=True, marketplace_image_url="",
         marketplace_gallery_urls=[], cnae_code="", created_at=datetime.now(tz=UTC), updated_at=datetime.now(tz=UTC),
     )
@@ -224,7 +224,7 @@ async def test_link_store_reactivates_existing_inactive_link() -> None:
         medication_class_name="Geral", ean_code="", storage_location="", batch_code="", expiry_label="",
         minimum_quantity=0, low_stock_threshold=0, attention_stock_threshold=0, normal_stock_threshold=0,
         sale_price=Decimal("0.00"), acquisition_cost=Decimal("0.00"), market_reference_price=Decimal("0.00"),
-        promotional_discount_percent=Decimal("0.00"), is_controlled=False, controlled_category="none",
+        is_controlled=False, controlled_category="none",
         is_generic=False, is_marketplace_visible=True, marketplace_image_url="", marketplace_gallery_urls=[],
         cnae_code="", created_at=datetime.now(tz=UTC), updated_at=datetime.now(tz=UTC),
     )

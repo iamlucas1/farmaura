@@ -471,7 +471,6 @@ class ProductService:
             sale_price=item.sale_price,
             acquisition_cost=item.acquisition_cost,
             market_reference_price=item.market_reference_price,
-            promotional_discount_percent=item.promotional_discount_percent,
             is_controlled=item.is_controlled,
             controlled_category=item.controlled_category,
             is_generic=item.is_generic,

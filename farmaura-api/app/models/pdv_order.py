@@ -53,6 +53,7 @@ class PdvOrder(Base, UuidModel, TimestampedModel):
     customer_phone_snapshot: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     includes_controlled_items: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     include_cpf_on_invoice: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    coupon_code: Mapped[str] = mapped_column(String(24), default="", nullable=False)
     discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"), nullable=False)
     cashback_applied_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     subtotal_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)

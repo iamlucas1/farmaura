@@ -77,7 +77,6 @@ class InventoryItemResponse(StrictModel):
     sale_price: Decimal
     acquisition_cost: Decimal
     market_reference_price: Decimal
-    promotional_discount_percent: Decimal
     is_controlled: bool
     controlled_category: str = "none"
     is_generic: bool = False
@@ -112,7 +111,6 @@ class InventoryItemCreateRequest(StrictModel):
     sale_price: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     acquisition_cost: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     market_reference_price: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
-    promotional_discount_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
     note: str = Field(default="", max_length=500)
 
 
@@ -133,7 +131,6 @@ class InventoryItemUpdateRequest(StrictModel):
     sale_price: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     acquisition_cost: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     market_reference_price: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
-    promotional_discount_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
     is_active: bool = True
     is_marketplace_visible: bool = True
     note: str = Field(default="", max_length=500)

@@ -260,6 +260,7 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
       { id: 'inventory', label: 'Estoque', icon: 'boxes', count: counts.lowStock, alert: true },
       { id: 'brands', label: 'Marcas', icon: 'tag' },
       { id: 'categories', label: 'Categorias', icon: 'grid' },
+      { id: 'health-services', label: 'Serviços de saúde', icon: 'activity' },
       { id: 'therapeutic-classes', label: 'Classes terapêuticas', icon: 'pill' },
       { id: 'locations', label: 'Localizações', icon: 'pin' },
       { id: 'suppliers', label: 'Fornecedores', icon: 'truck' },
@@ -270,6 +271,9 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
       { id: 'construction-costs', label: 'Custo de Construção', icon: 'store' },
     ]},
     { label: 'Marketplace', items: [
+      { id: 'home-banner', label: 'Banner da vitrine', icon: 'camera' },
+      { id: 'home-brands', label: 'Marcas em destaque', icon: 'plusCircle' },
+      { id: 'launch-mode', label: 'Modo de lançamento', icon: 'clock' },
       { id: 'pricing', label: 'Precificador', icon: 'tag', count: counts.lowMargin, alert: true },
       { id: 'coupons', label: 'Cupons', icon: 'gift', count: counts.activeCoupons },
       { id: 'promotions', label: 'Promoções', icon: 'sparkle', count: counts.activePromotions },

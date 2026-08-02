@@ -631,7 +631,7 @@
 
 .cpn-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr);
+  grid-template-columns: 1fr;
   gap: 18px;
   align-items: start;
 }
@@ -646,10 +646,135 @@
 .cpn-filterbar {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   margin: 18px 0 16px;
   flex-wrap: wrap;
 }
+
+/* .fa-select defaults to width:100%, meant for stacked form fields — inside this
+   toolbar row that stretches each dropdown to fill its own wrapped line. Scope it
+   back down to a compact, pill-styled trigger that sits inline with .ph-seg. */
+.cpn-filterbar .fa-select {
+  width: auto;
+  height: 38px;
+  padding: 0 32px 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fa-ink-2);
+  border-color: var(--fa-mist);
+  border-radius: var(--fa-r-pill);
+  background-color: var(--fa-surface);
+}
+.cpn-filterbar .fa-select:hover {
+  border-color: var(--fa-primary);
+}
+
+/* Cards do "Detalhamento por cupom" (aba Análises) — um card por cupom com resgates
+   reais, 4 grupos de chips coloridos por categoria (pagamento/canal/entrega/cliente)
+   em vez de uma lista de badges cinzas indistinguíveis. */
+.cpn-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cpn-detail-card {
+  border: 1px solid var(--fa-mist);
+  border-radius: var(--fa-r-card);
+  padding: 16px 18px;
+  background: var(--fa-surface);
+  transition: border-color .15s, box-shadow .15s;
+}
+.cpn-detail-card:hover {
+  border-color: var(--fa-primary);
+  box-shadow: var(--fa-shadow-sm);
+}
+
+.cpn-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--fa-mist);
+}
+
+.cpn-detail-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--fa-rose-soft);
+  color: var(--fa-primary);
+}
+
+.cpn-detail-stat {
+  text-align: right;
+  padding-left: 14px;
+  border-left: 1px solid var(--fa-mist);
+}
+.cpn-detail-stat-value {
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -.01em;
+}
+.cpn-detail-stat-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--fa-ink-3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-top: 2px;
+}
+.cpn-detail-stat-accent .cpn-detail-stat-value {
+  color: var(--fa-success);
+}
+
+.cpn-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .cpn-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.cpn-detail-group-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--fa-ink-3);
+  margin-bottom: 8px;
+}
+
+.cpn-detail-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cpn-detail-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cpn-detail-group-payment .cpn-detail-chip { background: var(--fa-info-soft); color: var(--fa-info); }
+.cpn-detail-group-channel .cpn-detail-chip { background: var(--fa-success-soft); color: var(--fa-success); }
+.cpn-detail-group-fulfillment .cpn-detail-chip { background: var(--fa-warn-soft); color: var(--fa-warn); }
+.cpn-detail-group-segment .cpn-detail-chip { background: var(--fa-rose-soft); color: var(--fa-primary); }
 
 .cpn-list {
   display: flex;
@@ -657,13 +782,34 @@
   gap: 12px;
 }
 
-.cpn-table-wrap {
-  overflow-x: auto;
-  overflow-y: hidden;
+/* Grade da subtela "Análises" de Cupons — cheia largura, sem disputar espaço com a
+   tabela de gestão (que fica na subtela "Gestão da tabela"). */
+.cpn-insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .cpn-insights-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 780px) {
+  .cpn-insights-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .cpn-table-wrap .ph-table {
-  min-width: 1180px;
+  width: 100%;
+}
+
+.cpn-table-wrap .ph-table td,
+.cpn-table-wrap .ph-table th {
+  overflow-wrap: break-word;
 }
 
 .cpn-sidecard {
@@ -743,7 +889,9 @@
   line-height: 1.45;
   box-shadow: var(--fa-shadow-lg);
   pointer-events: none;
-  z-index: 500;
+  /* Above .fa-modal-overlay's z-index:1200 — this tip is portaled to <body>, so when
+     the coupon modal is open it would otherwise render behind the modal overlay. */
+  z-index: 1300;
 }
 
 .cpn-info-tip-arrow {

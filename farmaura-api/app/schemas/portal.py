@@ -13,6 +13,7 @@ Observations:
 - customer-scoped collections remain normalized to simplify frontend cache hydration;
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -98,6 +99,96 @@ class PortalMarketplaceMetaUpdateRequest(StrictModel):
     max_installments: int = Field(default=1, ge=1, le=12)
     interest_free_installments: int = Field(default=1, ge=1, le=12)
     installment_interest_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("20.00"))
+
+
+class PortalHomeBannerSlide(StrictModel):
+    """Represent one slide of the marketplace home hero banner carousel — an image or a custom HTML block."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex, max_length=40)
+    kind: str = Field(default="image", pattern="^(image|html)$")
+    image: str = Field(default="", max_length=600_000)
+    # Pristine, pre-crop upload — kept only so "recortar novamente" can re-frame from full quality
+    # instead of re-cropping an already-cropped (and often already zoomed-in) image, which gets
+    # blurry fast. Internal-console-only: stripped before any marketplace-facing bootstrap response,
+    # see PortalService._resolve_home_banner(include_original=...).
+    original_image: str = Field(default="", max_length=600_000)
+    html: str = Field(default="", max_length=200_000)
+    alt_text: str = Field(default="", max_length=140)
+    link_type: str = Field(default="none", pattern="^(none|offers|services|prescricao|category|external)$")
+    link_category: str = Field(default="", max_length=64)
+    link_url: str = Field(default="", max_length=600)
+
+
+class PortalHomeBannerResponse(StrictModel):
+    """Represent the tenant's marketplace home hero banner configuration.
+
+    There is no separate whole-banner "html" mode — a single HTML slide inside `slides`
+    (kind="html") already renders as a static, arrow-and-dot-free banner when it's the only
+    slide, so a dedicated top-level mode would just be a second way to express the same thing.
+    """
+
+    mode: str = Field(default="off", pattern="^(off|image)$")
+    slides: list[PortalHomeBannerSlide] = Field(default_factory=list, max_length=8)
+    # Target pixel size every slide's art is cropped to in the internal console, so the carousel
+    # never mixes differently-framed images — purely an editing aid, the marketplace itself just
+    # renders whatever square/rectangle ends up in `image` with object-fit: cover.
+    target_width: int = Field(default=1600, ge=320, le=3840)
+    target_height: int = Field(default=480, ge=120, le=1600)
+
+
+class PortalHomeBannerUpdateRequest(PortalHomeBannerResponse):
+    """Validate a marketplace home hero banner update payload."""
+
+
+class PortalLaunchModeResponse(StrictModel):
+    """Represent the marketplace pre-launch "coming soon" countdown gate configuration.
+
+    When `enabled` and `launch_at` is still in the future, the marketplace frontend renders a
+    countdown screen instead of the normal storefront for every visitor — there is no bypass for
+    logged-in customers or staff (see 00_Decisoes note for this feature). The internal console is
+    a separate entrypoint/bundle and is never gated by this setting.
+    """
+
+    enabled: bool = False
+    launch_at: datetime = datetime(2026, 1, 1, tzinfo=UTC)
+    headline: str = Field(default="", max_length=140)
+    subtext: str = Field(default="", max_length=400)
+
+
+class PortalLaunchModeUpdateRequest(PortalLaunchModeResponse):
+    """Validate a marketplace pre-launch countdown gate update payload."""
+
+
+class PortalHomeBrandCircle(StrictModel):
+    """Represent one clickable brand logo circle shown below the home differentials."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex, max_length=40)
+    image: str = Field(default="", max_length=400_000)
+    alt_text: str = Field(default="", max_length=140)
+    brand_name: str = Field(default="", max_length=120)
+
+    @field_validator('image')
+    @classmethod
+    def _validate_image(cls, value: str) -> str:
+        if value and not value.startswith('data:image/'):
+            raise ValueError('image must be a data:image/... URI')
+        return value
+
+
+class PortalHomeBrandsResponse(StrictModel):
+    """Represent the tenant's marketplace home "marcas em destaque" circle strip.
+
+    Each circle links to the marketplace shop pre-filtered by `brand_name`, matched against
+    `CatalogItem.brand` client-side — there is no separate brand filter endpoint, the marketplace
+    already fetches the full catalog and filters in-browser (see ShopScreen).
+    """
+
+    mode: str = Field(default="off", pattern="^(off|on)$")
+    circles: list[PortalHomeBrandCircle] = Field(default_factory=list, max_length=16)
+
+
+class PortalHomeBrandsUpdateRequest(PortalHomeBrandsResponse):
+    """Validate a marketplace home brand-circles update payload."""
 
 
 class PortalPdvDiscountSettingsResponse(StrictModel):
@@ -286,9 +377,11 @@ class PortalCouponResponse(StrictModel):
     usage_count: int = 0
     per_customer_limit: int = 1
     audience: str = "all"
+    channel_scope: str = "all"
     scope_type: str = "all"
     target_categories: list[str] = Field(default_factory=list)
     target_products: list[str] = Field(default_factory=list)
+    target_services: list[str] = Field(default_factory=list)
     first_purchase_only: bool = False
     stackable: bool = False
     active: bool = True
@@ -313,9 +406,11 @@ class PortalCouponMutationRequest(StrictModel):
     usage_limit: int | None = Field(default=None, ge=0)
     per_customer_limit: int = Field(default=1, ge=0, le=9999)
     audience: str = Field(default="all", max_length=32)
+    channel_scope: str = Field(default="all", pattern="^(all|online|pdv)$")
     scope_type: str = Field(default="all", max_length=24)
     target_categories: list[str] = Field(default_factory=list)
     target_products: list[str] = Field(default_factory=list)
+    target_services: list[str] = Field(default_factory=list)
     first_purchase_only: bool = False
     stackable: bool = False
     active: bool = True
@@ -329,12 +424,14 @@ class PortalPricingPromotionResponse(StrictModel):
     name: str
     description: str = ""
     active: bool = True
+    kind: str = "campaign"
     discount_type: str = "percent"
     discount_value: Decimal = Decimal("0.00")
     max_discount_value: Decimal | None = None
     scope_type: str = "all"
     target_categories: list[str] = Field(default_factory=list)
     target_products: list[str] = Field(default_factory=list)
+    target_services: list[str] = Field(default_factory=list)
     starts_at: str = ""
     ends_at: str = ""
     daily_start_time: str = ""
@@ -348,6 +445,10 @@ class PortalPricingPromotionResponse(StrictModel):
     min_children: int | None = None
     max_children: int | None = None
     customer_segment: str = "all"
+    target_loyalty_tiers: list[str] = Field(default_factory=list)
+    guest_visible: bool = False
+    highlight_style: str = "standard"
+    urgency_label: str = ""
     priority: int = 0
     notes: str = ""
     created_at: str = ""
@@ -360,12 +461,14 @@ class PortalPricingPromotionMutationRequest(StrictModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
     active: bool = True
+    kind: str = Field(default="campaign", max_length=24)
     discount_type: str = Field(default="percent", max_length=16)
     discount_value: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     max_discount_value: Decimal | None = Field(default=None, ge=Decimal("0.00"))
     scope_type: str = Field(default="all", max_length=24)
     target_categories: list[str] = Field(default_factory=list)
     target_products: list[str] = Field(default_factory=list)
+    target_services: list[str] = Field(default_factory=list)
     starts_at: str = Field(default="", max_length=32)
     ends_at: str = Field(default="", max_length=32)
     daily_start_time: str = Field(default="", max_length=5)
@@ -379,6 +482,10 @@ class PortalPricingPromotionMutationRequest(StrictModel):
     min_children: int | None = Field(default=None, ge=0, le=20)
     max_children: int | None = Field(default=None, ge=0, le=20)
     customer_segment: str = Field(default="all", max_length=24)
+    target_loyalty_tiers: list[str] = Field(default_factory=list)
+    guest_visible: bool = False
+    highlight_style: str = Field(default="standard", max_length=16)
+    urgency_label: str = Field(default="", max_length=60)
     priority: int = Field(default=0, ge=0, le=100)
     notes: str = Field(default="", max_length=1000)
 
@@ -394,6 +501,7 @@ class PortalPricingPromotionAudienceEstimateRequest(StrictModel):
     min_children: int | None = Field(default=None, ge=0, le=20)
     max_children: int | None = Field(default=None, ge=0, le=20)
     customer_segment: str = Field(default="all", max_length=24)
+    target_loyalty_tiers: list[str] = Field(default_factory=list)
 
 
 class PortalPricingPromotionAudienceEstimateResponse(StrictModel):
@@ -560,6 +668,9 @@ class PortalInternalBootstrapResponse(StrictModel):
     today_iso: str = ""
     pharmacist: PortalPharmacistResponse
     marketplace: PortalMarketplaceMetaResponse
+    home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
+    home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     store: PortalStoreResponse
     stores: list[PortalStoreResponse] = Field(default_factory=list)
     chart_seed: dict[str, list[dict[str, int | str]]] = Field(default_factory=dict)
@@ -596,6 +707,9 @@ class PortalHealthHistoryResponse(StrictModel):
     date: str = ""
     time: str = ""
     status: str = "upcoming"
+    price_amount: Decimal = Decimal("0.00")
+    original_price_amount: Decimal = Decimal("0.00")
+    coupon_code: str = ""
 
 
 class PortalHealthAppointmentCreateRequest(StrictModel):
@@ -606,6 +720,53 @@ class PortalHealthAppointmentCreateRequest(StrictModel):
     store_name: str = Field(default="", max_length=255)
     scheduled_date_label: str = Field(default="", max_length=40)
     scheduled_time_label: str = Field(min_length=1, max_length=20)
+    coupon_code: str = Field(default="", max_length=24)
+
+
+class PortalHealthServiceAdminResponse(StrictModel):
+    """Represent one health service procedure as managed in the internal console."""
+
+    id: str
+    code: str
+    name: str
+    group: str = ""
+    icon: str = "activity"
+    description: str = ""
+    duration_label: str = ""
+    duration_minutes: int = 0
+    price_amount: Decimal = Decimal("0.00")
+    is_active: bool = True
+
+
+class PortalHealthServiceListResponse(StrictModel):
+    """Represent every health service procedure visible to internal staff."""
+
+    items: list[PortalHealthServiceAdminResponse] = Field(default_factory=list)
+
+
+class PortalHealthServiceCreateRequest(StrictModel):
+    """Validate a new health service procedure created in the internal console."""
+
+    name: str = Field(min_length=2, max_length=255)
+    group: str = Field(default="", max_length=120)
+    icon: str = Field(default="activity", max_length=40)
+    description: str = Field(default="", max_length=2000)
+    duration_label: str = Field(default="", max_length=40)
+    duration_minutes: int = Field(default=0, ge=0, le=1440)
+    price_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
+
+
+class PortalHealthServiceUpdateRequest(StrictModel):
+    """Validate an edit to an existing health service procedure."""
+
+    name: str = Field(min_length=2, max_length=255)
+    group: str = Field(default="", max_length=120)
+    icon: str = Field(default="activity", max_length=40)
+    description: str = Field(default="", max_length=2000)
+    duration_label: str = Field(default="", max_length=40)
+    duration_minutes: int = Field(default=0, ge=0, le=1440)
+    price_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
+    is_active: bool = True
 
 
 class PortalFavoriteResponse(StrictModel):
@@ -639,6 +800,9 @@ class PortalMarketplaceBootstrapResponse(StrictModel):
     stores: list[PortalStoreResponse]
     pharmacist: PortalPharmacistResponse
     marketplace: PortalMarketplaceMetaResponse
+    home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
+    home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     health_services: list[PortalHealthServiceResponse]
     health_history: list[PortalHealthHistoryResponse]
     favorites: list[PortalFavoriteResponse]
@@ -654,6 +818,9 @@ class PortalMarketplacePublicBootstrapResponse(StrictModel):
     stores: list[PortalStoreResponse]
     pharmacist: PortalPharmacistResponse
     marketplace: PortalMarketplaceMetaResponse
+    home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
+    home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     health_services: list[PortalHealthServiceResponse]
     coupons: list[PortalCouponResponse] = Field(default_factory=list)
     delivery_estimate: PortalMarketplaceDeliveryEstimateResponse = Field(default_factory=PortalMarketplaceDeliveryEstimateResponse)

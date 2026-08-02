@@ -20,11 +20,13 @@ import json
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_json import is_response_truncated, parse_ai_json_object
 from app.core.config import Settings
 from app.core.file_validation import validate_upload
+from app.models.pricing_promotion import PricingPromotion
 from app.models.purchase_quote import PurchaseQuote
 from app.repositories.inventory_repository import InventoryRepository
 from app.schemas.auth import TokenSubject
@@ -321,7 +323,9 @@ class InventoryInvoiceService:
                 item.sale_price = line.sale_price
                 item.acquisition_cost = line.acquisition_cost
                 item.market_reference_price = line.market_reference_price
-                item.promotional_discount_percent = line.promotional_discount_percent
+                await self._upsert_product_discount_promotion(
+                    product_name=item.name, discount_percent=line.promotional_discount_percent,
+                )
                 item.product.is_controlled = line.is_controlled
                 if line.is_subject_to_icms_st is not None:
                     item.is_subject_to_icms_st = line.is_subject_to_icms_st
@@ -389,10 +393,12 @@ class InventoryInvoiceService:
                 sale_price=line.sale_price,
                 acquisition_cost=line.acquisition_cost,
                 market_reference_price=line.market_reference_price,
-                promotional_discount_percent=line.promotional_discount_percent,
                 note=self._build_line_note(payload.note, line.note, payload.supplier_name),
             )
             item = await self.repository.add_item(await self.inventory_service._build_item_model(create_payload))
+            await self._upsert_product_discount_promotion(
+                product_name=product.name, discount_percent=line.promotional_discount_percent,
+            )
             await self.inventory_service._write_audit_entry(
                 entity_type="item",
                 entity_id=item.id,
@@ -438,6 +444,53 @@ class InventoryInvoiceService:
             skipped_count=skipped_count,
             reference_code=reference_code,
             items=committed,
+        )
+
+    async def _upsert_product_discount_promotion(self, *, product_name: str, discount_percent: Decimal) -> None:
+        """Create or update a direct product-discount promotion from an invoice-suggested value.
+
+        Invoice import used to write straight into InventoryItem.promotional_discount_percent — that
+        field no longer exists (see the ADR for this session); every discount now lives in
+        PricingPromotion. This preserves the same one-step confirm behavior: a supplier invoice
+        suggesting a promotional price still results in the product going on sale automatically,
+        just through a real, reportable PricingPromotion row instead of a silent column.
+        """
+
+        name = product_name.strip()
+        if not name or discount_percent <= 0:
+            return
+        tenant_id = str(self.subject.tenant_id)
+        existing = (
+            await self.session.execute(
+                select(PricingPromotion).where(
+                    PricingPromotion.tenant_id == tenant_id,
+                    PricingPromotion.kind == "product_discount",
+                    PricingPromotion.scope_type == "products",
+                )
+            )
+        ).scalars().all()
+        match = next(
+            (promotion for promotion in existing if [value.strip().lower() for value in promotion.target_products] == [name.lower()]),
+            None,
+        )
+        if match is not None:
+            match.discount_value = discount_percent
+            match.is_active = True
+            match.guest_visible = True
+            return
+        self.session.add(
+            PricingPromotion(
+                tenant_id=tenant_id,
+                name=f"Desconto de nota fiscal — {name}",
+                description="Criado automaticamente a partir de um desconto sugerido na importação de nota fiscal.",
+                is_active=True,
+                kind="product_discount",
+                discount_type="percent",
+                discount_value=discount_percent,
+                scope_type="products",
+                target_products=[name],
+                guest_visible=True,
+            )
         )
 
     async def _resolve_default_location(self, store_id: str) -> str:

@@ -78,7 +78,7 @@ class InventoryService:
     _ITEM_AUDIT_FIELDS = (
         "storage_location", "batch_code", "expiry_label", "minimum_quantity", "low_stock_threshold",
         "attention_stock_threshold", "normal_stock_threshold", "sale_price", "acquisition_cost",
-        "market_reference_price", "promotional_discount_percent", "is_active", "is_marketplace_visible",
+        "market_reference_price", "is_active", "is_marketplace_visible",
         "is_subject_to_icms_st",
     )
     _LOCATION_AUDIT_FIELDS = (
@@ -484,7 +484,6 @@ class InventoryService:
             "sale_price": payload.sale_price,
             "acquisition_cost": payload.acquisition_cost,
             "market_reference_price": payload.market_reference_price,
-            "promotional_discount_percent": payload.promotional_discount_percent,
             "is_active": payload.is_active,
             "is_marketplace_visible": payload.is_marketplace_visible,
         }
@@ -626,7 +625,6 @@ class InventoryService:
                 "sale_price",
                 "acquisition_cost",
                 "market_reference_price",
-                "promotional_discount_percent",
                 "is_controlled",
             ]
         )
@@ -650,7 +648,6 @@ class InventoryService:
                     str(item.sale_price),
                     str(item.acquisition_cost),
                     str(item.market_reference_price),
-                    str(item.promotional_discount_percent),
                     "yes" if item.is_controlled else "no",
                 ]
             )
@@ -786,7 +783,6 @@ class InventoryService:
             sale_price=payload.sale_price,
             acquisition_cost=payload.acquisition_cost,
             market_reference_price=payload.market_reference_price,
-            promotional_discount_percent=payload.promotional_discount_percent,
             is_active=True,
             is_marketplace_visible=True,
         )
@@ -869,7 +865,6 @@ class InventoryService:
             sale_price=item.sale_price,
             acquisition_cost=item.acquisition_cost,
             market_reference_price=item.market_reference_price,
-            promotional_discount_percent=item.promotional_discount_percent,
             is_controlled=item.is_controlled,
             controlled_category=item.controlled_category,
             is_generic=item.is_generic,

@@ -21,12 +21,14 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
+import nh3
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import ValidationError
 
+from app.core.device_detection import detect_device_type
 from app.core.password_hashing import generate_temporary_password, hash_password
 from app.core.tenant_context import apply_first_access_context, apply_public_marketplace_context, apply_tenant_context
 from app.domain.enums import AccessScope, OrderStatus, UserRole
@@ -36,6 +38,7 @@ from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.store_repository import StoreRepository
 from app.repositories.user_repository import UserRepository
+from app.services.coupon_service import CouponCartLine, CouponService
 from app.services.geocoding_client import GeocodingClient
 from app.services.marketplace_projection import resolve_marketplace_category_id
 from app.services.notification_service import NotificationService
@@ -43,6 +46,7 @@ from app.services.notification_service import NotificationService
 from app.models.chat_thread import ChatThread
 from app.models.coupon_campaign import CouponCampaign
 from app.models.customer import Customer
+from app.models.customer_address import CustomerAddress
 from app.models.delivery_route import DeliveryRoute
 from app.models.delivery_route_stop import DeliveryRouteStop
 from app.models.health_service import HealthService
@@ -57,7 +61,12 @@ from app.models.product_review import ProductReview
 from app.models.saved_product import SavedProduct
 from app.models.subscription import Subscription
 from app.models.user import User
-from app.services.pricing_promotion_service import estimate_audience_size
+from app.services.pricing_promotion_service import (
+    apply_promotion_to_health_service,
+    estimate_audience_size,
+    promotion_has_audience_restrictions,
+    resolve_customer_promotion_profile,
+)
 from app.schemas.auth import TokenSubject
 from app.schemas.portal import (
     PortalAddressSearchResponse,
@@ -81,7 +90,17 @@ from app.schemas.portal import (
     PortalFinancialSettingsUpdateRequest,
     PortalHealthAppointmentCreateRequest,
     PortalHealthHistoryResponse,
+    PortalHealthServiceAdminResponse,
+    PortalHealthServiceCreateRequest,
+    PortalHealthServiceListResponse,
     PortalHealthServiceResponse,
+    PortalHealthServiceUpdateRequest,
+    PortalHomeBannerResponse,
+    PortalHomeBannerUpdateRequest,
+    PortalHomeBrandsResponse,
+    PortalHomeBrandsUpdateRequest,
+    PortalLaunchModeResponse,
+    PortalLaunchModeUpdateRequest,
     PortalInternalBootstrapResponse,
     PortalMarketplaceBootstrapResponse,
     PortalDeliveryPricingResponse,
@@ -118,6 +137,28 @@ from app.schemas.portal import (
 PORTAL_NAME_INTERNAL = 'internal'
 PORTAL_NAME_MARKETPLACE = 'marketplace'
 SETTING_KEY_MARKETPLACE_META = 'marketplace_meta'
+SETTING_KEY_HOME_BANNER = 'home_banner'
+SETTING_KEY_HOME_BRANDS = 'home_brands'
+SETTING_KEY_LAUNCH_MODE = 'launch_mode'
+
+# Cosmetic-only CSS allowlist for the admin-authored home banner HTML — deliberately excludes:
+# - positioning/overlay properties (position, top/left/right/bottom, z-index), so a banner can
+#   never be styled to cover other page chrome;
+# - every url()-capable property (background, background-image, border-image, list-style-image,
+#   cursor, content, ...), because nh3's `filter_style_properties` only allowlists by property
+#   *name* — it does not inspect the value — so an allowed `background-image` would let a
+#   `url(javascript:...)`/external tracking-pixel payload straight through unfiltered. Only
+#   `background-color` (a flat color, no url()) survives from that family.
+_HOME_BANNER_ALLOWED_STYLE_PROPERTIES = frozenset({
+    'color', 'background-color', 'border', 'border-color', 'border-radius',
+    'border-width', 'border-style', 'box-shadow', 'padding', 'padding-top', 'padding-right',
+    'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom',
+    'margin-left', 'font-size', 'font-weight', 'font-family', 'font-style', 'line-height',
+    'letter-spacing', 'text-align', 'text-decoration', 'text-transform', 'display', 'flex',
+    'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'gap', 'width', 'height',
+    'max-width', 'max-height', 'min-width', 'min-height', 'object-fit', 'opacity', 'overflow',
+    'aspect-ratio',
+})
 SETTING_KEY_FINANCIAL_SETTINGS = 'financial_settings'
 SETTING_KEY_CONSTRUCTION_COSTS = 'construction_costs'
 NON_REVENUE_ORDER_STATUSES = {OrderStatus.DRAFT.value, OrderStatus.SUBMITTED.value, OrderStatus.CANCELLED.value}
@@ -169,6 +210,9 @@ class PortalService:
             stores=stores,
             pharmacist=pharmacist,
             marketplace=marketplace,
+            home_banner=await self._resolve_home_banner(tenant_id=tenant_id),
+            home_brands=await self._resolve_home_brands(tenant_id=tenant_id),
+            launch_mode=await self._resolve_launch_mode(tenant_id=tenant_id),
             health_services=health_services,
             coupons=coupons,
             delivery_estimate=await self._resolve_marketplace_delivery_estimate(tenant_id=tenant_id),
@@ -281,6 +325,9 @@ class PortalService:
             stores=stores,
             pharmacist=pharmacist,
             marketplace=marketplace,
+            home_banner=await self._resolve_home_banner(tenant_id=str(customer.tenant_id)),
+            home_brands=await self._resolve_home_brands(tenant_id=str(customer.tenant_id)),
+            launch_mode=await self._resolve_launch_mode(tenant_id=str(customer.tenant_id)),
             health_services=health_services,
             health_history=health_history,
             favorites=favorites,
@@ -310,6 +357,9 @@ class PortalService:
             today_iso=now.date().isoformat(),
             pharmacist=pharmacist,
             marketplace=marketplace,
+            home_banner=await self._resolve_home_banner(tenant_id=tenant_id, include_original=True),
+            home_brands=await self._resolve_home_brands(tenant_id=tenant_id),
+            launch_mode=await self._resolve_launch_mode(tenant_id=tenant_id),
             store=store,
             stores=stores,
             chart_seed=await self._build_chart_seed(tenant_id=tenant_id),
@@ -336,6 +386,62 @@ class PortalService:
         )
         await self.session.commit()
         return await self._resolve_marketplace_meta(tenant_id=str(subject.tenant_id))
+
+    async def update_home_banner(self, subject: TokenSubject, payload: PortalHomeBannerUpdateRequest) -> PortalHomeBannerResponse:
+        """Persist the tenant-scoped marketplace home hero banner configuration."""
+
+        await self._require_user(subject)
+        value = payload.model_dump(mode='json')
+        # `mode="off"` intentionally keeps `slides` — it's a display toggle, not a delete. The admin
+        # can flip back to `mode="image"` and get the exact same carousel back without re-importing.
+        for slide in value['slides']:
+            if slide.get('kind') == 'html':
+                slide['html'] = self._sanitize_home_banner_html(str(slide.get('html', '')))
+                slide['image'] = ''
+                slide['original_image'] = ''
+            else:
+                slide['kind'] = 'image'
+                slide['html'] = ''
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_HOME_BANNER,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_home_banner(tenant_id=str(subject.tenant_id), include_original=True)
+
+    async def update_home_brands(self, subject: TokenSubject, payload: PortalHomeBrandsUpdateRequest) -> PortalHomeBrandsResponse:
+        """Persist the tenant-scoped "marcas em destaque" circle strip.
+
+        `mode="off"` intentionally keeps `circles` — same display-toggle-not-delete contract as
+        `update_home_banner`, so the admin can hide the strip without losing configured brands.
+        """
+
+        await self._require_user(subject)
+        value = payload.model_dump(mode='json')
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_HOME_BRANDS,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_home_brands(tenant_id=str(subject.tenant_id))
+
+    async def update_launch_mode(self, subject: TokenSubject, payload: PortalLaunchModeUpdateRequest) -> PortalLaunchModeResponse:
+        """Persist the tenant-scoped marketplace pre-launch countdown gate configuration."""
+
+        await self._require_user(subject)
+        value = payload.model_dump(mode='json')
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_LAUNCH_MODE,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_launch_mode(tenant_id=str(subject.tenant_id))
 
     async def get_delivery_pricing(self, subject: TokenSubject) -> PortalDeliveryPricingResponse:
         """Return tenant-scoped distance-based delivery pricing configuration."""
@@ -418,6 +524,11 @@ class PortalService:
 
         await self._require_user(subject)
         return await self._resolve_delivery_areas(tenant_id=str(subject.tenant_id))
+
+    async def get_delivery_areas_for_tenant(self, tenant_id: str) -> PortalDeliveryAreasResponse:
+        """Return one tenant's per-store delivery-area configuration for public coverage checks (no authenticated subject required)."""
+
+        return await self._resolve_delivery_areas(tenant_id=tenant_id)
 
     async def update_delivery_areas(self, subject: TokenSubject, payload: PortalDeliveryAreasUpdateRequest) -> PortalDeliveryAreasResponse:
         """Persist tenant-scoped per-store delivery-area configuration."""
@@ -519,15 +630,17 @@ class PortalService:
             discount_value=payload.discount_value,
             minimum_order_value=payload.minimum_order_value,
             max_discount_value=payload.max_discount_value,
-            starts_at_label=payload.starts_at,
-            ends_at_label=payload.ends_at,
+            starts_at=self._parse_schedule_datetime(payload.starts_at),
+            ends_at=self._parse_schedule_datetime(payload.ends_at),
             usage_limit=payload.usage_limit,
             usage_count=0,
             per_customer_limit=payload.per_customer_limit,
             audience=payload.audience,
+            channel_scope=payload.channel_scope,
             scope_type=payload.scope_type,
             target_categories_json=self._json_dump(payload.target_categories),
             target_products_json=self._json_dump(payload.target_products),
+            target_services_json=self._json_dump(payload.target_services),
             first_purchase_only=payload.first_purchase_only,
             stackable=payload.stackable,
             is_active=payload.active,
@@ -535,14 +648,25 @@ class PortalService:
         )
         self.session.add(record)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_coupon_campaigns(tenant_id=tenant_id, active_only=False)
 
     async def update_coupon_campaign(self, subject: TokenSubject, coupon_id: str, payload: PortalCouponMutationRequest) -> list[PortalCouponResponse]:
         """Update one coupon campaign for the authenticated internal tenant."""
 
         await self._require_user(subject)
-        record = await self._require_coupon_campaign(tenant_id=str(subject.tenant_id), coupon_id=coupon_id)
-        record.code = self._normalize_coupon_code(payload.code)
+        tenant_id = str(subject.tenant_id)
+        record = await self._require_coupon_campaign(tenant_id=tenant_id, coupon_id=coupon_id)
+        normalized_code = self._normalize_coupon_code(payload.code)
+        statement = select(CouponCampaign).where(
+            CouponCampaign.tenant_id == tenant_id,
+            CouponCampaign.code == normalized_code,
+            CouponCampaign.id != coupon_id,
+        )
+        existing = (await self.session.execute(statement)).scalar_one_or_none()
+        if existing is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Coupon code already exists.')
+        record.code = normalized_code
         record.title = payload.title
         record.description = payload.description
         record.discount_type = payload.discount_type
@@ -550,20 +674,23 @@ class PortalService:
         record.discount_value = payload.discount_value
         record.minimum_order_value = payload.minimum_order_value
         record.max_discount_value = payload.max_discount_value
-        record.starts_at_label = payload.starts_at
-        record.ends_at_label = payload.ends_at
+        record.starts_at = self._parse_schedule_datetime(payload.starts_at)
+        record.ends_at = self._parse_schedule_datetime(payload.ends_at)
         record.usage_limit = payload.usage_limit
         record.per_customer_limit = payload.per_customer_limit
         record.audience = payload.audience
+        record.channel_scope = payload.channel_scope
         record.scope_type = payload.scope_type
         record.target_categories_json = self._json_dump(payload.target_categories)
         record.target_products_json = self._json_dump(payload.target_products)
+        record.target_services_json = self._json_dump(payload.target_services)
         record.first_purchase_only = payload.first_purchase_only
         record.stackable = payload.stackable
         record.is_active = payload.active
         record.notes = payload.notes
         await self.session.commit()
-        return await self._list_coupon_campaigns(tenant_id=str(subject.tenant_id), active_only=False)
+        await apply_tenant_context(self.session, subject)
+        return await self._list_coupon_campaigns(tenant_id=tenant_id, active_only=False)
 
     async def delete_coupon_campaign(self, subject: TokenSubject, coupon_id: str) -> list[PortalCouponResponse]:
         """Delete one coupon campaign for the authenticated internal tenant."""
@@ -572,6 +699,7 @@ class PortalService:
         record = await self._require_coupon_campaign(tenant_id=str(subject.tenant_id), coupon_id=coupon_id)
         await self.session.delete(record)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_coupon_campaigns(tenant_id=str(subject.tenant_id), active_only=False)
 
     # ------------------------------------------------------------------------
@@ -640,6 +768,7 @@ class PortalService:
             min_children=payload.min_children,
             max_children=payload.max_children,
             customer_segment=payload.customer_segment,
+            loyalty_tiers=payload.target_loyalty_tiers,
         )
         return PortalPricingPromotionAudienceEstimateResponse(
             matching_customers=matching_customers,
@@ -796,9 +925,15 @@ class PortalService:
         return await self._list_subscriptions(customer=customer)
 
     async def create_health_appointment(
-        self, subject: TokenSubject, payload: PortalHealthAppointmentCreateRequest
+        self, subject: TokenSubject, payload: PortalHealthAppointmentCreateRequest, *, user_agent: str = "",
     ) -> list[PortalHealthHistoryResponse]:
-        """Persist one real health service booking for the authenticated customer."""
+        """Persist one real health service booking for the authenticated customer.
+
+        Applies the best-matching active "services"-scoped promotion automatically (same
+        shared computation as catalog pricing), then an optional coupon code on top of that
+        already-discounted price — mirrors how marketplace checkout layers promotion and
+        coupon, so a service booking is never priced differently than what it computes here.
+        """
 
         customer = await self._require_customer(subject)
         service_statement = select(HealthService).where(
@@ -809,6 +944,53 @@ class PortalService:
         service = (await self.session.execute(service_statement)).scalar_one_or_none()
         if service is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Health service not found.')
+
+        original_price = Decimal(service.price_amount or 0)
+        promotions = list(
+            (
+                await self.session.execute(
+                    select(PricingPromotion).where(
+                        PricingPromotion.tenant_id == customer.tenant_id, PricingPromotion.is_active.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        discounted_price = original_price
+        if promotions:
+            primary_address = (
+                await self.session.execute(
+                    select(CustomerAddress).where(CustomerAddress.customer_id == customer.id, CustomerAddress.is_primary.is_(True))
+                )
+            ).scalar_one_or_none()
+            profile = resolve_customer_promotion_profile(
+                customer=customer, primary_address=primary_address, device_type=detect_device_type(user_agent),
+            )
+            discounted_price, _promotion = apply_promotion_to_health_service(
+                base_price=original_price, service_name=service.service_name, promotions=promotions,
+                profile=profile, now=datetime.now(UTC),
+            )
+
+        normalized_coupon_code = ""
+        if payload.coupon_code.strip():
+            coupon_service = CouponService(self.session)
+            campaign, discount_amount = await coupon_service.resolve_coupon(
+                tenant_id=customer.tenant_id,
+                customer_id=customer.id,
+                code=payload.coupon_code,
+                channel='online',
+                cart_lines=[CouponCartLine(price=discounted_price, quantity=1, category=service.service_group, name=service.service_name)],
+                subtotal_amount=discounted_price,
+                secondary_fee_amount=Decimal('0.00'),
+                requires_prescription=False,
+                allow_service_scope=True,
+            )
+            if campaign is not None:
+                discounted_price = max(Decimal('0.00'), discounted_price - discount_amount)
+                normalized_coupon_code = campaign.code
+                campaign.usage_count += 1
+
         appointment = HealthServiceAppointment(
             id=str(uuid4()),
             tenant_id=customer.tenant_id,
@@ -823,10 +1005,13 @@ class PortalService:
             store_name_snapshot=payload.store_name.strip(),
             scheduled_date_label=payload.scheduled_date_label.strip(),
             scheduled_time_label=payload.scheduled_time_label.strip(),
-            price_amount=Decimal(service.price_amount or 0),
+            original_price_amount=original_price,
+            price_amount=discounted_price,
+            coupon_code=normalized_coupon_code,
         )
         self.session.add(appointment)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_health_history(customer=customer)
 
     async def _require_user(self, subject: TokenSubject) -> User:
@@ -985,6 +1170,55 @@ class PortalService:
         merged = {**derived.model_dump(mode='json'), **stored_value}
         return PortalMarketplaceMetaResponse.model_validate(merged)
 
+    async def _resolve_home_banner(self, *, tenant_id: str | None, include_original: bool = False) -> PortalHomeBannerResponse:
+        """Return the tenant's marketplace home hero banner configuration, defaulting to no banner.
+
+        `include_original` gates `slides[].original_image` — only the internal console needs it (to
+        re-crop from full quality); every marketplace-facing bootstrap strips it so anonymous/customer
+        payloads don't carry an extra ~600KB per image slide they'll never use.
+        """
+
+        if not tenant_id:
+            return PortalHomeBannerResponse()
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_HOME_BANNER, default=None)
+        if not stored_value:
+            return PortalHomeBannerResponse()
+        try:
+            banner = PortalHomeBannerResponse.model_validate(stored_value)
+        except ValidationError:
+            return PortalHomeBannerResponse()
+        if not include_original:
+            banner = banner.model_copy(update={
+                'slides': [slide.model_copy(update={'original_image': ''}) for slide in banner.slides],
+            })
+        return banner
+
+    async def _resolve_home_brands(self, *, tenant_id: str | None) -> PortalHomeBrandsResponse:
+        """Return the tenant's "marcas em destaque" circle strip, defaulting to none."""
+
+        if not tenant_id:
+            return PortalHomeBrandsResponse()
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_HOME_BRANDS, default=None)
+        if not stored_value:
+            return PortalHomeBrandsResponse()
+        try:
+            return PortalHomeBrandsResponse.model_validate(stored_value)
+        except ValidationError:
+            return PortalHomeBrandsResponse()
+
+    async def _resolve_launch_mode(self, *, tenant_id: str | None) -> PortalLaunchModeResponse:
+        """Return the tenant's marketplace pre-launch countdown gate configuration, defaulting to disabled."""
+
+        if not tenant_id:
+            return PortalLaunchModeResponse()
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_LAUNCH_MODE, default=None)
+        if not stored_value:
+            return PortalLaunchModeResponse()
+        try:
+            return PortalLaunchModeResponse.model_validate(stored_value)
+        except ValidationError:
+            return PortalLaunchModeResponse()
+
     async def _resolve_pdv_discount_settings(self, *, tenant_id: str) -> PortalPdvDiscountSettingsResponse:
         """Return the tenant's minimum average margin required to grant a PDV discount, defaulting to 20%."""
 
@@ -1067,7 +1301,86 @@ class PortalService:
 
         statement = select(HealthServiceAppointment).where(HealthServiceAppointment.customer_id == customer.id, HealthServiceAppointment.tenant_id == customer.tenant_id).order_by(desc(HealthServiceAppointment.created_at))
         appointments = (await self.session.execute(statement)).scalars().all()
-        return [PortalHealthHistoryResponse(id=appointment.id, service=appointment.service_name_snapshot, store=appointment.store_name_snapshot, professional=appointment.professional_name_snapshot, date=appointment.scheduled_date_label, time=appointment.scheduled_time_label, status='upcoming' if appointment.appointment_status == 'scheduled' else 'completed') for appointment in appointments]
+        return [
+            PortalHealthHistoryResponse(
+                id=appointment.id, service=appointment.service_name_snapshot, store=appointment.store_name_snapshot,
+                professional=appointment.professional_name_snapshot, date=appointment.scheduled_date_label,
+                time=appointment.scheduled_time_label, status='upcoming' if appointment.appointment_status == 'scheduled' else 'completed',
+                price_amount=Decimal(appointment.price_amount or 0), original_price_amount=Decimal(appointment.original_price_amount or 0),
+                coupon_code=appointment.coupon_code,
+            )
+            for appointment in appointments
+        ]
+
+    async def list_health_services_admin(self, subject: TokenSubject) -> PortalHealthServiceListResponse:
+        """Return every health service procedure (active and inactive) for internal staff."""
+
+        await self._require_user(subject)
+        statement = (
+            select(HealthService)
+            .where(HealthService.tenant_id == str(subject.tenant_id))
+            .order_by(HealthService.service_group.asc(), HealthService.service_name.asc())
+        )
+        services = (await self.session.execute(statement)).scalars().all()
+        return PortalHealthServiceListResponse(items=[self._serialize_health_service_admin(service) for service in services])
+
+    async def create_health_service(self, subject: TokenSubject, payload: PortalHealthServiceCreateRequest) -> PortalHealthServiceAdminResponse:
+        """Persist a new health service procedure created in the internal console."""
+
+        await self._require_user(subject)
+        service = HealthService(
+            id=str(uuid4()),
+            tenant_id=str(subject.tenant_id),
+            service_code=self._generate_health_service_code(payload.name),
+            service_name=payload.name.strip(),
+            service_group=payload.group.strip(),
+            icon_name=payload.icon.strip() or 'activity',
+            description=payload.description.strip(),
+            duration_minutes=payload.duration_minutes,
+            duration_label=payload.duration_label.strip(),
+            price_amount=payload.price_amount,
+            is_active=True,
+        )
+        self.session.add(service)
+        await self.session.commit()
+        return self._serialize_health_service_admin(service)
+
+    async def update_health_service(
+        self, subject: TokenSubject, service_id: str, payload: PortalHealthServiceUpdateRequest,
+    ) -> PortalHealthServiceAdminResponse:
+        """Persist an edit to one existing health service procedure."""
+
+        await self._require_user(subject)
+        statement = select(HealthService).where(HealthService.id == service_id, HealthService.tenant_id == str(subject.tenant_id))
+        service = (await self.session.execute(statement)).scalar_one_or_none()
+        if service is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Health service not found.')
+        service.service_name = payload.name.strip()
+        service.service_group = payload.group.strip()
+        service.icon_name = payload.icon.strip() or 'activity'
+        service.description = payload.description.strip()
+        service.duration_minutes = payload.duration_minutes
+        service.duration_label = payload.duration_label.strip()
+        service.price_amount = payload.price_amount
+        service.is_active = payload.is_active
+        await self.session.commit()
+        return self._serialize_health_service_admin(service)
+
+    def _serialize_health_service_admin(self, service: HealthService) -> PortalHealthServiceAdminResponse:
+        """Serialize one HealthService row for the internal console."""
+
+        return PortalHealthServiceAdminResponse(
+            id=service.id, code=service.service_code, name=service.service_name, group=service.service_group,
+            icon=service.icon_name or 'activity', description=service.description, duration_label=service.duration_label,
+            duration_minutes=int(service.duration_minutes or 0), price_amount=Decimal(service.price_amount or 0),
+            is_active=bool(service.is_active),
+        )
+
+    def _generate_health_service_code(self, name: str) -> str:
+        """Return a short, unique-enough procedure code derived from its name."""
+
+        slug = ''.join(character for character in name.strip().upper() if character.isalnum())[:12] or 'SERVICO'
+        return f"{slug}-{uuid4().hex[:6].upper()}"
 
     async def _fetch_saved_product_models(self, customer: Customer) -> list[SavedProduct]:
         """Return saved product models for one customer."""
@@ -1348,15 +1661,17 @@ class PortalService:
             discount_value=Decimal(record.discount_value or 0),
             minimum_order_value=Decimal(record.minimum_order_value or 0),
             max_discount_value=Decimal(record.max_discount_value) if record.max_discount_value is not None else None,
-            starts_at=record.starts_at_label,
-            ends_at=record.ends_at_label,
+            starts_at=self._serialize_datetime_iso(record.starts_at),
+            ends_at=self._serialize_datetime_iso(record.ends_at),
             usage_limit=record.usage_limit,
             usage_count=int(record.usage_count or 0),
             per_customer_limit=int(record.per_customer_limit or 1),
             audience=record.audience,
+            channel_scope=record.channel_scope,
             scope_type=record.scope_type,
             target_categories=self._json_load(record.target_categories_json, []),
             target_products=self._json_load(record.target_products_json, []),
+            target_services=self._json_load(record.target_services_json, []),
             first_purchase_only=bool(record.first_purchase_only),
             stackable=bool(record.stackable),
             active=bool(record.is_active),
@@ -1373,12 +1688,14 @@ class PortalService:
             name=record.name,
             description=record.description,
             active=bool(record.is_active),
+            kind=record.kind,
             discount_type=record.discount_type,
             discount_value=Decimal(record.discount_value or 0),
             max_discount_value=Decimal(record.max_discount_value) if record.max_discount_value is not None else None,
             scope_type=record.scope_type,
             target_categories=list(record.target_categories or []),
             target_products=list(record.target_products or []),
+            target_services=list(record.target_services or []),
             starts_at=self._serialize_datetime_iso(record.starts_at),
             ends_at=self._serialize_datetime_iso(record.ends_at),
             daily_start_time=record.daily_start_time,
@@ -1392,6 +1709,10 @@ class PortalService:
             min_children=record.min_children,
             max_children=record.max_children,
             customer_segment=record.customer_segment,
+            target_loyalty_tiers=list(record.target_loyalty_tiers or []),
+            guest_visible=bool(record.guest_visible),
+            highlight_style=record.highlight_style,
+            urgency_label=record.urgency_label,
             priority=int(record.priority or 0),
             notes=record.notes,
             created_at=self._serialize_datetime_iso(record.created_at),
@@ -1404,14 +1725,16 @@ class PortalService:
         record.name = payload.name.strip()
         record.description = payload.description.strip()
         record.is_active = payload.active
+        record.kind = payload.kind if payload.kind in ("campaign", "product_discount") else "campaign"
         record.discount_type = payload.discount_type
         record.discount_value = payload.discount_value
         record.max_discount_value = payload.max_discount_value
         record.scope_type = payload.scope_type
         record.target_categories = list(payload.target_categories)
         record.target_products = list(payload.target_products)
-        record.starts_at = self._parse_promotion_datetime(payload.starts_at)
-        record.ends_at = self._parse_promotion_datetime(payload.ends_at)
+        record.target_services = list(payload.target_services)
+        record.starts_at = self._parse_schedule_datetime(payload.starts_at)
+        record.ends_at = self._parse_schedule_datetime(payload.ends_at)
         record.daily_start_time = payload.daily_start_time.strip()
         record.daily_end_time = payload.daily_end_time.strip()
         record.days_of_week = list(payload.days_of_week)
@@ -1423,10 +1746,38 @@ class PortalService:
         record.min_children = payload.min_children
         record.max_children = payload.max_children
         record.customer_segment = payload.customer_segment
+        record.target_loyalty_tiers = list(payload.target_loyalty_tiers)
+        record.highlight_style = payload.highlight_style
+        record.urgency_label = payload.urgency_label.strip()
+        if record.kind == "product_discount":
+            if record.scope_type != "products" or not record.target_products:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Um desconto de produto precisa ter escopo 'produtos específicos' com pelo menos um produto selecionado.",
+                )
+            if promotion_has_audience_restrictions(record):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Um desconto de produto não pode ter filtro de público — isso é uma campanha. "
+                    "Remova idade, região, dispositivo, estado civil, filhos, segmento ou selo de fidelidade, "
+                    "ou mude o tipo para 'Campanha'.",
+                )
+            # Um desconto de produto nunca tem filtro de audiência (checado acima), então não há
+            # razão pra esconder o preço cortado de um visitante deslogado — é só o preço do
+            # produto, não tem nada de personalizado pra proteger. Sempre visível, sem alternativa.
+            record.guest_visible = True
+        else:
+            record.guest_visible = payload.guest_visible
+            if record.guest_visible and promotion_has_audience_restrictions(record):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Uma promoção visível para visitantes deslogados não pode ter filtro de público — "
+                    "remova idade, região, dispositivo, estado civil, filhos, segmento ou selo de fidelidade.",
+                )
         record.priority = payload.priority
         record.notes = payload.notes.strip()
 
-    def _parse_promotion_datetime(self, value: str) -> datetime | None:
+    def _parse_schedule_datetime(self, value: str) -> datetime | None:
         """Return one timezone-aware datetime parsed from a datetime-local string, if any."""
 
         raw = value.strip()
@@ -1489,6 +1840,53 @@ class PortalService:
 
         parts = [part for part in str(value or '').strip().split() if part]
         return ''.join(part[0] for part in parts[:2]).upper() or 'FA'
+
+    def _sanitize_home_banner_html(self, raw_html: str) -> str:
+        """Return the admin-authored home banner HTML stripped of anything that isn't safe, static markup.
+
+        Sanitized on write (not just on render) so every reader of the stored setting —
+        marketplace, internal preview, future integrations — gets safe HTML for free; this is the
+        single point that stands between an admin-authored `<textarea>` and `dangerouslySetInnerHTML`
+        on the live storefront, so treat any change here as security-sensitive.
+
+        Layered defenses (each closes a distinct class of injection, not just script tags):
+        - `clean_content_tags={'script','style'}`: removes `<script>`/`<style>` *and* their text
+          content — nh3's default tag allowlist already excludes script/iframe/object/embed/form/
+          meta/base (verified: they're dropped entirely, not just unwrapped), this makes the
+          script/style case explicit and robust to future nh3 default changes.
+        - `attributes`: adds `style`/`class` (all tags) and `id` (global) on top of nh3's default
+          attribute allowlist — needed for any visual styling at all — but every `on*` event-handler
+          attribute stays excluded (nh3 never allows those).
+        - `filter_style_properties`: restricts `style` to `_HOME_BANNER_ALLOWED_STYLE_PROPERTIES`,
+          a fixed cosmetic allowlist. Positioning/overlay properties are excluded so a banner can
+          never cover other page chrome, and every url()-capable property is excluded too, because
+          nh3 filters style *property names* only, never inspects the value — an allowed
+          `background-image` would let `url(javascript:...)` or a tracking-pixel URL straight
+          through unfiltered (see the allowlist's own docstring for the full reasoning).
+        - `url_schemes`: restricts every `href`/`src` to `http`/`https`/`mailto`/`tel` — nh3's
+          default already excludes `javascript:`/`data:` (verified), this narrows the much wider
+          default allowlist (`ftp`, `sms`, `bitcoin`, `magnet`, ...) to what a marketing banner
+          could legitimately need, shrinking the space for confusing/phishing-style links.
+        - nh3's default `link_rel="noopener noreferrer"` is left in place — every `<a href>` it
+          keeps gets that automatically, closing reverse-tabnabbing on external links.
+
+        Out of scope by design: SQL injection. This value only ever reaches the database as a bound
+        parameter through the SQLAlchemy ORM (`PortalSetting.value_json`, see `_upsert_setting_payload`
+        below) — there is no raw/string-built SQL anywhere in this path, so no amount of HTML/SQL
+        syntax typed here can reach a query.
+        """
+
+        if not raw_html:
+            return ""
+        attributes = {tag: (attrs | {'style', 'class'}) for tag, attrs in nh3.ALLOWED_ATTRIBUTES.items()}
+        attributes['*'] = attributes.get('*', set()) | {'style', 'class', 'id'}
+        return nh3.clean(
+            raw_html,
+            attributes=attributes,
+            filter_style_properties=_HOME_BANNER_ALLOWED_STYLE_PROPERTIES,
+            clean_content_tags={'script', 'style'},
+            url_schemes={'http', 'https', 'mailto', 'tel'},
+        )
 
     def _json_dump(self, value: object) -> str:
         """Return one compact JSON string."""

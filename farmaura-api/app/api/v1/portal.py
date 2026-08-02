@@ -13,7 +13,7 @@ Observations:
 - authenticated routes always resolve tenant scope through the token subject.
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.deps import get_session, get_subject_session, require_internal_subject, require_marketplace_subject
 from app.core.rate_limit import PASSWORD_RESET_RATE_LIMIT, PUBLIC_RATE_LIMIT, rate_limit
@@ -39,6 +39,16 @@ from app.schemas.portal import (
     PortalFinancialSettingsUpdateRequest,
     PortalHealthAppointmentCreateRequest,
     PortalHealthHistoryResponse,
+    PortalHealthServiceAdminResponse,
+    PortalHealthServiceCreateRequest,
+    PortalHealthServiceListResponse,
+    PortalHealthServiceUpdateRequest,
+    PortalHomeBannerResponse,
+    PortalHomeBannerUpdateRequest,
+    PortalHomeBrandsResponse,
+    PortalHomeBrandsUpdateRequest,
+    PortalLaunchModeResponse,
+    PortalLaunchModeUpdateRequest,
     PortalInternalBootstrapResponse,
     PortalMarketplaceBootstrapResponse,
     PortalMarketplaceMetaResponse,
@@ -141,6 +151,42 @@ async def update_marketplace_meta(
     return await service.update_marketplace_meta(subject, payload)
 
 
+@router.put("/internal/home-banner", response_model=PortalHomeBannerResponse)
+async def update_home_banner(
+    payload: PortalHomeBannerUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalHomeBannerResponse:
+    """Persist the tenant-scoped marketplace home hero banner configuration."""
+
+    service = PortalService(session)
+    return await service.update_home_banner(subject, payload)
+
+
+@router.put("/internal/home-brands", response_model=PortalHomeBrandsResponse)
+async def update_home_brands(
+    payload: PortalHomeBrandsUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalHomeBrandsResponse:
+    """Persist the tenant-scoped marketplace home "marcas em destaque" circle strip."""
+
+    service = PortalService(session)
+    return await service.update_home_brands(subject, payload)
+
+
+@router.put("/internal/launch-mode", response_model=PortalLaunchModeResponse)
+async def update_launch_mode(
+    payload: PortalLaunchModeUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session=Depends(get_subject_session),
+) -> PortalLaunchModeResponse:
+    """Persist the tenant-scoped marketplace pre-launch countdown gate configuration."""
+
+    service = PortalService(session)
+    return await service.update_launch_mode(subject, payload)
+
+
 @router.get("/internal/delivery-pricing", response_model=PortalDeliveryPricingResponse)
 async def get_delivery_pricing(
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
@@ -231,6 +277,42 @@ async def update_delivery_areas(
 
     service = PortalService(session)
     return await service.update_delivery_areas(subject, payload)
+
+
+@router.get("/internal/health-services", response_model=PortalHealthServiceListResponse)
+async def list_health_services_admin(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalHealthServiceListResponse:
+    """Return every health service procedure (active and inactive) for internal staff."""
+
+    service = PortalService(session)
+    return await service.list_health_services_admin(subject)
+
+
+@router.post("/internal/health-services", response_model=PortalHealthServiceAdminResponse)
+async def create_health_service(
+    payload: PortalHealthServiceCreateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalHealthServiceAdminResponse:
+    """Create a new health service procedure."""
+
+    service = PortalService(session)
+    return await service.create_health_service(subject, payload)
+
+
+@router.put("/internal/health-services/{service_id}", response_model=PortalHealthServiceAdminResponse)
+async def update_health_service(
+    service_id: str,
+    payload: PortalHealthServiceUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalHealthServiceAdminResponse:
+    """Update one existing health service procedure."""
+
+    service = PortalService(session)
+    return await service.update_health_service(subject, service_id, payload)
 
 
 @router.get("/internal/address-search", response_model=PortalAddressSearchResponse)
@@ -537,10 +619,11 @@ async def delete_subscription(
 @router.post("/health/appointments", response_model=list[PortalHealthHistoryResponse])
 async def create_health_appointment(
     payload: PortalHealthAppointmentCreateRequest,
+    request: Request,
     subject: TokenSubject = Depends(require_marketplace_subject()),
     session=Depends(get_subject_session),
 ) -> list[PortalHealthHistoryResponse]:
     """Book one real health service appointment for the authenticated customer."""
 
     service = PortalService(session)
-    return await service.create_health_appointment(subject, payload)
+    return await service.create_health_appointment(subject, payload, user_agent=request.headers.get("user-agent", ""))

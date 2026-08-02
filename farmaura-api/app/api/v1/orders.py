@@ -13,10 +13,11 @@ Observations:
 - internal transitions stay server-authoritative and tenant-scoped.
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_subject_session, require_internal_subject, require_marketplace_subject
+from app.api.deps import get_session, get_subject_session, require_internal_subject, require_marketplace_subject
+from app.core.rate_limit import PUBLIC_RATE_LIMIT, rate_limit
 from app.domain.enums import UserRole
 from app.schemas.auth import TokenSubject
 from app.schemas.orders import (
@@ -60,13 +61,14 @@ async def list_orders(
 @router.post('', response_model=MarketplaceOrderResponse)
 async def create_marketplace_order(
     payload: CheckoutOrderRequest,
+    request: Request,
     subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> MarketplaceOrderResponse:
     """Persist a marketplace checkout with the submitted payment selection."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.create_marketplace_order(payload)
+    return await service.create_marketplace_order(payload, user_agent=request.headers.get("user-agent", ""))
 
 
 @router.get('/delivery-coverage', response_model=DeliveryCoverageResponse)
@@ -82,6 +84,20 @@ async def check_delivery_coverage(
 
     service = OrderService(session=session, subject=subject)
     return await service.check_delivery_coverage(district=district, city=city, state_code=state_code, postal_code=postal_code)
+
+
+@router.get('/delivery-coverage/public', response_model=DeliveryCoverageResponse, dependencies=[Depends(rate_limit(PUBLIC_RATE_LIMIT))])
+async def check_delivery_coverage_public(
+    district: str = Query(default="", max_length=120),
+    city: str = Query(default="", max_length=120),
+    state_code: str = Query(default="", max_length=2),
+    postal_code: str = Query(default="", max_length=9),
+    session: AsyncSession = Depends(get_session),
+) -> DeliveryCoverageResponse:
+    """Return a best-effort delivery-coverage preview for a guest visitor browsing before login."""
+
+    service = OrderService(session=session)
+    return await service.check_delivery_coverage_public(district=district, city=city, state_code=state_code, postal_code=postal_code)
 
 
 @router.post('/draft', response_model=OrderResponse)

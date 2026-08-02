@@ -44,6 +44,19 @@ Observations:
     return "";
   })();
 
+  /** Return a readable error message from a JSON body's `detail`, including FastAPI's 422 validation-error list shape. */
+  function resolveErrorMessage(body) {
+    const detail = body && body.detail;
+    if (!detail) {
+      return 'Request failed.';
+    }
+    if (Array.isArray(detail)) {
+      const messages = detail.map((entry) => entry && entry.msg).filter(Boolean);
+      return messages.length ? messages.join('; ') : 'Request failed.';
+    }
+    return detail;
+  }
+
   function keys(namespace) {
     return {
       local: namespace + '_auth_local',
@@ -93,7 +106,7 @@ Observations:
     const contentType = response.headers.get('content-type') || '';
     const body = contentType.includes('application/json') ? await response.json() : null;
     if (!response.ok) {
-      const error = new Error(body && body.detail ? body.detail : 'Request failed.');
+      const error = new Error(resolveErrorMessage(body));
       error.status = response.status;
       error.body = body;
       throw error;
@@ -167,7 +180,7 @@ Observations:
       const contentType = response.headers.get('content-type') || '';
       const body = contentType.includes('application/json') ? await response.json() : null;
       if (!response.ok) {
-        const error = new Error(body && body.detail ? body.detail : 'Request failed.');
+        const error = new Error(resolveErrorMessage(body));
         error.status = response.status;
         error.body = body;
         throw error;
@@ -257,7 +270,7 @@ Observations:
         if (!response.ok) {
           const contentType = response.headers.get('content-type') || '';
           const body = contentType.includes('application/json') ? await response.json() : null;
-          const error = new Error(body && body.detail ? body.detail : 'Request failed.');
+          const error = new Error(resolveErrorMessage(body));
           error.status = response.status;
           error.body = body;
           throw error;

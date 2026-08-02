@@ -18,17 +18,29 @@ function normalizeMarketplaceCouponTargetList(value) {
   return [];
 }
 
-function isMarketplaceCouponActive(coupon) {
+/** Classify a coupon's local availability status — a preview only, never the source of truth (see resolveMarketplaceCoupon). */
+function classifyMarketplaceCouponStatus(coupon) {
   const now = Date.now();
   const startsAt = coupon && coupon.startsAt ? new Date(coupon.startsAt).getTime() : null;
   const endsAt = coupon && coupon.endsAt ? new Date(coupon.endsAt).getTime() : null;
   const usageLimit = coupon && coupon.usageLimit != null && coupon.usageLimit !== '' ? Number(coupon.usageLimit || 0) : null;
   const usageCount = Number((coupon && coupon.usageCount) || 0);
-  if (!coupon || coupon.active === false) return false;
-  if (startsAt != null && !Number.isNaN(startsAt) && startsAt > now) return false;
-  if (endsAt != null && !Number.isNaN(endsAt) && endsAt < now) return false;
-  if (usageLimit != null && usageLimit > 0 && usageCount >= usageLimit) return false;
-  return true;
+  if (!coupon || coupon.active === false) return 'inactive';
+  if (startsAt != null && !Number.isNaN(startsAt) && startsAt > now) return 'scheduled';
+  if (usageLimit != null && usageLimit > 0 && usageCount >= usageLimit) return 'exhausted';
+  if (endsAt != null && !Number.isNaN(endsAt) && endsAt < now) return 'expired';
+  return 'active';
+}
+
+const MARKETPLACE_COUPON_STATUS_MESSAGES = {
+  inactive: 'Este cupom foi pausado e não está mais disponível.',
+  scheduled: 'Este cupom ainda não começou a valer.',
+  expired: 'Este cupom expirou.',
+  exhausted: 'Este cupom atingiu o limite de usos e não está mais disponível.',
+};
+
+function isMarketplaceCouponActive(coupon) {
+  return classifyMarketplaceCouponStatus(coupon) === 'active';
 }
 
 function computeMarketplaceDeliveryFee(subtotal, deliveryEstimate) {
@@ -74,12 +86,28 @@ function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders, del
   if (!coupon) {
     return { ok: false, message: 'Cupom inválido.' };
   }
-  if (!isMarketplaceCouponActive(coupon)) {
-    return { ok: false, message: 'Este cupom não está ativo no momento.' };
+  if (coupon.channelScope === 'pdv') {
+    return { ok: false, message: 'Este cupom é válido apenas nas lojas físicas, não no site.' };
+  }
+  const status = classifyMarketplaceCouponStatus(coupon);
+  if (status !== 'active') {
+    return { ok: false, message: MARKETPLACE_COUPON_STATUS_MESSAGES[status] || 'Este cupom não está ativo no momento.' };
   }
   const hasPreviousOrders = Array.isArray(orders) && orders.length > 0;
   if (coupon.firstPurchaseOnly && hasPreviousOrders) {
     return { ok: false, message: 'Este cupom é válido apenas para a primeira compra.' };
+  }
+  if (coupon.audience === 'new_customers' && hasPreviousOrders) {
+    return { ok: false, message: 'Este cupom é exclusivo para clientes novos.' };
+  }
+  if (coupon.audience === 'recurring' && !hasPreviousOrders) {
+    return { ok: false, message: 'Este cupom é exclusivo para clientes que já compraram antes.' };
+  }
+  if (coupon.perCustomerLimit) {
+    const previousUses = (Array.isArray(orders) ? orders : []).filter((entry) => normalizeMarketplaceCouponCode(entry && entry.couponCode) === code).length;
+    if (previousUses >= coupon.perCustomerLimit) {
+      return { ok: false, message: 'Você já atingiu o limite de uso deste cupom.' };
+    }
   }
   const lines = (Array.isArray(items) ? items : []).map((item) => {
     const product = (Array.isArray(products) ? products : []).find((entry) => entry.id === item.id) || null;
@@ -95,6 +123,9 @@ function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders, del
       productKey: String(product.name || '').trim().toLowerCase(),
     };
   }).filter(Boolean);
+  if (coupon.audience === 'prescription' && !lines.some((line) => line.product && line.product.rx)) {
+    return { ok: false, message: 'Este cupom é válido apenas para pedidos com produtos sob prescrição.' };
+  }
   const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
   const minimumOrderValue = Math.max(0, Number(coupon.minimumOrderValue || 0));
   if (minimumOrderValue > 0 && subtotal < minimumOrderValue) {
@@ -132,6 +163,7 @@ function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders, del
       discountType: coupon.discountType || 'percent',
       shippingDiscountMode: coupon.discountType === 'shipping' ? (coupon.shippingDiscountMode || 'full') : 'full',
       discountValue: Number(coupon.discountValue || 0),
+      maxDiscountValue: coupon.discountType === 'percent' && coupon.maxDiscountValue != null && coupon.maxDiscountValue !== '' ? Number(coupon.maxDiscountValue) : null,
       discountAmount,
       pct: coupon.discountType === 'percent' ? Number(coupon.discountValue || 0) / 100 : 0,
     },
@@ -420,11 +452,14 @@ function CartScreen({ ctx }) {
           <div>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Cupom de desconto</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input className="fa-input" placeholder="Digite seu cupom" value={code} onChange={(event) => { setCode(event.target.value); setErr(''); }} style={{ height: 42 }} />
+              <input className="fa-input" placeholder="Digite seu cupom" value={code} onChange={(event) => { setCode(event.target.value.toUpperCase()); setErr(''); }} style={{ height: 42, textTransform: 'uppercase' }} />
               <button className="fa-btn fa-btn-soft" onClick={apply}>Aplicar</button>
             </div>
             {err && <div style={{ color: 'var(--fa-error)', fontSize: 12.5, marginTop: 6 }}>{err}</div>}
-            {coupon && <div style={{ color: 'var(--fa-success)', fontSize: 12.5, marginTop: 6, fontWeight: 600 }}><Icon name="check" size={13} stroke={2.6} style={{ verticalAlign: -2 }} /> Cupom {coupon.code} aplicado {coupon.discountType === 'shipping' ? coupon.shippingDiscountMode === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '% no frete)' : coupon.shippingDiscountMode === 'fixed' ? '(' + brl(coupon.discountValue) + ' no frete)' : '(frete grátis)' : coupon.discountType === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '%)' : '(' + brl(coupon.discountAmount) + ')'}</div>}
+            {coupon && <div style={{ color: 'var(--fa-success)', fontSize: 12.5, marginTop: 6, fontWeight: 600 }}><Icon name="check" size={13} stroke={2.6} style={{ verticalAlign: -2 }} /> Cupom {coupon.code} aplicado {coupon.discountType === 'shipping' ? coupon.shippingDiscountMode === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '% no frete)' : coupon.shippingDiscountMode === 'fixed' ? '(' + brl(coupon.discountValue) + ' no frete)' : '(frete grátis)' : coupon.discountType === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '%' + (coupon.maxDiscountValue != null ? ', até ' + brl(coupon.maxDiscountValue) : '') + ')' : '(' + brl(coupon.discountAmount) + ')'}</div>}
+            {coupon && coupon.discountType === 'percent' && coupon.maxDiscountValue != null && coupon.discountAmount >= coupon.maxDiscountValue && (
+              <div style={{ color: 'var(--fa-ink-3)', fontSize: 11.5, marginTop: 4 }}>Desconto limitado ao teto máximo de {brl(coupon.maxDiscountValue)} deste cupom.</div>
+            )}
           </div>
           <hr className="fa-divider" />
           <OrderSummary items={items} products={products} coupon={coupon} deliveryEstimate={deliveryEstimate} paymentRules={paymentRules} />

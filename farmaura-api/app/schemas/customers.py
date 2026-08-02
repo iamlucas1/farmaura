@@ -44,6 +44,8 @@ class CustomerProfileResponse(StrictModel):
     avatar_url: str = ""
     two_factor_enabled: bool = False
     member_since_label: str = ""
+    marketing_program_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
+    communication_channel_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
 
 
 class CustomerAvatarUpdateRequest(StrictModel):
@@ -62,6 +64,8 @@ class CustomerProfileUpdateRequest(StrictModel):
     gender: str = Field(default="", max_length=40)
     marital_status: str = Field(default="", max_length=16)
     children_count: int | None = Field(default=None, ge=0, le=20)
+    marketing_program_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
+    communication_channel_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
 
 
 # ============================================================================

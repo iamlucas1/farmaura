@@ -36,7 +36,6 @@ from app.models.store import Store
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.order_repository import OrderRepository
 from app.repositories.store_repository import StoreRepository
-from app.schemas.auth import TokenSubject
 from app.schemas.orders import DeliveryCoverageResponse
 from app.schemas.portal import (
     PortalDeliveryAreasResponse,
@@ -197,18 +196,20 @@ class DeliveryPricingService:
     # ------------------------------------------------------------------
 
     async def check_coverage(
-        self, *, subject: TokenSubject, district: str, city: str, state_code: str, postal_code: str,
+        self, *, tenant_id: str, district: str, city: str, state_code: str, postal_code: str,
     ) -> DeliveryCoverageResponse:
         """Return a best-effort delivery-coverage preview for one typed CEP/address.
 
         Resolves the nearest real store to the typed address first (not a fixed
         hub) — if it's beyond the motoboy radius, coverage is reported as requiring
         shipping instead of checking any area/neighborhood configuration, since
-        those only apply to in-house delivery.
+        those only apply to in-house delivery. Takes a bare tenant_id (no subject)
+        so both the authenticated checkout flow and the anonymous "Consultar CEP"
+        widget on the marketplace header can share this exact logic.
         """
 
         address_text = ", ".join(part for part in [district, city, state_code, postal_code, "Brasil"] if part)
-        ranked = await self.rank_stores_by_distance(tenant_id=str(subject.tenant_id), address_text=address_text)
+        ranked = await self.rank_stores_by_distance(tenant_id=tenant_id, address_text=address_text)
         if not ranked:
             return DeliveryCoverageResponse(configured=False, covered=True)
         nearest_store, distance_km = ranked[0]
@@ -218,7 +219,7 @@ class DeliveryPricingService:
                 estimated_distance_km=distance_km, nearest_store_name=nearest_store.name,
             )
         portal_service = PortalService(self.session)
-        areas = await portal_service.get_delivery_areas(subject)
+        areas = await portal_service.get_delivery_areas_for_tenant(tenant_id)
         store_config = self.find_store_area_config(areas, store_id=nearest_store.id)
         if not self.is_area_configured(store_config):
             return DeliveryCoverageResponse(configured=False, covered=True, estimated_distance_km=distance_km, nearest_store_name=nearest_store.name)

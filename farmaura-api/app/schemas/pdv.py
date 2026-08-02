@@ -67,6 +67,7 @@ class PdvQueueCreateRequest(StrictModel):
     customer: PdvCustomerLiteRequest | None = None
     items: list[PdvOrderItemRequest] = Field(min_length=1, max_length=100)
     discount: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
+    coupon_code: str = Field(default="", max_length=64)
     notes: str = Field(default="", max_length=255)
     delivery: PdvDeliveryRequest | None = None
     draft_id: str | None = None

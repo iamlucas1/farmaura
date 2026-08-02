@@ -15,8 +15,9 @@ function HealthServices({ ctx }) {
   const { healthServices, healthHistory, stores, bookHealthAppointment } = ctx;
   const [view, setView] = useState('explore');
   const [picked, setPicked] = useState(healthServices[0]);
-  const [booking, setBooking] = useState({ store: stores[0].name, date: '', time: '' });
+  const [booking, setBooking] = useState({ store: stores[0].name, date: '', time: '', couponCode: '' });
   const [confirmed, setConfirmed] = useState(false);
+  const [confirmedEntry, setConfirmedEntry] = useState(null);
   const [bookingSaving, setBookingSaving] = useState(false);
   const [bookingError, setBookingError] = useState('');
 
@@ -72,6 +73,19 @@ function HealthServices({ ctx }) {
             <span className="fa-iconbox" style={{ width: 64, height: 64, margin: '0 auto 16px', background: 'var(--fa-success-soft)', color: 'var(--fa-success)' }}><Icon name="check" size={32} stroke={2.4} /></span>
             <h2 className="fa-h3" style={{ fontSize: 20 }}>Agendamento confirmado!</h2>
             <p className="fa-muted" style={{ marginTop: 8, fontSize: 14 }}>{picked.name} · {booking.store}<br />{booking.date || 'data a confirmar'}{booking.time ? ' às ' + booking.time : ''}</p>
+            {confirmedEntry && (
+              <p style={{ marginTop: 10, fontSize: 15 }}>
+                {confirmedEntry.originalPrice > confirmedEntry.price ? (
+                  <>
+                    <span className="fa-faint" style={{ textDecoration: 'line-through', marginRight: 8 }}>{hsPrice(confirmedEntry.originalPrice)}</span>
+                    <span style={{ fontWeight: 800, color: 'var(--fa-success)' }}>{hsPrice(confirmedEntry.price)}</span>
+                    {confirmedEntry.couponCode ? <span className="fa-faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>Cupom {confirmedEntry.couponCode} aplicado</span> : null}
+                  </>
+                ) : (
+                  <span style={{ fontWeight: 800 }}>{hsPrice(confirmedEntry.price)}</span>
+                )}
+              </p>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 20, flexWrap: 'wrap' }}>
               <button className="fa-btn fa-btn-primary" onClick={() => setView('history')}>Ver no histórico</button>
               <button className="fa-btn fa-btn-soft" onClick={() => { setConfirmed(false); setView('explore'); }}>Agendar outro</button>
@@ -93,12 +107,14 @@ function HealthServices({ ctx }) {
                   </select>
                 </div>
                 <div className="fa-field"><label>Data</label><input className="fa-input" type="date" value={booking.date} onChange={(e) => setBooking((b) => ({ ...b, date: e.target.value }))} /></div>
+                <div className="fa-field"><label>Cupom (opcional)</label><input className="fa-input" value={booking.couponCode} onChange={(e) => setBooking((b) => ({ ...b, couponCode: e.target.value.toUpperCase() }))} placeholder="Ex.: VACINA10" /></div>
               </div>
               <div className="fa-field" style={{ marginTop: 16 }}><label>Horário</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
                   {HS_TIMES.map((t) => <button key={t} className="fa-chip" data-active={booking.time === t ? '1' : '0'} onClick={() => setBooking((b) => ({ ...b, time: t }))}>{t}</button>)}
                 </div>
               </div>
+              <p className="fa-faint" style={{ fontSize: 12, marginTop: 8 }}>Promoções ativas para este serviço são aplicadas automaticamente ao confirmar; o cupom é opcional e some no valor final.</p>
               {bookingError ? <div style={{ marginTop: 14, color: 'var(--fa-error)', fontSize: 13 }}>{bookingError}</div> : null}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 22, flexWrap: 'wrap' }}>
                 <div style={{ marginRight: 'auto' }}><div className="fa-faint" style={{ fontSize: 12 }}>Valor do serviço</div><div style={{ fontWeight: 800, fontSize: 18 }}>{hsPrice(picked.price)}</div></div>
@@ -107,13 +123,15 @@ function HealthServices({ ctx }) {
                     setBookingError('');
                     setBookingSaving(true);
                     const selectedStore = stores.find((s) => s.name === booking.store);
-                    await bookHealthAppointment({
+                    const history = await bookHealthAppointment({
                       serviceId: picked.id,
                       storeId: selectedStore ? selectedStore.id : '',
                       store: booking.store,
                       date: booking.date,
                       time: booking.time,
+                      couponCode: booking.couponCode,
                     });
+                    setConfirmedEntry(Array.isArray(history) && history.length ? history[0] : null);
                     setConfirmed(true);
                   } catch (error) {
                     setBookingError(error && error.message ? error.message : 'Não foi possível confirmar o agendamento agora.');

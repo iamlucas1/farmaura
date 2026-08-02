@@ -45,7 +45,6 @@ def build_inventory_item(
         sku=f"SKU-{item_id}",
         ean_code=f"EAN-{item_id}",
         sale_price=Decimal("10.00"),
-        promotional_discount_percent=Decimal("0.00"),
         quantity=quantity,
         category_name="Medicamentos",
         medication_class_name="Geral",

@@ -15,7 +15,7 @@ Observations:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import or_, select, text
@@ -31,10 +31,24 @@ from app.models.product_review import ProductReview
 from app.models.user import User
 from app.repositories.inventory_repository import InventoryRepository
 from app.schemas.auth import TokenSubject
-from app.schemas.catalog import CatalogItem, CatalogListResponse, CatalogReviewSummary, PublicCatalogItem, PublicCatalogListResponse
+from app.schemas.catalog import (
+    CatalogItem,
+    CatalogListResponse,
+    CatalogReviewSummary,
+    MostSearchedProductResponse,
+    MostSearchedProductsResponse,
+    PublicCatalogItem,
+    PublicCatalogListResponse,
+)
 from app.schemas.portal import PortalProductReviewResponse
-from app.services.marketplace_projection import build_marketplace_catalog_groups, compute_effective_price, quantize_money
-from app.services.pricing_promotion_service import compute_discount_percent, find_best_promotion, resolve_customer_promotion_profile
+from app.services.marketplace_projection import build_marketplace_catalog_groups
+from app.services.pricing_promotion_service import (
+    CustomerPromotionProfile,
+    apply_promotion_to_catalog_item,
+    promotion_has_audience_restrictions,
+    resolve_customer_promotion_profile,
+)
+from app.services.purchase_analytics_service import compute_xyz_class, month_range, months_ago_first_day
 
 
 # ============================================================================
@@ -103,6 +117,9 @@ class CatalogService:
                 info=str(item['info']),
                 aliases=list(item['aliases']),
                 inventory_ids=list(item['inventory_ids']),
+                promotion_highlight=str(item.get('promotion_highlight', '')),
+                discount_type=str(item.get('discount_type', '') or 'percent'),
+                urgency_label=str(item.get('urgency_label', '')),
                 review_summary=review_summary_map.get(str(item['id']), CatalogReviewSummary()),
             )
             for item in paginated
@@ -117,6 +134,7 @@ class CatalogService:
             return PublicCatalogListResponse(items=[], page=page, page_size=page_size, total=0)
         await apply_public_marketplace_context(self.session, tenant_id)
         grouped = await self._list_grouped_products(tenant_id=tenant_id)
+        grouped = await self._apply_guest_promotions(tenant_id=tenant_id, grouped=grouped)
         review_summary_map = await self._build_review_summary_map(tenant_id=tenant_id, grouped=grouped)
         total = len(grouped)
         offset = (page - 1) * page_size
@@ -140,6 +158,9 @@ class CatalogService:
                 stock=int(item['stock']),
                 tags=list(item['tags']),
                 info=str(item['info']),
+                promotion_highlight=str(item.get('promotion_highlight', '')),
+                discount_type=str(item.get('discount_type', '') or 'percent'),
+                urgency_label=str(item.get('urgency_label', '')),
                 review_summary=review_summary_map.get(str(item['id']), CatalogReviewSummary()),
             )
             for item in paginated
@@ -193,21 +214,40 @@ class CatalogService:
             except Exception:
                 await self.session.rollback()
         for item in grouped:
-            old_price_raw = item.get('old_price')
-            base_price = quantize_money(Decimal(str(old_price_raw)) if old_price_raw is not None else Decimal(str(item['price'])))
-            promotion = find_best_promotion(promotions, category=str(item['cat']), product_name=str(item['name']), profile=profile, now=now)
-            if promotion is None:
-                continue
-            promo_percent = compute_discount_percent(promotion, base_price=base_price)
-            current_discount_percent = int(str(item['discount_percent']))
-            if promo_percent <= current_discount_percent:
-                continue
-            item['price'] = compute_effective_price(base_price, promo_percent)
-            item['old_price'] = base_price
-            item['discount_percent'] = int(promo_percent)
-            tags = item['tags']
-            if isinstance(tags, list) and 'oferta' not in tags:
-                item['tags'] = [*tags, 'oferta']
+            apply_promotion_to_catalog_item(item, promotions=promotions, profile=profile, now=now)
+        return grouped
+
+    async def _apply_guest_promotions(self, *, tenant_id: str, grouped: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Override grouped catalog pricing with active promotions visible to anonymous visitors.
+
+        Only promotions explicitly marked ``guest_visible`` are considered, and only when they
+        carry no audience restriction (enforced at creation time in ``portal_service`` — an
+        anonymous visitor has no customer profile to evaluate a restriction against).
+        """
+
+        promotions = list(
+            (
+                await self.session.execute(
+                    select(PricingPromotion).where(
+                        PricingPromotion.tenant_id == tenant_id,
+                        PricingPromotion.is_active.is_(True),
+                        PricingPromotion.guest_visible.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        promotions = [promotion for promotion in promotions if not promotion_has_audience_restrictions(promotion)]
+        if not promotions:
+            return grouped
+        guest_profile = CustomerPromotionProfile(
+            age=None, regions=(), device_type="", marital_status="", children_count=None,
+            is_new=False, is_recurring=False, loyalty_tier="",
+        )
+        now = datetime.now(tz=UTC)
+        for item in grouped:
+            apply_promotion_to_catalog_item(item, promotions=promotions, profile=guest_profile, now=now)
         return grouped
 
     async def _list_grouped_products(self, *, tenant_id: str) -> list[dict[str, object]]:
@@ -276,6 +316,57 @@ class CatalogService:
             ]
             result[group_id] = CatalogReviewSummary(rating_average=average, review_count=len(entries), comments=comments)
         return result
+
+    async def list_most_searched_products(self, *, months: int = 3, limit: int = 10) -> MostSearchedProductsResponse:
+        """Return the top-demand products ranked by real sales volume, for the "most searched" home tile.
+
+        Reuses the same monthly-demand aggregation as the internal ABC/XYZ purchase-analytics
+        panel (PurchaseAnalyticsRepository.monthly_sales_by_product, online + PDV combined),
+        but ranks by realized total_quantity — an actual demand signal — rather than repurposing
+        the XYZ letter itself as an ordering (XYZ measures month-to-month variability, not
+        volume; a low-volume product bought once a month for 3 months is trivially "X"). Each
+        item still carries its xyz_class for display, since XYZ is real, useful context once you
+        already know the product is in-demand.
+        """
+
+        tenant_id = await self._resolve_public_tenant_id()
+        if not tenant_id:
+            return MostSearchedProductsResponse(items=[])
+        months = max(1, min(months, 12))
+        limit = max(1, min(limit, 20))
+        today = datetime.now(UTC).date()
+        since_date = months_ago_first_day(today, months)
+        window = month_range(since_date, months)
+
+        # A plain 'customer'-role session (even tenant-scoped) is only allowed to read its own
+        # orders under RLS — never every customer's, which this ranking genuinely needs. Uses
+        # the narrow SECURITY DEFINER aggregate function instead of
+        # PurchaseAnalyticsRepository.monthly_sales_by_product (admin-only, RLS-scoped ORM
+        # query) — same tenant-id-only-bypass pattern as _resolve_public_tenant_id, and it
+        # returns only product/month/quantity/revenue totals, never a customer_id or order_id.
+        result = await self.session.execute(
+            text("SELECT product_id, month, quantity, revenue FROM app_private.public_monthly_product_sales(:tenant_id, :since)"),
+            {"tenant_id": tenant_id, "since": datetime.combine(since_date, datetime.min.time(), tzinfo=UTC)},
+        )
+        by_product: dict[str, dict[date, int]] = {}
+        for row in result.all():
+            by_product.setdefault(str(row.product_id), {})[row.month] = int(row.quantity or 0)
+
+        ranked: list[tuple[str, int, str]] = []
+        for product_id, month_map in by_product.items():
+            series = [month_map.get(month, 0) for month in window]
+            total_quantity = sum(series)
+            if total_quantity <= 0:
+                continue
+            ranked.append((product_id, total_quantity, compute_xyz_class(series)))
+        ranked.sort(key=lambda entry: entry[1], reverse=True)
+
+        return MostSearchedProductsResponse(
+            items=[
+                MostSearchedProductResponse(product_id=product_id, rank=index + 1, xyz_class=xyz_class)
+                for index, (product_id, _total_quantity, xyz_class) in enumerate(ranked[:limit])
+            ]
+        )
 
     async def _resolve_public_tenant_id(self) -> str:
         """Return the first tenant that has active sellable inventory.

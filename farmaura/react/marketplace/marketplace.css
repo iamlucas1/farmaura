@@ -143,19 +143,19 @@ a { color: inherit; text-decoration: none; }
   background: var(--fa-rose-soft); color: var(--fa-primary);
 }
 
-/* ---------- Quick category menu (home top) ---------- */
+/* ---------- Category menu (home top, sourced from the internal Categorias catalog) ---------- */
 .fa-quickcats {
-  display: flex; gap: 14px; overflow-x: auto;
-  padding-bottom: 2px; scroll-snap-type: x proximity;
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px 22px;
 }
+@media (max-width: 640px) { .fa-quickcats { justify-content: center; } }
 .fa-quickcat {
-  flex: 1 0 92px; min-width: 92px; scroll-snap-align: start;
+  flex: 0 0 92px;
   display: flex; flex-direction: column; align-items: center; gap: 9px;
   border: none; background: transparent; padding: 0; cursor: pointer; text-align: center;
 }
 .fa-quickcat-tile {
   width: 100%; max-width: 104px; height: 56px; border-radius: 15px;
-  background: var(--fa-beige); color: var(--fa-vital);
+  background: var(--fa-rose-soft); color: var(--fa-primary);
   display: grid; place-items: center;
   transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
 }
@@ -172,6 +172,10 @@ a { color: inherit; text-decoration: none; }
 .fa-slider-track { display: flex; transition: transform .6s cubic-bezier(.4, 0, .2, 1); }
 @media (prefers-reduced-motion: reduce) { .fa-slider-track { transition: none; } }
 .fa-slide { flex: 0 0 100%; position: relative; min-height: clamp(320px, 34vw, 392px); display: flex; align-items: center; padding: clamp(32px, 5vw, 56px); overflow: hidden; }
+.fa-slide-item { flex: 0 0 100%; position: relative; min-height: clamp(220px, 26vw, 340px); overflow: hidden; background: var(--fa-mist-2); }
+.fa-slide-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fa-slide-item button { display: block; width: 100%; height: 100%; border: none; padding: 0; margin: 0; background: none; cursor: pointer; }
+.fa-slide-item-html { width: 100%; height: 100%; overflow: auto; }
 .fa-slide-content { position: relative; z-index: 1; max-width: 560px; }
 .fa-slide-lead { font-size: 17px; line-height: 1.5; margin-top: 16px; max-width: 460px; }
 .fa-slide-actions { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
@@ -256,6 +260,45 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer; min-width: 0;
 }
 .fa-pc:hover { transform: translateY(-3px); box-shadow: var(--fa-shadow-md); border-color: var(--fa-rose); }
+
+/* Superpromoção — o card inteiro chama atenção (borda + glow), não um texto explicando o que é */
+.fa-pc[data-superpromo="1"] {
+  border: 2px solid var(--fa-vital);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fa-vital) 7%, var(--fa-surface)) 0%, var(--fa-surface) 65%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fa-vital) 16%, transparent), var(--fa-shadow-sm);
+}
+.fa-pc[data-superpromo="1"]:hover {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--fa-vital) 24%, transparent), var(--fa-shadow-lg);
+}
+.fa-pc-superbadge {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: linear-gradient(135deg, var(--fa-vital), var(--fa-primary));
+  color: #fff; font-weight: 900; font-size: 15px; letter-spacing: -.01em;
+  padding: 5px 10px 5px 7px; border-radius: 999px; line-height: 1;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--fa-vital) 45%, transparent);
+  animation: faSuperPulse 2.2s ease-in-out infinite;
+}
+@keyframes faSuperPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+@media (prefers-reduced-motion: reduce) { .fa-pc-superbadge { animation: none; } }
+
+/* Badge de desconto do modo Simplificado — maior que um badge comum, sem virar superpromoção */
+.fa-pc-discount-badge { font-size: 14px; font-weight: 800; padding: 6px 11px; }
+
+/* Chip "Economize R$X" — sempre em reais, é o que mais convence, independente de % ou valor fixo */
+.fa-pc-savings {
+  display: inline-flex; align-items: center; font-weight: 700; font-size: 12.5px;
+  color: var(--fa-success); background: var(--fa-success-soft);
+  padding: 3px 9px; border-radius: 999px; width: fit-content;
+}
+.fa-pc-savings[data-super="1"] {
+  font-size: 15px; font-weight: 900; color: var(--fa-vital); background: none; padding: 0;
+}
+
+/* Texto de urgência/escassez, configurável por promoção — estilo "restam poucas unidades" */
+.fa-pc-urgency {
+  display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700;
+  color: #b9772a;
+}
 .fa-pc-flags { position: absolute; top: calc(var(--fa-card-pad) + 6px); left: calc(var(--fa-card-pad) + 6px); display: flex; flex-direction: column; gap: 6px; z-index: 2; align-items: flex-start; }
 .fa-pc-fav { position: absolute; top: calc(var(--fa-card-pad) + 4px); right: calc(var(--fa-card-pad) + 4px); z-index: 2;
   width: 32px; height: 32px; border-radius: 999px; background: rgba(255,255,255,.85); backdrop-filter: blur(4px);
@@ -584,53 +627,70 @@ a { color: inherit; text-decoration: none; }
 
 @media (max-width: 560px) { .fa-svc-cta { grid-template-columns: 1fr !important; } }
 
-/* ---------- Differentials (home benefit cards) ---------- */
+/* ---------- Differentials (home benefits — colored rule to the left, no card) ---------- */
+.fa-diff-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 32px; }
 .fa-diff {
   --acc: var(--fa-primary);
   position: relative; overflow: hidden;
-  display: flex; flex-direction: column; gap: 11px;
-  padding: 22px 20px; text-align: left; cursor: pointer;
-  background: var(--fa-surface);
-  border: 1px solid var(--fa-mist);
-  border-radius: var(--fa-r-card);
-  box-shadow: var(--fa-shadow-sm);
-  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
-  min-height: 168px;
+  display: flex; flex-direction: column;
+  text-align: left; cursor: pointer;
+  background: none; border: none; padding: 2px 8px 2px 18px;
 }
 .fa-diff::before {
-  /* soft accent wash that fills in on hover */
-  content: ""; position: absolute; inset: 0;
-  background: color-mix(in srgb, var(--acc) 7%, transparent);
-  opacity: 0; transition: opacity .2s ease; pointer-events: none;
+  content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 3px; border-radius: 2px;
+  background: var(--acc);
 }
-.fa-diff:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--fa-shadow-md);
-  border-color: color-mix(in srgb, var(--acc) 35%, var(--fa-mist));
-}
-.fa-diff:hover::before { opacity: 1; }
 .fa-diff-glyph {
-  position: absolute; right: -14px; bottom: -18px;
-  color: var(--acc); opacity: .07; pointer-events: none;
+  position: absolute; right: -10px; bottom: -14px;
+  color: var(--acc); opacity: .08; pointer-events: none;
   transition: transform .25s ease, opacity .2s ease;
 }
-.fa-diff:hover .fa-diff-glyph { transform: scale(1.08) rotate(-4deg); opacity: .1; }
-.fa-diff-badge {
-  position: relative; width: 50px; height: 50px; border-radius: 15px;
-  display: grid; place-items: center; color: #fff;
-  background: var(--acc);
-  box-shadow: 0 6px 14px color-mix(in srgb, var(--acc) 30%, transparent);
-}
-.fa-diff-t { position: relative; font-weight: 800; font-size: 15.5px; line-height: 1.25; color: var(--fa-ink); letter-spacing: -.01em; }
-.fa-diff-d { position: relative; margin: 0; font-size: 13px; line-height: 1.45; color: var(--fa-ink-2); text-wrap: pretty; }
+.fa-diff:hover .fa-diff-glyph { transform: scale(1.06); opacity: .12; }
+.fa-diff-icon { position: relative; color: var(--acc); margin-bottom: 18px; }
+.fa-diff-t { position: relative; font-weight: 800; font-size: 15.5px; line-height: 1.25; color: var(--fa-ink); letter-spacing: -.01em; margin: 0 0 7px; }
+.fa-diff-d { position: relative; margin: 0 0 16px; font-size: 13px; line-height: 1.45; color: var(--fa-ink-2); text-wrap: pretty; }
 .fa-diff-link {
-  position: relative; margin-top: auto; padding-top: 4px;
+  position: relative; margin-top: auto;
   display: inline-flex; align-items: center; gap: 6px;
   font-weight: 700; font-size: 12.5px; color: var(--acc);
-  letter-spacing: .01em;
+  letter-spacing: .01em; width: fit-content;
 }
 .fa-diff-arrow { display: inline-flex; transition: transform .2s ease; }
 .fa-diff:hover .fa-diff-arrow { transform: translateX(4px); }
+@media (max-width: 1080px) { .fa-diff-grid { grid-template-columns: repeat(3, 1fr); row-gap: 32px; } }
+@media (max-width: 700px) { .fa-diff-grid { grid-template-columns: repeat(2, 1fr); row-gap: 32px; } }
+@media (max-width: 420px) { .fa-diff-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Brand circles (admin-configured "marcas em destaque", each links to a brand-filtered shop) ---------- */
+.fa-brands-strip {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 28px 34px;
+}
+.fa-brand-circle {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: none; border: none; cursor: pointer; padding: 2px;
+  width: 88px;
+}
+.fa-brand-circle-img {
+  width: 76px; height: 76px; border-radius: 50%;
+  overflow: hidden; flex: none;
+  box-shadow: 0 0 0 1px var(--fa-mist);
+  background: #fff;
+  transition: box-shadow .2s ease, transform .2s ease;
+}
+.fa-brand-circle-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fa-brand-circle:hover .fa-brand-circle-img { box-shadow: 0 0 0 2px var(--fa-primary); transform: translateY(-3px); }
+.fa-brand-circle-label {
+  font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2);
+  text-align: center; line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.fa-brand-circle:hover .fa-brand-circle-label { color: var(--fa-primary); }
+@media (max-width: 420px) {
+  .fa-brands-strip { gap: 22px 20px; }
+  .fa-brand-circle { width: 72px; }
+  .fa-brand-circle-img { width: 62px; height: 62px; }
+}
 
 /* ---------- Cashback hero ---------- */
 .fa-cb-hero {
@@ -655,8 +715,7 @@ a { color: inherit; text-decoration: none; }
 .fa-cb-balance { font-size: clamp(34px, 5vw, 46px); font-weight: 800; line-height: 1.05; margin-top: 6px; letter-spacing: -.02em; }
 .fa-cb-note { margin: 8px 0 0; font-size: 14px; line-height: 1.45; color: rgba(255,255,255,.86); max-width: 460px; }
 
-/* ---------- "Minha Farmaura" hub menu ---------- */
-.fa-caremenu { display: inline-flex; }
+/* ---------- Account menu dropdown panel (opened by .fa-accmenu-trigger) ---------- */
 .fa-caremenu-pop {
   position: absolute; right: 0; top: calc(100% + 10px); z-index: 70;
   width: 308px; background: var(--fa-surface); border: 1px solid var(--fa-mist);
@@ -677,8 +736,6 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
 }
 .fa-cm-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.fa-top-avatar { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; }
-.fa-top-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .fa-caremenu-item {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 9px 10px; border: none; background: transparent;
@@ -696,17 +753,32 @@ a { color: inherit; text-decoration: none; }
 .fa-cm-l { font-weight: 700; font-size: 14px; color: var(--fa-ink); }
 .fa-cm-d { font-size: 12px; color: var(--fa-ink-3); margin-top: 1px; }
 
-/* Hub trigger in the top header bar (always visible, incl. home) */
-.fa-caremenu-top > .fa-navlink {
-  height: 44px; padding: 0 14px; gap: 8px;
-  border: 1px solid var(--fa-mist); border-radius: var(--fa-r-pill);
-  background: var(--fa-surface); color: var(--fa-ink-2); font-size: 13.5px; white-space: nowrap;
+/* Account trigger in the top header bar (merges former "Minha Farmaura" link + user icon; always visible) */
+.fa-accmenu { display: inline-flex; }
+.fa-accmenu-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 44px; padding: 0 14px 0 10px; border: 1px solid var(--fa-mist); border-radius: var(--fa-r-pill);
+  background: var(--fa-surface); color: var(--fa-ink-2); font-weight: 700; font-size: 13.5px;
+  white-space: nowrap; cursor: pointer; transition: background .15s, color .15s, border-color .15s;
 }
-.fa-caremenu-top > .fa-navlink:hover,
-.fa-caremenu-top > .fa-navlink[data-active="1"] {
+.fa-accmenu-trigger:hover,
+.fa-accmenu-trigger[data-active="1"] {
   background: var(--fa-rose-soft); color: var(--fa-primary); border-color: var(--fa-rose);
 }
-@media (max-width: 980px) { .fa-caremenu-top { display: none; } }
+/* Logged out: styled as a clear call-to-action to sign in or create an account, not a neutral icon */
+.fa-accmenu-trigger[data-logged="0"] { background: var(--fa-primary); color: #fff; border-color: var(--fa-primary); }
+.fa-accmenu-trigger[data-logged="0"]:hover,
+.fa-accmenu-trigger[data-logged="0"][data-active="1"] { background: #6a0b13; border-color: #6a0b13; color: #fff; }
+.fa-am-avatar {
+  width: 26px; height: 26px; border-radius: 999px; flex: none; overflow: hidden;
+  display: grid; place-items: center; font-weight: 800; font-size: 11px;
+  background: var(--fa-rose-soft); color: var(--fa-primary);
+}
+.fa-am-avatar img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 640px) {
+  .fa-am-label { display: none; }
+  .fa-accmenu-trigger { padding: 0 10px; gap: 4px; }
+}
 
 /* ---------- "Entregar em" delivery CEP popover ---------- */
 .fa-delivery-pop {
@@ -715,4 +787,73 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-lg);
   padding: 14px; color: var(--fa-ink);
   animation: faPop .16s cubic-bezier(.4,0,.2,1);
+}
+
+/* ---------- Launch countdown (split-flap clock) ---------- */
+.cd-logo { height: 56px; width: auto; display: block; margin: 0 auto 22px; }
+
+.cd-clock {
+  display: flex; align-items: flex-start; justify-content: center;
+  gap: 10px; flex-wrap: wrap;
+}
+
+.cd-sep {
+  font-size: 30px; font-weight: 800; line-height: 1; color: var(--fa-ink-3);
+  align-self: center; margin-top: -22px;
+}
+
+.cd-unit { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+.cd-unit-digits { display: flex; gap: 4px; }
+
+.cd-unit-label {
+  font-size: 12px; font-weight: 800; color: var(--fa-ink-2);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+
+/* Each digit is a little mechanical "flap" module: a dark bezel holding a lighter face with the
+   current number and a subtle horizontal seam (::after) mimicking where a real split-flap display
+   folds in half. perspective on the bezel is what gives the flap its 3D fold when it flips away. */
+.cd-digit {
+  position: relative; width: 46px; height: 64px; overflow: hidden;
+  border-radius: 10px; background: var(--fa-ink);
+  box-shadow: var(--fa-shadow-md), inset 0 1px 0 rgba(255,255,255,.08);
+  perspective: 240px;
+}
+.cd-digit::after {
+  content: ""; position: absolute; left: 6px; right: 6px; top: 50%;
+  height: 1px; background: rgba(0,0,0,.35); z-index: 2; pointer-events: none;
+}
+
+.cd-digit-face, .cd-digit-flap {
+  position: absolute; inset: 2px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #fff 0%, #ECE6E4 100%);
+  font-size: 32px; font-weight: 800; line-height: 1; color: var(--fa-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The outgoing digit folds down like a real split-flap card, fading out as it passes 90°;
+   the incoming digit is already the face underneath, so nothing needs to animate "in". */
+.cd-digit-flap {
+  transform-origin: 50% 0%;
+  animation: cdFlipDown .45s cubic-bezier(.5,0,.75,0) forwards;
+  z-index: 3;
+}
+
+@keyframes cdFlipDown {
+  0% { transform: rotateX(0deg); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: rotateX(-100deg); opacity: 0; }
+}
+
+/* Seconds tick fastest — the brand's energy-red accent keeps eyes on it as "alive". */
+.cd-unit:last-child .cd-digit-face,
+.cd-unit:last-child .cd-digit-flap { color: var(--fa-vital); }
+
+@media (max-width: 480px) {
+  .cd-digit { width: 38px; height: 54px; }
+  .cd-digit-face, .cd-digit-flap { font-size: 26px; }
+  .cd-sep { font-size: 24px; margin-top: -18px; }
 }

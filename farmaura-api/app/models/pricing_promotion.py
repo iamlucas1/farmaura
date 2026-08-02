@@ -56,12 +56,23 @@ class PricingPromotion(Base, UuidModel, TimestampedModel):
             "starts_at IS NULL OR ends_at IS NULL OR starts_at < ends_at",
             name="pricing_promotions_schedule_window_valid",
         ),
+        CheckConstraint(
+            "highlight_style IN ('standard', 'superpromo')",
+            name="pricing_promotions_highlight_style_valid",
+        ),
+        CheckConstraint(
+            "kind IN ('campaign', 'product_discount')",
+            name="pricing_promotions_kind_valid",
+        ),
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # "campaign": full-featured, may target an audience. "product_discount": a direct markdown on one
+    # or more specific products, never audience-segmented by definition — enforced in portal_service.py.
+    kind: Mapped[str] = mapped_column(String(24), default="campaign", nullable=False)
 
     discount_type: Mapped[str] = mapped_column(String(16), default="percent", nullable=False)
     discount_value: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
@@ -70,6 +81,11 @@ class PricingPromotion(Base, UuidModel, TimestampedModel):
     scope_type: Mapped[str] = mapped_column(String(24), default="all", nullable=False)
     target_categories: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     target_products: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    # "services": targets HealthService.service_name entries — deliberately never matched by
+    # scope_type="all"/"categories"/"products" (see pricing_promotion_service._matches_scope and
+    # find_best_service_promotion), so an existing catalog-wide campaign never silently starts
+    # discounting health-service bookings the day this axis is adopted.
+    target_services: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -85,6 +101,13 @@ class PricingPromotion(Base, UuidModel, TimestampedModel):
     min_children: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_children: Mapped[int | None] = mapped_column(Integer, nullable=True)
     customer_segment: Mapped[str] = mapped_column(String(24), default="all", nullable=False)
+    target_loyalty_tiers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+    guest_visible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    highlight_style: Mapped[str] = mapped_column(String(16), default="standard", nullable=False)
+    # Free-text urgency/scarcity message shown on the marketplace card when this promotion wins
+    # (e.g. "Restam só 2 no estoque") — set manually by the admin, not derived from real stock.
+    urgency_label: Mapped[str] = mapped_column(String(60), default="", nullable=False)
 
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)

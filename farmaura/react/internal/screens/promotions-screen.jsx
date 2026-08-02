@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ModalShell, Toggle } from "../../marketplace/core/marketplace-components.jsx";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { Topbar } from "../core/internal-shell.jsx";
-import { AnCard } from "./analytics-screen.jsx";
 import { StatCard } from "./dashboard-screen.jsx";
 import {
   COUPON_SCOPE_LABELS,
@@ -11,6 +10,7 @@ import {
   CouponTargetPicker,
   buildCouponCategoryOptions,
   buildCouponProductOptions,
+  buildCouponServiceOptions,
 } from "./coupons-screen.jsx";
 import { cnaeIndexByCode, priceCalc, priceForMargin } from "./pricing-screen.jsx";
 
@@ -34,9 +34,23 @@ Observations:
 
 const PROMO_DISCOUNT_TYPE_LABELS = { percent: 'Percentual', fixed: 'Valor fixo' };
 const MARITAL_STATUS_LABELS = { single: 'Solteiro(a)', married: 'Casado(a)', divorced: 'Divorciado(a)', widowed: 'Viúvo(a)', other: 'Outro' };
-const DEVICE_TYPE_LABELS = { mobile: 'Celular', tablet: 'Tablet', desktop: 'Computador' };
+// Web-only marketplace, sem app nativo — este eixo distingue sistema operacional/tipo de
+// aparelho a partir do User-Agent, não "web vs aplicativo" (não existe canal de app real).
+const DEVICE_TYPE_LABELS = { ios: 'iPhone', android: 'Android', tablet: 'Tablet', desktop: 'Computador', outro: 'Outro' };
 const SEGMENT_LABELS = { all: 'Todos os clientes', new_customers: 'Novos clientes', recurring: 'Clientes recorrentes' };
+const LOYALTY_TIER_LABELS = { Novo: 'Novo', Bronze: 'Bronze', Prata: 'Prata', Ouro: 'Ouro', Diamante: 'Diamante', Platina: 'Platina' };
 const WEEKDAY_CHIP_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+// "campaign": full-featured, may target an audience. "product_discount": a direct markdown on one
+// or more specific products — never audience-segmented by definition (enforced server-side too).
+const PROMOTION_KIND_LABELS = { campaign: 'Campanha', product_discount: 'Desconto de produto' };
+// Sugestões rápidas pro texto de urgência do card — é sempre texto livre, isto é só atalho.
+const URGENCY_LABEL_PRESETS = [
+  'Últimas unidades',
+  'Restam só 2 no estoque',
+  'Restam só 1 no estoque',
+  'Estoque acabando',
+  'Corre que acaba rápido',
+];
 
 const PROMO_STATUS_META = {
   active: { label: 'Ativa', badge: 'fa-badge-health', icon: 'check' },
@@ -46,19 +60,21 @@ const PROMO_STATUS_META = {
   inactive: { label: 'Pausada', badge: 'fa-badge-mist', icon: 'pause' },
 };
 
-/** Build a view-model draft for the promotion form. */
-function createPromotionDraft(sourcePromotion) {
-  const promotion = sourcePromotion || {};
+/** Build a view-model draft for the promotion form, optionally pre-filled (e.g. from the Precificador). */
+function createPromotionDraft(sourcePromotion, initialDraft) {
+  const promotion = { ...(sourcePromotion || {}), ...(initialDraft || {}) };
   return {
     name: promotion.name || '',
     description: promotion.description || '',
     active: promotion.active !== false,
+    kind: promotion.kind === 'product_discount' ? 'product_discount' : 'campaign',
     discountType: promotion.discountType || 'percent',
     discountValue: promotion.discountValue == null ? 10 : Number(promotion.discountValue || 0),
     maxDiscountValue: promotion.maxDiscountValue == null ? '' : Number(promotion.maxDiscountValue),
     scopeType: promotion.scopeType || 'all',
     targetCategories: Array.isArray(promotion.targetCategories) ? promotion.targetCategories : [],
     targetProducts: Array.isArray(promotion.targetProducts) ? promotion.targetProducts : [],
+    targetServices: Array.isArray(promotion.targetServices) ? promotion.targetServices : [],
     startsAt: promotion.startsAt || '',
     endsAt: promotion.endsAt || '',
     useDailyWindow: !!(promotion.dailyStartTime && promotion.dailyEndTime),
@@ -75,9 +91,21 @@ function createPromotionDraft(sourcePromotion) {
     minChildren: promotion.minChildren == null ? 0 : Number(promotion.minChildren),
     maxChildren: promotion.maxChildren == null ? 3 : Number(promotion.maxChildren),
     customerSegment: promotion.customerSegment || 'all',
+    targetLoyaltyTiers: Array.isArray(promotion.targetLoyaltyTiers) ? promotion.targetLoyaltyTiers : [],
+    guestVisible: !!promotion.guestVisible,
+    highlightStyle: promotion.highlightStyle === 'superpromo' ? 'superpromo' : 'standard',
+    urgencyLabel: promotion.urgencyLabel || '',
     priority: promotion.priority == null ? 0 : Number(promotion.priority),
     notes: promotion.notes || '',
   };
+}
+
+/** Return whether a draft has any audience-restricting axis set — guestVisible requires none. */
+function promotionDraftHasAudienceRestrictions(draft) {
+  return !!(
+    draft.useAgeRange || draft.regions.length || draft.deviceTypes.length || draft.maritalStatuses.length
+    || draft.useChildrenRange || (draft.customerSegment && draft.customerSegment !== 'all') || draft.targetLoyaltyTiers.length
+  );
 }
 
 /** Normalize a draft into the payload shape the backend expects, dropping unused axes. */
@@ -86,6 +114,7 @@ function buildPromotionPayloadFromDraft(draft) {
     ...draft,
     targetCategories: draft.scopeType === 'categories' ? draft.targetCategories : [],
     targetProducts: draft.scopeType === 'products' ? draft.targetProducts : [],
+    targetServices: draft.scopeType === 'services' ? draft.targetServices : [],
     dailyStartTime: draft.useDailyWindow ? draft.dailyStartTime : '',
     dailyEndTime: draft.useDailyWindow ? draft.dailyEndTime : '',
     minAge: draft.useAgeRange ? draft.minAge : null,
@@ -138,6 +167,9 @@ function getPromotionScopeBadges(promotion) {
   if (promotion.scopeType === 'products') {
     (promotion.targetProducts || []).slice(0, 3).forEach((item) => badges.push(item));
   }
+  if (promotion.scopeType === 'services') {
+    (promotion.targetServices || []).slice(0, 3).forEach((item) => badges.push(item));
+  }
   return badges;
 }
 
@@ -157,12 +189,13 @@ function getPromotionAudienceBadges(promotion) {
   if (promotion.customerSegment && promotion.customerSegment !== 'all') {
     badges.push(SEGMENT_LABELS[promotion.customerSegment] || promotion.customerSegment);
   }
+  (promotion.targetLoyaltyTiers || []).forEach((tier) => badges.push(LOYALTY_TIER_LABELS[tier] || tier));
   return badges.length ? badges : ['Todo o público'];
 }
 
 /** Build searchable text for one promotion row. */
 function buildPromotionSearchText(promotion) {
-  return [promotion.name, promotion.description, promotion.notes, (promotion.targetCategories || []).join(' '), (promotion.targetProducts || []).join(' ')].join(' ').toLowerCase();
+  return [promotion.name, promotion.description, promotion.notes, (promotion.targetCategories || []).join(' '), (promotion.targetProducts || []).join(' '), (promotion.targetServices || []).join(' ')].join(' ').toLowerCase();
 }
 
 /** Build distinct region (city) options from the CRM customer base already loaded in context. */
@@ -186,6 +219,7 @@ function PromotionsScreen({ ctx }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [segmentFilter, setSegmentFilter] = useState('all');
+  const [kindFilter, setKindFilter] = useState('all');
 
   const enrichedPromotions = promotions.map((promotion) => ({
     promotion,
@@ -199,11 +233,14 @@ function PromotionsScreen({ ctx }) {
     scheduled: enrichedPromotions.filter((entry) => entry.statusKey === 'scheduled').length,
     expiring: enrichedPromotions.filter((entry) => entry.statusKey === 'expiring').length,
     segmented: promotions.filter((promotion) => getPromotionAudienceBadges(promotion)[0] !== 'Todo o público').length,
+    campaigns: promotions.filter((promotion) => promotion.kind !== 'product_discount').length,
+    productDiscounts: promotions.filter((promotion) => promotion.kind === 'product_discount').length,
   };
 
   const filteredPromotions = enrichedPromotions.filter(({ promotion, statusKey }) => {
     if (statusFilter !== 'all' && statusKey !== statusFilter) return false;
     if (segmentFilter !== 'all' && (promotion.customerSegment || 'all') !== segmentFilter) return false;
+    if (kindFilter !== 'all' && (promotion.kind === 'product_discount' ? 'product_discount' : 'campaign') !== kindFilter) return false;
     if (query && !buildPromotionSearchText(promotion).includes(query.toLowerCase())) return false;
     return true;
   }).sort((left, right) => {
@@ -243,6 +280,11 @@ function PromotionsScreen({ ctx }) {
                 <button data-on={statusFilter === 'scheduled' ? '1' : '0'} onClick={() => setStatusFilter('scheduled')}>Agendadas <span className="ph-seg-n">{stats.scheduled}</span></button>
                 <button data-on={statusFilter === 'expiring' ? '1' : '0'} onClick={() => setStatusFilter('expiring')}>Expirando <span className="ph-seg-n">{stats.expiring}</span></button>
               </div>
+              <div className="ph-seg">
+                <button data-on={kindFilter === 'all' ? '1' : '0'} onClick={() => setKindFilter('all')}>Todos os tipos</button>
+                <button data-on={kindFilter === 'campaign' ? '1' : '0'} onClick={() => setKindFilter('campaign')}>Campanhas <span className="ph-seg-n">{stats.campaigns}</span></button>
+                <button data-on={kindFilter === 'product_discount' ? '1' : '0'} onClick={() => setKindFilter('product_discount')}>Descontos de produto <span className="ph-seg-n">{stats.productDiscounts}</span></button>
+              </div>
               <select className="fa-select" style={{ minWidth: 220 }} value={segmentFilter} onChange={(event) => setSegmentFilter(event.target.value)}>
                 <option value="all">Todos os segmentos</option>
                 <option value="new_customers">Novos clientes</option>
@@ -267,7 +309,13 @@ function PromotionsScreen({ ctx }) {
                   {filteredPromotions.map(({ promotion, statusMeta }) => (
                     <tr key={promotion.id}>
                       <td>
-                        <div style={{ fontWeight: 800, fontSize: 14.5 }}>{promotion.name}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 800, fontSize: 14.5 }}>{promotion.name}</span>
+                          <span className="fa-badge fa-badge-mist">{PROMOTION_KIND_LABELS[promotion.kind] || PROMOTION_KIND_LABELS.campaign}</span>
+                          {promotion.highlightStyle === 'superpromo' && <span className="fa-badge fa-badge-rose"><Icon name="bolt" size={10} />Superpromoção</span>}
+                          {promotion.guestVisible && <span className="fa-badge fa-badge-mist"><Icon name="eye" size={10} />Deslogado</span>}
+                          {promotion.urgencyLabel && <span className="fa-badge fa-badge-warn"><Icon name="alert" size={10} />{promotion.urgencyLabel}</span>}
+                        </div>
                         <div className="ph-cell-sub">{promotion.description || 'Sem descrição operacional.'}</div>
                       </td>
                       <td>
@@ -326,23 +374,6 @@ function PromotionsScreen({ ctx }) {
               )}
             </div>
           </div>
-
-          <div className="cpn-list">
-            <AnCard icon="sparkle" title="Como funciona" sub="Diferente do cupom, a promoção aplica sozinha">
-              <div className="cpn-sidecard">
-                <div className="cpn-statline"><span>Sem código</span><strong>Aplica na hora</strong></div>
-                <div className="cpn-statline"><span>Servidor decide</span><strong>Não dá pra falsificar</strong></div>
-                <div className="cpn-statline"><span>Eixo vazio</span><strong>Não restringe</strong></div>
-              </div>
-            </AnCard>
-            <AnCard icon="sparkle" title="Boas práticas" sub="Checklist rápido para segmentar sem perder margem">
-              <div className="cpn-badges">
-                <span className="fa-badge fa-badge-mist"><Icon name="check" size={11} />Combine no máximo 2–3 eixos por promoção</span>
-                <span className="fa-badge fa-badge-mist"><Icon name="check" size={11} />Use o teto de desconto em promoções por valor fixo</span>
-                <span className="fa-badge fa-badge-mist"><Icon name="check" size={11} />Confira o alcance estimado antes de ativar</span>
-              </div>
-            </AnCard>
-          </div>
         </div>
       </div>
     </>
@@ -350,8 +381,8 @@ function PromotionsScreen({ ctx }) {
 }
 
 /** Render the reusable create/edit promotion modal, with a live estimated-audience counter. */
-function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettings, onClose, onCreate, onUpdate, estimateAudience }) {
-  const [draft, setDraft] = useState(() => createPromotionDraft(promotion));
+function PromotionModal({ mode, promotion, initialDraft, inventory, healthServices, customers, mkt, cnaeSettings, onClose, onCreate, onUpdate, estimateAudience }) {
+  const [draft, setDraft] = useState(() => createPromotionDraft(promotion, initialDraft));
   const [error, setError] = useState('');
   const [audienceEstimate, setAudienceEstimate] = useState(null);
   const [estimating, setEstimating] = useState(false);
@@ -361,6 +392,7 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
   const [targetMarginPercent, setTargetMarginPercent] = useState(22);
   const categoryOptions = useMemo(() => buildCouponCategoryOptions(inventory), [inventory]);
   const productOptions = useMemo(() => buildCouponProductOptions(inventory), [inventory]);
+  const serviceOptions = useMemo(() => buildCouponServiceOptions(healthServices), [healthServices]);
   const regionOptions = useMemo(() => buildPromotionRegionOptions(customers), [customers]);
   const debounceRef = useRef(null);
 
@@ -390,11 +422,27 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
   }, [discountMode, singleTargetProduct, targetMarginPercent, mkt, cnaeSettings]);
 
   useEffect(() => {
-    setDraft(createPromotionDraft(promotion));
+    setDraft(createPromotionDraft(promotion, initialDraft));
     setError('');
-  }, [promotion, mode]);
+  }, [promotion, mode, initialDraft]);
+
+  function setKind(nextKind) {
+    setDraft((current) => nextKind === 'product_discount'
+      // A desconto de produto nunca é segmentado por definição — trocar pra esse tipo já limpa
+      // qualquer filtro de público deixado de uma campanha, e trava o escopo em "produtos".
+      ? {
+        ...current, kind: nextKind, scopeType: 'products',
+        useAgeRange: false, regions: [], deviceTypes: [], maritalStatuses: [],
+        useChildrenRange: false, customerSegment: 'all', targetLoyaltyTiers: [],
+      }
+      : { ...current, kind: nextKind });
+  }
 
   useEffect(() => {
+    if (draft.kind === 'product_discount') {
+      setAudienceEstimate(null);
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setEstimating(true);
@@ -408,6 +456,7 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
           minChildren: draft.useChildrenRange ? draft.minChildren : null,
           maxChildren: draft.useChildrenRange ? draft.maxChildren : null,
           customerSegment: draft.customerSegment,
+          targetLoyaltyTiers: draft.targetLoyaltyTiers,
         });
         setAudienceEstimate(result);
       } catch (err) {
@@ -417,7 +466,7 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
       }
     }, 400);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [draft.useAgeRange, draft.minAge, draft.maxAge, draft.regions, draft.deviceTypes, draft.maritalStatuses, draft.useChildrenRange, draft.minChildren, draft.maxChildren, draft.customerSegment]);
+  }, [draft.kind, draft.useAgeRange, draft.minAge, draft.maxAge, draft.regions, draft.deviceTypes, draft.maritalStatuses, draft.useChildrenRange, draft.minChildren, draft.maxChildren, draft.customerSegment, draft.targetLoyaltyTiers]);
 
   function setField(field, value) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -477,6 +526,20 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
       setError('Selecione pelo menos um produto.');
       return;
     }
+    if (draft.kind === 'product_discount') {
+      if (draft.scopeType !== 'products' || draft.targetProducts.length === 0) {
+        setError('Um desconto de produto precisa de pelo menos um produto selecionado.');
+        return;
+      }
+      if (promotionDraftHasAudienceRestrictions(draft)) {
+        setError('Um desconto de produto não pode ter filtro de público — isso é uma campanha. Mude o tipo ou remova os filtros.');
+        return;
+      }
+    }
+    if (draft.guestVisible && promotionDraftHasAudienceRestrictions(draft)) {
+      setError('Uma promoção visível para visitantes deslogados não pode ter filtro de público — remova os filtros de idade, região, dispositivo, estado civil, filhos, segmento ou selo antes de marcar "visível deslogado".');
+      return;
+    }
 
     if (mode === 'edit' && promotion) {
       onUpdate(promotion.id, payload);
@@ -498,6 +561,14 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="fa-field">
+          <label><CouponFieldLabel label="Tipo de promoção" tooltip="Campanha permite segmentar por público (idade, região, selo de fidelidade etc.). Desconto de produto é um preço promocional direto sobre um ou mais produtos, sem segmentação — por definição não é campanha." align="start" /></label>
+          <div className="ph-seg">
+            <button type="button" data-on={draft.kind === 'campaign' ? '1' : '0'} onClick={() => setKind('campaign')}><Icon name="sparkle" size={14} />Campanha</button>
+            <button type="button" data-on={draft.kind === 'product_discount' ? '1' : '0'} onClick={() => setKind('product_discount')}><Icon name="tag" size={14} />Desconto de produto</button>
+          </div>
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label>Nome da promoção</label>
@@ -551,14 +622,17 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
           </div>
         )}
 
-        <div className="fa-field">
-          <label><CouponFieldLabel label="Escopo da promoção" tooltip="Define se a promoção vale para todo o catálogo, categorias específicas ou produtos determinados." align="start" /></label>
-          <select className="fa-select" value={draft.scopeType} onChange={(event) => setField('scopeType', event.target.value)}>
-            <option value="all">Catálogo completo</option>
-            <option value="categories">Categorias específicas</option>
-            <option value="products">Remédios e produtos específicos</option>
-          </select>
-        </div>
+        {draft.kind === 'campaign' && (
+          <div className="fa-field">
+            <label><CouponFieldLabel label="Escopo da promoção" tooltip="Define se a promoção vale para todo o catálogo, categorias específicas ou produtos determinados." align="start" /></label>
+            <select className="fa-select" value={draft.scopeType} onChange={(event) => setField('scopeType', event.target.value)}>
+              <option value="all">Catálogo completo</option>
+              <option value="categories">Categorias específicas</option>
+              <option value="products">Remédios e produtos específicos</option>
+              <option value="services">Serviços de saúde</option>
+            </select>
+          </div>
+        )}
         {draft.scopeType === 'categories' && (
           <CouponTargetPicker
             label="Categorias elegíveis" tooltip="Categorias do estoque que recebem o preço promocional." align="start"
@@ -573,6 +647,14 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
             placeholder="Buscar produtos" searchPlaceholder="Buscar produtos do estoque"
             options={productOptions} selectedValues={draft.targetProducts}
             onChange={(value) => setField('targetProducts', value)} emptyMessage="Nenhum produto encontrado."
+          />
+        )}
+        {draft.scopeType === 'services' && (
+          <CouponTargetPicker
+            label="Serviços de saúde elegíveis" tooltip="Serviços cadastrados em Catálogo → Serviços de saúde que recebem o preço promocional no agendamento." align="start"
+            placeholder="Buscar serviços de saúde" searchPlaceholder="Buscar serviços de saúde cadastrados"
+            options={serviceOptions} selectedValues={draft.targetServices}
+            onChange={(value) => setField('targetServices', value)} emptyMessage="Nenhum serviço de saúde ativo cadastrado ainda."
           />
         )}
 
@@ -615,98 +697,155 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
           </div>
         </div>
 
-        <div className="fa-h3" style={{ fontSize: 15, marginTop: 4 }}>Público-alvo</div>
-        <div className="fa-row">
-          <div className="fa-row-main">
-            <div className="fa-row-label">Restringir por faixa etária</div>
-            <div className="fa-row-desc">Calculada a partir da data de nascimento cadastrada do cliente.</div>
-          </div>
-          <Toggle on={!!draft.useAgeRange} onChange={(value) => setField('useAgeRange', value)} ariaLabel="restringir por idade" />
-        </div>
-        {draft.useAgeRange && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div className="fa-field">
-              <label>Idade mínima</label>
-              <input className="fa-input" type="number" min="0" max="120" value={draft.minAge} onChange={(event) => setField('minAge', event.target.value)} />
+        {draft.kind === 'campaign' && (
+          <>
+            <div className="fa-h3" style={{ fontSize: 15, marginTop: 4 }}>Público-alvo</div>
+            <div className="fa-row">
+              <div className="fa-row-main">
+                <div className="fa-row-label">Restringir por faixa etária</div>
+                <div className="fa-row-desc">Calculada a partir da data de nascimento cadastrada do cliente.</div>
+              </div>
+              <Toggle on={!!draft.useAgeRange} onChange={(value) => setField('useAgeRange', value)} ariaLabel="restringir por idade" />
             </div>
+            {draft.useAgeRange && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div className="fa-field">
+                  <label>Idade mínima</label>
+                  <input className="fa-input" type="number" min="0" max="120" value={draft.minAge} onChange={(event) => setField('minAge', event.target.value)} />
+                </div>
+                <div className="fa-field">
+                  <label>Idade máxima</label>
+                  <input className="fa-input" type="number" min="0" max="120" value={draft.maxAge} onChange={(event) => setField('maxAge', event.target.value)} />
+                </div>
+              </div>
+            )}
+
+            <CouponTargetPicker
+              label="Regiões elegíveis (vazio = todas)" tooltip="Aceita UF, cidade, bairro ou prefixo de CEP (5 dígitos) cadastrados no endereço principal do cliente. Vazio não restringe por região." align="start"
+              placeholder="Buscar cidade, bairro, UF ou CEP" searchPlaceholder="Buscar cidade, bairro, UF ou CEP"
+              options={regionOptions} selectedValues={draft.regions}
+              onChange={(value) => setField('regions', value)} emptyMessage="Nenhuma região encontrada na base de clientes."
+            />
+
             <div className="fa-field">
-              <label>Idade máxima</label>
-              <input className="fa-input" type="number" min="0" max="120" value={draft.maxAge} onChange={(event) => setField('maxAge', event.target.value)} />
+              <label>Tipo de dispositivo (vazio = todos)</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {Object.entries(DEVICE_TYPE_LABELS).map(([value, label]) => (
+                  <button key={value} type="button" className="fa-chip" data-active={draft.deviceTypes.includes(value) ? '1' : '0'} onClick={() => toggleListValue('deviceTypes', value)}>{label}</button>
+                ))}
+              </div>
+              <div className="ph-cell-sub" style={{ marginTop: 6 }}>Detectado automaticamente na navegação do cliente — sem dado nenhum eixo não restringe.</div>
+            </div>
+
+            <div className="fa-field">
+              <label>Estado civil (vazio = todos)</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {Object.entries(MARITAL_STATUS_LABELS).map(([value, label]) => (
+                  <button key={value} type="button" className="fa-chip" data-active={draft.maritalStatuses.includes(value) ? '1' : '0'} onClick={() => toggleListValue('maritalStatuses', value)}>{label}</button>
+                ))}
+              </div>
+              <div className="ph-cell-sub" style={{ marginTop: 6 }}>Autodeclarado pelo cliente na conta — quem não preencheu não entra em filtros deste eixo.</div>
+            </div>
+
+            <div className="fa-row">
+              <div className="fa-row-main">
+                <div className="fa-row-label">Restringir por número de filhos</div>
+                <div className="fa-row-desc">Autodeclarado pelo cliente na conta.</div>
+              </div>
+              <Toggle on={!!draft.useChildrenRange} onChange={(value) => setField('useChildrenRange', value)} ariaLabel="restringir por filhos" />
+            </div>
+            {draft.useChildrenRange && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div className="fa-field">
+                  <label>Mínimo de filhos</label>
+                  <input className="fa-input" type="number" min="0" max="20" value={draft.minChildren} onChange={(event) => setField('minChildren', event.target.value)} />
+                </div>
+                <div className="fa-field">
+                  <label>Máximo de filhos</label>
+                  <input className="fa-input" type="number" min="0" max="20" value={draft.maxChildren} onChange={(event) => setField('maxChildren', event.target.value)} />
+                </div>
+              </div>
+            )}
+
+            <div className="fa-field">
+              <label>Segmento de relacionamento</label>
+              <select className="fa-select" value={draft.customerSegment} onChange={(event) => setField('customerSegment', event.target.value)}>
+                <option value="all">Todos os clientes</option>
+                <option value="new_customers">Novos clientes</option>
+                <option value="recurring">Clientes recorrentes</option>
+              </select>
+            </div>
+
+            <div className="fa-field">
+              <label>Selo de fidelidade (vazio = todos)</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {Object.entries(LOYALTY_TIER_LABELS).map(([value, label]) => (
+                  <button key={value} type="button" className="fa-chip" data-active={draft.targetLoyaltyTiers.includes(value) ? '1' : '0'} onClick={() => toggleListValue('targetLoyaltyTiers', value)}>{label}</button>
+                ))}
+              </div>
+              <div className="ph-cell-sub" style={{ marginTop: 6 }}>Calculado pelo servidor a partir do número de pedidos concluídos do cliente — nunca informado pelo cliente.</div>
+            </div>
+          </>
+        )}
+
+        <div className="fa-field">
+          <label><CouponFieldLabel label="Prioridade" tooltip="Quando mais de uma promoção bate no mesmo produto e cliente, a de maior prioridade vence." align="end" /></label>
+          <input className="fa-input" type="number" min="0" max="100" style={{ maxWidth: 160 }} value={draft.priority} onChange={(event) => setField('priority', event.target.value)} />
+        </div>
+
+        <div className="fa-h3" style={{ fontSize: 15, marginTop: 4 }}>Exibição no marketplace</div>
+        {draft.kind === 'product_discount' ? (
+          <div className="fa-row">
+            <div className="fa-row-main">
+              <div className="fa-row-label">Visível para visitante deslogado</div>
+              <div className="fa-row-desc">Desconto de produto é sempre visível, logado ou não — é só o preço do produto, não tem nada de personalizado pra esconder.</div>
+            </div>
+            <Toggle on={true} onChange={() => {}} ariaLabel="visível para visitante deslogado (sempre ativo)" />
+          </div>
+        ) : (
+          <>
+            <div className="fa-row">
+              <div className="fa-row-main">
+                <div className="fa-row-label">Visível para visitante deslogado</div>
+                <div className="fa-row-desc">Só permitido sem nenhum filtro de público acima — visitante anônimo não tem perfil pra avaliar.</div>
+              </div>
+              <Toggle on={!!draft.guestVisible} onChange={(value) => setField('guestVisible', value)} ariaLabel="visível para visitante deslogado" />
+            </div>
+            {draft.guestVisible && promotionDraftHasAudienceRestrictions(draft) && (
+              <div className="ph-cell-sub" style={{ color: 'var(--fa-error)' }}>Remova os filtros de público acima para poder deixar esta promoção visível a visitantes deslogados.</div>
+            )}
+          </>
+        )}
+        <div className="fa-field">
+          <label>Modo de exibição</label>
+          <div className="ph-seg">
+            <button type="button" data-on={draft.highlightStyle === 'standard' ? '1' : '0'} onClick={() => setField('highlightStyle', 'standard')}>Simplificado</button>
+            <button type="button" data-on={draft.highlightStyle === 'superpromo' ? '1' : '0'} onClick={() => setField('highlightStyle', 'superpromo')}><Icon name="bolt" size={13} />Superpromoção</button>
+          </div>
+          <div className="ph-cell-sub" style={{ marginTop: 6 }}>Superpromoção destaca o produto no marketplace com um selo mais chamativo.</div>
+        </div>
+
+        <div className="fa-field">
+          <label><CouponFieldLabel label="Texto de urgência (opcional)" tooltip="Aparece no card do produto no marketplace. É texto livre — não é calculado a partir do estoque real, então o cuidado com o que escrever é seu." align="start" /></label>
+          <input className="fa-input" value={draft.urgencyLabel} maxLength={60} placeholder="Ex.: Restam só 2 no estoque" onChange={(event) => setField('urgencyLabel', event.target.value)} />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+            {URGENCY_LABEL_PRESETS.map((preset) => (
+              <button key={preset} type="button" className="fa-chip" data-active={draft.urgencyLabel === preset ? '1' : '0'} onClick={() => setField('urgencyLabel', draft.urgencyLabel === preset ? '' : preset)}>{preset}</button>
+            ))}
+          </div>
+        </div>
+
+        {draft.kind === 'campaign' && (
+          <div className="fa-card" style={{ padding: '14px 16px', background: 'var(--fa-mist-2)', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Icon name="user" size={18} style={{ color: 'var(--fa-primary)', flex: 'none' }} />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>
+                {estimating ? 'Calculando alcance…' : audienceEstimate ? audienceEstimate.matchingCustomers + ' de ' + audienceEstimate.totalActiveCustomers + ' clientes ativos elegíveis' : 'Alcance estimado indisponível'}
+              </div>
+              <div className="ph-cell-sub">Contagem ao vivo com base nos filtros de público acima.</div>
             </div>
           </div>
         )}
-
-        <CouponTargetPicker
-          label="Regiões elegíveis (vazio = todas)" tooltip="Cidades cadastradas na base de clientes. Vazio não restringe por região." align="start"
-          placeholder="Buscar cidade" searchPlaceholder="Buscar cidade dos clientes"
-          options={regionOptions} selectedValues={draft.regions}
-          onChange={(value) => setField('regions', value)} emptyMessage="Nenhuma cidade encontrada na base de clientes."
-        />
-
-        <div className="fa-field">
-          <label>Tipo de dispositivo (vazio = todos)</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {Object.entries(DEVICE_TYPE_LABELS).map(([value, label]) => (
-              <button key={value} type="button" className="fa-chip" data-active={draft.deviceTypes.includes(value) ? '1' : '0'} onClick={() => toggleListValue('deviceTypes', value)}>{label}</button>
-            ))}
-          </div>
-          <div className="ph-cell-sub" style={{ marginTop: 6 }}>Detectado automaticamente na navegação do cliente — sem dado nenhum eixo não restringe.</div>
-        </div>
-
-        <div className="fa-field">
-          <label>Estado civil (vazio = todos)</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {Object.entries(MARITAL_STATUS_LABELS).map(([value, label]) => (
-              <button key={value} type="button" className="fa-chip" data-active={draft.maritalStatuses.includes(value) ? '1' : '0'} onClick={() => toggleListValue('maritalStatuses', value)}>{label}</button>
-            ))}
-          </div>
-          <div className="ph-cell-sub" style={{ marginTop: 6 }}>Autodeclarado pelo cliente na conta — quem não preencheu não entra em filtros deste eixo.</div>
-        </div>
-
-        <div className="fa-row">
-          <div className="fa-row-main">
-            <div className="fa-row-label">Restringir por número de filhos</div>
-            <div className="fa-row-desc">Autodeclarado pelo cliente na conta.</div>
-          </div>
-          <Toggle on={!!draft.useChildrenRange} onChange={(value) => setField('useChildrenRange', value)} ariaLabel="restringir por filhos" />
-        </div>
-        {draft.useChildrenRange && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div className="fa-field">
-              <label>Mínimo de filhos</label>
-              <input className="fa-input" type="number" min="0" max="20" value={draft.minChildren} onChange={(event) => setField('minChildren', event.target.value)} />
-            </div>
-            <div className="fa-field">
-              <label>Máximo de filhos</label>
-              <input className="fa-input" type="number" min="0" max="20" value={draft.maxChildren} onChange={(event) => setField('maxChildren', event.target.value)} />
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 14 }}>
-          <div className="fa-field">
-            <label>Segmento de relacionamento</label>
-            <select className="fa-select" value={draft.customerSegment} onChange={(event) => setField('customerSegment', event.target.value)}>
-              <option value="all">Todos os clientes</option>
-              <option value="new_customers">Novos clientes</option>
-              <option value="recurring">Clientes recorrentes</option>
-            </select>
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Prioridade" tooltip="Quando mais de uma promoção bate no mesmo produto e cliente, a de maior prioridade vence." align="end" /></label>
-            <input className="fa-input" type="number" min="0" max="100" value={draft.priority} onChange={(event) => setField('priority', event.target.value)} />
-          </div>
-        </div>
-
-        <div className="fa-card" style={{ padding: '14px 16px', background: 'var(--fa-mist-2)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Icon name="user" size={18} style={{ color: 'var(--fa-primary)', flex: 'none' }} />
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>
-              {estimating ? 'Calculando alcance…' : audienceEstimate ? audienceEstimate.matchingCustomers + ' de ' + audienceEstimate.totalActiveCustomers + ' clientes ativos elegíveis' : 'Alcance estimado indisponível'}
-            </div>
-            <div className="ph-cell-sub">Contagem ao vivo com base nos filtros de público acima.</div>
-          </div>
-        </div>
 
         <div className="fa-row">
           <div className="fa-row-main">
@@ -737,6 +876,7 @@ function PromotionModal({ mode, promotion, inventory, customers, mkt, cnaeSettin
 
 export {
   DEVICE_TYPE_LABELS,
+  LOYALTY_TIER_LABELS,
   MARITAL_STATUS_LABELS,
   PROMO_DISCOUNT_TYPE_LABELS,
   PROMO_STATUS_META,

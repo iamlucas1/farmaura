@@ -82,9 +82,6 @@ class CheckoutOrderRequest(StrictModel):
     channel: str = Field(default="app", max_length=24)
     items: list[CheckoutOrderItemRequest] = Field(min_length=1, max_length=50)
     coupon_code: str = Field(default="", max_length=64)
-    coupon_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
-    coupon_amount: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
-    coupon_type: str = Field(default="", max_length=24)
     delivery: CheckoutDeliveryRequest
     payment: CheckoutPaymentRequest
     prescription: CheckoutPrescriptionRequest = CheckoutPrescriptionRequest()
@@ -117,6 +114,7 @@ class MarketplaceOrderResponse(StrictModel):
     subtotal_amount: Decimal
     delivery_fee_amount: Decimal
     discount_amount: Decimal
+    coupon_code: str = ""
     address: str = ""
     store: str = ""
     pickup_code: str = ""

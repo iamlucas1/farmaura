@@ -62,6 +62,52 @@ _BestOffer = tuple[PurchaseQuoteItem, PurchaseQuote, Decimal, str]
 
 
 # ============================================================================
+# MODULE-LEVEL HELPERS (stateless — reused by CatalogService for the public
+# "most searched" ranking, which needs the same monthly-window math and XYZ
+# classification without pulling in the full admin-only analytics pipeline)
+# ============================================================================
+
+
+def months_ago_first_day(today: date, months: int) -> date:
+    """Return the first day of the month that starts an N-month analysis window."""
+
+    total_months = today.year * 12 + (today.month - 1) - (months - 1)
+    year, month_index = divmod(total_months, 12)
+    return date(year, month_index + 1, 1)
+
+
+def month_range(since_date: date, months: int) -> list[date]:
+    """Return the first-of-month dates covering an N-month analysis window."""
+
+    result: list[date] = []
+    year, month = since_date.year, since_date.month
+    for _ in range(months):
+        result.append(date(year, month, 1))
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return result
+
+
+def compute_xyz_class(series: list[int]) -> str:
+    """Return the XYZ demand-variability class ("X"/"Y"/"Z"/"") for one product's monthly quantity series.
+
+    "" ("aguardando histórico") when there are fewer than 2 months with any sales, or the
+    average is zero — not enough signal to say anything about variability yet.
+    """
+
+    months_with_sales = sum(1 for quantity in series if quantity > 0)
+    total = sum(series)
+    average = Decimal(total) / Decimal(len(series)) if series else Decimal("0")
+    if months_with_sales < 2 or average <= 0:
+        return ""
+    mean = total / len(series)
+    coefficient_of_variation = statistics.pstdev(series) / mean
+    return "X" if coefficient_of_variation < 0.5 else ("Y" if coefficient_of_variation < 1.0 else "Z")
+
+
+# ============================================================================
 # PURCHASE ANALYTICS SERVICE
 # ============================================================================
 

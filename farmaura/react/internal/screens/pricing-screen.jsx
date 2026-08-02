@@ -131,9 +131,9 @@ function VsMarket({ vsRef, refPrice }) {
 
 /* ===================== TELA PRINCIPAL ===================== */
 function PricingScreen({ ctx }) {
-  const { inventory, marketplace: mkt, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy, setItemPricing, notify, onLogout, pdvDiscountSettings, setPdvDiscountSettings, savePdvDiscountSettings, pdvDiscountSettingsBusy, cnaeSettings } = ctx;
+  const { inventory, marketplace: mkt, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy, setItemPricing, notify, onLogout, pdvDiscountSettings, setPdvDiscountSettings, savePdvDiscountSettings, pdvDiscountSettingsBusy, cnaeSettings, openPromotionCreate, onNav } = ctx;
   const [q, setQ] = useState('');
-  const [cat, setCat] = useState('all');     // all | promo | low | controlled
+  const [cat, setCat] = useState('all');     // all | low | controlled
   const [brand, setBrand] = useState('all');
   const [groupBy, setGroupBy] = useState('category'); // category | product — mesmo padrão de agrupamento do Estoque
   const [collapsedGroups, setCollapsedGroups] = useState({});
@@ -147,14 +147,12 @@ function PricingScreen({ ctx }) {
   const enriched = inventory.map((it) => ({ it, calc: priceCalc(it, mkt, cnaeIndex, taxRegime) }));
   const counts = {
     all: inventory.length,
-    promo: enriched.filter((e) => e.calc.promo > 0).length,
     low: enriched.filter((e) => e.calc.margin < mkt.minMargin).length,
     controlled: inventory.filter((it) => it.controlled).length,
     published: inventory.filter((it) => it.marketplaceVisible).length,
   };
   const brandOptions = [...new Set(inventory.map((it) => (it.brand || '').trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'pt-BR'));
   const match = ({ it, calc }) => {
-    if (cat === 'promo' && calc.promo <= 0) return false;
     if (cat === 'low' && calc.margin >= mkt.minMargin) return false;
     if (cat === 'controlled' && !it.controlled) return false;
     if (brand !== 'all' && (it.brand || '').trim() !== brand) return false;
@@ -194,6 +192,13 @@ function PricingScreen({ ctx }) {
   const avgMargin = enriched.reduce((s, e) => s + e.calc.margin, 0) / (enriched.length || 1);
   const avgPayout = enriched.reduce((s, e) => s + e.calc.payout, 0) / (enriched.length || 1);
 
+  const createProductDiscount = (it) => {
+    // Desconto de produto agora vive só em Promoções — este atalho evita o admin ter que sair
+    // do Precificador, achar o produto de novo e montar o escopo manualmente.
+    openPromotionCreate({ kind: 'product_discount', scopeType: 'products', targetProducts: [it.name] });
+    onNav('promotions');
+  };
+
   const renderPricingRow = ({ it, calc }) => {
     const ms = marginState(calc.margin, mkt.minMargin);
     const bar = Math.max(4, Math.min(100, Math.round(calc.margin / (mkt.minMargin * 2) * 100)));
@@ -206,14 +211,7 @@ function PricingScreen({ ctx }) {
           <div className="ph-cell-sub">{it.brand}{it.batch && it.batch !== '—' ? ' · lote ' + it.batch : ''}</div>
         </td>
         <td className="fa-mono" style={{ color: 'var(--fa-ink-2)' }}>{_prc(calc.cost)}</td>
-        <td>
-          {calc.promo > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontWeight: 800, fontSize: 15, color: 'var(--fa-primary)' }}>{_prc(calc.eff)}</span>
-              <span className="fa-price-old" style={{ fontSize: 12 }}>{_prc(calc.price)}</span>
-            </div>
-          ) : <span style={{ fontWeight: 800, fontSize: 15 }}>{_prc(calc.price)}</span>}
-        </td>
+        <td><span style={{ fontWeight: 800, fontSize: 15 }}>{_prc(calc.price)}</span></td>
         <td>
           <div className="fa-mono" style={{ fontWeight: 700 }}>{_prc(calc.payout)}</div>
           <div className="ph-cell-sub">− {_prc(calc.fees)} taxas{calc.tax > 0 ? ' · − ' + _prc(calc.tax) + ' impostos' : ''}</div>
@@ -230,11 +228,11 @@ function PricingScreen({ ctx }) {
             {it.marketplaceVisible
               ? <span className="fa-badge fa-badge-health"><Icon name="store" size={11} />Publicado</span>
               : <span className="fa-badge fa-badge-mist"><Icon name="minus" size={11} />Oculto</span>}
-            {calc.promo > 0 && <span className="fa-badge fa-badge-vital"><Icon name="percent" size={11} stroke={2.2} />-{calc.promo}%</span>}
           </div>
         </td>
         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
           <div className="ph-row-actions" style={{ justifyContent: 'flex-end' }}>
+            <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => createProductDiscount(it)}><Icon name="tag" size={14} />Criar desconto</button>
             <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={() => setEdit(it)}><Icon name="tag" size={14} />Precificar</button>
           </div>
         </td>
@@ -253,7 +251,6 @@ function PricingScreen({ ctx }) {
         <div className="inv-kpis prc-kpis">
           <InventoryKpi icon="boxes" label="Todos os itens" value={counts.all} active={cat === 'all'} onClick={() => setCat('all')} />
           <InventoryKpi icon="alert" label={'Abaixo da meta (' + _p1(mkt.minMargin) + ')'} value={counts.low} tone={counts.low ? 'warn' : undefined} active={cat === 'low'} onClick={() => setCat('low')} />
-          <InventoryKpi icon="percent" label="Em promoção" value={counts.promo} active={cat === 'promo'} onClick={() => setCat('promo')} />
           <InventoryKpi icon="lock" label="Controlados" value={counts.controlled} active={cat === 'controlled'} onClick={() => setCat('controlled')} />
         </div>
 
@@ -685,7 +682,7 @@ function PriceDrawer({ it, mkt, cnaeSettings, onClose, onSave }) {
         <div className="ph-drawer-foot">
           <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onClose}>Cancelar</button>
           <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={price <= 0}
-            onClick={() => onSave({ cost: Math.round(cost * 100) / 100, price: Math.round(price * 100) / 100, promo: 0, ref: Math.round(ref * 100) / 100, cat: marketplaceCategory, marketplaceVisible: publishOnMarketplace })}>
+            onClick={() => onSave({ cost: Math.round(cost * 100) / 100, price: Math.round(price * 100) / 100, ref: Math.round(ref * 100) / 100, cat: marketplaceCategory, marketplaceVisible: publishOnMarketplace })}>
             <Icon name="check" size={16} stroke={2.2} />Salvar e publicar
           </button>
         </div>

@@ -42,8 +42,6 @@ class InventoryItem(Base, UuidModel, TimestampedModel):
         CheckConstraint("normal_stock_threshold >= 0", name="inventory_items_normal_stock_threshold_non_negative"),
         CheckConstraint("low_stock_threshold <= attention_stock_threshold", name="inventory_items_low_threshold_lte_attention_threshold"),
         CheckConstraint("attention_stock_threshold <= normal_stock_threshold", name="inventory_items_attention_threshold_lte_normal_threshold"),
-        CheckConstraint("promotional_discount_percent >= 0", name="inventory_items_promo_non_negative"),
-        CheckConstraint("promotional_discount_percent <= 100", name="inventory_items_promo_max_100"),
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
@@ -61,11 +59,6 @@ class InventoryItem(Base, UuidModel, TimestampedModel):
     sale_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     market_reference_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
-    promotional_discount_percent: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2),
-        nullable=False,
-        default=Decimal("0.00"),
-    )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     is_marketplace_visible: Mapped[bool] = mapped_column(default=True, nullable=False)
     # Per-product override of the CNAE's default ICMS-ST status (Configurações do sistema).

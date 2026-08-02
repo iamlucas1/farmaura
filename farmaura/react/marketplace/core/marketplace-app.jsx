@@ -1,13 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import "../../shared/portal-cache.js";
+import { MARKETPLACE_LOGO_MARK_URL } from "./marketplace-assets.js";
 import { PharmacistChatModal, PrescriptionModal } from "./marketplace-care-actions.jsx";
 import { Header, Footer } from "./marketplace-chrome.jsx";
 import { Icon } from "./marketplace-icons.jsx";
 import { TweakColor, TweakRadio, TweakSection, TweakSelect, TweakSlider, TweakText, TweakToggle, TweaksPanel, useTweaks } from "./marketplace-tweaks-panel.jsx";
 import { AccountScreen, LoginScreen, UnlockAccountScreen } from "../screens/account-screen.jsx";
+import { ProfileCompletionNudge } from "../screens/account-profile-screen.jsx";
 import { CareScreen } from "../screens/care-screen.jsx";
 import { CartScreen } from "../screens/cart-screen.jsx";
 import { CheckoutScreen, ConfirmScreen } from "../screens/checkout-screen.jsx";
@@ -20,13 +22,14 @@ import { SubscriptionsScreen } from "../screens/subscriptions-screen.jsx";
 
 /* FARMAURA — App shell: routing, cart state, tweaks. Depends on all screen files. */
 
-const MARKETPLACE_ROUTE_RESERVED_KEYS = new Set(['name', 'id', 'cat']);
+const MARKETPLACE_ROUTE_RESERVED_KEYS = new Set(['name', 'id', 'cat', 'brand']);
 
 function buildMarketplacePath(route) {
   const name = (route && route.name) || 'home';
   const segments = [name === 'home' ? '' : name];
   if (route && route.id) segments.push(encodeURIComponent(route.id));
   else if (route && route.cat) segments.push(encodeURIComponent(route.cat));
+  else if (route && route.brand) segments.push(encodeURIComponent(route.brand));
   const path = '/' + segments.filter(Boolean).join('/');
   const params = new URLSearchParams();
   Object.keys(route || {}).forEach((key) => {
@@ -45,6 +48,7 @@ function parseMarketplaceRoute(splat, searchParams) {
   const route = { name };
   if (name === 'product' && segments[1]) route.id = decodeURIComponent(segments[1]);
   else if (name === 'category' && segments[1]) route.cat = decodeURIComponent(segments[1]);
+  else if (name === 'brand' && segments[1]) route.brand = decodeURIComponent(segments[1]);
   for (const [key, value] of searchParams.entries()) {
     route[key === 'q' ? 'query' : key] = value;
   }
@@ -271,6 +275,7 @@ function normalizeMarketplaceCoupon(item) {
     usageCount: Number(item.usage_count ?? item.usageCount ?? 0),
     perCustomerLimit: Number(item.per_customer_limit ?? item.perCustomerLimit ?? 1),
     audience: item.audience || "all",
+    channelScope: item.channel_scope || item.channelScope || "all",
     scopeType: item.scope_type || item.scopeType || "all",
     targetCategories: Array.isArray(item.target_categories) ? item.target_categories : (Array.isArray(item.targetCategories) ? item.targetCategories : []),
     targetProducts: Array.isArray(item.target_products) ? item.target_products : (Array.isArray(item.targetProducts) ? item.targetProducts : []),
@@ -320,6 +325,9 @@ function normalizeMarketplaceCatalogItem(item) {
       ? (item.old == null ? null : Number(item.old || 0))
       : Number(item.old_price || 0),
     discount: Number(item.discount_percent ?? item.discount ?? 0),
+    promotionHighlight: item.promotion_highlight || item.promotionHighlight || "",
+    discountType: item.discount_type || item.discountType || "percent",
+    urgencyLabel: item.urgency_label || item.urgencyLabel || "",
     rx: !!(item.requires_prescription || item.rx),
     tags: Array.isArray(item.tags) ? item.tags : [],
     stock: Number(item.stock || 0),
@@ -354,6 +362,50 @@ function normalizeMarketplaceOrderStatus(status, fulfillment) {
   return 'awaiting_confirmation';
 }
 
+// Catalog of marketing programs / communication channels the customer can opt in or out of.
+// Persisted shape matches the pre-existing Customer.marketing_program_preferences /
+// communication_channel_preferences convention already used by seed data — programs are keyed by
+// free-text `name` (CRM can assign customer-specific named campaigns, e.g. "Cashback Farmaura"),
+// channels by a fixed `channel` id — both use `enabled` as the boolean flag. This catalog is only
+// the small, generic set of toggles surfaced in "Privacidade de dados"; any other pre-existing
+// named program a customer already has (assigned outside this UI) is preserved untouched on save,
+// never dropped (see buildPrivacyPreferenceList / mergePrivacyPreferenceUpdates).
+const MARKETING_PROGRAM_CATALOG = [
+  { name: 'Promoções e ofertas personalizadas', label: 'Promoções e ofertas personalizadas', desc: 'Descontos e condições especiais com base no seu perfil de compras.' },
+  { name: 'Novidades e lançamentos', label: 'Novidades e lançamentos', desc: 'Novos produtos e serviços da Farmaura.' },
+  { name: 'Pesquisas e feedback', label: 'Pesquisas e feedback', desc: 'Pesquisas rápidas para melhorar sua experiência.' },
+];
+
+const COMMUNICATION_CHANNEL_CATALOG = [
+  { channel: 'email', label: 'E-mail', desc: 'Mensagens no seu e-mail cadastrado.', icon: 'mail' },
+  { channel: 'sms', label: 'SMS', desc: 'Mensagens de texto no seu celular.', icon: 'phone' },
+  { channel: 'push', label: 'Notificação do app', desc: 'Alertas quando o app estiver aberto.', icon: 'bell' },
+  { channel: 'whatsapp', label: 'WhatsApp', desc: 'Mensagens pelo WhatsApp.', icon: 'chat' },
+];
+
+function buildPrivacyPreferenceList(catalog, storedList, keyField) {
+  /** Merge a fixed catalog (label/desc/icon) with persisted `enabled` flags keyed by name/channel. */
+
+  const storedByKey = new Map((Array.isArray(storedList) ? storedList : []).map((entry) => [entry && entry[keyField], entry]));
+  return catalog.map((entry) => ({ ...entry, enabled: !!(storedByKey.get(entry[keyField]) || {}).enabled }));
+}
+
+function mergePrivacyPreferenceUpdates(existingList, catalogUpdates, keyField) {
+  /** Upsert catalog-toggle changes into the full persisted list without dropping other entries
+   * (e.g. CRM-assigned named programs not shown as a toggle in this screen). */
+
+  const existing = Array.isArray(existingList) ? existingList : [];
+  const updatesByKey = new Map(catalogUpdates.map((entry) => [entry[keyField], entry]));
+  const merged = existing.map((entry) => updatesByKey.has(entry && entry[keyField]) ? { ...entry, enabled: !!updatesByKey.get(entry[keyField]).enabled } : entry);
+  const existingKeys = new Set(existing.map((entry) => entry && entry[keyField]));
+  catalogUpdates.forEach((entry) => {
+    if (!existingKeys.has(entry[keyField])) {
+      merged.push({ [keyField]: entry[keyField], enabled: !!entry.enabled });
+    }
+  });
+  return merged;
+}
+
 function createMarketplaceProfileSnapshot(user) {
   const safeUser = user || {};
   return {
@@ -368,6 +420,8 @@ function createMarketplaceProfileSnapshot(user) {
     photo: safeUser.photo || null,
     twoFactor: !!safeUser.twoFactorEnabled,
     memberSince: '',
+    marketingProgramPreferences: [],
+    communicationChannelPreferences: [],
   };
 }
 
@@ -387,6 +441,8 @@ function normalizeMarketplaceProfile(profilePayload, user) {
     photo: source.avatar_url || null,
     twoFactor: typeof source.two_factor_enabled === 'boolean' ? source.two_factor_enabled : baseProfile.twoFactor,
     memberSince: source.member_since_label || '',
+    marketingProgramPreferences: Array.isArray(source.marketing_program_preferences) ? source.marketing_program_preferences : [],
+    communicationChannelPreferences: Array.isArray(source.communication_channel_preferences) ? source.communication_channel_preferences : [],
   };
 }
 
@@ -415,6 +471,7 @@ function normalizeMarketplaceOrder(item) {
     subtotal: Number(item.subtotal_amount || 0),
     deliveryFee: Number(item.delivery_fee_amount || 0),
     discountAmount: Number(item.discount_amount || 0),
+    couponCode: item.coupon_code || '',
     pixQrCode: item.pix_qr_code || '',
     pixCopyPaste: item.pix_copy_paste || '',
     items: Array.isArray(item.items) ? item.items.map((line) => ({
@@ -474,6 +531,51 @@ function normalizeMarketplaceHealthHistory(entry) {
     date: entry.date || '',
     time: entry.time || '',
     status: entry.status || 'upcoming',
+    price: Number(entry.price_amount || 0),
+    originalPrice: Number(entry.original_price_amount || 0),
+    couponCode: entry.coupon_code || '',
+  };
+}
+
+function normalizeHomeBanner(source) {
+  const banner = source || {};
+  const mode = banner.mode || 'off';
+  return {
+    mode,
+    slides: mode === 'image' && Array.isArray(banner.slides) ? banner.slides.map((slide) => ({
+      id: slide.id || '',
+      kind: slide.kind === 'html' ? 'html' : 'image',
+      image: slide.image || '',
+      html: slide.html || '',
+      altText: slide.alt_text || slide.altText || '',
+      linkType: slide.link_type || slide.linkType || 'none',
+      linkCategory: slide.link_category || slide.linkCategory || '',
+      linkUrl: slide.link_url || slide.linkUrl || '',
+    })).filter((slide) => (slide.kind === 'html' ? !!slide.html : !!slide.image)) : [],
+  };
+}
+
+function normalizeLaunchMode(source) {
+  const launch = source || {};
+  return {
+    enabled: !!launch.enabled,
+    launchAt: launch.launch_at || launch.launchAt || '',
+    headline: launch.headline || '',
+    subtext: launch.subtext || '',
+  };
+}
+
+function normalizeHomeBrands(source) {
+  const brands = source || {};
+  const mode = brands.mode || 'off';
+  return {
+    mode,
+    circles: mode === 'on' && Array.isArray(brands.circles) ? brands.circles.map((circle) => ({
+      id: circle.id || '',
+      image: circle.image || '',
+      altText: circle.alt_text || circle.altText || '',
+      brandName: circle.brand_name || circle.brandName || '',
+    })).filter((circle) => circle.image && circle.brandName) : [],
   };
 }
 
@@ -503,6 +605,9 @@ function normalizeMarketplacePortalData(payload) {
     stores: Array.isArray(source.stores) ? source.stores.map(normalizeMarketplaceStore).filter(Boolean) : [],
     pharmacist: source.pharmacist || {},
     marketplace: source.marketplace || {},
+    homeBanner: normalizeHomeBanner(source.home_banner),
+    homeBrands: normalizeHomeBrands(source.home_brands),
+    launchMode: normalizeLaunchMode(source.launch_mode),
     healthServices: Array.isArray(source.health_services) ? source.health_services.map(normalizeMarketplaceHealthService).filter(Boolean) : [],
     healthHistory: Array.isArray(source.health_history) ? source.health_history.map(normalizeMarketplaceHealthHistory).filter(Boolean) : [],
     favorites: Array.isArray(source.favorites) ? source.favorites.map((entry) => entry && entry.product_ref).filter(Boolean) : [],
@@ -535,6 +640,105 @@ function MarketplaceAccessNotice({ onReset }) {
         <button className="fa-btn fa-btn-primary" style={{ marginTop: 20 }} onClick={onReset}>
           Limpar sessão deste portal
         </button>
+      </div>
+    </div>
+  );
+}
+
+const LAUNCH_COUNTDOWN_UNITS = [
+  { key: 'days', label: 'dias', ms: 86_400_000 },
+  { key: 'hours', label: 'horas', ms: 3_600_000 },
+  { key: 'minutes', label: 'min', ms: 60_000 },
+  { key: 'seconds', label: 'seg', ms: 1_000 },
+];
+
+function splitCountdown(remainingMs) {
+  let rest = Math.max(0, remainingMs);
+  const parts = {};
+  for (const unit of LAUNCH_COUNTDOWN_UNITS) {
+    parts[unit.key] = Math.floor(rest / unit.ms);
+    rest -= parts[unit.key] * unit.ms;
+  }
+  return parts;
+}
+
+// One split-flap "flap" (a single digit 0-9): keeps the current digit always underneath
+// (cd-digit-face) and, only for the instant after it changes, layers a second copy showing the
+// previous digit (cd-digit-flap) that rotates/fades down and away — the flap key is bumped on
+// every change so React remounts it and the CSS animation restarts even if the digit repeats
+// (e.g. 9 -> 0 -> ... -> 9 later), which a value-based key would miss.
+function FlipDigit({ value }) {
+  const [display, setDisplay] = useState(value);
+  const [flipFrom, setFlipFrom] = useState(null);
+  const prevRef = useRef(value);
+  const flipKeyRef = useRef(0);
+
+  useEffect(() => {
+    if (value === prevRef.current) return undefined;
+    flipKeyRef.current += 1;
+    setFlipFrom(prevRef.current);
+    prevRef.current = value;
+    setDisplay(value);
+    const timeout = setTimeout(() => setFlipFrom(null), 450);
+    return () => clearTimeout(timeout);
+  }, [value]);
+
+  return (
+    <span className="cd-digit">
+      <span className="cd-digit-face">{display}</span>
+      {flipFrom !== null && <span key={flipKeyRef.current} className="cd-digit-flap">{flipFrom}</span>}
+    </span>
+  );
+}
+
+// Full-page takeover: no Header/Footer/cart/login — every visitor, logged in or not, sees only
+// this until the configured instant passes (see PortalService._resolve_launch_mode). Ticks locally
+// against the client's own clock; onLaunch triggers a one-time reload so the real bootstrap
+// (already re-fetched periodically by the caller) takes over without the visitor refreshing by hand.
+function LaunchCountdownScreen({ launchMode, onLaunch }) {
+  const launchAtMs = useMemo(() => {
+    const parsed = new Date(launchMode.launchAt).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }, [launchMode.launchAt]);
+  const [remaining, setRemaining] = useState(() => launchAtMs - Date.now());
+
+  useEffect(() => {
+    const tick = () => {
+      const next = launchAtMs - Date.now();
+      setRemaining(next);
+      if (next <= 0) onLaunch && onLaunch();
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [launchAtMs, onLaunch]);
+
+  const parts = splitCountdown(remaining);
+
+  return (
+    <div className="fa-wrap fa-fadein" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', textAlign: 'center' }}>
+      <div style={{ maxWidth: 560 }}>
+        <img className="cd-logo" src={MARKETPLACE_LOGO_MARK_URL} alt="Drogaria Farmaura" />
+        <h1 className="fa-h1" style={{ marginBottom: 12 }}>{launchMode.headline || 'Estamos quase lá'}</h1>
+        <p className="fa-lead" style={{ marginBottom: 32 }}>
+          {launchMode.subtext || 'A drogaria Farmaura está chegando. Volte em breve para conferir novidades e ofertas de lançamento.'}
+        </p>
+        {launchAtMs > 0 && (
+          <div className="cd-clock">
+            {LAUNCH_COUNTDOWN_UNITS.map((unit, index) => (
+              <React.Fragment key={unit.key}>
+                {index > 0 && <span className="cd-sep">:</span>}
+                <div className="cd-unit">
+                  <div className="cd-unit-digits">
+                    <FlipDigit value={Math.floor(parts[unit.key] / 10) % 10} />
+                    <FlipDigit value={parts[unit.key] % 10} />
+                  </div>
+                  <div className="cd-unit-label">{unit.label}</div>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -576,6 +780,22 @@ function App() {
   const [addresses, setAddresses] = useState([]);
   const [cards, setCards] = useState([]);
   const [customerProfile, setCustomerProfile] = useState(() => createMarketplaceProfileSnapshot(null));
+  const [mostSearchedProductIds, setMostSearchedProductIds] = useState([]);
+  useEffect(() => {
+    // Public, best-effort ranking (real sales volume, online + PDV) for the "Mais buscados"
+    // home shortcut and the "discover" listing — see catalog_service.list_most_searched_products.
+    let active = true;
+    (async () => {
+      try {
+        const response = await authClient.publicRequest('/catalog/most-searched?months=3&limit=10', { method: 'GET' });
+        if (!active) return;
+        setMostSearchedProductIds(Array.isArray(response.items) ? response.items.map((item) => item.product_id).filter(Boolean) : []);
+      } catch {
+        // The shortcut still navigates fine without a real ranking behind it.
+      }
+    })();
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     let active = true;
     let retryTimer = null;
@@ -1017,7 +1237,7 @@ function App() {
   const finalizeAuthenticatedSession = async (flow, rememberSession) => {
     const nextUser = await applyAuthenticatedFlow(flow, rememberSession);
     if (pendingAuth) { const act = pendingAuth; setPendingAuth(null); goTo({ name: 'home' }); act(); }
-    else goTo({ name: 'account', tab: 'summary' });
+    else goTo({ name: 'home' });
     return nextUser;
   };
   // Signing in from inside the chat modal must not move the visitor off their current
@@ -1123,9 +1343,6 @@ function App() {
           channel: 'app',
           items: availableItems.map((item) => ({ product_id: item.id, quantity: Number(item.qty || 0) })),
           coupon_code: coupon && coupon.code || '',
-          coupon_percent: coupon && (coupon.discountType === 'percent' || (coupon.discountType === 'shipping' && coupon.shippingDiscountMode === 'percent')) ? Number(coupon.discountValue || 0) : 0,
-          coupon_amount: coupon && ((coupon.discountType === 'fixed') || (coupon.discountType === 'shipping' && coupon.shippingDiscountMode === 'fixed')) ? Number(coupon.discountValue || 0) : coupon ? Number(coupon.discountAmount || 0) : 0,
-          coupon_type: coupon && coupon.discountType === 'shipping' ? 'shipping_' + (coupon.shippingDiscountMode || 'full') : coupon && coupon.discountType || '',
           delivery: {
             method: details && details.delivery && details.delivery.method || 'express',
             recipient_name: details && details.delivery && details.delivery.recipientName || user.name || '',
@@ -1403,12 +1620,30 @@ function App() {
         gender: draft.gender || '',
         marital_status: draft.maritalStatus || '',
         children_count: draft.childrenCount === '' || draft.childrenCount == null ? null : Number(draft.childrenCount),
+        marketing_program_preferences: draft.marketingProgramPreferences || customerProfile.marketingProgramPreferences,
+        communication_channel_preferences: draft.communicationChannelPreferences || customerProfile.communicationChannelPreferences,
       }),
     });
     const normalizedProfile = normalizeMarketplaceProfile(payload, user);
     setCustomerProfile(normalizedProfile);
     setUser((current) => current ? { ...current, name: normalizedProfile.name } : current);
     return normalizedProfile;
+  };
+
+  const saveCustomerPrivacyPreferences = async (programs, channels) => {
+    /** Persist marketing-program / communication-channel opt-ins, keeping the rest of the profile untouched. */
+
+    return saveCustomerProfile({
+      name: customerProfile.name,
+      cpf: customerProfile.cpf,
+      phone: customerProfile.phone,
+      birth: customerProfile.birth,
+      gender: customerProfile.gender,
+      maritalStatus: customerProfile.maritalStatus,
+      childrenCount: customerProfile.childrenCount,
+      marketingProgramPreferences: mergePrivacyPreferenceUpdates(customerProfile.marketingProgramPreferences, programs || [], 'name'),
+      communicationChannelPreferences: mergePrivacyPreferenceUpdates(customerProfile.communicationChannelPreferences, channels || [], 'channel'),
+    });
   };
 
   const toBackendAddressPayload = (address) => ({
@@ -1521,6 +1756,7 @@ function App() {
         store_name: booking.store || '',
         scheduled_date_label: booking.date || '',
         scheduled_time_label: booking.time || '',
+        coupon_code: booking.couponCode || '',
       }),
     });
     const nextHistory = Array.isArray(response) ? response.map(normalizeMarketplaceHealthHistory).filter(Boolean) : [];
@@ -1550,14 +1786,17 @@ function App() {
   const ctx = {
     cats: portalData.categories, products, route, onNav, onSearch,
     items, coupon, setCoupon, addToCart, updateQty, removeItem, patchItem, toggleItemSub,
-    fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, unsubscribeAvailabilityAlert, recent, beginCheckout, placeOrder, lastOrder, placingOrder, checkCoverage,
+    fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, unsubscribeAvailabilityAlert, recent, mostSearchedProductIds, beginCheckout, placeOrder, lastOrder, placingOrder, checkCoverage,
     user, logout, reorder, orders, statusMap: MARKETPLACE_ORDER_STATUS_MAP, stores: portalData.stores,
     deliveryEstimate: portalData.deliveryEstimate,
     paymentRules: portalData.marketplace,
-    profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
+    homeBanner: portalData.homeBanner,
+    homeBrands: portalData.homeBrands,
+    profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
     cards, tokenizeAndSaveCard, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,
-    privacyPrograms: [], commChannels: [],
+    privacyPrograms: buildPrivacyPreferenceList(MARKETING_PROGRAM_CATALOG, customerProfile.marketingProgramPreferences, 'name'),
+    commChannels: buildPrivacyPreferenceList(COMMUNICATION_CHANNEL_CATALOG, customerProfile.communicationChannelPreferences, 'channel'),
     healthServices: portalData.healthServices, healthHistory: portalData.healthHistory, bookHealthAppointment,
     openChat, openPrescription, requireAuth,
     chatThreads, activeChatThreadId, selectChatThread, sendChatMessage,
@@ -1579,10 +1818,26 @@ function App() {
     '--fa-aura': t.aura / 100,
   };
 
+  // Pre-launch countdown gate: when enabled and the configured instant hasn't passed, every
+  // visitor — logged in or not — sees only this, in place of the entire storefront. No bypass by
+  // design (see 00_Decisoes note for this feature); to preview the real marketplace before launch,
+  // disable the toggle in the internal console temporarily.
+  const launchMode = portalData.launchMode || {};
+  const launchAtMs = new Date(launchMode.launchAt).getTime();
+  const launchGateActive = !!launchMode.enabled && !Number.isNaN(launchAtMs) && Date.now() < launchAtMs;
+  if (launchGateActive) {
+    return (
+      <div id="fa-root" data-density={t.density} style={rootStyle}>
+        <LaunchCountdownScreen launchMode={launchMode} onLaunch={() => window.location.reload()} />
+      </div>
+    );
+  }
+
   const renderScreen = () => {
     switch (route.name) {
       case 'home': return <HomeScreen ctx={ctx} />;
       case 'category': return <ShopScreen ctx={ctx} mode="category" />;
+      case 'brand': return <ShopScreen ctx={ctx} mode="brand" />;
       case 'offers': return <ShopScreen ctx={ctx} mode="offers" />;
       case 'search': return <ShopScreen ctx={ctx} mode="search" />;
       case 'product': return <ProductScreen ctx={ctx} />;
@@ -1606,7 +1861,7 @@ function App() {
 
   return (
     <div id="fa-root" data-density={t.density} style={rootStyle}>
-      <Header cats={portalData.categories} portalData={portalData} route={route} cartCount={cartCount} query={route.query} user={user} onNav={onNav} onSearch={onSearch} onChat={() => openChat()} onPrescription={openPrescription} />
+      <Header cats={portalData.categories} portalData={portalData} route={route} cartCount={cartCount} query={route.query} user={user} onNav={onNav} onSearch={onSearch} onChat={() => openChat()} onPrescription={openPrescription} authClient={authClient} />
       <main key={route.name + (route.cat || '') + (route.id || '') + (route.query || '') + (route.tab || '')}>
         {!authReady
           ? <div className="fa-wrap fa-fadein" style={{ paddingTop: 72, paddingBottom: 96, maxWidth: 720 }}>
@@ -1635,6 +1890,7 @@ function App() {
         onOpenAccountConversations={() => { setChatOpen(false); onNav({ name: 'account', tab: 'conversations' }); }}
       />
       <PrescriptionModal open={rxOpen} onClose={() => setRxOpen(false)} />
+      {user && <ProfileCompletionNudge ctx={ctx} />}
 
       {/* toast */}
       {toast && (

@@ -49,5 +49,10 @@ class HealthServiceAppointment(Base, UuidModel, TimestampedModel):
     scheduled_time_label: Mapped[str] = mapped_column(String(20), default="", nullable=False)
     completed_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     cancelled_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    # price_amount is the final, post-discount price actually charged; original_price_amount
+    # snapshots HealthService.price_amount at booking time so a later report can show the
+    # discount actually applied, mirroring how Order/PdvSale keep both figures.
+    original_price_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     price_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    coupon_code: Mapped[str] = mapped_column(String(24), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)

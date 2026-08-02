@@ -20,12 +20,17 @@ from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException, status
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import invalidate_cache_scope
+from app.core.device_detection import detect_device_type
+from app.core.tenant_context import apply_public_marketplace_context
 from app.domain.enums import OrderStatus, UserRole
 from app.domain.validators import is_valid_cpf
+from app.models.coupon_campaign import CouponCampaign
 from app.models.customer import Customer
+from app.models.customer_address import CustomerAddress
 from app.models.inventory_movement import InventoryMovement
 from app.models.order import Order
 from app.models.order_fulfillment import OrderFulfillment
@@ -40,6 +45,7 @@ from app.repositories.order_repository import OrderRepository
 from app.repositories.store_repository import StoreRepository
 from app.repositories.user_repository import UserRepository
 from app.services.catalog_service import CATALOG_CACHE_NAMESPACE
+from app.services.coupon_service import CouponCartLine, CouponService
 from app.schemas.auth import TokenSubject
 from app.schemas.fiscal import FiscalDocumentResponse
 from app.schemas.orders import (
@@ -71,6 +77,9 @@ from app.services.marketplace_projection import (
 from app.services.melhor_envio_client import MelhorEnvioError
 from app.services.payment_service import PaymentService
 from app.services.portal_service import PortalService
+from app.models.pricing_promotion import PricingPromotion
+from app.services.pricing_promotion_service import apply_promotion_to_catalog_item, resolve_customer_promotion_profile
+from app.services.customer_loyalty_service import record_customer_purchase
 from app.services.shipping_service import ShippingService
 from app.schemas.portal import (
     PortalDeliveryPricingResponse,
@@ -143,7 +152,7 @@ class OrderService:
             total_amount=quantize_money(total_amount),
         )
 
-    async def create_marketplace_order(self, payload: CheckoutOrderRequest) -> MarketplaceOrderResponse:
+    async def create_marketplace_order(self, payload: CheckoutOrderRequest, *, user_agent: str = "") -> MarketplaceOrderResponse:
         """Persist a marketplace order with the submitted payment data."""
 
         subject = self._require_subject()
@@ -202,6 +211,7 @@ class OrderService:
                     detail=f"Insufficient stock for {group['name']}.",
                 )
             requested_groups.append({"request": line, "group": group})
+        await self._apply_pricing_promotions(tenant_id=str(subject.tenant_id), customer=customer, user_agent=user_agent, requested_groups=requested_groups)
         subtotal_amount = quantize_money(
             sum((Decimal(group['price']) * Decimal(entry['request'].quantity) for entry in requested_groups), start=Decimal('0.00'))
         )
@@ -255,17 +265,26 @@ class OrderService:
                 )
             elif subtotal_amount < pricing.free_above_subtotal:
                 delivery_fee_amount = pricing.fee_beyond_last_tier
-        coupon_discount = Decimal('0.00')
-        if payload.coupon_type == 'shipping_full':
-            coupon_discount = quantize_money(delivery_fee_amount)
-        elif payload.coupon_type == 'shipping_fixed':
-            coupon_discount = quantize_money(min(delivery_fee_amount, payload.coupon_amount))
-        elif payload.coupon_type == 'shipping_percent':
-            coupon_discount = quantize_money(delivery_fee_amount * (payload.coupon_percent / Decimal('100')))
-        elif payload.coupon_amount > 0:
-            coupon_discount = quantize_money(min(subtotal_amount, payload.coupon_amount))
-        elif payload.coupon_percent > 0:
-            coupon_discount = quantize_money(subtotal_amount * (payload.coupon_percent / Decimal('100')))
+        requires_prescription_review = any(bool(group['group']['requires_prescription']) for group in requested_groups)
+        cart_lines = [
+            CouponCartLine(
+                price=Decimal(entry['group']['price']),
+                quantity=int(entry['request'].quantity),
+                category=str(entry['group']['cat'] or ''),
+                name=str(entry['group']['name'] or ''),
+            )
+            for entry in requested_groups
+        ]
+        coupon, coupon_discount = await CouponService(self.session).resolve_coupon(
+            tenant_id=str(subject.tenant_id),
+            customer_id=customer.id,
+            code=payload.coupon_code,
+            channel='online',
+            cart_lines=cart_lines,
+            subtotal_amount=subtotal_amount,
+            secondary_fee_amount=delivery_fee_amount,
+            requires_prescription=requires_prescription_review,
+        )
         total_amount = quantize_money(subtotal_amount - coupon_discount + delivery_fee_amount)
         now = datetime.now(UTC)
         payment_method = None
@@ -297,11 +316,12 @@ class OrderService:
             customer_document_snapshot=customer.cpf,
             customer_phone_snapshot=payload.delivery.recipient_phone or customer.phone,
             customer_email_snapshot=customer.email,
-            requires_prescription_review=any(bool(group['group']['requires_prescription']) for group in requested_groups),
-            prescription_status='pending' if any(bool(group['group']['requires_prescription']) for group in requested_groups) else 'none',
+            requires_prescription_review=requires_prescription_review,
+            prescription_status='pending' if requires_prescription_review else 'none',
             subtotal_amount=subtotal_amount,
             delivery_fee_amount=delivery_fee_amount,
             discount_amount=coupon_discount,
+            coupon_code=coupon.code if coupon else '',
             cashback_applied_amount=Decimal('0.00'),
             cashback_earned_amount=Decimal('0.00'),
             total_amount=total_amount,
@@ -309,7 +329,7 @@ class OrderService:
             estimated_ready_at_label=self._build_ready_label(now, payload.delivery.method),
             estimated_delivery_at_label=self._build_delivery_eta(now, payload.delivery.method),
             completed_at_label='',
-            marketplace_note=self._build_marketplace_note(payload),
+            marketplace_note=self._build_marketplace_note(payload, coupon=coupon, discount_amount=coupon_discount),
             internal_note='Pagamento registrado automaticamente pelo checkout digital.',
             is_active=True,
         )
@@ -423,6 +443,9 @@ class OrderService:
         order.payment_status = payment_service.resolve_order_payment_status(charge['status'])
         if order.payment_status == 'approved':
             order.payment_confirmed_at = now
+        if coupon is not None:
+            coupon.usage_count += 1
+        record_customer_purchase(customer, order_total=total_amount)
         await self.session.flush()
         await self.session.commit()
         await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(subject.tenant_id))
@@ -670,6 +693,7 @@ class OrderService:
             subtotal_amount=order.subtotal_amount,
             delivery_fee_amount=order.delivery_fee_amount,
             discount_amount=order.discount_amount,
+            coupon_code=order.coupon_code,
             address=address,
             store=store,
             pickup_code=fulfillment.pickup_code if fulfillment and order.fulfillment_type == 'pickup' else '',
@@ -829,6 +853,40 @@ class OrderService:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Authenticated subject required.')
         return self.subject
 
+    async def _apply_pricing_promotions(
+        self, *, tenant_id: str, customer: Customer, user_agent: str, requested_groups: list[dict[str, object]]
+    ) -> None:
+        """Override checkout line pricing in place with the best-matching active promotion.
+
+        Reuses the exact same matching/pricing function the catalog listing already applies
+        (``apply_promotion_to_catalog_item``) so the discounted price a customer sees in the
+        shop is never different from what they are actually charged at checkout — a promotion
+        that only applied at listing time and never at checkout was a real bug found and fixed
+        in this pass (see dev-obsidian ADR for this session).
+        """
+
+        promotions = list(
+            (
+                await self.session.execute(
+                    select(PricingPromotion).where(PricingPromotion.tenant_id == tenant_id, PricingPromotion.is_active.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not promotions:
+            return
+        primary_address = (
+            await self.session.execute(
+                select(CustomerAddress).where(CustomerAddress.customer_id == customer.id, CustomerAddress.is_primary.is_(True))
+            )
+        ).scalar_one_or_none()
+        device_type = detect_device_type(user_agent)
+        profile = resolve_customer_promotion_profile(customer=customer, primary_address=primary_address, device_type=device_type)
+        now = datetime.now(UTC)
+        for entry in requested_groups:
+            apply_promotion_to_catalog_item(entry["group"], promotions=promotions, profile=profile, now=now)
+
     async def _get_store_id(self, subject: TokenSubject, *, requested_store_id: str = "", allow_all_stores: bool = False) -> str:
         """Resolve the active store identifier, honoring an admin-supplied override.
 
@@ -864,16 +922,16 @@ class OrderService:
         }
         return labels.get(method, 'Pagamento')
 
-    def _build_marketplace_note(self, payload: CheckoutOrderRequest) -> str:
+    def _build_marketplace_note(self, payload: CheckoutOrderRequest, *, coupon: CouponCampaign | None, discount_amount: Decimal) -> str:
         """Return the marketplace note snapshot from checkout data."""
 
         parts = []
-        if payload.coupon_code.strip():
-            coupon_snapshot = 'Cupom: ' + payload.coupon_code.strip()
-            if payload.coupon_amount > 0:
-                coupon_snapshot += ' · desconto ' + str(quantize_money(payload.coupon_amount))
-            elif payload.coupon_percent > 0:
-                coupon_snapshot += ' · ' + str(payload.coupon_percent) + '%'
+        if coupon is not None:
+            coupon_snapshot = 'Cupom: ' + coupon.code
+            if coupon.discount_type == 'percent':
+                coupon_snapshot += ' · ' + str(coupon.discount_value) + '%'
+            else:
+                coupon_snapshot += ' · desconto ' + str(discount_amount)
             parts.append(coupon_snapshot)
         if payload.delivery.reference_note.strip():
             parts.append(payload.delivery.reference_note.strip())
@@ -967,8 +1025,31 @@ class OrderService:
 
         subject = self._require_subject()
         return await self.delivery_pricing.check_coverage(
-            subject=subject, district=district, city=city, state_code=state_code, postal_code=postal_code,
+            tenant_id=str(subject.tenant_id), district=district, city=city, state_code=state_code, postal_code=postal_code,
         )
+
+    async def check_delivery_coverage_public(self, *, district: str, city: str, state_code: str, postal_code: str) -> DeliveryCoverageResponse:
+        """Return a best-effort delivery-coverage preview for a guest visitor browsing before login."""
+
+        tenant_id = await self._resolve_public_tenant_id()
+        if not tenant_id:
+            return DeliveryCoverageResponse(configured=False, covered=True)
+        await apply_public_marketplace_context(self.session, tenant_id)
+        return await self.delivery_pricing.check_coverage(
+            tenant_id=tenant_id, district=district, city=city, state_code=state_code, postal_code=postal_code,
+        )
+
+    async def _resolve_public_tenant_id(self) -> str:
+        """Return the first tenant that has active sellable inventory, for anonymous coverage checks.
+
+        Runs through a SECURITY DEFINER function rather than a plain ORM query: this
+        lookup is inherently cross-tenant (there is no tenant context yet for an
+        anonymous visitor), so it must bypass row-level security narrowly for this one
+        read — same pattern as CatalogService._resolve_public_tenant_id.
+        """
+
+        tenant_id = (await self.session.execute(text("SELECT app_private.resolve_public_marketplace_tenant_id()"))).scalar_one_or_none()
+        return str(tenant_id or '')
 
     def _build_full_delivery_address(self, payload: CheckoutOrderRequest) -> str:
         """Return one free-form address string for geocoding from the checkout delivery fields."""

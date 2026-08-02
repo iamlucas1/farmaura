@@ -23,6 +23,7 @@ from app.api.v1 import (
     catalog,
     categories,
     chat,
+    coupon_analytics,
     crm,
     customers,
     deliveries,
@@ -66,6 +67,9 @@ api_router.include_router(
 )
 api_router.include_router(
     purchase_analytics.router, prefix="/purchase-analytics", tags=["purchase-analytics"]
+)
+api_router.include_router(
+    coupon_analytics.router, prefix="/coupon-analytics", tags=["coupon-analytics"]
 )
 api_router.include_router(brands.router, prefix="/brands", tags=["brands"])
 api_router.include_router(categories.router, prefix="/categories", tags=["categories"])

@@ -219,7 +219,9 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
         sku = str(getattr(item, "sku", "") or "").strip()
         ean = str(getattr(item, "ean_code", "") or "").strip()
         base_price = quantize_money(getattr(item, "sale_price", Decimal("0.00")) or Decimal("0.00"))
-        promo = quantize_money(getattr(item, "promotional_discount_percent", Decimal("0.00")) or Decimal("0.00"))
+        # No manual per-item discount anymore — every discount now comes from a PricingPromotion,
+        # applied later by apply_promotion_to_catalog_item (catalog listing and checkout alike).
+        promo = Decimal("0.00")
         effective_price = compute_effective_price(base_price, promo)
         is_visible = bool(getattr(item, "is_marketplace_visible", True))
         available_stock = max(0, int(getattr(item, "quantity", 0) or 0)) if is_visible else 0

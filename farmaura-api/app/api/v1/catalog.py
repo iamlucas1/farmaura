@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_session, get_subject_session, require_marketplace_subject
 from app.core.rate_limit import PUBLIC_RATE_LIMIT, rate_limit
 from app.schemas.auth import TokenSubject
-from app.schemas.catalog import CatalogListResponse, PublicCatalogListResponse
+from app.schemas.catalog import CatalogListResponse, MostSearchedProductsResponse, PublicCatalogListResponse
 from app.services.catalog_service import CatalogService
 
 
@@ -61,3 +61,15 @@ async def list_public_catalog(
 
     service = CatalogService(session=session)
     return await service.list_public_products(page=page, page_size=page_size)
+
+
+@router.get("/most-searched", response_model=MostSearchedProductsResponse, dependencies=[Depends(rate_limit(PUBLIC_RATE_LIMIT))])
+async def list_most_searched_products(
+    months: int = Query(default=3, ge=1, le=12),
+    limit: int = Query(default=10, ge=1, le=20),
+    session: AsyncSession = Depends(get_session),
+) -> MostSearchedProductsResponse:
+    """Return the top-demand products ranked by real sales volume (online + PDV)."""
+
+    service = CatalogService(session=session)
+    return await service.list_most_searched_products(months=months, limit=limit)

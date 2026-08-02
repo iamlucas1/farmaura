@@ -40,11 +40,43 @@ function writeDeliveryLocation(location) {
   window.FA_PORTAL_CACHE.writeLocal('marketplace', null, DELIVERY_LOCATION_STORAGE_KEY, location);
 }
 
-function DeliveryLocationMenu({ fallbackLabel }) {
+async function fetchDeliveryCoverage(authClient, address) {
+  const params = new URLSearchParams({
+    district: address.district || '',
+    city: address.city || '',
+    state_code: address.state || '',
+    postal_code: address.cep || '',
+  });
+  return authClient.publicRequest(`/orders/delivery-coverage/public?${params.toString()}`, { method: 'GET' });
+}
+
+function DeliveryCoverageNote({ coverage }) {
+  if (coverage.loading) {
+    return <div className="fa-faint" style={{ fontSize: 12, marginTop: 8 }}>Verificando cobertura de entrega...</div>;
+  }
+  if (!coverage.data) return null;
+  const { covered, requires_shipping } = coverage.data;
+  const tone = !covered ? 'var(--fa-warn)' : requires_shipping ? 'var(--fa-info)' : 'var(--fa-success)';
+  const icon = !covered ? 'pin' : requires_shipping ? 'clock' : 'truck';
+  const text = !covered
+    ? 'Fora da área de entrega no momento.'
+    : requires_shipping
+      ? 'Nessa região a entrega é feita por transportadora (Correios/logística), sem motoboy expresso.'
+      : 'Entrega expressa por motoboy disponível nessa região.';
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 8, fontSize: 12.5, lineHeight: 1.4, color: tone }}>
+      <Icon name={icon} size={14} style={{ flex: 'none', marginTop: 1 }} />
+      <span>{text}</span>
+    </div>
+  );
+}
+
+function DeliveryLocationMenu({ fallbackLabel, authClient }) {
   const [open, setOpen] = _useStateChrome(false);
   const [location, setLocation] = _useStateChrome(() => readDeliveryLocation());
   const [cep, setCep] = _useStateChrome('');
   const [status, setStatus] = _useStateChrome({ loading: false, error: '', result: null });
+  const [coverage, setCoverage] = _useStateChrome({ loading: false, error: '', data: null });
   const ref = React.useRef(null);
 
   React.useEffect(() => {
@@ -60,23 +92,36 @@ function DeliveryLocationMenu({ fallbackLabel }) {
     e.preventDefault();
     if (formatCep(cep).replace(/\D/g, '').length !== 8) {
       setStatus({ loading: false, error: 'Informe um CEP válido.', result: null });
+      setCoverage({ loading: false, error: '', data: null });
       return;
     }
     setStatus({ loading: true, error: '', result: null });
+    setCoverage({ loading: false, error: '', data: null });
     try {
       const address = await fetchViaCepAddress(cep);
       setStatus({ loading: false, error: '', result: address });
+      // Cache and show this address as soon as it resolves — the customer typing a new
+      // CEP is the signal that it's their current one, not a separate confirm step.
+      const label = [address.district, address.cep].filter(Boolean).join(' · ') || address.cep;
+      const next = { ...address, label };
+      setLocation(next);
+      writeDeliveryLocation(next);
+      setCoverage({ loading: true, error: '', data: null });
+      try {
+        const data = await fetchDeliveryCoverage(authClient, address);
+        setCoverage({ loading: false, error: '', data });
+      } catch (coverageError) {
+        // Best-effort: the address is still confirmable even if the coverage preview fails.
+        setCoverage({ loading: false, error: (coverageError && coverageError.message) || '', data: null });
+      }
     } catch (requestError) {
       setStatus({ loading: false, error: (requestError && requestError.message) || 'Não foi possível consultar o CEP.', result: null });
     }
   };
 
   const confirm = () => {
-    if (!status.result) return;
-    const label = [status.result.district, status.result.cep].filter(Boolean).join(' · ') || status.result.cep;
-    const next = { ...status.result, label };
-    setLocation(next);
-    writeDeliveryLocation(next);
+    // The address is already cached and shown as soon as search() resolves it —
+    // this just dismisses the popover.
     setOpen(false);
   };
 
@@ -98,6 +143,7 @@ function DeliveryLocationMenu({ fallbackLabel }) {
             <div style={{ marginTop: 10, padding: 10, background: 'var(--fa-mist-2)', borderRadius: 'var(--fa-r-btn)' }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>{[status.result.district, status.result.city, status.result.state].filter(Boolean).join(' - ')}</div>
               <div className="fa-faint" style={{ fontSize: 12, marginTop: 2 }}>CEP {status.result.cep}</div>
+              <DeliveryCoverageNote coverage={coverage} />
               <button type="button" className="fa-btn fa-btn-primary fa-btn-sm fa-btn-block" style={{ marginTop: 8 }} onClick={confirm}>Entregar neste endereço</button>
             </div>
           ) : null}
@@ -120,7 +166,7 @@ function resolveMarketplaceMeta(portalData) {
   };
 }
 
-function CareMenu({ user, onNav, onPrescription, align = 'right', className = '' }) {
+function AccountMenu({ user, onNav, onPrescription, className = '' }) {
   const [open, setOpen] = _useStateChrome(false);
   const ref = React.useRef(null);
   React.useEffect(() => {
@@ -141,12 +187,25 @@ function CareMenu({ user, onNav, onPrescription, align = 'right', className = ''
     { ic: 'rx', l: 'Receita digital', d: 'Envie e organize receitas', act: () => onPrescription && onPrescription() },
   ];
   const run = (act) => { setOpen(false); act(); };
+  const firstName = user ? user.name.split(' ')[0] : '';
 
   return (
-    <div className={'fa-caremenu ' + className} ref={ref} style={{ marginLeft: align === 'right' ? 'auto' : undefined, position: 'relative' }}>
-      <a className="fa-navlink" data-active={open ? '1' : '0'} role="button" aria-haspopup="true" aria-expanded={open ? 'true' : 'false'} onClick={() => setOpen((o) => !o)}>
-        <Icon name="sparkle" size={16} />Minha Farmaura<Icon name="chevD" size={14} style={{ transition: 'transform .18s', transform: open ? 'rotate(180deg)' : 'none' }} />
-      </a>
+    <div className={'fa-accmenu ' + className} ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="fa-accmenu-trigger"
+        data-logged={user ? '1' : '0'}
+        data-active={open ? '1' : '0'}
+        aria-haspopup="true"
+        aria-expanded={open ? 'true' : 'false'}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {user
+          ? <ProfileAvatar user={user} className="fa-am-avatar" fallbackIconSize={15} />
+          : <Icon name="user" size={17} />}
+        <span className="fa-am-label">{user ? firstName : 'Entrar / Criar conta'}</span>
+        <Icon name="chevD" size={14} style={{ transition: 'transform .18s', transform: open ? 'rotate(180deg)' : 'none', flex: 'none' }} />
+      </button>
       {open && (
         <div className="fa-caremenu-pop" role="menu">
           <div className="fa-caremenu-head">
@@ -185,7 +244,7 @@ function Logo({ onClick }) {
   );
 }
 
-function Header({ cats, route, cartCount, query, user, portalData, onNav, onSearch, onChat, onPrescription }) {
+function Header({ cats, route, cartCount, query, user, portalData, onNav, onSearch, onChat, onPrescription, authClient }) {
   const [q, setQ] = _useStateChrome(query || '');
   const [drawer, setDrawer] = _useStateChrome(false);
   const activeCat = route.name === 'category' ? route.cat : null;
@@ -199,7 +258,7 @@ function Header({ cats, route, cartCount, query, user, portalData, onNav, onSear
     <header className="fa-header">
       <div className="fa-topbar">
         <div className="fa-wrap">
-          <DeliveryLocationMenu fallbackLabel={storeMeta.topbarLabel} />
+          <DeliveryLocationMenu fallbackLabel={storeMeta.topbarLabel} authClient={authClient} />
           <div style={{ display: 'flex', gap: 20 }}>
             <a onClick={() => onNav({ name: user ? 'account' : 'login', tab: 'orders' })} role="button"><Icon name="bag" size={15} /> {user ? 'Meus pedidos' : 'Entrar'}</a>
             <a onClick={() => onChat && onChat()} role="button"><Icon name="chat" size={15} /> Falar com farmacêutico</a>
@@ -218,10 +277,7 @@ function Header({ cats, route, cartCount, query, user, portalData, onNav, onSear
             <button type="submit" className="fa-btn fa-btn-primary fa-btn-sm" style={{ borderRadius: 'var(--fa-r-pill)' }}>Buscar</button>
           </form>
           <div style={{ display: 'flex', gap: 8, flex: 'none', alignItems: 'center' }}>
-            <CareMenu user={user} onNav={onNav} onPrescription={onPrescription} align="none" className="fa-caremenu-top" />
-            <button className="fa-iconbtn" onClick={() => onNav({ name: user ? 'account' : 'login', tab: 'summary' })} aria-label="conta" title={user ? 'Minha conta' : 'Entrar'} style={user ? { background: 'var(--fa-rose-soft)', borderColor: 'var(--fa-rose)', color: 'var(--fa-primary)', fontWeight: 800, overflow: 'hidden', padding: 0 } : undefined}>
-              {user ? <ProfileAvatar user={user} className="fa-top-avatar" fallbackIconSize={18} /> : <Icon name="user" />}
-            </button>
+            <AccountMenu user={user} onNav={onNav} onPrescription={onPrescription} />
             <button className="fa-iconbtn" onClick={() => onNav({ name: 'cart' })} aria-label="carrinho">
               <Icon name="cart" />
               {cartCount > 0 && <span className="fa-cart-count">{cartCount}</span>}
@@ -324,4 +380,4 @@ function Footer({ cats, portalData, onNav }) {
   );
 }
 
-export { CareMenu, Footer, Header, Logo, MobileDrawer };
+export { AccountMenu, Footer, Header, Logo, MobileDrawer };

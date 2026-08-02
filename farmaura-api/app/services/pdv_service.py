@@ -20,6 +20,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import invalidate_cache_scope
@@ -75,12 +76,14 @@ from app.models.pdv_sale import PdvSale
 from app.models.pdv_sale_item import PdvSaleItem
 from app.models.prescription import Prescription
 from app.models.subscription import Subscription
+from app.models.coupon_campaign import CouponCampaign
 from app.schemas.orders import DeliveryCoverageResponse
 from app.services.catalog_service import CATALOG_CACHE_NAMESPACE
+from app.services.coupon_service import CouponCartLine, CouponService
 from app.services.delivery_pricing_service import DeliveryPricingService
 from app.services.fiscal_service import FiscalService
 from app.services.inventory_stock_sync import decrement_lot_fefo
-from app.services.marketplace_projection import build_marketplace_catalog_groups
+from app.services.marketplace_projection import build_marketplace_catalog_groups, resolve_marketplace_category_id
 from app.services.payment_service import PaymentService
 from app.services.portal_service import PortalService
 from app.services.purchase_history_service import DEFAULT_RECURRENCE_DISCOUNT_PERCENT
@@ -331,16 +334,53 @@ class PdvService:
         potential_cashback = await self._resolve_potential_cashback(customer_id)
         minimum_margin_percent = await self._resolve_discount_minimum_margin_percent()
         max_discount_percent = self._discount_ceiling(prepared, potential_cashback, minimum_margin_percent)
-        if payload.discount > max_discount_percent:
+
+        coupon: CouponCampaign | None = None
+        if payload.coupon_code.strip() and payload.discount > 0:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    "Desconto negado: reduziria a margem média do carrinho abaixo do mínimo configurado "
-                    "(" + str(minimum_margin_percent) + "%), considerando também o cashback disponível do cliente. "
-                    "Desconto máximo permitido: " + str(max_discount_percent) + "%."
-                ),
+                detail="Não é possível combinar desconto manual com cupom.",
             )
-        discount_amount = subtotal * (payload.discount / Decimal("100.00"))
+        if payload.coupon_code.strip():
+            cart_lines = [
+                CouponCartLine(
+                    price=Decimal(line["unit_price"]), quantity=int(line["qty"]),
+                    category=str(line["category_name"] or ""), name=str(line["name"] or ""),
+                )
+                for line in prepared
+            ]
+            coupon, discount_amount = await CouponService(self.session).resolve_coupon(
+                tenant_id=str(self.subject.tenant_id),
+                customer_id=customer_id,
+                code=payload.coupon_code,
+                channel='pdv',
+                cart_lines=cart_lines,
+                subtotal_amount=subtotal,
+                secondary_fee_amount=Decimal("0.00"),
+                requires_prescription=any(line["controlled"] for line in prepared),
+            )
+            effective_discount_percent = (discount_amount / subtotal * Decimal("100.00")) if subtotal > 0 else Decimal("0.00")
+            if effective_discount_percent > max_discount_percent:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cupom negado: reduziria a margem média do carrinho abaixo do mínimo configurado "
+                        "(" + str(minimum_margin_percent) + "%). Desconto máximo permitido: " + str(max_discount_percent) + "%."
+                    ),
+                )
+            discount_percent = effective_discount_percent.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        else:
+            if payload.discount > max_discount_percent:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Desconto negado: reduziria a margem média do carrinho abaixo do mínimo configurado "
+                        "(" + str(minimum_margin_percent) + "%), considerando também o cashback disponível do cliente. "
+                        "Desconto máximo permitido: " + str(max_discount_percent) + "%."
+                    ),
+                )
+            discount_percent = payload.discount
+            discount_amount = subtotal * (payload.discount / Decimal("100.00"))
         total_before_delivery = max(Decimal("0.00"), subtotal - discount_amount)
         fulfillment_type, delivery_fields = await self._resolve_delivery(payload.delivery, store_id=store_id, subtotal_amount=total_before_delivery)
         total = total_before_delivery + Decimal(delivery_fields["delivery_fee_amount"])
@@ -359,7 +399,8 @@ class PdvService:
             customer_phone_snapshot=payload.customer.phone if payload.customer else "",
             includes_controlled_items=any(line["controlled"] for line in prepared),
             include_cpf_on_invoice=True,
-            discount_percent=payload.discount,
+            coupon_code=coupon.code if coupon else "",
+            discount_percent=discount_percent,
             cashback_applied_amount=Decimal("0.00"),
             subtotal_amount=subtotal,
             discount_amount=discount_amount,
@@ -719,6 +760,7 @@ class PdvService:
             include_cpf_on_invoice=payload.include_cpf_on_invoice,
             customer_display_name=order.customer_display_name,
             customer_document_snapshot=order.customer_document_snapshot,
+            coupon_code=order.coupon_code,
             subtotal_amount=order.subtotal_amount,
             discount_amount=order.discount_amount,
             cashback_applied_amount=cashback_applied,
@@ -791,6 +833,14 @@ class PdvService:
                 eta_label="",
                 pdv_sale_id=sale.id,
             )
+        if order.coupon_code:
+            campaign = (await self.session.execute(
+                select(CouponCampaign).where(
+                    CouponCampaign.tenant_id == str(self.subject.tenant_id), CouponCampaign.code == order.coupon_code,
+                ).with_for_update()
+            )).scalar_one_or_none()
+            if campaign is not None:
+                campaign.usage_count += 1
         fiscal_service = FiscalService(self.session)
         fiscal_document = await fiscal_service.issue_for_pdv_sale(sale=sale)
         await self.session.commit()
@@ -1180,6 +1230,7 @@ class PdvService:
                     "inventory_item_id": inventory_item.id,
                     "source_store_id": inventory_item.store_id,
                     "name": inventory_item.name,
+                    "category_name": resolve_marketplace_category_id(inventory_item.category_name),
                     "brand": inventory_item.brand_name,
                     "ean": inventory_item.ean_code,
                     "loc": location_code or inventory_item.storage_location,
