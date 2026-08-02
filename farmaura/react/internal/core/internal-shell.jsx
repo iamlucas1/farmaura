@@ -1,6 +1,6 @@
 /* FARMAURA Console — Shell: Login (e-mail), Sidebar, Topbar, helpers compartilhados. */
 import React, { useEffect, useRef, useState } from "react";
-import { MARKETPLACE_LOGO_MARK_URL } from "../../marketplace/core/marketplace-assets.js";
+import { MARKETPLACE_LOGO_MARK_URL, MARKETPLACE_LOGO_FULL_WHITE_URL } from "../../marketplace/core/marketplace-assets.js";
 import { AuraLayer, ModalShell, Toggle } from "../../marketplace/core/marketplace-components.jsx";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { TwoFactorModal } from "../../shared/two-factor-modal.jsx";
@@ -143,8 +143,7 @@ function PharmLogin({ onLogin, externalError }) {
           <AuraLayer tone="#fff" />
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div className="fa-logo">
-              <span className="fa-logo-tile"><img src={MARKETPLACE_LOGO_MARK_URL} alt="" /></span>
-              <span className="fa-logo-word" style={{ color: '#fff' }}>Farmaura</span>
+              <img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_WHITE_URL} alt="Farmaura" />
             </div>
             <span className="fa-badge" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', marginTop: 16, letterSpacing: '.08em' }}>PORTAL INTERNO</span>
           </div>

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import "../../shared/portal-cache.js";
-import { MARKETPLACE_LOGO_MARK_URL } from "./marketplace-assets.js";
+import { MARKETPLACE_LOGO_FULL_URL } from "./marketplace-assets.js";
 import { PharmacistChatModal, PrescriptionModal } from "./marketplace-care-actions.jsx";
 import { Header, Footer } from "./marketplace-chrome.jsx";
 import { Icon } from "./marketplace-icons.jsx";
@@ -662,13 +662,19 @@ function splitCountdown(remainingMs) {
   return parts;
 }
 
-// One split-flap "flap" (a single digit 0-9): keeps the current digit always underneath
-// (cd-digit-face) and, only for the instant after it changes, layers a second copy showing the
-// previous digit (cd-digit-flap) that rotates/fades down and away — the flap key is bumped on
-// every change so React remounts it and the CSS animation restarts even if the digit repeats
-// (e.g. 9 -> 0 -> ... -> 9 later), which a value-based key would miss.
+// One split-flap module (a single digit 0-9), built from two independently hinged leaves — see the
+// ".cd-digit" comment in marketplace.css for the full mechanical model. React's job here is just
+// timing *what each half shows* to match the CSS animation phases:
+//   - topValue settles to the new digit immediately (t=0) — invisible either way, since the top
+//     leaf (showing the old digit) fully covers it until it finishes folding away at t=300ms.
+//   - bottomValue keeps the OLD digit until t=300ms, then swaps — matching the instant the bottom
+//     leaf starts unfolding (rotateX 90deg, edge-on/invisible), so the swap is masked by the leaf
+//     being paper-thin right then instead of "jumping" to the new digit early.
+// The flip key is bumped on every change so React remounts the leaves and the CSS animation
+// restarts even if the digit repeats (e.g. 9 -> 0 -> ... -> 9 later), which a value-based key would miss.
 function FlipDigit({ value }) {
-  const [display, setDisplay] = useState(value);
+  const [topValue, setTopValue] = useState(value);
+  const [bottomValue, setBottomValue] = useState(value);
   const [flipFrom, setFlipFrom] = useState(null);
   const prevRef = useRef(value);
   const flipKeyRef = useRef(0);
@@ -678,17 +684,184 @@ function FlipDigit({ value }) {
     flipKeyRef.current += 1;
     setFlipFrom(prevRef.current);
     prevRef.current = value;
-    setDisplay(value);
-    const timeout = setTimeout(() => setFlipFrom(null), 450);
-    return () => clearTimeout(timeout);
+    setTopValue(value);
+    const midTimeout = setTimeout(() => setBottomValue(value), 300);
+    const endTimeout = setTimeout(() => setFlipFrom(null), 620);
+    return () => { clearTimeout(midTimeout); clearTimeout(endTimeout); };
   }, [value]);
 
   return (
     <span className="cd-digit">
-      <span className="cd-digit-face">{display}</span>
-      {flipFrom !== null && <span key={flipKeyRef.current} className="cd-digit-flap">{flipFrom}</span>}
+      <span className="cd-digit-static cd-digit-static-top"><span className="cd-digit-glyph">{topValue}</span></span>
+      <span className="cd-digit-static cd-digit-static-bottom"><span className="cd-digit-glyph">{bottomValue}</span></span>
+      {flipFrom !== null && (
+        <React.Fragment key={flipKeyRef.current}>
+          <span className="cd-digit-leaf cd-digit-leaf-top"><span className="cd-digit-glyph">{flipFrom}</span></span>
+          <span className="cd-digit-leaf cd-digit-leaf-bottom"><span className="cd-digit-glyph">{value}</span></span>
+        </React.Fragment>
+      )}
     </span>
   );
+}
+
+const CONFETTI_PALETTE = [
+  { color: '#FFD6D9', kind: 'dot' },          // rose
+  { color: '#7A0D16', kind: 'pill', opacity: .22 }, // primary (vinho), muted
+  { color: '#C81D28', kind: 'pill', opacity: .2 },  // vital
+  { color: '#FFEDEE', kind: 'dot', opacity: .9 },   // rose-soft
+  { color: '#7A0D16', kind: 'dot', opacity: .16 },  // primary, faint
+];
+
+const _randomBetween = (a, b) => a + Math.random() * (b - a);
+
+function _spawnConfettiParticle(width, height, edge) {
+  const palette = CONFETTI_PALETTE[Math.floor(Math.random() * CONFETTI_PALETTE.length)];
+  let x, y, vx;
+  if (edge === 'left') { x = -24; y = _randomBetween(0, height); vx = _randomBetween(22, 40); }
+  else if (edge === 'right') { x = width + 24; y = _randomBetween(0, height); vx = -_randomBetween(22, 40); }
+  else { x = _randomBetween(0, width); y = _randomBetween(-height, -10); vx = _randomBetween(-6, 6); }
+  return {
+    x, y, vx,
+    vy: _randomBetween(14, 30),
+    size: _randomBetween(5, 13),
+    rotation: _randomBetween(0, Math.PI * 2),
+    rotationSpeed: _randomBetween(-.6, .6),
+    swayPhase: _randomBetween(0, Math.PI * 2),
+    swaySpeed: _randomBetween(.4, .9),
+    swayAmp: _randomBetween(8, 22),
+    kind: palette.kind,
+    color: palette.color,
+    opacity: palette.opacity ?? _randomBetween(.45, .85),
+  };
+}
+
+// Ambient confetti behind the countdown: falls slowly, a fraction of pieces drift in from the
+// left/right edges instead of only from the top, and pieces near the cursor get gently pushed
+// away (mouse "brushes" the confetti aside) before drifting back into their normal fall. Canvas
+// instead of ~40 animated DOM nodes for smoother motion. Respects prefers-reduced-motion by
+// painting one static frame and skipping the animation loop and mouse tracking entirely.
+function LaunchConfetti() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const ctx = canvas.getContext('2d');
+    const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const PARTICLE_COUNT = 44;
+    const MOUSE_INFLUENCE = 110;
+
+    let width = 0;
+    let height = 0;
+    let particles = [];
+    let frameId = null;
+    let lastTime = performance.now();
+    const mouse = { x: -9999, y: -9999 };
+
+    const resize = () => {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      width = rect.width;
+      height = rect.height;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const drawParticle = (p) => {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      ctx.globalAlpha = p.opacity;
+      ctx.fillStyle = p.color;
+      if (p.kind === 'pill') {
+        const w = p.size * 1.8;
+        const h = p.size * .75;
+        const r = h / 2;
+        ctx.beginPath();
+        ctx.moveTo(-w / 2 + r, -h / 2);
+        ctx.arcTo(w / 2, -h / 2, w / 2, h / 2, r);
+        ctx.arcTo(w / 2, h / 2, -w / 2, h / 2, r);
+        ctx.arcTo(-w / 2, h / 2, -w / 2, -h / 2, r);
+        ctx.arcTo(-w / 2, -h / 2, w / 2, -h / 2, r);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+
+    resize();
+    particles = Array.from({ length: PARTICLE_COUNT }, () => {
+      const edge = Math.random() < .22 ? (Math.random() < .5 ? 'left' : 'right') : 'top';
+      const p = _spawnConfettiParticle(width, height, edge);
+      p.y = _randomBetween(0, height); // scatter across on first paint instead of starting off-screen
+      return p;
+    });
+
+    if (reduceMotion) {
+      ctx.clearRect(0, 0, width, height);
+      particles.forEach(drawParticle);
+      return () => {};
+    }
+
+    const handleMouseMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    };
+    const handleMouseLeave = () => { mouse.x = -9999; mouse.y = -9999; };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseleave', handleMouseLeave);
+    window.addEventListener('resize', resize);
+
+    const step = (now) => {
+      const dt = Math.min((now - lastTime) / 1000, .05);
+      lastTime = now;
+      ctx.clearRect(0, 0, width, height);
+
+      for (const p of particles) {
+        const dx = p.x - mouse.x;
+        const dy = p.y - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MOUSE_INFLUENCE) {
+          const force = (1 - dist / MOUSE_INFLUENCE) * 46;
+          const angle = Math.atan2(dy, dx);
+          p.x += Math.cos(angle) * force * dt;
+          p.y += Math.sin(angle) * force * dt;
+        }
+
+        p.swayPhase += p.swaySpeed * dt;
+        p.x += Math.sin(p.swayPhase) * p.swayAmp * dt * .6 + p.vx * dt * .15;
+        p.y += p.vy * dt;
+        p.rotation += p.rotationSpeed * dt;
+
+        if (p.y - p.size > height + 20 || p.x < -60 || p.x > width + 60) {
+          const edge = Math.random() < .25 ? (Math.random() < .5 ? 'left' : 'right') : 'top';
+          Object.assign(p, _spawnConfettiParticle(width, height, edge));
+        }
+        drawParticle(p);
+      }
+
+      frameId = requestAnimationFrame(step);
+    };
+    frameId = requestAnimationFrame(step);
+
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseleave', handleMouseLeave);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="cd-confetti-canvas" aria-hidden="true" />;
 }
 
 // Full-page takeover: no Header/Footer/cart/login — every visitor, logged in or not, sees only
@@ -716,29 +889,32 @@ function LaunchCountdownScreen({ launchMode, onLaunch }) {
   const parts = splitCountdown(remaining);
 
   return (
-    <div className="fa-wrap fa-fadein" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', textAlign: 'center' }}>
-      <div style={{ maxWidth: 560 }}>
-        <img className="cd-logo" src={MARKETPLACE_LOGO_MARK_URL} alt="Drogaria Farmaura" />
-        <h1 className="fa-h1" style={{ marginBottom: 12 }}>{launchMode.headline || 'Estamos quase lá'}</h1>
-        <p className="fa-lead" style={{ marginBottom: 32 }}>
-          {launchMode.subtext || 'A drogaria Farmaura está chegando. Volte em breve para conferir novidades e ofertas de lançamento.'}
-        </p>
-        {launchAtMs > 0 && (
-          <div className="cd-clock">
-            {LAUNCH_COUNTDOWN_UNITS.map((unit, index) => (
-              <React.Fragment key={unit.key}>
-                {index > 0 && <span className="cd-sep">:</span>}
-                <div className="cd-unit">
-                  <div className="cd-unit-digits">
-                    <FlipDigit value={Math.floor(parts[unit.key] / 10) % 10} />
-                    <FlipDigit value={parts[unit.key] % 10} />
+    <div className="cd-scene">
+      <LaunchConfetti />
+      <div className="fa-wrap fa-fadein cd-scene-content" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', textAlign: 'center' }}>
+        <div style={{ maxWidth: 560 }}>
+          <img className="cd-logo" src={MARKETPLACE_LOGO_FULL_URL} alt="Farmaura" />
+          <h1 className="fa-h1" style={{ marginBottom: 12 }}>{launchMode.headline || 'Estamos quase lá'}</h1>
+          <p className="fa-lead" style={{ marginBottom: 32 }}>
+            {launchMode.subtext || 'A drogaria Farmaura está chegando. Volte em breve para conferir novidades e ofertas de lançamento.'}
+          </p>
+          {launchAtMs > 0 && (
+            <div className="cd-clock">
+              {LAUNCH_COUNTDOWN_UNITS.map((unit, index) => (
+                <React.Fragment key={unit.key}>
+                  {index > 0 && <span className="cd-sep">:</span>}
+                  <div className="cd-unit">
+                    <div className="cd-unit-digits">
+                      <FlipDigit value={Math.floor(parts[unit.key] / 10) % 10} />
+                      <FlipDigit value={parts[unit.key] % 10} />
+                    </div>
+                    <div className="cd-unit-label">{unit.label}</div>
                   </div>
-                  <div className="cd-unit-label">{unit.label}</div>
-                </div>
-              </React.Fragment>
-            ))}
-          </div>
-        )}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

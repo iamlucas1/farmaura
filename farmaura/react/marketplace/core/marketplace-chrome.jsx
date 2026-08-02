@@ -1,7 +1,7 @@
 import React, { useState as _useStateChrome } from "react";
 
 import { fetchViaCepAddress, formatCep } from "./marketplace-address.js";
-import { MARKETPLACE_LOGO_MARK_URL } from "./marketplace-assets.js";
+import { MARKETPLACE_LOGO_MARK_URL, MARKETPLACE_LOGO_FULL_URL, MARKETPLACE_LOGO_FULL_WHITE_TAGLINE_URL } from "./marketplace-assets.js";
 import { useModalStack } from "./marketplace-components.jsx";
 import { Icon } from "./marketplace-icons.jsx";
 
@@ -235,11 +235,14 @@ function AccountMenu({ user, onNav, onPrescription, className = '' }) {
   );
 }
 
+// Full lockup (isotipo + "Farmaura" already baked into one image) on regular screens; the bare
+// isotipo takes over on narrow screens via CSS (media query in marketplace.css) once the full
+// wordmark would get too cramped to read next to the rest of the header.
 function Logo({ onClick }) {
   return (
     <a className="fa-logo" onClick={onClick} role="button" aria-label="Farmaura — início">
-      <img className="fa-logo-mark-img" src={MARKETPLACE_LOGO_MARK_URL} alt="" />
-      <span className="fa-logo-word">Farmaura</span>
+      <img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_URL} alt="Farmaura" />
+      <img className="fa-logo-mark-img fa-logo-mark-img-mobile" src={MARKETPLACE_LOGO_MARK_URL} alt="Farmaura" />
     </a>
   );
 }
@@ -351,8 +354,7 @@ function Footer({ cats, portalData, onNav }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: 40 }} className="fa-footer-grid">
           <div>
             <div className="fa-logo" style={{ marginBottom: 14 }}>
-              <span className="fa-logo-tile"><img src={MARKETPLACE_LOGO_MARK_URL} alt="" /></span>
-              <span className="fa-logo-word" style={{ color: '#fff' }}>Farmaura</span>
+              <img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_WHITE_TAGLINE_URL} alt="Farmaura — Cuidado é o que nos move" />
             </div>
             <p style={{ opacity: .82, fontSize: 14, lineHeight: 1.6, maxWidth: 280 }}>Cuidado que acompanha você. Saúde, bem-estar e conveniência numa experiência mais próxima e humana.</p>
             {storeMeta.address ? <p style={{ opacity: .68, fontSize: 12.5, lineHeight: 1.6, maxWidth: 320, marginTop: 10 }}>{storeMeta.address}</p> : null}

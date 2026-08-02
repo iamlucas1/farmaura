@@ -366,8 +366,12 @@ a { color: inherit; text-decoration: none; }
 .fa-logo-tile img { height: 30px; width: auto; display: block; }
 .fa-logo-mark { width: 42px; height: 42px; border-radius: 13px; background: var(--fa-primary); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 22px; position: relative; overflow: hidden; flex: none; }
 .fa-logo-mark::after { content: ""; position: absolute; inset: -30% -30% auto auto; width: 70%; height: 70%; border-radius: 50%; border: 3px solid rgba(255,255,255,.35); }
-.fa-logo-word { font-weight: 800; font-size: 22px; letter-spacing: -.03em; color: var(--fa-primary); }
-.fa-logo-word b { color: var(--fa-vital); }
+
+/* Full brand lockup (isotipo + wordmark, one image) — the default everywhere the full name is
+   shown. Falls back to the bare isotipo (.fa-logo-mark-img-mobile) once too narrow for the
+   horizontal lockup to stay legible, see the max-width: 560px override below. */
+.fa-logo-full-img { height: 38px; width: auto; display: block; }
+.fa-logo-mark-img-mobile { display: none; }
 
 .fa-cart-count { position: absolute; top: -6px; right: -6px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px; background: var(--fa-vital); color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; border: 2px solid var(--fa-bg); }
 
@@ -413,7 +417,8 @@ a { color: inherit; text-decoration: none; }
 }
 @media (max-width: 560px) {
   .fa-header-main { height: 64px; gap: 12px; }
-  .fa-logo-word { display: none; }
+  .fa-logo-full-img { display: none; }
+  .fa-logo-mark-img-mobile { display: block; }
 }
 
 /* ============ RESPONSIVE LAYOUTS ============ */
@@ -790,6 +795,9 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ---------- Launch countdown (split-flap clock) ---------- */
+.cd-scene { position: relative; min-height: 100vh; overflow: hidden; background: var(--fa-bg); }
+.cd-confetti-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.cd-scene-content { position: relative; z-index: 1; }
 .cd-logo { height: 56px; width: auto; display: block; margin: 0 auto 22px; }
 
 .cd-clock {
@@ -811,49 +819,106 @@ a { color: inherit; text-decoration: none; }
   text-transform: uppercase; letter-spacing: .06em;
 }
 
-/* Each digit is a little mechanical "flap" module: a dark bezel holding a lighter face with the
-   current number and a subtle horizontal seam (::after) mimicking where a real split-flap display
-   folds in half. perspective on the bezel is what gives the flap its 3D fold when it flips away. */
+/* Each digit is a real two-leaf split-flap module (like an airport/train departure board), not a
+   single card that fades away. The card is cut in half by the seam (::after); each half is its
+   own independent hinge:
+   - the TOP leaf is hinged at the seam and folds *down and away* (0deg -> -90deg), like a page
+     being turned over a horizontal spine;
+   - the BOTTOM leaf is hinged at the seam too, but comes from behind folded flat against it
+     (90deg, edge-on / invisible) and unfolds *down into place* (90deg -> 0deg), arriving just as
+     the top leaf finishes disappearing.
+   The static halves underneath (.cd-digit-static-*) hold the settled digit the leaves reveal —
+   top settles to the new digit immediately (hidden the whole time under the top leaf), bottom
+   only swaps the instant the bottom leaf starts unfolding (masked by the leaf being edge-on right
+   then), so nothing "jumps" to the new value before the paper visually gets there. */
 .cd-digit {
-  position: relative; width: 46px; height: 64px; overflow: hidden;
+  position: relative; width: 46px; height: 64px;
   border-radius: 10px; background: var(--fa-ink);
   box-shadow: var(--fa-shadow-md), inset 0 1px 0 rgba(255,255,255,.08);
   perspective: 240px;
 }
+/* The seam is where the illusion lives — a flat line reads as "drawn on", so instead of one
+   1px stroke this is a small shadow *band* straddling the fold: it darkens gradually as it
+   approaches the crease (the top leaf's underside falling into shadow), snaps to a hard dark
+   line right at the gap between the two physical halves, catches a sliver of highlight just
+   past it (the bottom leaf's top edge catching light), then eases back out (soft ambient
+   shadow cast onto the card below). Sits above the leaves (z-index) so it also reads correctly
+   while a leaf is mid-flip, not just at rest. */
 .cd-digit::after {
-  content: ""; position: absolute; left: 6px; right: 6px; top: 50%;
-  height: 1px; background: rgba(0,0,0,.35); z-index: 2; pointer-events: none;
+  content: ""; position: absolute; left: 3px; right: 3px; top: 50%;
+  height: 9px; margin-top: -5px;
+  background: linear-gradient(180deg,
+    rgba(0,0,0,0) 0%,
+    rgba(0,0,0,.16) 33%,
+    rgba(0,0,0,.5) 48%,
+    rgba(0,0,0,.65) 50%,
+    rgba(255,255,255,.3) 52%,
+    rgba(0,0,0,.14) 64%,
+    rgba(0,0,0,0) 100%
+  );
+  z-index: 6; pointer-events: none;
 }
 
-.cd-digit-face, .cd-digit-flap {
-  position: absolute; inset: 2px;
+.cd-digit, .cd-digit * { --cd-h: 60px; }
+
+.cd-digit-static, .cd-digit-leaf {
+  position: absolute; left: 2px; right: 2px; height: 30px;
+  overflow: hidden;
+}
+/* Each half gets its own subtle gradient (rather than sharing one straight top-to-bottom fade)
+   so the card already looks gently curved *before* any animation — brightest at the outer edge,
+   dimming a touch toward the crease, like real light grazing a slightly bowed card face. */
+.cd-digit-static-top, .cd-digit-leaf-top {
+  top: 2px; border-radius: 7px 7px 0 0;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f1ef 78%, #e8dfdc 100%);
+}
+.cd-digit-static-bottom, .cd-digit-leaf-bottom {
+  bottom: 2px; border-radius: 0 0 7px 7px;
+  background: linear-gradient(180deg, #e8dfdc 0%, #f6f1ef 22%, #ffffff 100%);
+}
+.cd-digit-static { z-index: 1; }
+.cd-digit-leaf {
+  z-index: 4;
+  backface-visibility: hidden;
+}
+
+.cd-digit-glyph {
+  position: absolute; left: 0; top: 0; width: 100%; height: var(--cd-h); line-height: var(--cd-h);
   display: flex; align-items: center; justify-content: center;
-  border-radius: 7px;
-  background: linear-gradient(180deg, #fff 0%, #ECE6E4 100%);
-  font-size: 32px; font-weight: 800; line-height: 1; color: var(--fa-ink);
+  font-size: 32px; font-weight: 800; color: var(--fa-ink);
   font-variant-numeric: tabular-nums;
 }
+.cd-digit-static-bottom .cd-digit-glyph,
+.cd-digit-leaf-bottom .cd-digit-glyph { top: calc(var(--cd-h) / -2); }
 
-/* The outgoing digit folds down like a real split-flap card, fading out as it passes 90°;
-   the incoming digit is already the face underneath, so nothing needs to animate "in". */
-.cd-digit-flap {
+.cd-digit-leaf-top {
+  transform-origin: 50% 100%;
+  animation: cdLeafDown .3s cubic-bezier(.5,0,.85,0) forwards;
+}
+.cd-digit-leaf-bottom {
+  transform: rotateX(90deg);
   transform-origin: 50% 0%;
-  animation: cdFlipDown .45s cubic-bezier(.5,0,.75,0) forwards;
-  z-index: 3;
+  animation: cdLeafUp .3s cubic-bezier(.15,0,.4,1) forwards;
+  animation-delay: .3s;
+  animation-fill-mode: backwards;
 }
 
-@keyframes cdFlipDown {
-  0% { transform: rotateX(0deg); opacity: 1; }
-  70% { opacity: 1; }
-  100% { transform: rotateX(-100deg); opacity: 0; }
+@keyframes cdLeafDown {
+  0%   { transform: rotateX(0deg); filter: brightness(1); }
+  100% { transform: rotateX(-90deg); filter: brightness(.72); }
+}
+@keyframes cdLeafUp {
+  0%   { transform: rotateX(90deg); filter: brightness(.72); }
+  100% { transform: rotateX(0deg); filter: brightness(1); }
 }
 
 /* Seconds tick fastest — the brand's energy-red accent keeps eyes on it as "alive". */
-.cd-unit:last-child .cd-digit-face,
-.cd-unit:last-child .cd-digit-flap { color: var(--fa-vital); }
+.cd-unit:last-child .cd-digit-glyph { color: var(--fa-vital); }
 
 @media (max-width: 480px) {
   .cd-digit { width: 38px; height: 54px; }
-  .cd-digit-face, .cd-digit-flap { font-size: 26px; }
+  .cd-digit, .cd-digit * { --cd-h: 50px; }
+  .cd-digit-static, .cd-digit-leaf { height: 25px; }
+  .cd-digit-glyph { font-size: 26px; }
   .cd-sep { font-size: 24px; margin-top: -18px; }
 }

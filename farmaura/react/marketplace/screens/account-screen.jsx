@@ -1,6 +1,6 @@
 /* FARMAURA — Account: LoginScreen + AccountScreen shell + Summary + Order pieces. */
 import React, { useEffect, useState } from "react";
-import { MARKETPLACE_LOGO_MARK_URL } from "../core/marketplace-assets.js";
+import { MARKETPLACE_LOGO_FULL_WHITE_URL } from "../core/marketplace-assets.js";
 import { AuraLayer, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { faCashback } from "./account-shared.jsx";
@@ -161,8 +161,7 @@ function LoginScreen({ ctx }) {
           <AuraLayer tone="#fff" />
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div className="fa-logo">
-              <span className="fa-logo-tile"><img src={MARKETPLACE_LOGO_MARK_URL} alt="" /></span>
-              <span className="fa-logo-word" style={{ color: '#fff' }}>Farmaura</span>
+              <img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_WHITE_URL} alt="Farmaura" />
             </div>
           </div>
           <div style={{ position: 'relative', zIndex: 1 }}>
