@@ -18,7 +18,7 @@ Fonte de verdade de todo o domínio de negócio Farmaura, com isolamento multi-t
 ## Dependências
 
 - Schema de tabelas agora é versionado por Alembic; o script de bootstrap (`scripts/bootstrap_database.py`) segue responsável só pela aplicação idempotente da RLS e pelo seed inicial, não mais por reconciliar schema.
-- Migration pendente de aplicação em produção: ver [[../06_Pendencias/aplicar-migration-orcamentos-em-producao|aplicar-migration-orcamentos-em-producao]].
+- Produção está em `20260731_01 (head)` desde 2026-08-02 (seis migrations de `20260729_01` a `20260731_01`, módulos de cupom/promoção/serviços de saúde) — sem migration pendente no momento.
 
 ## Ver também
 
@@ -30,6 +30,11 @@ Fonte de verdade de todo o domínio de negócio Farmaura, com isolamento multi-t
 
 ## Atualizações
 
+- 2026-08-02: seis migrations aplicadas em produção (`20260729_01_coupon_checkout_integrity` até
+  `20260731_01_service_scope_and_booking_discount`) no mesmo deploy que levou cupom/promoção
+  server-side, banner/marcas configuráveis e o modo de lançamento para produção — ver
+  [[../00_Decisoes/2026-08-01-modo-de-lancamento-contador-sem-bypass|ADR do modo de lançamento]].
+  `alembic current` confirmou `20260731_01 (head)` antes e depois do deploy dos containers.
 - 2026-07-23: histórico Alembic recomeçado do zero (baseline + primeira migration real, módulo Orçamentos); `env.py` e `script.py.mako` corrigidos/criados; migration verificada em Postgres isolado mas ainda não aplicada em produção. Ver [[../00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|decisão]].
 - 2026-07-23: Farmaura foi para produção — mudanças de schema passam a exigir migrations Alembic; RLS continua idempotente por start, agora independente do bootstrap de schema. Ver `claude.md`/`agent.md`.
 - 2026-07-19: nota criada.

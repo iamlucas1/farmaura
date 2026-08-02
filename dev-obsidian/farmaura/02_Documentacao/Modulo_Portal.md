@@ -51,6 +51,11 @@ Tabela única `portal_settings` (`UniqueConstraint(tenant_id, portal_name, setti
 
 ## Atualizações
 
+- 2026-08-02: deploy em produção (migrations `20260729_01`–`20260731_01`, containers
+  `farmaura-api`/`farmaura` rebuildados) do lote cupom/promoção server-side + banner/marcas
+  configuráveis + `launch_mode` — ver [[../05_Integracoes_Infra/PostgreSQL_RLS|PostgreSQL_RLS]].
+  `launch_mode` chegou desativado por padrão (nunca configurado antes); ativação em produção fica a
+  cargo do admin real via `/miaura`, a IA não tem a senha de produção.
 - 2026-08-01: novo setting `launch_mode` (`PUT /internal/launch-mode`, ADMIN only) e tela
   `launch-mode-screen.jsx` (Marketplace → Modo de lançamento) — quando ativado e a data configurada
   ainda não chegou, `marketplace-app.jsx` substitui a vitrine inteira (sem Header/Footer/carrinho) por
