@@ -3,7 +3,14 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import "../../shared/portal-cache.js";
-import { MARKETPLACE_LOGO_FULL_URL } from "./marketplace-assets.js";
+import fakeBrandCimedUrl from "../assets/marketplace/fake-brands/cimed.png";
+import fakeBrandEmsUrl from "../assets/marketplace/fake-brands/ems.png";
+import fakeBrandJnjUrl from "../assets/marketplace/fake-brands/jnj.png";
+import fakeBrandLarocheUrl from "../assets/marketplace/fake-brands/laroche.png";
+import fakeBrandNeoquimicaUrl from "../assets/marketplace/fake-brands/neoquimica.png";
+import fakeBrandNiveaUrl from "../assets/marketplace/fake-brands/nivea.png";
+import fakeBrandVichyUrl from "../assets/marketplace/fake-brands/vichy.png";
+import { MARKETPLACE_LOGO_FULL_URL, resolveMarketplaceAssetUrl } from "./marketplace-assets.js";
 import { PharmacistChatModal, PrescriptionModal } from "./marketplace-care-actions.jsx";
 import { Header, Footer } from "./marketplace-chrome.jsx";
 import { brl } from "./marketplace-components.jsx";
@@ -705,46 +712,292 @@ function FlipDigit({ value }) {
   );
 }
 
-function _resolveBackdropImageUrl(url) {
-  if (!url) return '';
-  if (/^https?:\/\//i.test(url)) return url;
-  const origin = (window.FA_API && window.FA_API.origin) || '';
-  return origin ? origin + url : url;
-}
+// Deliberately fake — not sourced from the real catalog. A brand-new tenant's real catalog can
+// easily be empty (no products entered yet), which would leave this background blank right when
+// it matters most (the pre-launch countdown). A fixed, plausible-looking pharmacy assortment
+// always renders the same "there's a store being built here" impression regardless of how much
+// real inventory exists yet. Tinted per item (cycling the app's own success/info/warn/rose/primary
+// tokens) with a simple capsule silhouette standing in for a product photo — same idea as a real
+// product tile, no real images to load. Entirely inert: `pointer-events: none` on the grid, no
+// click handlers on any card — it's scenery behind the countdown, not a functional catalog.
+const FAKE_MARKETPLACE_ITEMS = [
+  { name: 'Vitamina C 1g', price: 24.9, discount: 0, tone: 'rose' },
+  { name: 'Protetor Solar FPS 60', price: 59.9, discount: 15, tone: 'success' },
+  { name: 'Dipirona 500mg', price: 12.5, discount: 0, tone: 'info' },
+  { name: 'Álcool em Gel 70%', price: 9.9, discount: 0, tone: 'warn' },
+  { name: 'Shampoo Anticaspa', price: 34.9, discount: 10, tone: 'mist' },
+  { name: 'Multivitamínico', price: 45, discount: 0, tone: 'rose' },
+  { name: 'Colágeno Hidrolisado', price: 68.9, discount: 0, tone: 'success' },
+  { name: 'Ômega 3 1000mg', price: 39.9, discount: 5, tone: 'info' },
+  { name: 'Melatonina 5mg', price: 29.9, discount: 0, tone: 'warn' },
+  { name: 'Repelente de Insetos', price: 22.5, discount: 0, tone: 'mist' },
+  { name: 'Creme Hidratante', price: 32.9, discount: 20, tone: 'rose' },
+  { name: 'Termômetro Digital', price: 27.9, discount: 0, tone: 'success' },
+  { name: 'Escova Dental Macia', price: 8.9, discount: 0, tone: 'info' },
+  { name: 'Antisséptico Bucal', price: 19.9, discount: 0, tone: 'warn' },
+  { name: 'Sabonete Líquido', price: 14.9, discount: 0, tone: 'mist' },
+  { name: 'Fralda Geriátrica', price: 49.9, discount: 8, tone: 'rose' },
+  { name: 'Curativo Adesivo', price: 11.9, discount: 0, tone: 'success' },
+  { name: 'Máscara Facial N95', price: 6.9, discount: 0, tone: 'info' },
+];
 
-// The real catalog behind the countdown, not a decorative graphic — "there's an actual store
-// being built here". Reuses whatever `products` App() already fetched for the real marketplace
-// (syncMarketplaceData() runs regardless of the launch gate, see App()), so this is genuinely the
-// tenant's own products/photos/prices, not placeholders. Entirely inert: the grid is
-// `pointer-events: none` and every card omits click handlers on purpose — it's scenery, not a
-// functional catalog, so there's nothing to guard against being clicked.
-function LaunchMarketplaceBackdrop({ products }) {
-  const items = useMemo(
-    () => (products || []).filter((p) => p && p.imageUrl).slice(0, 24),
-    [products]
-  );
+const FAKE_NAV_CATEGORIES = ['Bem-estar', 'Higiene', 'Infantil', 'Medicamentos', 'Perfumaria', 'Ofertas', 'Serviços de saúde'];
 
-  if (!items.length) return null;
+// Real, recognizable pharmacy/dermocosmetic brands — the kind this store would plausibly carry —
+// standard nominative/retailer use of a supplier's logo to say "we sell this brand", same as any
+// drugstore website. Logos sourced from Wikimedia Commons (public-domain-quality wordmarks) and
+// each brand's own site, square-padded onto white locally; see assets/marketplace/fake-brands/.
+const FAKE_BRANDS = [
+  { name: 'EMS', image: fakeBrandEmsUrl },
+  { name: 'Neo Química', image: fakeBrandNeoquimicaUrl },
+  { name: 'Vichy', image: fakeBrandVichyUrl },
+  { name: 'La Roche-Posay', image: fakeBrandLarocheUrl },
+  { name: 'Johnson & Johnson', image: fakeBrandJnjUrl },
+  { name: 'Nivea', image: fakeBrandNiveaUrl },
+  { name: 'Cimed', image: fakeBrandCimedUrl },
+];
 
+// Same regulatory placeholder box art the real catalog falls back to for a product without a
+// custom photo (ProductVisual, marketplace-components.jsx) — alternating the two most generic
+// ones just for a little variety, not because it means anything here.
+const FAKE_SHOP_PLACEHOLDER_URLS = [resolveMarketplaceAssetUrl('PlaceHolder.png'), resolveMarketplaceAssetUrl('PlaceHolder-generico.png')];
+
+function _fakeShopTile(item, index) {
   return (
-    <div className="cd-shop-grid" aria-hidden="true">
-      {items.map((p) => (
-        <div key={p.id} className="cd-shop-card">
-          {p.discount > 0 && <span className="cd-shop-badge">-{p.discount}%</span>}
-          <div className="cd-shop-thumb"><img src={_resolveBackdropImageUrl(p.imageUrl)} alt="" loading="lazy" /></div>
-          <div className="cd-shop-name">{p.name}</div>
-          <div className="cd-shop-price">{brl(p.price)}</div>
-        </div>
-      ))}
+    <div key={item.name} className={'cd-shop-card cd-shop-tone-' + item.tone}>
+      {item.discount > 0 && <span className="cd-shop-badge">-{item.discount}%</span>}
+      <div className="cd-shop-thumb"><img src={FAKE_SHOP_PLACEHOLDER_URLS[index % 2]} alt="" loading="lazy" /></div>
+      <div className="cd-shop-name">{item.name}</div>
+      <div className="cd-shop-price">{brl(item.price)}</div>
     </div>
   );
+}
+
+// The marketplace itself, mocked — not the real HomeScreen (no real hooks, no real Header/
+// portalData/authClient) and not the real catalog (no fetch, no database), just static JSX built
+// from the same CSS the real site uses (.fa-header/.fa-topbar/.fa-search/.fa-navrow/...) so it
+// reads as "this is our store" rather than an abstract graphic. Entirely inert on purpose —
+// `pointer-events: none` on the whole thing — it's a backdrop the countdown card sits in front
+// of, never a functional page a visitor could interact with.
+function LaunchMarketplaceMock() {
+  return (
+    <div className="cd-mock-site" aria-hidden="true">
+      <div className="fa-topbar">
+        <div className="fa-wrap">
+          <span>Entregar em <b>Consulte a disponibilidade</b></span>
+          <div style={{ display: 'flex', gap: 20 }}>
+            <span>Entrar</span>
+            <span>Falar com farmacêutico</span>
+            <span>Entrega conforme disponibilidade</span>
+          </div>
+        </div>
+      </div>
+      <div className="fa-header">
+        <div className="fa-wrap fa-header-main">
+          <span className="fa-logo"><img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_URL} alt="" /></span>
+          <div className="fa-search"><Icon name="search" size={18} /><span className="cd-mock-search-text">Busque por remédios, marcas, sintomas...</span></div>
+          <span className="fa-btn fa-btn-primary">Entrar / Criar conta</span>
+          <span className="fa-iconbtn"><Icon name="bag" size={18} /></span>
+        </div>
+        <div className="fa-wrap fa-navrow">
+          {FAKE_NAV_CATEGORIES.map((c) => <span key={c} className="fa-navlink">{c}</span>)}
+        </div>
+      </div>
+      <div className="fa-wrap cd-mock-body">
+        <div className="cd-mock-banner">
+          <div className="fa-eyebrow" style={{ color: '#fff', opacity: .85 }}>OFERTA DE LANÇAMENTO</div>
+          <div className="cd-mock-banner-title">Até 30% de desconto<br />na abertura</div>
+        </div>
+        <div className="fa-brands-strip">
+          {FAKE_BRANDS.map((brand) => (
+            <div key={brand.name} className="fa-brand-circle">
+              <span className="fa-brand-circle-img"><img src={brand.image} alt="" loading="lazy" /></span>
+              <span className="fa-brand-circle-label">{brand.name}</span>
+            </div>
+          ))}
+        </div>
+        <div className="fa-eyebrow" style={{ marginBottom: 6 }}>ECONOMIZE</div>
+        <div className="fa-h2" style={{ marginBottom: 18 }}>Produtos com até 95% de desconto</div>
+        <div className="cd-mock-grid">{FAKE_MARKETPLACE_ITEMS.slice(0, 6).map(_fakeShopTile)}</div>
+        <div className="fa-eyebrow" style={{ margin: '28px 0 6px' }}>NOVIDADES</div>
+        <div className="fa-h2" style={{ marginBottom: 18 }}>Chegou pra você</div>
+        <div className="cd-mock-grid">{FAKE_MARKETPLACE_ITEMS.slice(6, 12).map(_fakeShopTile)}</div>
+      </div>
+    </div>
+  );
+}
+
+// Red/vinho-led on purpose — reds are weighted to show up more often than the lighter rose tones,
+// so the field reads as "red confetti with brand accents", not a pale pink haze.
+const CONFETTI_PALETTE = [
+  { color: '#C81D28', kind: 'pill', opacity: .88 },  // vital
+  { color: '#C81D28', kind: 'dot', opacity: .82 },   // vital
+  { color: '#7A0D16', kind: 'pill', opacity: .8 },   // primary (vinho)
+  { color: '#7A0D16', kind: 'dot', opacity: .75 },   // primary (vinho)
+  { color: '#C81D28', kind: 'pill', opacity: .85 },  // vital (repeated — bias the draw toward red)
+  { color: '#FFD6D9', kind: 'dot', opacity: .9 },    // rose accent
+  { color: '#FFEDEE', kind: 'dot', opacity: .85 },   // rose-soft accent
+];
+
+const _randomBetween = (a, b) => a + Math.random() * (b - a);
+
+function _spawnConfettiParticle(width, height, edge) {
+  const palette = CONFETTI_PALETTE[Math.floor(Math.random() * CONFETTI_PALETTE.length)];
+  let x, y, vx;
+  if (edge === 'left') { x = -24; y = _randomBetween(0, height); vx = _randomBetween(50, 90); }
+  else if (edge === 'right') { x = width + 24; y = _randomBetween(0, height); vx = -_randomBetween(50, 90); }
+  else { x = _randomBetween(0, width); y = _randomBetween(-height, -10); vx = _randomBetween(-14, 14); }
+  return {
+    x, y, vx,
+    vy: _randomBetween(40, 85),
+    size: _randomBetween(6, 15),
+    rotation: _randomBetween(0, Math.PI * 2),
+    rotationSpeed: _randomBetween(-2.2, 2.2),
+    swayPhase: _randomBetween(0, Math.PI * 2),
+    swaySpeed: _randomBetween(1.1, 2.1),
+    swayAmp: _randomBetween(20, 42),
+    kind: palette.kind,
+    color: palette.color,
+    opacity: palette.opacity ?? _randomBetween(.7, .9),
+  };
+}
+
+// Ambient confetti over the mocked storefront: falls slowly, a fraction of pieces drift in from
+// the left/right edges instead of only from the top, and pieces near the cursor get gently pushed
+// away (mouse "brushes" the confetti aside) before drifting back into their normal fall. Sits
+// above the scrim (stays vivid, not veiled/blurred with the mock site) but below the countdown
+// card (z-index — see marketplace.css), so it falls in front of the storefront and disappears
+// behind the card exactly like it did when confetti was the only decoration. Respects
+// prefers-reduced-motion by painting one static frame and skipping the loop and mouse tracking.
+function LaunchConfetti() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const ctx = canvas.getContext('2d');
+    const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const PARTICLE_COUNT = 68;
+    const MOUSE_INFLUENCE = 120;
+
+    let width = 0;
+    let height = 0;
+    let particles = [];
+    let frameId = null;
+    let lastTime = performance.now();
+    const mouse = { x: -9999, y: -9999 };
+
+    const resize = () => {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      width = rect.width;
+      height = rect.height;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const drawParticle = (p) => {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      ctx.globalAlpha = p.opacity;
+      ctx.fillStyle = p.color;
+      if (p.kind === 'pill') {
+        const w = p.size * 1.8;
+        const h = p.size * .75;
+        const r = h / 2;
+        ctx.beginPath();
+        ctx.moveTo(-w / 2 + r, -h / 2);
+        ctx.arcTo(w / 2, -h / 2, w / 2, h / 2, r);
+        ctx.arcTo(w / 2, h / 2, -w / 2, h / 2, r);
+        ctx.arcTo(-w / 2, h / 2, -w / 2, -h / 2, r);
+        ctx.arcTo(-w / 2, -h / 2, w / 2, -h / 2, r);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+
+    resize();
+    particles = Array.from({ length: PARTICLE_COUNT }, () => {
+      const edge = Math.random() < .22 ? (Math.random() < .5 ? 'left' : 'right') : 'top';
+      const p = _spawnConfettiParticle(width, height, edge);
+      p.y = _randomBetween(0, height); // scatter across on first paint instead of starting off-screen
+      return p;
+    });
+
+    if (reduceMotion) {
+      ctx.clearRect(0, 0, width, height);
+      particles.forEach(drawParticle);
+      return () => {};
+    }
+
+    const handleMouseMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    };
+    const handleMouseLeave = () => { mouse.x = -9999; mouse.y = -9999; };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseleave', handleMouseLeave);
+    window.addEventListener('resize', resize);
+
+    const step = (now) => {
+      const dt = Math.min((now - lastTime) / 1000, .05);
+      lastTime = now;
+      ctx.clearRect(0, 0, width, height);
+
+      for (const p of particles) {
+        const dx = p.x - mouse.x;
+        const dy = p.y - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MOUSE_INFLUENCE) {
+          const force = (1 - dist / MOUSE_INFLUENCE) * 95;
+          const angle = Math.atan2(dy, dx);
+          p.x += Math.cos(angle) * force * dt;
+          p.y += Math.sin(angle) * force * dt;
+        }
+
+        p.swayPhase += p.swaySpeed * dt;
+        p.x += Math.sin(p.swayPhase) * p.swayAmp * dt + p.vx * dt * .4;
+        p.y += p.vy * dt;
+        p.rotation += p.rotationSpeed * dt;
+
+        if (p.y - p.size > height + 20 || p.x < -60 || p.x > width + 60) {
+          const edge = Math.random() < .25 ? (Math.random() < .5 ? 'left' : 'right') : 'top';
+          Object.assign(p, _spawnConfettiParticle(width, height, edge));
+        }
+        drawParticle(p);
+      }
+
+      frameId = requestAnimationFrame(step);
+    };
+    frameId = requestAnimationFrame(step);
+
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseleave', handleMouseLeave);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="cd-confetti-canvas" aria-hidden="true" />;
 }
 
 // Full-page takeover: no Header/Footer/cart/login — every visitor, logged in or not, sees only
 // this until the configured instant passes (see PortalService._resolve_launch_mode). Ticks locally
 // against the client's own clock; onLaunch triggers a one-time reload so the real bootstrap
 // (already re-fetched periodically by the caller) takes over without the visitor refreshing by hand.
-function LaunchCountdownScreen({ launchMode, onLaunch, products }) {
+function LaunchCountdownScreen({ launchMode, onLaunch }) {
   const launchAtMs = useMemo(() => {
     const parsed = new Date(launchMode.launchAt).getTime();
     return Number.isNaN(parsed) ? 0 : parsed;
@@ -766,9 +1019,11 @@ function LaunchCountdownScreen({ launchMode, onLaunch, products }) {
 
   return (
     <div className="cd-scene">
-      <LaunchMarketplaceBackdrop products={products} />
+      <LaunchMarketplaceMock />
+      <div className="cd-scrim" />
+      <LaunchConfetti />
       <div className="fa-wrap fa-fadein cd-scene-content" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', textAlign: 'center' }}>
-        <div style={{ maxWidth: 560 }}>
+        <div className="cd-card" style={{ maxWidth: 560 }}>
           <img className="cd-logo" src={MARKETPLACE_LOGO_FULL_URL} alt="Farmaura" />
           <h1 className="fa-h1" style={{ marginBottom: 12 }}>{launchMode.headline || 'Estamos quase lá'}</h1>
           <p className="fa-lead" style={{ marginBottom: 32 }}>
@@ -1880,7 +2135,7 @@ function App() {
   if (launchGateActive) {
     return (
       <div id="fa-root" data-density={t.density} style={rootStyle}>
-        <LaunchCountdownScreen launchMode={launchMode} onLaunch={() => window.location.reload()} products={products} />
+        <LaunchCountdownScreen launchMode={launchMode} onLaunch={() => window.location.reload()} />
       </div>
     );
   }

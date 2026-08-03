@@ -819,29 +819,56 @@ a { color: inherit; text-decoration: none; }
 
 /* ---------- Launch countdown (split-flap clock) ---------- */
 .cd-scene { position: relative; min-height: 100vh; overflow: hidden; background: var(--fa-bg); }
-.cd-scene-content { position: relative; z-index: 1; }
+.cd-scene-content { position: relative; z-index: 3; }
 .cd-logo { height: 56px; width: auto; display: block; margin: 0 auto 22px; }
+.cd-confetti-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
 
-/* Real catalog peeking through behind the countdown — see LaunchMarketplaceBackdrop. Sits full-
-   bleed behind the content; a radial fade (::after) keeps just the text/clock legible without
-   flattening the grid everywhere else, so the store still reads as colorful and real. */
-.cd-shop-grid {
-  position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px;
-  padding: 24px; overflow: hidden;
+/* The fake, fully static marketplace page sitting behind the countdown — see
+   LaunchMarketplaceMock. Reuses the real site's own header/nav/section classes (fa-header,
+   fa-topbar, fa-search, fa-navrow, fa-eyebrow, fa-h2, ...) so it reads as "our store", not an
+   abstract graphic; `.cd-scrim` on top veils it just enough that the card in front is
+   unambiguously the focal point, without hiding that a real page is under there. */
+.cd-mock-site { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.cd-mock-site .fa-header { position: static; backdrop-filter: none; }
+.cd-mock-search-text { color: var(--fa-ink-3); font-size: 14.5px; }
+.cd-mock-body { padding: 28px 24px 0; }
+.cd-mock-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+@media (max-width: 860px) { .cd-mock-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 560px) { .cd-mock-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; } }
+
+.cd-mock-banner {
+  height: 180px; border-radius: var(--fa-r-card); margin-bottom: 28px;
+  background: linear-gradient(120deg, var(--fa-primary), var(--fa-primary-ink));
+  display: flex; flex-direction: column; justify-content: center; padding: 0 36px;
 }
-.cd-shop-grid::after {
-  content: ""; position: absolute; inset: 0;
-  background: radial-gradient(ellipse 48% 50% at 50% 44%, var(--fa-bg) 32%, rgba(250,247,245,.78) 56%, rgba(250,247,245,0) 80%);
+.cd-mock-banner-title { color: #fff; font-weight: 800; font-size: 26px; line-height: 1.2; margin-top: 8px; max-width: 380px; }
+
+.cd-mock-body .fa-brands-strip { margin-bottom: 28px; }
+
+.cd-scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: rgba(250,247,245,.76); backdrop-filter: blur(3px); }
+
+.cd-card {
+  background: var(--fa-surface); border-radius: 24px; box-shadow: var(--fa-shadow-lg);
+  padding: clamp(32px,5vw,52px) clamp(24px,5vw,44px);
 }
+
 .cd-shop-card {
   background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: 12px;
   box-shadow: 0 2px 8px rgba(43,26,26,.05);
   aspect-ratio: 3/4; position: relative; overflow: hidden;
   display: flex; flex-direction: column;
 }
-.cd-shop-thumb { flex: 1; background: var(--fa-mist-2); overflow: hidden; }
-.cd-shop-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Same box-art placeholder the real catalog shows for a product with no custom photo yet
+   (ProductVisual) — contain + padding, never cropped, same as the real product card. The tinted
+   background (cycling per item below) is what actually carries the "colorful assortment" look,
+   since every placeholder box looks the same. */
+.cd-shop-thumb { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.cd-shop-thumb img { width: 100%; height: 100%; object-fit: contain; padding: 10px; display: block; }
+.cd-shop-tone-rose .cd-shop-thumb { background: var(--fa-rose-soft); }
+.cd-shop-tone-success .cd-shop-thumb { background: var(--fa-success-soft); }
+.cd-shop-tone-info .cd-shop-thumb { background: var(--fa-info-soft); }
+.cd-shop-tone-warn .cd-shop-thumb { background: var(--fa-warn-soft); }
+.cd-shop-tone-mist .cd-shop-thumb { background: var(--fa-mist-2); }
 .cd-shop-name {
   padding: 8px 10px 0; font-size: 11.5px; font-weight: 700; color: var(--fa-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -852,9 +879,6 @@ a { color: inherit; text-decoration: none; }
   background: var(--fa-vital); color: #fff; font-size: 10px; font-weight: 800;
   padding: 3px 7px; border-radius: 6px;
 }
-@media (max-width: 860px) { .cd-shop-grid { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 560px) { .cd-shop-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; } }
-
 .cd-clock {
   display: flex; align-items: flex-start; justify-content: center;
   gap: 10px; flex-wrap: wrap;
