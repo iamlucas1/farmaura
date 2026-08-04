@@ -26,9 +26,22 @@ function HomeBrandsScreen({ ctx }) {
   // "Johnson & Johnson Baby") aparecem como opções distintas — o campo continua texto livre (o
   // schema salva só o nome, sem brand_id), mas a sugestão evita digitar o nome errado/genérico.
   const catalogBrandNames = [...new Set((brands || []).filter((brand) => brand.active && !brand.discarded).map((brand) => brand.name))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  // O marketplace descarta silenciosamente qualquer círculo sem nome de marca (normalizeHomeBrands
+  // em marketplace-app.jsx só mostra círculo com image E brandName) — a imagem salva sozinha nunca
+  // aparece na home. Sinalizar aqui pra não parecer que "salvou mas não apareceu" sem explicação.
+  const unnamedCount = circles.filter((circle) => circle.image && !(circle.brandName || '').trim()).length;
 
   const patchCircle = (id, patch) => setHomeBrands({ circles: circles.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const removeCircle = (id) => setHomeBrands({ circles: circles.filter((c) => c.id !== id) });
+  const moveCircle = (id, dir) => {
+    const index = circles.findIndex((c) => c.id === id);
+    const target = index + dir;
+    if (index < 0 || target < 0 || target >= circles.length) return;
+    const next = circles.slice();
+    const [entry] = next.splice(index, 1);
+    next.splice(target, 0, entry);
+    setHomeBrands({ circles: next });
+  };
 
   const addCircle = () => {
     if (circles.length >= MAX_CIRCLES) {
@@ -52,6 +65,35 @@ function HomeBrandsScreen({ ctx }) {
     }
   };
 
+  // Mesmo padrão de "Importar imagens (várias de uma vez)" do banner da vitrine
+  // (home-banner-screen.jsx::onPickBulkImages), mas sem etapa de recorte — círculo de marca sempre
+  // usa border-radius:50%+object-fit:cover, então qualquer imagem já se enquadra sem ajuste manual
+  // (mesma decisão do ADR original da feature). Cada arquivo vira um círculo novo, sem nome ainda —
+  // o admin preenche o nome (com sugestão do catálogo) e reordena com as setas depois.
+  const onPickBulkImages = async (event) => {
+    const files = Array.from(event.target.files || []).filter((file) => /^image\//i.test(file.type));
+    event.target.value = '';
+    if (!files.length) return;
+    const remaining = Math.max(0, MAX_CIRCLES - circles.length);
+    if (!remaining) {
+      notify && notify('Limite de ' + MAX_CIRCLES + ' marcas atingido — remova alguma antes de importar mais logos.', 'warn');
+      return;
+    }
+    const picked = files.slice(0, remaining);
+    try {
+      const dataUrls = await Promise.all(picked.map(_fileToDataUrl));
+      const created = dataUrls.map((dataUrl) => ({ id: newCircleId(), image: dataUrl, altText: '', brandName: '' }));
+      const nextCircles = [...circles, ...created];
+      await saveHomeBrands({ mode: 'on', circles: nextCircles }, { silent: true });
+      notify && notify(created.length + ' logo(s) importado(s) e salvo(s) — preencha o nome de cada marca e use as setas ▲▼ para ordenar.', 'success');
+      if (files.length > picked.length) {
+        notify && notify('Só ' + picked.length + ' de ' + files.length + ' imagens couberam (limite de ' + MAX_CIRCLES + ' marcas).', 'warn');
+      }
+    } catch (error) {
+      notify && notify(error && error.message ? error.message : 'Não foi possível importar as imagens.', 'warn');
+    }
+  };
+
   const handleSave = async () => {
     await saveHomeBrands();
   };
@@ -70,7 +112,11 @@ function HomeBrandsScreen({ ctx }) {
 
       <div className="ph-content ph-content-wide">
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
-          <button className="fa-btn fa-btn-primary" type="button" onClick={addCircle} disabled={circles.length >= MAX_CIRCLES}>
+          <label className="fa-btn fa-btn-primary" htmlFor="home-brands-bulk-images">
+            <Icon name="camera" size={15} />Importar logos (vários de uma vez)
+          </label>
+          <input id="home-brands-bulk-images" type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onPickBulkImages} disabled={circles.length >= MAX_CIRCLES} />
+          <button className="fa-btn fa-btn-soft" type="button" onClick={addCircle} disabled={circles.length >= MAX_CIRCLES}>
             <Icon name="plus" size={15} />Adicionar marca
           </button>
           <button
@@ -84,8 +130,18 @@ function HomeBrandsScreen({ ctx }) {
           </button>
         </div>
         <div className="ph-cell-sub" style={{ marginBottom: 14 }}>
-          O logo de cada marca é salvo automaticamente ao enviar. O nome da marca precisa bater exatamente com o campo "Marca" cadastrado no produto (Catálogo → Marcas), pois é isso que filtra a vitrine ao clicar no círculo — digite para ver sugestões das marcas já cadastradas no catálogo. Linhas específicas de uma marca (ex.: "Johnson & Johnson" e "Johnson & Johnson Baby") só ficam diferenciadas se estiverem cadastradas como marcas separadas em Catálogo → Marcas; escolha a sugestão exata correspondente, não o nome genérico. "Sem marcas em destaque" só esconde a tira; as marcas continuam guardadas até você reativar.
+          O logo de cada marca é salvo automaticamente ao enviar (individual ou em lote). O nome da marca precisa bater exatamente com o campo "Marca" cadastrado no produto (Catálogo → Marcas), pois é isso que filtra a vitrine ao clicar no círculo — digite para ver sugestões das marcas já cadastradas no catálogo. Linhas específicas de uma marca (ex.: "Johnson & Johnson" e "Johnson & Johnson Baby") só ficam diferenciadas se estiverem cadastradas como marcas separadas em Catálogo → Marcas; escolha a sugestão exata correspondente, não o nome genérico. Use as setas ▲▼ de cada marca para definir a ordem de exibição (a primeira aparece primeiro na home). "Sem marcas em destaque" só esconde a tira; as marcas continuam guardadas até você reativar.
         </div>
+
+        {unnamedCount > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, padding: 14, background: 'color-mix(in srgb, var(--fa-warn) 14%, #fff)', borderRadius: 14, flexWrap: 'wrap' }}>
+            <Icon name="info" size={20} style={{ color: 'var(--fa-warn)', flex: 'none' }} />
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontWeight: 700 }}>{unnamedCount} marca(s) com logo mas sem nome</div>
+              <div className="ph-cell-sub">O logo já está salvo, mas sem o nome da marca preenchido o círculo não aparece no marketplace. Preencha o nome (marcado em laranja abaixo) e clique em "Salvar marcas em destaque".</div>
+            </div>
+          </div>
+        )}
 
         {mode === 'off' && circles.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, padding: 14, background: 'var(--fa-rose-soft)', borderRadius: 14, flexWrap: 'wrap' }}>
@@ -111,8 +167,17 @@ function HomeBrandsScreen({ ctx }) {
             filter: mode === 'off' ? 'grayscale(0.8)' : 'none',
             pointerEvents: mode === 'off' ? 'none' : 'auto',
           }}>
-            {circles.map((circle) => (
-              <div key={circle.id} style={{ border: '1px solid var(--fa-mist)', borderRadius: 16, padding: 14, background: '#fff', width: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            {circles.map((circle, index) => {
+              const missingName = !!circle.image && !(circle.brandName || '').trim();
+              return (
+              <div key={circle.id} style={{ border: missingName ? '1px solid var(--fa-warn)' : '1px solid var(--fa-mist)', borderRadius: 16, padding: 14, background: missingName ? 'color-mix(in srgb, var(--fa-warn) 6%, #fff)' : '#fff', width: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                  <strong style={{ fontSize: 12.5 }}>Marca {index + 1}</strong>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button className="fa-btn fa-btn-soft fa-btn-sm" type="button" disabled={index === 0} onClick={() => moveCircle(circle.id, -1)} aria-label="Mover para cima">▲</button>
+                    <button className="fa-btn fa-btn-soft fa-btn-sm" type="button" disabled={index === circles.length - 1} onClick={() => moveCircle(circle.id, 1)} aria-label="Mover para baixo">▼</button>
+                  </div>
+                </div>
                 <div style={{ width: 84, height: 84, borderRadius: '50%', overflow: 'hidden', background: 'var(--fa-mist-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 0 1px var(--fa-mist)' }}>
                   {circle.image ? (
                     <img src={circle.image} alt={circle.altText || 'Logo da marca'} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -126,12 +191,17 @@ function HomeBrandsScreen({ ctx }) {
                 <input id={'circle-file-' + circle.id} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onPickCircleImage(circle.id, e)} />
                 <input
                   className="fa-input"
-                  style={{ width: '100%', textAlign: 'center' }}
+                  style={{ width: '100%', textAlign: 'center', ...(missingName ? { borderColor: 'var(--fa-warn)' } : null) }}
                   value={circle.brandName}
                   onChange={(e) => patchCircle(circle.id, { brandName: e.target.value })}
                   placeholder="Nome da marca"
                   list={BRAND_NAMES_DATALIST_ID}
                 />
+                {missingName && (
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fa-warn)', textAlign: 'center', lineHeight: 1.3 }}>
+                    Sem nome — não aparece no marketplace
+                  </div>
+                )}
                 <input
                   className="fa-input"
                   style={{ width: '100%', textAlign: 'center', fontSize: 12.5 }}
@@ -143,7 +213,8 @@ function HomeBrandsScreen({ ctx }) {
                   <Icon name="trash" size={13} />Remover
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

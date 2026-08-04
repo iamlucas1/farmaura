@@ -6,12 +6,12 @@
 
 ## O que é configurável por tenant (via `portal_settings`)
 
-Tabela única `portal_settings` (`UniqueConstraint(tenant_id, portal_name, setting_key)`, JSON serializado, sem schema forte no banco — validação só em Pydantic). Chaves conhecidas: `marketplace_meta`, `home_banner`, `home_brands`, `launch_mode`, `financial_settings`, `construction_costs`, `delivery_pricing`, `delivery_areas`, `pdv_discount_settings`, `cnae_settings`.
+Tabela única `portal_settings` (`UniqueConstraint(tenant_id, portal_name, setting_key)`, JSON serializado, sem schema forte no banco — validação só em Pydantic). Chaves conhecidas: `marketplace_meta`, `home_banner`, `home_brands`, `deal_of_the_day`, `launch_mode`, `financial_settings`, `construction_costs`, `delivery_pricing`, `delivery_areas`, `pdv_discount_settings`, `cnae_settings`.
 
 ## Endpoints (`api/v1/portal.py`)
 
 - Bootstrap: `GET /portal/marketplace/public-bootstrap` (anônimo, rate-limited), `POST /portal/marketplace/first-access` (anônimo), `GET /portal/marketplace/bootstrap` (customer), `GET /portal/internal/bootstrap?store_id=` (só `ADMIN` pode passar `store_id` de outra loja — os demais ficam presos à própria loja, reforçado no service).
-- Settings: `PUT /internal/marketplace-meta`; `PUT /internal/home-banner` (banner de destaque da home do marketplace — `mode` `off`/`image`, cada slide com `kind` `image`/`html`, ver ADRs 2026-07-31); `PUT /internal/home-brands` (tira de círculos "marcas em destaque" logo abaixo dos diferenciais — `mode` `off`/`on`, cada círculo com `image`/`alt_text`/`brand_name`, clica e leva pra vitrine filtrada por marca via URL `/brand/<nome>`, ver ADR 2026-08-01); `PUT /internal/launch-mode` (página de "em breve"/contador que substitui a vitrine inteira, sem bypass — ver ADR 2026-08-01); `GET/PUT /internal/delivery-pricing|delivery-areas|pdv-discount-settings|financial-settings`; `GET /internal/address-search`; `GET/PUT /internal/cnae-settings`, `/internal/construction-costs` e `/internal/launch-mode` — **estes três são ADMIN only**, o resto é `ADMIN|MANAGER|PHARMACIST`.
+- Settings: `PUT /internal/marketplace-meta`; `PUT /internal/home-banner` (banner de destaque da home do marketplace — `mode` `off`/`image`, cada slide com `kind` `image`/`html`, ver ADRs 2026-07-31); `PUT /internal/home-brands` (tira de círculos "marcas em destaque" logo abaixo dos diferenciais — `mode` `off`/`on`, cada círculo com `image`/`alt_text`/`brand_name`, clica e leva pra vitrine filtrada por marca via URL `/brand/<nome>`, ver ADR 2026-08-01); `PUT /internal/deal-of-the-day` (seção "ofertas do dia" da home — `mode` `off`/`manual`/`auto`, `product_refs` ordenado no formato `inv-<id>`, `reset_time` + `auto_params` pro modo automático, ADMIN only — ver ADRs 2026-08-03); `POST /internal/deal-of-the-day/generate` ("Gerar agora" do modo automático, roda o sorteio com os `auto_params` já salvos, ADMIN only); `GET /internal/deal-suggestions/{bestsellers|margins|promotions|discounts|coupons}` (candidatos reais pra curadoria manual ou pro sorteio automático, ADMIN only, ver ADRs 2026-08-03); `PUT /internal/launch-mode` (página de "em breve"/contador que substitui a vitrine inteira, sem bypass — ver ADR 2026-08-01); `GET/PUT /internal/delivery-pricing|delivery-areas|pdv-discount-settings|financial-settings`; `GET /internal/address-search`; `GET/PUT /internal/cnae-settings`, `/internal/construction-costs`, `/internal/launch-mode` e `/internal/deal-of-the-day` — **estes quatro são ADMIN only**, o resto é `ADMIN|MANAGER|PHARMACIST`.
 - Cupons: `GET/POST/PUT/DELETE /internal/coupons[/{id}]` (GET aceita `CASHIER` também). Analytics de cupom fica fora deste router, em `/coupon-analytics` — ver [[Modulo_CRM|Módulo CRM]].
 - Promoções: `GET/POST/PUT/DELETE /internal/promotions[/{id}]` + `POST /internal/promotions/estimate-audience` (ver [[Modulo_Catalogo|Módulo Catálogo]]).
 - Reviews: `GET /products/{ref}/reviews` (público), `POST /products/reviews` (autenticado).
@@ -51,6 +51,40 @@ Tabela única `portal_settings` (`UniqueConstraint(tenant_id, portal_name, setti
 
 ## Atualizações
 
+- 2026-08-03 (3): `deal_of_the_day` ganhou um terceiro modo, `auto` (além de `off`/`manual`) — reset
+  diário em horário configurável (`reset_time`) e sorteio automático seguindo `auto_params`
+  (categorias/marcas elegíveis + quantos produtos tirar de cada uma das 5 fontes de sugestão, mais
+  um pool aleatório puro). Roda via invalidação lazy dentro de `_resolve_deal_of_the_day` (sem
+  scheduler novo) — achado real de bug no processo: esse método agora pode escrever, o que limpa o
+  contexto de RLS pro resto do bootstrap se não for reaplicado (corrigido, ver ADR). Novo endpoint
+  `POST /internal/deal-of-the-day/generate` ("Gerar agora", ADMIN only). `DealSuggestionService`
+  refatorado para `tenant_id` puro (não mais `TokenSubject`), já que passou a ser chamado também a
+  partir do bootstrap público anônimo. Ver ADR
+  [[../00_Decisoes/2026-08-03-ofertas-do-dia-ciclos-automaticos-e-sorteio-por-parametros|2026-08-03]]
+  e exceção [[../03_Padroes_Politicas/excecao-deal-of-the-day-cross-service-em-leitura|
+  excecao-deal-of-the-day-cross-service-em-leitura]].
+- 2026-08-03 (2): novo setting `deal_of_the_day` (`PUT /internal/deal-of-the-day`, ADMIN only) e
+  tela `deal-of-the-day-screen.jsx` (Marketplace → Ofertas do dia) — lista curada de produtos que
+  substitui, na home, o antigo filtro automático "desconto > 0". Novo serviço
+  `deal_suggestion_service.py` + 5 endpoints `GET /internal/deal-suggestions/*` sugerindo candidatos
+  reais (mais vendidos, melhor margem, promoção/desconto/cupom ativo). Resolução do produto é
+  100% client-side (mesmo princípio de `home_brands`) — achado durante o teste: `PublicCatalogItem`
+  não tinha `aliases`/`inventory_ids`, corrigido (ver [[Modulo_Catalogo|Módulo Catálogo]]). Ver ADR
+  [[../00_Decisoes/2026-08-03-ofertas-do-dia-curadoria-manual-e-motor-de-sugestoes|2026-08-03]].
+- 2026-08-03: achado real de suporte — logo salvo (upload é imediato) mas nome da marca não
+  preenchido/salvo faz o marketplace descartar o círculo inteiro (`normalizeHomeBrands` em
+  `marketplace-app.jsx` exige `image` **e** `brandName`). Adicionado aviso visual em
+  `home-brands-screen.jsx` (banner + destaque por card) para círculo com logo mas sem nome. Nenhuma
+  mudança no filtro do marketplace (comportamento correto, só faltava visibilidade). Ver ADR
+  [[../00_Decisoes/2026-08-03-marcas-em-destaque-aviso-nome-ausente|2026-08-03]].
+- 2026-08-02 (2): `home_brands`/`home-brands-screen.jsx` ajustados a partir de uso real: campo "Nome
+  da marca" ganhou `<datalist>` de sugestão (nomes reais de `ctx.brands`, mesma fonte do picker de
+  orçamentos) para diferenciar linhas de uma marca (ex.: "Johnson & Johnson" x "Johnson & Johnson
+  Baby"); exibição na home (`BrandCircles`) passou a mostrar até 7 círculos numa fileira ponta a ponta
+  (`justify-content: space-between`, igual `.fa-quickcats`) e vira carrossel (rail com scroll + setas,
+  mesmo idioma de `CartRecommendations`) a partir do 8º; círculo cresceu de 76px para 112px. Sem
+  mudança de schema/backend. Ver ADR
+  [[../00_Decisoes/2026-08-02-marcas-em-destaque-datalist-carrossel-e-layout-ponta-a-ponta|2026-08-02]].
 - 2026-08-02: deploy em produção (migrations `20260729_01`–`20260731_01`, containers
   `farmaura-api`/`farmaura` rebuildados) do lote cupom/promoção server-side + banner/marcas
   configuráveis + `launch_mode` — ver [[../05_Integracoes_Infra/PostgreSQL_RLS|PostgreSQL_RLS]].

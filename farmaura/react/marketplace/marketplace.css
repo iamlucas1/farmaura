@@ -251,6 +251,33 @@ a { color: inherit; text-decoration: none; }
 .fa-feed-sec + .fa-feed-sec { border-top: 1px solid var(--fa-mist); }
 .fa-feed-sec.fa-feed-tight { padding-top: 0; border-top: none; }
 
+/* ---------- Ofertas do dia (admin-curated, urgency strip + countdown — Direção D) ---------- */
+.fa-deal-head {
+  background: linear-gradient(120deg, var(--fa-primary), var(--fa-primary-ink));
+  border-radius: var(--fa-r-card); padding: 18px 22px; color: #fff;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.fa-deal-head-left { display: flex; align-items: center; gap: 12px; }
+.fa-deal-flame { font-size: 24px; line-height: 1; }
+.fa-deal-title { color: #fff; margin: 0; font-weight: 800; font-size: 19px; letter-spacing: -.01em; }
+.fa-deal-sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255,255,255,.78); }
+.fa-deal-countdown { display: flex; align-items: center; gap: 6px; }
+.fa-deal-countdown-seg {
+  background: rgba(255,255,255,.14); border-radius: 8px; padding: 6px 10px; text-align: center; min-width: 46px;
+}
+.fa-deal-countdown-seg b { display: block; font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 800; line-height: 1; }
+.fa-deal-countdown-seg em { font-style: normal; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.7); }
+.fa-deal-countdown-colon { font-weight: 800; opacity: .6; color: #fff; }
+@media (max-width: 560px) {
+  .fa-deal-head { padding: 14px 16px; }
+  .fa-deal-title { font-size: 16.5px; }
+}
+/* Reskin the shared ProductCard discount badge to the urgency accent inside this strip only —
+   same component/markup as every other grid, just a scoped color override. */
+.fa-deal-grid .fa-pc-discount-badge { background: var(--fa-warn); color: var(--fa-primary-ink); }
+.fa-deal-grid .fa-pc[data-superpromo="1"] { border-color: var(--fa-warn); }
+
 /* ===== Product card — style A (standard) ===== */
 .fa-pc {
   background: var(--fa-surface); border: 1px solid var(--fa-mist);

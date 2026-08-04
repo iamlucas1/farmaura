@@ -162,3 +162,31 @@ class PurchaseAnalyticsRepository:
         )
         result = await self.session.execute(statement)
         return {product.id: product for product in result.scalars().unique().all()}
+
+    async def representative_inventory_item_by_product(
+        self, *, tenant_id: str, product_ids: list[str]
+    ) -> dict[str, InventoryItem]:
+        """Return one addable, marketplace-visible `InventoryItem` per product id.
+
+        Used to turn a tenant-wide `InventoryProduct.id` (the level sales are aggregated at) back
+        into a concrete `inv-<InventoryItem.id>` ref — the format the "ofertas do dia" curated list
+        stores. When a product has stock in more than one store, the item with the highest quantity
+        is preferred (most likely to still be purchasable by the time the admin/customer sees it).
+        """
+
+        if not product_ids:
+            return {}
+        statement = select(InventoryItem).where(
+            InventoryItem.tenant_id == tenant_id,
+            InventoryItem.product_id.in_(product_ids),
+            InventoryItem.is_active.is_(True),
+            InventoryItem.is_marketplace_visible.is_(True),
+            InventoryItem.sale_price > 0,
+        )
+        result = await self.session.execute(statement)
+        best_by_product: dict[str, InventoryItem] = {}
+        for item in result.scalars().unique().all():
+            current_best = best_by_product.get(item.product_id)
+            if current_best is None or item.quantity > current_best.quantity:
+                best_by_product[item.product_id] = item
+        return best_by_product

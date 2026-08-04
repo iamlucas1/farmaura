@@ -54,6 +54,8 @@ class PublicCatalogItem(StrictModel):
     stock: int
     tags: list[str]
     info: str
+    aliases: list[str] = Field(default_factory=list)
+    inventory_ids: list[str] = Field(default_factory=list)
     promotion_highlight: str = ""
     discount_type: str = "percent"
     urgency_label: str = ""

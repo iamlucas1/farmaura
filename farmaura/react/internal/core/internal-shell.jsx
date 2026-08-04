@@ -273,6 +273,7 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
       { id: 'home-banner', label: 'Banner da vitrine', icon: 'camera' },
       { id: 'home-brands', label: 'Marcas em destaque', icon: 'plusCircle' },
       { id: 'launch-mode', label: 'Modo de lançamento', icon: 'clock' },
+      { id: 'deal-of-the-day', label: 'Ofertas do dia', icon: 'bolt' },
       { id: 'pricing', label: 'Precificador', icon: 'tag', count: counts.lowMargin, alert: true },
       { id: 'coupons', label: 'Cupons', icon: 'gift', count: counts.activeCoupons },
       { id: 'promotions', label: 'Promoções', icon: 'sparkle', count: counts.activePromotions },

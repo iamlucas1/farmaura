@@ -55,6 +55,14 @@ Domínio dono da **identidade do produto** (o que existe, como se chama, a quem 
 
 ## Atualizações
 
+- 2026-08-03: `PublicCatalogItem` (schema de `GET /catalog/public`, servido a visitante anônimo)
+  ganhou `aliases`/`inventory_ids` — só o `CatalogItem` autenticado (`GET /catalog`) tinha esses
+  campos até então. Achado ao implementar "ofertas do dia" (`Modulo_Portal`): a home pública
+  precisa casar refs `inv-<id>` contra o catálogo já carregado no cliente, e o schema público não
+  carregava os dados pra isso. `home_brands` nunca expôs esse gap por casar só por `brand` (string
+  já presente nos dois schemas). Sem risco de exposição — são ids internos opacos, mesmo nível do
+  `id` (`mkt-<slug>`) já público. Ver ADR
+  [[../00_Decisoes/2026-08-03-ofertas-do-dia-curadoria-manual-e-motor-de-sugestoes|2026-08-03]].
 - 2026-07-31: `PricingPromotion` ganhou `scope_type="services"` + `target_services` — promoções agora podem mirar serviços de saúde (Módulo Portal), isolado dos eixos `all`/`categories`/`products` por design. Ver [[../00_Decisoes/2026-07-31-atalhos-reais-e-servicos-de-saude-com-desconto|ADR]].
 - 2026-07-30 (2): `InventoryItem.promotional_discount_percent` (desconto manual do Precificador) foi
   removido — todo desconto de produto agora é uma `PricingPromotion`. Novo campo `kind`

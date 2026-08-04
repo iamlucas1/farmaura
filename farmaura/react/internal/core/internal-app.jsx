@@ -12,6 +12,7 @@ import { HealthServicesScreen } from "../screens/health-services-screen.jsx";
 import { HomeBannerScreen } from "../screens/home-banner-screen.jsx";
 import { LaunchModeScreen } from "../screens/launch-mode-screen.jsx";
 import { HomeBrandsScreen } from "../screens/home-brands-screen.jsx";
+import { DealOfTheDayScreen } from "../screens/deal-of-the-day-screen.jsx";
 import { CategoriesScreen } from "../screens/categories-screen.jsx";
 import { CrmScreen } from "../screens/crm-screen.jsx";
 import { Dashboard } from "../screens/dashboard-screen.jsx";
@@ -1326,6 +1327,94 @@ function PharmApp() {
     } finally {
       setHomeBrandsBusy(false);
     }
+  };
+  // Ofertas do dia: mode="manual" é a lista curada à mão (Marketplace → Ofertas do dia), substitui
+  // o antigo filtro automático "discount > 0" na home; mode="auto" sorteia um conjunto novo sozinho
+  // a cada ciclo diário (reset_time), seguindo autoParams — mesmo contrato "off preserva os itens".
+  const emptyDealAutoParams = () => ({
+    categories: [], brands: [],
+    countBestsellers: 0, countMargins: 0, countPromotions: 0, countDiscounts: 0, countCoupons: 0, countRandom: 0,
+  });
+  const [dealOfTheDay, setDealOfTheDayState] = useState(() => ({
+    mode: 'off', productRefs: [], resetTime: '00:00', autoParams: emptyDealAutoParams(), lastGeneratedAt: null,
+    ...readInternalCache(null, 'deal_of_the_day', {}),
+  }));
+  useEffect(() => { writeInternalCache(user, 'deal_of_the_day', dealOfTheDay); }, [user && user.id, dealOfTheDay]);
+  const [dealOfTheDayBusy, setDealOfTheDayBusy] = useState(false);
+  const setDealOfTheDay = (patch) => setDealOfTheDayState((d) => ({ ...d, ...patch }));
+  const _dealAutoParamsToPayload = (autoParams) => ({
+    categories: autoParams.categories || [],
+    brands: autoParams.brands || [],
+    count_bestsellers: autoParams.countBestsellers || 0,
+    count_margins: autoParams.countMargins || 0,
+    count_promotions: autoParams.countPromotions || 0,
+    count_discounts: autoParams.countDiscounts || 0,
+    count_coupons: autoParams.countCoupons || 0,
+    count_random: autoParams.countRandom || 0,
+  });
+  const _dealStateFromResponse = (response) => ({
+    mode: response.mode || 'off',
+    productRefs: response.product_refs || [],
+    resetTime: response.reset_time || '00:00',
+    autoParams: response.auto_params ? {
+      categories: response.auto_params.categories || [],
+      brands: response.auto_params.brands || [],
+      countBestsellers: response.auto_params.count_bestsellers || 0,
+      countMargins: response.auto_params.count_margins || 0,
+      countPromotions: response.auto_params.count_promotions || 0,
+      countDiscounts: response.auto_params.count_discounts || 0,
+      countCoupons: response.auto_params.count_coupons || 0,
+      countRandom: response.auto_params.count_random || 0,
+    } : emptyDealAutoParams(),
+    lastGeneratedAt: response.last_generated_at || null,
+  });
+  const saveDealOfTheDay = async (patch, options) => {
+    const silent = !!(options && options.silent);
+    const next = { ...dealOfTheDay, ...(patch || {}) };
+    if (isFilePreview || !user) {
+      setDealOfTheDayState(next);
+      if (!silent) showToast('Ofertas do dia salvas', 'success');
+      return;
+    }
+    setDealOfTheDayBusy(true);
+    try {
+      const response = await authClient.request('/portal/internal/deal-of-the-day', {
+        method: 'PUT',
+        body: JSON.stringify({
+          mode: next.mode || 'off',
+          product_refs: next.productRefs || [],
+          reset_time: next.resetTime || '00:00',
+          auto_params: _dealAutoParamsToPayload(next.autoParams || emptyDealAutoParams()),
+        }),
+      });
+      setDealOfTheDayState(_dealStateFromResponse(response));
+      if (!silent) showToast('Ofertas do dia salvas', 'success');
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível salvar as ofertas do dia.', 'warn');
+    } finally {
+      setDealOfTheDayBusy(false);
+    }
+  };
+  // Botão "Gerar agora" do modo automático — roda o sorteio na hora, com os autoParams já salvos,
+  // sem esperar o ciclo (reset_time) virar sozinho.
+  const generateDealOfTheDayNow = async () => {
+    setDealOfTheDayBusy(true);
+    try {
+      const response = await authClient.request('/portal/internal/deal-of-the-day/generate', { method: 'POST' });
+      setDealOfTheDayState(_dealStateFromResponse(response));
+      showToast('Novo sorteio gerado', 'success');
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível gerar um novo sorteio.', 'warn');
+    } finally {
+      setDealOfTheDayBusy(false);
+    }
+  };
+  // Sugestões de "ofertas do dia" (mais vendidos/margem/promoção/desconto/cupom) — buscadas sob
+  // demanda ao abrir cada aba do console, nunca fazem parte do bootstrap geral.
+  const fetchDealSuggestions = async (source, params) => {
+    const query = new URLSearchParams(params || {}).toString();
+    const response = await authClient.request('/portal/internal/deal-suggestions/' + source + (query ? '?' + query : ''));
+    return (response && response.items) || [];
   };
   // Modo de lançamento: página de "em breve"/contador que substitui a vitrine inteira do
   // marketplace, para todo visitante, até a data configurada — sem bypass para logado/equipe.
@@ -2889,6 +2978,8 @@ function PharmApp() {
             brandName: c.brand_name ?? c.brandName ?? '',
           })),
         });
+        const dealOfTheDayPayload = bootstrap.deal_of_the_day || bootstrap.dealOfTheDay || null;
+        setDealOfTheDayState(_dealStateFromResponse(dealOfTheDayPayload || {}));
         const launchModePayload = bootstrap.launch_mode || bootstrap.launchMode || null;
         setLaunchModeState({
           enabled: !!(launchModePayload && launchModePayload.enabled),
@@ -4218,6 +4309,7 @@ function PharmApp() {
     marketplace, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy,
     homeBanner, setHomeBanner, saveHomeBanner, homeBannerBusy,
     homeBrands, setHomeBrands, saveHomeBrands, homeBrandsBusy,
+    dealOfTheDay, setDealOfTheDay, saveDealOfTheDay, dealOfTheDayBusy, fetchDealSuggestions, generateDealOfTheDayNow,
     launchMode, setLaunchMode, saveLaunchMode, launchModeBusy,
     setItemPricing, notify: showToast,
     pdvDiscountSettings, setPdvDiscountSettings, savePdvDiscountSettings, pdvDiscountSettingsBusy,
@@ -4254,6 +4346,7 @@ function PharmApp() {
       case 'sales': return <SalesScreen ctx={ctx} />;
       case 'home-banner': return <HomeBannerScreen ctx={ctx} />;
       case 'home-brands': return <HomeBrandsScreen ctx={ctx} />;
+      case 'deal-of-the-day': return <DealOfTheDayScreen ctx={ctx} />;
       case 'launch-mode': return <LaunchModeScreen ctx={ctx} />;
       case 'pricing': return <PricingScreen ctx={ctx} />;
       case 'coupons': return <CouponsScreen ctx={ctx} />;

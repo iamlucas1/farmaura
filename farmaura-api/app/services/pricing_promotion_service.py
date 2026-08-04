@@ -332,6 +332,27 @@ def find_best_promotion(
     )
 
 
+def list_matching_inventory_items(
+    promotion: PricingPromotion,
+    inventory_items: list,
+    *,
+    now: datetime,
+) -> list:
+    """Return every inventory item currently within one promotion's active schedule and scope.
+
+    Reverse of `find_best_promotion`'s per-item check (schedule + scope only, no per-customer
+    audience filter) — used by the "ofertas do dia" admin suggestion engine to list every product
+    a promotion currently covers, not to price a single cart line for one shopper.
+    """
+
+    if not promotion.is_active or not _matches_schedule(promotion, now=now):
+        return []
+    return [
+        item for item in inventory_items
+        if _matches_scope(promotion, category=item.category_name, product_name=item.name)
+    ]
+
+
 def find_best_service_promotion(
     promotions: list[PricingPromotion],
     *,

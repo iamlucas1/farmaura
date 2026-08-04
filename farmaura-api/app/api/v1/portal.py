@@ -14,6 +14,7 @@ Observations:
 """
 
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, get_subject_session, require_internal_subject, require_marketplace_subject
 from app.core.rate_limit import PASSWORD_RESET_RATE_LIMIT, PUBLIC_RATE_LIMIT, rate_limit
@@ -47,6 +48,9 @@ from app.schemas.portal import (
     PortalHomeBannerUpdateRequest,
     PortalHomeBrandsResponse,
     PortalHomeBrandsUpdateRequest,
+    PortalDealOfTheDayResponse,
+    PortalDealOfTheDayUpdateRequest,
+    DealSuggestionListResponse,
     PortalLaunchModeResponse,
     PortalLaunchModeUpdateRequest,
     PortalInternalBootstrapResponse,
@@ -66,6 +70,7 @@ from app.schemas.portal import (
     PortalSubscriptionResponse,
     PortalSubscriptionUpdateRequest,
 )
+from app.services.deal_suggestion_service import DealSuggestionService
 from app.services.portal_service import PortalService
 
 
@@ -173,6 +178,90 @@ async def update_home_brands(
 
     service = PortalService(session)
     return await service.update_home_brands(subject, payload)
+
+
+@router.put("/internal/deal-of-the-day", response_model=PortalDealOfTheDayResponse)
+async def update_deal_of_the_day(
+    payload: PortalDealOfTheDayUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session=Depends(get_subject_session),
+) -> PortalDealOfTheDayResponse:
+    """Persist the tenant-scoped, manually curated "ofertas do dia" home product list."""
+
+    service = PortalService(session)
+    return await service.update_deal_of_the_day(subject, payload)
+
+
+@router.post("/internal/deal-of-the-day/generate", response_model=PortalDealOfTheDayResponse)
+async def generate_deal_of_the_day(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session=Depends(get_subject_session),
+) -> PortalDealOfTheDayResponse:
+    """Run the "ofertas do dia" random generator now, using the tenant's saved `auto_params`."""
+
+    service = PortalService(session)
+    return await service.regenerate_deal_of_the_day(subject)
+
+
+@router.get("/internal/deal-suggestions/bestsellers", response_model=DealSuggestionListResponse)
+async def get_deal_suggestions_bestsellers(
+    months: int = Query(default=3, ge=1, le=24),
+    limit: int = Query(default=20, ge=1, le=50),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DealSuggestionListResponse:
+    """List the tenant's best-selling products (online + PDV) as "ofertas do dia" candidates."""
+
+    service = DealSuggestionService(session=session, tenant_id=str(subject.tenant_id))
+    return await service.list_bestsellers(months=months, limit=limit)
+
+
+@router.get("/internal/deal-suggestions/margins", response_model=DealSuggestionListResponse)
+async def get_deal_suggestions_margins(
+    limit: int = Query(default=20, ge=1, le=50),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DealSuggestionListResponse:
+    """List the tenant's active marketplace-visible items with the best profit margin."""
+
+    service = DealSuggestionService(session=session, tenant_id=str(subject.tenant_id))
+    return await service.list_best_margins(limit=limit)
+
+
+@router.get("/internal/deal-suggestions/promotions", response_model=DealSuggestionListResponse)
+async def get_deal_suggestions_promotions(
+    limit: int = Query(default=20, ge=1, le=50),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DealSuggestionListResponse:
+    """List products currently matched by an active promotion campaign."""
+
+    service = DealSuggestionService(session=session, tenant_id=str(subject.tenant_id))
+    return await service.list_active_promotion_products(limit=limit)
+
+
+@router.get("/internal/deal-suggestions/discounts", response_model=DealSuggestionListResponse)
+async def get_deal_suggestions_discounts(
+    limit: int = Query(default=20, ge=1, le=50),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DealSuggestionListResponse:
+    """List products currently marked down via a direct product_discount promotion."""
+
+    service = DealSuggestionService(session=session, tenant_id=str(subject.tenant_id))
+    return await service.list_active_discount_products(limit=limit)
+
+
+@router.get("/internal/deal-suggestions/coupons", response_model=DealSuggestionListResponse)
+async def get_deal_suggestions_coupons(
+    limit: int = Query(default=20, ge=1, le=50),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DealSuggestionListResponse:
+    """List products currently targeted by an active coupon campaign."""
+
+    service = DealSuggestionService(session=session, tenant_id=str(subject.tenant_id))
+    return await service.list_active_coupon_products(limit=limit)
 
 
 @router.put("/internal/launch-mode", response_model=PortalLaunchModeResponse)

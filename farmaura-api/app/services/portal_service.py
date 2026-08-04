@@ -40,6 +40,7 @@ from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.store_repository import StoreRepository
 from app.repositories.user_repository import UserRepository
 from app.services.coupon_service import CouponCartLine, CouponService
+from app.services.deal_suggestion_service import DealSuggestionService
 from app.services.geocoding_client import GeocodingClient
 from app.services.marketplace_projection import resolve_marketplace_category_id
 from app.services.notification_service import NotificationService
@@ -100,6 +101,8 @@ from app.schemas.portal import (
     PortalHomeBannerUpdateRequest,
     PortalHomeBrandsResponse,
     PortalHomeBrandsUpdateRequest,
+    PortalDealOfTheDayResponse,
+    PortalDealOfTheDayUpdateRequest,
     PortalLaunchModeResponse,
     PortalLaunchModeUpdateRequest,
     PortalInternalBootstrapResponse,
@@ -141,6 +144,7 @@ SETTING_KEY_MARKETPLACE_META = 'marketplace_meta'
 SETTING_KEY_HOME_BANNER = 'home_banner'
 SETTING_KEY_HOME_BRANDS = 'home_brands'
 SETTING_KEY_LAUNCH_MODE = 'launch_mode'
+SETTING_KEY_DEAL_OF_THE_DAY = 'deal_of_the_day'
 
 # Cosmetic-only CSS allowlist for the admin-authored home banner HTML — deliberately excludes:
 # - positioning/overlay properties (position, top/left/right/bottom, z-index), so a banner can
@@ -236,6 +240,7 @@ class PortalService:
             marketplace=marketplace,
             home_banner=await self._resolve_home_banner(tenant_id=tenant_id),
             home_brands=await self._resolve_home_brands(tenant_id=tenant_id),
+            deal_of_the_day=await self._resolve_deal_of_the_day(tenant_id=tenant_id),
             launch_mode=await self._resolve_launch_mode(tenant_id=tenant_id),
             health_services=health_services,
             coupons=coupons,
@@ -351,6 +356,7 @@ class PortalService:
             marketplace=marketplace,
             home_banner=await self._resolve_home_banner(tenant_id=str(customer.tenant_id)),
             home_brands=await self._resolve_home_brands(tenant_id=str(customer.tenant_id)),
+            deal_of_the_day=await self._resolve_deal_of_the_day(tenant_id=str(customer.tenant_id), subject=subject),
             launch_mode=await self._resolve_launch_mode(tenant_id=str(customer.tenant_id)),
             health_services=health_services,
             health_history=health_history,
@@ -383,6 +389,7 @@ class PortalService:
             marketplace=marketplace,
             home_banner=await self._resolve_home_banner(tenant_id=tenant_id, include_original=True),
             home_brands=await self._resolve_home_brands(tenant_id=tenant_id),
+            deal_of_the_day=await self._resolve_deal_of_the_day(tenant_id=tenant_id, subject=subject),
             launch_mode=await self._resolve_launch_mode(tenant_id=tenant_id),
             store=store,
             stores=stores,
@@ -452,6 +459,54 @@ class PortalService:
         )
         await self.session.commit()
         return await self._resolve_home_brands(tenant_id=str(subject.tenant_id))
+
+    async def update_deal_of_the_day(self, subject: TokenSubject, payload: PortalDealOfTheDayUpdateRequest) -> PortalDealOfTheDayResponse:
+        """Persist the tenant-scoped "ofertas do dia" configuration (manual list or auto-cycle params).
+
+        `mode="off"` intentionally keeps `product_refs` — same display-toggle-not-delete contract as
+        `update_home_banner`/`update_home_brands`, so the admin can hide the section without losing
+        the curated selection. No product resolution happens here for `mode="manual"` — the
+        marketplace resolves `product_refs` against its own already-loaded catalog client-side (see
+        `PortalHomeBrandsResponse` for the equivalent brand-name resolution and `CatalogItem.aliases`
+        for the ref format). `mode="auto"` is the exception: the `_resolve_deal_of_the_day` call
+        below may itself trigger the first cycle's random generation (since `last_generated_at` is
+        still `None` right after switching into `auto`), which reads RLS-protected tables
+        (`inventory_items`/`orders`/...) — so the RLS context this commit just cleared needs
+        reapplying first, or that generation silently sees zero rows (see
+        `feedback_farmaura_rls_context_after_commit` in dev-obsidian).
+        """
+
+        await self._require_user(subject)
+        value = payload.model_dump(mode='json')
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_DEAL_OF_THE_DAY,
+            value=value,
+        )
+        await self.session.commit()
+        await apply_tenant_context(self.session, subject)
+        return await self._resolve_deal_of_the_day(tenant_id=str(subject.tenant_id), subject=subject)
+
+    async def regenerate_deal_of_the_day(self, subject: TokenSubject) -> PortalDealOfTheDayResponse:
+        """Run the "ofertas do dia" random generator now, using the tenant's saved `auto_params`.
+
+        Used by the console's "Gerar agora" button — regenerates immediately regardless of whether
+        the daily cycle has actually elapsed, so the admin can preview/reshuffle on demand without
+        waiting for `reset_time`. Works the same whether `mode` is currently `auto` or not (switching
+        into `auto` for the first time has no prior `product_refs` to show until this runs once).
+        """
+
+        await self._require_user(subject)
+        tenant_id = str(subject.tenant_id)
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_DEAL_OF_THE_DAY, default=None)
+        try:
+            current = PortalDealOfTheDayResponse.model_validate(stored_value) if stored_value else PortalDealOfTheDayResponse()
+        except ValidationError:
+            current = PortalDealOfTheDayResponse()
+        updated = await self._run_deal_of_the_day_generation(tenant_id=tenant_id, current=current)
+        await apply_tenant_context(self.session, subject)
+        return updated
 
     async def update_launch_mode(self, subject: TokenSubject, payload: PortalLaunchModeUpdateRequest) -> PortalLaunchModeResponse:
         """Persist the tenant-scoped marketplace pre-launch countdown gate configuration."""
@@ -1229,6 +1284,70 @@ class PortalService:
             return PortalHomeBrandsResponse.model_validate(stored_value)
         except ValidationError:
             return PortalHomeBrandsResponse()
+
+    async def _resolve_deal_of_the_day(self, *, tenant_id: str | None, subject: TokenSubject | None = None) -> PortalDealOfTheDayResponse:
+        """Return the tenant's "ofertas do dia" section, auto-regenerating it first if due.
+
+        `mode="manual"` just returns what's stored, same as every other setting. `mode="auto"`
+        additionally checks whether the daily cycle (`reset_time`) has elapsed since
+        `last_generated_at` — if so, it runs the random generator now (`_run_deal_of_the_day_
+        generation`) and persists the fresh selection before returning, so the section stays
+        current with zero admin action required. That inline generate+commit clears the
+        request's RLS context (`session.commit()` always does — see
+        `feedback_farmaura_rls_context_after_commit` in dev-obsidian), so it's reapplied
+        immediately after: `subject` for the two authenticated bootstraps, or
+        `apply_public_marketplace_context` for the anonymous one, matching whichever context this
+        same request already had before the commit.
+        """
+
+        if not tenant_id:
+            return PortalDealOfTheDayResponse()
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_DEAL_OF_THE_DAY, default=None)
+        if not stored_value:
+            return PortalDealOfTheDayResponse()
+        try:
+            current = PortalDealOfTheDayResponse.model_validate(stored_value)
+        except ValidationError:
+            return PortalDealOfTheDayResponse()
+        if current.mode == 'auto' and self._deal_cycle_elapsed(current):
+            current = await self._run_deal_of_the_day_generation(tenant_id=tenant_id, current=current)
+            if subject is not None:
+                await apply_tenant_context(self.session, subject)
+            else:
+                await apply_public_marketplace_context(self.session, tenant_id)
+        return current
+
+    def _deal_cycle_elapsed(self, current: PortalDealOfTheDayResponse) -> bool:
+        """Return whether "ofertas do dia"'s daily cycle has crossed `reset_time` since the last run."""
+
+        if current.last_generated_at is None:
+            return True
+        try:
+            hour, minute = (int(part) for part in current.reset_time.split(':'))
+        except ValueError:
+            hour, minute = 0, 0
+        last_local = current.last_generated_at.astimezone()
+        next_boundary = last_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if next_boundary <= last_local:
+            next_boundary += timedelta(days=1)
+        return datetime.now(UTC).astimezone() >= next_boundary
+
+    async def _run_deal_of_the_day_generation(
+        self, *, tenant_id: str, current: PortalDealOfTheDayResponse
+    ) -> PortalDealOfTheDayResponse:
+        """Draw a fresh random selection for `current.auto_params`, persist it, and return it."""
+
+        generator = DealSuggestionService(session=self.session, tenant_id=tenant_id)
+        product_refs = await generator.generate_auto_selection(params=current.auto_params)
+        updated = current.model_copy(update={'product_refs': product_refs, 'last_generated_at': datetime.now(UTC)})
+        await self._upsert_setting_payload(
+            tenant_id=tenant_id,
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_DEAL_OF_THE_DAY,
+            value=updated.model_dump(mode='json'),
+        )
+        await self.session.commit()
+        return updated
 
     async def _resolve_launch_mode(self, *, tenant_id: str | None) -> PortalLaunchModeResponse:
         """Return the tenant's marketplace pre-launch countdown gate configuration.

@@ -158,6 +158,8 @@ class CatalogService:
                 stock=int(item['stock']),
                 tags=list(item['tags']),
                 info=str(item['info']),
+                aliases=list(item.get('aliases', [])),
+                inventory_ids=list(item.get('inventory_ids', [])),
                 promotion_highlight=str(item.get('promotion_highlight', '')),
                 discount_type=str(item.get('discount_type', '') or 'percent'),
                 urgency_label=str(item.get('urgency_label', '')),

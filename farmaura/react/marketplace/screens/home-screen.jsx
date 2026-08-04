@@ -207,9 +207,86 @@ function BrandCircles({ brands, onNav }) {
   );
 }
 
+// Ofertas do dia: lista curada manualmente no console interno (Marketplace → Ofertas do dia),
+// substituindo o antigo filtro automático `discount > 0`. O backend só guarda uma lista ordenada de
+// refs ("inv-<id>"/"listing-<id>") — a resolução pro produto completo acontece aqui, comparando
+// contra o catálogo já carregado (mesmo princípio de `home_brands` casando por nome). Refs que não
+// casam mais (produto removido/despublicado) são descartados silenciosamente, preservando a ordem
+// escolhida pelo admin para o que ainda resolve.
+function resolveDealOfTheDayProducts(dealOfTheDay, products) {
+  const mode = (dealOfTheDay && dealOfTheDay.mode) || 'off';
+  const refs = (dealOfTheDay && dealOfTheDay.productRefs) || [];
+  if ((mode !== 'manual' && mode !== 'auto') || !refs.length) {
+    return [];
+  }
+  return refs
+    .map((ref) => products.find((product) => product.id === ref || (product.aliases || []).includes(ref)))
+    .filter(Boolean);
+}
+
+// Faixa de urgência com contador regressivo até o horário de reset configurado no console (Ofertas
+// do dia → horário do ciclo, default 00:00) — reforça que é a oferta "de hoje", sem relação com a
+// curadoria em si (no modo manual a lista permanece igual até o admin trocar; no modo automático,
+// é exatamente esse horário que dispara o próximo sorteio — ver PortalService._deal_cycle_elapsed).
+function DealCountdown({ resetTime }) {
+  const computeRemaining = () => {
+    const [hour, minute] = (resetTime || '00:00').split(':').map(Number);
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(hour || 0, minute || 0, 0, 0);
+    if (next <= now) {
+      next.setDate(next.getDate() + 1);
+    }
+    return Math.max(0, next - now);
+  };
+  const [remaining, setRemaining] = useState(computeRemaining);
+  useEffect(() => {
+    const timer = setInterval(() => setRemaining(computeRemaining()), 1000);
+    return () => clearInterval(timer);
+  }, [resetTime]);
+  const pad = (n) => String(n).padStart(2, '0');
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  return (
+    <div className="fa-deal-countdown" aria-label="Tempo restante da oferta de hoje">
+      <span className="fa-deal-countdown-seg"><b>{pad(hours)}</b><em>h</em></span>
+      <span className="fa-deal-countdown-colon">:</span>
+      <span className="fa-deal-countdown-seg"><b>{pad(minutes)}</b><em>min</em></span>
+      <span className="fa-deal-countdown-colon">:</span>
+      <span className="fa-deal-countdown-seg"><b>{pad(seconds)}</b><em>seg</em></span>
+    </div>
+  );
+}
+
+function DealOfTheDayStrip({ deals, resetTime, cardProps, fav, availabilityAlerts }) {
+  if (!deals.length) {
+    return null;
+  }
+  return (
+    <section className="fa-feed-sec fa-feed-tight">
+      <div className="fa-deal-head">
+        <div className="fa-deal-head-left">
+          <span className="fa-deal-flame" aria-hidden="true">🔥</span>
+          <div>
+            <h2 className="fa-deal-title">Ofertas do dia</h2>
+            <p className="fa-deal-sub">Preços válidos só até às {resetTime || '00:00'}</p>
+          </div>
+        </div>
+        <DealCountdown resetTime={resetTime} />
+      </div>
+      <div className="fa-grid-5 fa-deal-grid">
+        {deals.map((product) => (
+          <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function HomeScreen({ ctx }) {
-  const { products, cats, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, recent, homeBanner, homeBrands } = ctx;
-  const offers = products.filter((product) => product.discount > 0).slice(0, 10);
+  const { products, cats, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, recent, homeBanner, homeBrands, dealOfTheDay } = ctx;
+  const deals = resolveDealOfTheDayProducts(dealOfTheDay, products);
   const bestsellers = products.filter((product) => product.tags.includes('mais-vendido'));
   const featuredFill = products.filter((product) => product.rating >= 4.7 && !bestsellers.includes(product));
   const featured = [...bestsellers, ...featuredFill].slice(0, 10);
@@ -227,10 +304,7 @@ function HomeScreen({ ctx }) {
       <Differentials ctx={ctx} />
       <BrandCircles brands={homeBrands} onNav={onNav} />
       <div className="fa-feed">
-        <section className="fa-feed-sec fa-feed-tight">
-          <SectionHead eyebrow="Economize" title="Produtos com até 95% de desconto" action="Ver todas" onAction={() => onNav({ name: 'offers' })} />
-          {grid(offers)}
-        </section>
+        <DealOfTheDayStrip deals={deals} resetTime={dealOfTheDay && dealOfTheDay.resetTime} cardProps={cardProps} fav={fav} availabilityAlerts={availabilityAlerts} />
         <section className="fa-feed-sec">
           <SectionHead eyebrow="Hoje" title="Destaque do dia" action="Ver mais" onAction={() => onNav({ name: 'category', cat: 'medicamentos' })} />
           {grid(featured)}
@@ -248,4 +322,4 @@ function HomeScreen({ ctx }) {
   );
 }
 
-export { BannerSlider, BrandCircles, Differentials, HomeBanner, HomeScreen, QuickCategories, SectionHead };
+export { BannerSlider, BrandCircles, DealOfTheDayStrip, Differentials, HomeBanner, HomeScreen, QuickCategories, SectionHead };

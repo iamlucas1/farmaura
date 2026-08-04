@@ -587,6 +587,23 @@ function normalizeHomeBrands(source) {
   };
 }
 
+// "Ofertas do dia": admin-curated product list (Marketplace → Ofertas do dia, console interno).
+// Only stores an ordered list of refs — no product resolution happens server-side, the marketplace
+// already has the full catalog loaded (`products`), and every CatalogItem carries an `aliases` list
+// containing this exact ref format ("inv-<InventoryItem.id>"/"listing-<MarketplaceListing.id>"), so
+// resolution happens client-side against `products`, same principle as `normalizeHomeBrands` matching
+// by name — see `resolveDealOfTheDayProducts` in home-screen.jsx.
+function normalizeDealOfTheDay(source) {
+  const deal = source || {};
+  const mode = deal.mode || 'off';
+  const isEnabled = mode === 'manual' || mode === 'auto';
+  return {
+    mode,
+    productRefs: isEnabled && Array.isArray(deal.product_refs) ? deal.product_refs.filter(Boolean) : [],
+    resetTime: deal.reset_time || deal.resetTime || '00:00',
+  };
+}
+
 function normalizeMarketplaceSubscription(entry) {
   if (!entry || !entry.product_ref) {
     return null;
@@ -615,6 +632,7 @@ function normalizeMarketplacePortalData(payload) {
     marketplace: source.marketplace || {},
     homeBanner: normalizeHomeBanner(source.home_banner),
     homeBrands: normalizeHomeBrands(source.home_brands),
+    dealOfTheDay: normalizeDealOfTheDay(source.deal_of_the_day),
     launchMode: normalizeLaunchMode(source.launch_mode),
     healthServices: Array.isArray(source.health_services) ? source.health_services.map(normalizeMarketplaceHealthService).filter(Boolean) : [],
     healthHistory: Array.isArray(source.health_history) ? source.health_history.map(normalizeMarketplaceHealthHistory).filter(Boolean) : [],
@@ -2099,6 +2117,7 @@ function App() {
     paymentRules: portalData.marketplace,
     homeBanner: portalData.homeBanner,
     homeBrands: portalData.homeBrands,
+    dealOfTheDay: portalData.dealOfTheDay,
     profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
     cards, tokenizeAndSaveCard, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,

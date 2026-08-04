@@ -71,6 +71,38 @@ def _json_load_list(raw: str | None) -> list[object]:
     return decoded if isinstance(decoded, list) else []
 
 
+def list_matching_inventory_items(
+    campaign: CouponCampaign,
+    inventory_items: list,
+    *,
+    now: datetime,
+) -> list:
+    """Return every inventory item currently within one coupon campaign's active window and scope.
+
+    Reverse of `resolve_coupon`'s per-line scope check — used by the "ofertas do dia" admin
+    suggestion engine to list every product a coupon currently covers, not to redeem a cart. A
+    `scope_type="services"` campaign never matches (same isolation `resolve_coupon` enforces via
+    `allow_service_scope`).
+    """
+
+    if not campaign.is_active or campaign.scope_type == 'services':
+        return []
+    if campaign.starts_at is not None and campaign.starts_at > now:
+        return []
+    if campaign.ends_at is not None and campaign.ends_at < now:
+        return []
+    target_categories = {str(value or '').strip().lower() for value in _json_load_list(campaign.target_categories_json)}
+    target_products = {str(value or '').strip().lower() for value in _json_load_list(campaign.target_products_json)}
+    matches = []
+    for item in inventory_items:
+        if campaign.scope_type == 'categories' and item.category_name.strip().lower() not in target_categories:
+            continue
+        if campaign.scope_type == 'products' and item.name.strip().lower() not in target_products:
+            continue
+        matches.append(item)
+    return matches
+
+
 class CouponService:
     """Validate and price coupon redemptions across every sales channel."""
 

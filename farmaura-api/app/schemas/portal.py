@@ -191,6 +191,85 @@ class PortalHomeBrandsUpdateRequest(PortalHomeBrandsResponse):
     """Validate a marketplace home brand-circles update payload."""
 
 
+class DealOfTheDayAutoParams(StrictModel):
+    """Configure the randomized "ofertas do dia" generator used by `mode="auto"`.
+
+    `categories`/`brands` restrict the eligible pool by name (matched against
+    `InventoryItem.category_name`/`.brand_name`, same convention as `PricingPromotion.
+    target_categories`/`target_products`) — empty means no restriction on that axis. Each `count_*`
+    draws that many products at random from the matching source's candidates (see
+    `DealSuggestionService`); `count_random` draws from the eligible pool directly, with no source
+    ranking at all, for variety. The sum of every `count_*` is capped at `product_refs`'s own limit
+    (30) by `DealSuggestionService.generate_auto_selection`, not by this schema.
+    """
+
+    categories: list[str] = Field(default_factory=list, max_length=20)
+    brands: list[str] = Field(default_factory=list, max_length=20)
+    count_bestsellers: int = Field(default=0, ge=0, le=30)
+    count_margins: int = Field(default=0, ge=0, le=30)
+    count_promotions: int = Field(default=0, ge=0, le=30)
+    count_discounts: int = Field(default=0, ge=0, le=30)
+    count_coupons: int = Field(default=0, ge=0, le=30)
+    count_random: int = Field(default=0, ge=0, le=30)
+
+
+class PortalDealOfTheDayResponse(StrictModel):
+    """Represent the tenant's "ofertas do dia" home section — manual or auto-cycled.
+
+    `product_refs` stores stable references in the same "inv-<InventoryItem.id>" /
+    "listing-<MarketplaceListing.id>" format already used by favorites/subscriptions (see
+    `PortalService._saved_product_ref`). There is no server-side resolution to full product data —
+    the marketplace already fetches the full catalog client-side, and every `CatalogItem` carries an
+    `aliases` list containing these same refs, so the frontend matches and resolves them the same way
+    it already matches `home_brands` by name.
+
+    `mode="manual"` preserves the original behavior: the admin picks/orders `product_refs` directly
+    and it stays exactly as set. `mode="auto"` instead re-generates `product_refs` automatically
+    once per day at `reset_time` (see `PortalService._resolve_deal_of_the_day`/
+    `_deal_cycle_elapsed`), following `auto_params` — the admin never has to open the console for it
+    to keep rotating. `last_generated_at` records when `product_refs` was last (re)computed under
+    `mode="auto"` (unused in `mode="manual"`).
+    """
+
+    mode: str = Field(default="off", pattern="^(off|manual|auto)$")
+    product_refs: list[str] = Field(default_factory=list, max_length=30)
+    reset_time: str = Field(default="00:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    auto_params: DealOfTheDayAutoParams = Field(default_factory=DealOfTheDayAutoParams)
+    last_generated_at: datetime | None = None
+
+
+class PortalDealOfTheDayUpdateRequest(PortalDealOfTheDayResponse):
+    """Validate a marketplace home "ofertas do dia" update payload."""
+
+
+class DealSuggestionItem(StrictModel):
+    """Represent one candidate product suggested to the admin for "ofertas do dia" curation.
+
+    `ref` is already in the "inv-<InventoryItem.id>" format expected by
+    `PortalDealOfTheDayResponse.product_refs` — the console can add it to the curated list as-is, and
+    `DealOfTheDayAutoParams`'s per-source counts draw from the same shape. `metric_label` is a short
+    human-readable string describing why this item was suggested (e.g. "312 vendidos em 3 meses",
+    "42% de margem", "Promoção: Verão Saudável"); `metric_value` carries the same figure as a plain
+    number when the source has one, for sorting/formatting client-side. `category` backs the
+    auto-generator's category filter — the manual-curation UI doesn't need to show it.
+    """
+
+    ref: str
+    name: str
+    brand: str = ""
+    category: str = ""
+    price: Decimal = Decimal("0.00")
+    stock: int = 0
+    metric_label: str = ""
+    metric_value: Decimal | None = None
+
+
+class DealSuggestionListResponse(StrictModel):
+    """Represent one page of "ofertas do dia" candidate suggestions from a single source."""
+
+    items: list[DealSuggestionItem] = Field(default_factory=list)
+
+
 class PortalPdvDiscountSettingsResponse(StrictModel):
     """Represent the tenant's minimum average margin required to grant a PDV discount."""
 
@@ -670,6 +749,7 @@ class PortalInternalBootstrapResponse(StrictModel):
     marketplace: PortalMarketplaceMetaResponse
     home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
     home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    deal_of_the_day: PortalDealOfTheDayResponse = Field(default_factory=PortalDealOfTheDayResponse)
     launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     store: PortalStoreResponse
     stores: list[PortalStoreResponse] = Field(default_factory=list)
@@ -802,6 +882,7 @@ class PortalMarketplaceBootstrapResponse(StrictModel):
     marketplace: PortalMarketplaceMetaResponse
     home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
     home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    deal_of_the_day: PortalDealOfTheDayResponse = Field(default_factory=PortalDealOfTheDayResponse)
     launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     health_services: list[PortalHealthServiceResponse]
     health_history: list[PortalHealthHistoryResponse]
@@ -820,6 +901,7 @@ class PortalMarketplacePublicBootstrapResponse(StrictModel):
     marketplace: PortalMarketplaceMetaResponse
     home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
     home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    deal_of_the_day: PortalDealOfTheDayResponse = Field(default_factory=PortalDealOfTheDayResponse)
     launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     health_services: list[PortalHealthServiceResponse]
     coupons: list[PortalCouponResponse] = Field(default_factory=list)

@@ -1,0 +1,9 @@
+name: backend
+
+services:
+  farmaura-api:
+    environment:
+      APP_ENV: staging
+      APP_BASE_URL: https://dev.drogariafarmaura.com.br
+      APP_MARKETPLACE_BASE_URL: https://dev.drogariafarmaura.com.br
+      APP_ALLOWED_ORIGINS: https://dev.drogariafarmaura.com.br
