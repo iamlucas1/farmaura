@@ -57,9 +57,20 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 - [[Lumos_Gateway_Roteamento]] — mesmo gateway, documentado do lado LumosMed (roteamento detalhado por template Nginx).
 - [[chaves-privadas-tls-expostas-no-historico-git]] — vulnerabilidade crítica encontrada neste mesmo repositório de gateway, relevante para ambos os produtos.
 - [[Docker_Compose]] — overlay que conecta o `farmaura-api` a esta rede.
+- [[Ambiente_Staging_Lumos_Dev]] — mesma integração `FARMAURA_*`, replicada num segundo servidor
+  (`lumos-dev`) para um ambiente de teste com link próprio (`dev.drogariafarmaura.com.br`).
 
 ## Atualizações
 
+- 2026-08-04: a mesma integração `FARMAURA_*` (vars de `.env`, `domain_context.sh`, `entrypoint.sh`,
+  `10-http-redirect.conf.template`, `90-farmaura.conf.template`) foi replicada no gateway de
+  `lumos-dev` (servidor compartilhado, separado deste), para um ambiente de staging com link próprio —
+  ver [[Ambiente_Staging_Lumos_Dev]]. Achado no processo: `get_ssl_conf_bindings()` de
+  `domain_context.sh` (idêntico nos dois servidores) tinha uma barra de continuação de linha faltando
+  no penúltimo item da lista, mascarada até então por ser sempre o último item — corrigida em
+  `lumos-dev` durante essa integração; **não verificado se `lumos-prd` tem o mesmo problema latente**
+  (não chegou a se manifestar lá porque nenhum item foi adicionado depois de `90-farmaura` na lista de
+  produção ainda).
 - 2026-07-25: vhost Farmaura subiu de novo — `client_max_body_size` 25m → 600m,
   `proxy_read_timeout`/`proxy_send_timeout` 300s/60s → 1800s/1800s — para suportar importação de
   orçamento em lote (múltiplos arquivos, até ~500MB e vários minutos de processamento sequencial

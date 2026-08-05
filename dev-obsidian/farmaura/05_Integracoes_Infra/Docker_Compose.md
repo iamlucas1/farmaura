@@ -12,6 +12,9 @@ Empacotamento e orquestração local/deploy dos serviços do produto Farmaura.
 - `docker/web/nginx.conf`: serve `/marketplace` e `/internal` (SPA fallback via `try_files` para `marketplace.html`/`internal.html`), proxy reverso de `/api/v1/` para `http://farmaura_api:8080/api/v1/`, `/healthz` para healthcheck do container.
 - `farmaura-api/docker-compose.yml` (projeto `backend`): rede privada `farmaura_private` com 4 serviços — `farmaura` (web/nginx, porta 3000), `farmaura-api` (porta 8080, healthcheck em `/api/v1/health`), `farmaura-postgres` (Postgres 17.10), `farmaura-valkey` (Valkey `9.1-trixie`, migrado de Redis 8.2.6 em 2026-07-20).
 - `farmaura-api/docker-compose.gateway.yml`: overlay que conecta só `farmaura-api` à rede externa `lumos_gateway` (ver [[Lumos_Gateway]]).
+- `farmaura-api/docker-compose.staging.yml`: overlay para ambiente de teste com seed (não produção) —
+  só sobrescreve `APP_ENV`/`APP_BASE_URL`/`APP_MARKETPLACE_BASE_URL`/`APP_ALLOWED_ORIGINS`; usado hoje
+  em `lumos-dev` — ver [[Ambiente_Staging_Lumos_Dev]].
 - `farmaura-api/Dockerfile`: Python 3.13.13-slim-bookworm, dependências via `uv sync --no-dev`, entrypoint customizado `docker/entrypoint.sh`.
 
 ## Dependências
@@ -22,8 +25,11 @@ Empacotamento e orquestração local/deploy dos serviços do produto Farmaura.
 
 - [[PostgreSQL_RLS]] e [[Valkey]] — serviços orquestrados por este compose.
 - [[resetar-e-re-semear-dados-locais]] — POP que depende deste compose para reset de dados locais.
+- [[Ambiente_Staging_Lumos_Dev]] — ambiente que usa `docker-compose.staging.yml`.
 
 ## Atualizações
 
+- 2026-08-04: novo overlay `docker-compose.staging.yml` (commitado), usado para publicar um ambiente
+  de teste com seed em `lumos-dev` — ver [[Ambiente_Staging_Lumos_Dev]].
 - 2026-07-20: serviço `farmaura-redis` renomeado para `farmaura-valkey`, imagem `redis:8.2.6-bookworm` → `valkey/valkey:9.1-trixie` — ver [[../00_Decisoes/2026-07-20-migracao-redis-para-valkey-e-cache-de-catalogo|decisão]].
 - 2026-07-19: nota criada.

@@ -36,6 +36,7 @@ Cada domínio tem seu módulo de rota em `app/api/v1/`, serviço em `app/service
 ## Dependências de Infraestrutura Compartilhada
 
 - `lumos-gateway`: gateway Nginx compartilhado (TLS, GeoIP, Fail2ban) que também serve o ecossistema Lumos. Farmaura entra como upstream, nunca exposto direto. Documentação própria desse stack fica no cofre `lumos-obsidian` (`~/Documentos/desenvolvimento-lumos/lumos-obsidian`), não aqui.
+- Além de `lumos-prd` (produção), Farmaura também roda em `lumos-dev` como ambiente de teste com seed, link próprio (`dev.drogariafarmaura.com.br`) — ver [[05_Integracoes_Infra/Ambiente_Staging_Lumos_Dev|Ambiente_Staging_Lumos_Dev]] e [[07_POPs_Processos/publicar-staging-lumos-dev|POP de publicação]].
 - Farmaura está em produção desde 2026-07-22 (`drogariafarmaura.com.br`, servidor `lumos-prd`) — mudanças de schema agora exigem migrations Alembic (`alembic revision --autogenerate` + revisão + `alembic upgrade head`), não mais direto no ORM + bootstrap. `farmaura-api/scripts/bootstrap_database.py` segue cuidando só de RLS idempotente e seed inicial. Ver `claude.md` para o racional completo e [[00_Decisoes/2026-07-23-adocao-alembic-migrations-producao|a decisão registrada]] para o histórico Alembic concreto (baseline + primeira migration real).
 
 ## Navegação
@@ -48,4 +49,4 @@ Cada domínio tem seu módulo de rota em `app/api/v1/`, serviço em `app/service
 - Segurança, vulnerabilidades e registro de riscos: `04_Seguranca_Riscos/` — principais gaps abertos: [[04_Seguranca_Riscos/rate-limiting-nao-aplicado|rate limiting]], [[04_Seguranca_Riscos/idempotencia-sem-persistencia|idempotência]] e [[04_Seguranca_Riscos/upload-sem-validacao-magic-bytes|upload sem magic bytes]]
 - APIs, integrações, bancos de dados e infra: `05_Integracoes_Infra/`
 - Pendências e débito técnico: `06_Pendencias/`
-- POPs e processos: `07_POPs_Processos/` — ver [[07_POPs_Processos/resetar-e-re-semear-dados-locais|resetar e re-semear dados locais]] e [[07_POPs_Processos/aplicar-migration-alembic-producao|aplicar migration Alembic em produção]]
+- POPs e processos: `07_POPs_Processos/` — ver [[07_POPs_Processos/resetar-e-re-semear-dados-locais|resetar e re-semear dados locais]], [[07_POPs_Processos/aplicar-migration-alembic-producao|aplicar migration Alembic em produção]], [[07_POPs_Processos/publicar-staging-lumos-dev|publicar ambiente de staging em lumos-dev]] e [[07_POPs_Processos/popular-conteudo-demo|popular conteúdo de demo]]
