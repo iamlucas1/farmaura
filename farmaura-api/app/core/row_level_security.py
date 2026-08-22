@@ -125,11 +125,26 @@ RLS_STATEMENTS: tuple[str, ...] = (
             SECURITY DEFINER
             SET search_path = pg_catalog, public, app_private
             AS $$
-                SELECT tenant_id
-                FROM inventory_items
-                WHERE is_active = true AND sale_price IS NOT NULL AND sale_price > 0
-                ORDER BY created_at ASC
-                LIMIT 1
+                SELECT COALESCE(
+                    (
+                        SELECT tenant_id
+                        FROM inventory_items
+                        WHERE is_active = true AND sale_price IS NOT NULL AND sale_price > 0
+                        ORDER BY created_at ASC
+                        LIMIT 1
+                    ),
+                    (
+                        -- Pre-launch fallback: inventory is legitimately empty before the real
+                        -- catalog is populated, but the tenant's admin/staff users are always
+                        -- seeded first — so anonymous public bootstrap (launch_mode, home_banner,
+                        -- etc.) still resolves the real tenant instead of silently falling back
+                        -- to hardcoded defaults during the pre-launch window.
+                        SELECT tenant_id
+                        FROM users
+                        ORDER BY created_at ASC
+                        LIMIT 1
+                    )
+                )
             $$;
     """,
     """
