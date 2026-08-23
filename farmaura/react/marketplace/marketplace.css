@@ -278,6 +278,18 @@ a { color: inherit; text-decoration: none; }
 .fa-deal-grid .fa-pc-discount-badge { background: var(--fa-warn); color: var(--fa-primary-ink); }
 .fa-deal-grid .fa-pc[data-superpromo="1"] { border-color: var(--fa-warn); }
 
+/* Home strip only: cap to exactly 2 rows regardless of how many deals are curated (unlike the
+   other home sections, which already slice to 10 items in JS, "ofertas do dia" can hold up to 30 —
+   hide the overflow per breakpoint to mirror .fa-grid-5's own column counts, no JS resize listener
+   needed). The /offers extension page (shop-screen.jsx) reuses .fa-deal-grid without this class,
+   showing every curated item. */
+.fa-deal-grid-limited > :nth-child(n+11) { display: none; }
+@media (max-width: 1100px) { .fa-deal-grid-limited > :nth-child(n+9) { display: none; } }
+@media (max-width: 880px)  { .fa-deal-grid-limited > :nth-child(n+7) { display: none; } }
+@media (max-width: 600px)  { .fa-deal-grid-limited > :nth-child(n+5) { display: none; } }
+
+.fa-deal-more { margin-top: 16px; }
+
 /* ===== Product card — style A (standard) ===== */
 .fa-pc {
   background: var(--fa-surface); border: 1px solid var(--fa-mist);
@@ -417,6 +429,22 @@ a { color: inherit; text-decoration: none; }
 .fa-chip { display: inline-flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: var(--fa-r-pill); border: 1px solid var(--fa-mist); background: var(--fa-surface); font-weight: 600; font-size: 13px; color: var(--fa-ink-2); transition: all .14s; white-space: nowrap; }
 .fa-chip:hover { border-color: var(--fa-rose); color: var(--fa-primary); }
 .fa-chip[data-active="1"] { background: var(--fa-primary); color: #fff; border-color: var(--fa-primary); }
+
+/* Tooltip explicativo (ícone info + hover/foco) — bolha escura de propósito: é a única forma de
+   overlay flutuante do app, um estilo claro/com borda pareceria um mini-menu clicável em vez de uma
+   dica passageira (ver .ph-user-menu, que É um menu). */
+.fa-infotip { position: relative; display: inline-flex; align-items: center; justify-content: center; color: var(--fa-ink-3); cursor: help; vertical-align: middle; margin-left: 5px; }
+.fa-infotip:hover, .fa-infotip:focus-visible { color: var(--fa-primary); outline: none; }
+.fa-infotip-bubble {
+  position: absolute; z-index: 90; left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: 230px;
+  background: var(--fa-ink); color: #fff; font-size: 12.5px; font-weight: 600; line-height: 1.45;
+  padding: 8px 11px; border-radius: 10px; box-shadow: var(--fa-shadow-lg);
+  animation: faPop .14s cubic-bezier(.4,0,.2,1);
+  pointer-events: none;
+}
+.fa-infotip-top { bottom: calc(100% + 8px); }
+.fa-infotip-bottom { top: calc(100% + 8px); }
 
 .fa-fadein { animation: faFade .4s ease both; }
 @keyframes faFade { from { transform: translateY(10px); } to { transform: none; } }
@@ -1028,3 +1056,12 @@ a { color: inherit; text-decoration: none; }
   .cd-digit-glyph { font-size: 26px; }
   .cd-sep { font-size: 24px; margin-top: -18px; }
 }
+
+/* ---------- Generic responsive override for ad-hoc multi-column grids ----------
+   A few screens (checkout address/card forms, the pharmacist chat split) set
+   gridTemplateColumns inline with no class to hook a breakpoint onto. Adding this
+   class alongside the inline style lets them collapse like every other grid in the
+   app, without restructuring markup. Mirrors .ph-form-grid in internal.css. */
+.fa-form-grid { }
+@media (max-width: 900px) { .fa-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+@media (max-width: 560px) { .fa-form-grid { grid-template-columns: 1fr !important; } }

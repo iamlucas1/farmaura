@@ -26,4 +26,5 @@ A localização do kit de UI (`marketplace/core` em vez de `react/shared/`) é u
 
 ## Atualizações
 
+- 2026-08-22: nota movida de `03_Padroes_Politicas/` para `09_Design_Visual/` — o conteúdo é especificamente sobre o sistema de design (tokens compartilhados entre marketplace e internal), não uma política técnica genérica. Ver [[Sistema_de_Design]] para a documentação completa do sistema visual, gerada em `/impeccable document`.
 - 2026-07-19: nota criada.

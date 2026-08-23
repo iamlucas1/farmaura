@@ -51,6 +51,15 @@ Tabela única `portal_settings` (`UniqueConstraint(tenant_id, portal_name, setti
 
 ## Atualizações
 
+- 2026-08-15: `deal_of_the_day` ganhou um quarto modo, `scheduled` — calendário de entradas
+  (`DealScheduleEntry`: título/subtítulo próprios, lista de produtos própria, data(s) específica(s)
+  e/ou recorrência semanal com vigência opcional). Resolvido em `_resolve_deal_of_the_day` por
+  `_current_cycle_date`/`_match_deal_schedule_entry` — puramente leitura, sem `commit()` (ao
+  contrário do modo `auto`, não precisa reaplicar contexto de RLS). A home do marketplace agora
+  mostra só 2 fileiras da faixa (cap CSS, `fa-deal-grid-limited`) com botão para `/offers`, que deixou
+  de ser o filtro genérico `discount > 0` e passou a mostrar a extensão completa da mesma lista
+  curada — muda o destino de todo CTA "Ver ofertas" existente no app. Ver ADR
+  [[../00_Decisoes/2026-08-15-ofertas-do-dia-modo-agendado-e-offers-reaproveitada|2026-08-15]].
 - 2026-08-03 (3): `deal_of_the_day` ganhou um terceiro modo, `auto` (além de `off`/`manual`) — reset
   diário em horário configurável (`reset_time`) e sorteio automático seguindo `auto_params`
   (categorias/marcas elegíveis + quantos produtos tirar de cada uma das 5 fontes de sugestão, mais

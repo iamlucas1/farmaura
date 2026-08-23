@@ -569,7 +569,7 @@ function PromotionModal({ mode, promotion, initialDraft, inventory, healthServic
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label>Nome da promoção</label>
             <input className="fa-input" value={draft.name} onChange={(event) => setField('name', event.target.value)} placeholder="Happy hour vitaminas" />
@@ -588,7 +588,7 @@ function PromotionModal({ mode, promotion, initialDraft, inventory, healthServic
         )}
 
         {discountMode === 'margin' && marginModeAvailable ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="fa-field" style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span className="ph-cell-sub">Margem líquida-alvo para <b>{singleTargetProduct.name}</b></span>
@@ -603,7 +603,7 @@ function PromotionModal({ mode, promotion, initialDraft, inventory, healthServic
             </div>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr', gap: 14 }}>
+          <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr', gap: 14 }}>
             <div className="fa-field">
               <label>Tipo de desconto</label>
               <select className="fa-select" value={draft.discountType} onChange={(event) => setField('discountType', event.target.value)}>
@@ -659,7 +659,7 @@ function PromotionModal({ mode, promotion, initialDraft, inventory, healthServic
         )}
 
         <div className="fa-h3" style={{ fontSize: 15, marginTop: 4 }}>Agendamento</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label>Início</label>
             <input className="fa-input" type="datetime-local" value={draft.startsAt} onChange={(event) => setField('startsAt', event.target.value)} />
@@ -677,7 +677,7 @@ function PromotionModal({ mode, promotion, initialDraft, inventory, healthServic
           <Toggle on={!!draft.useDailyWindow} onChange={(value) => setField('useDailyWindow', value)} ariaLabel="restringir horário do dia" />
         </div>
         {draft.useDailyWindow && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="fa-field">
               <label>Das</label>
               <input className="fa-input" type="time" value={draft.dailyStartTime} onChange={(event) => setField('dailyStartTime', event.target.value)} />
@@ -708,7 +708,7 @@ function PromotionModal({ mode, promotion, initialDraft, inventory, healthServic
               <Toggle on={!!draft.useAgeRange} onChange={(value) => setField('useAgeRange', value)} ariaLabel="restringir por idade" />
             </div>
             {draft.useAgeRange && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div className="fa-field">
                   <label>Idade mínima</label>
                   <input className="fa-input" type="number" min="0" max="120" value={draft.minAge} onChange={(event) => setField('minAge', event.target.value)} />
@@ -755,7 +755,7 @@ function PromotionModal({ mode, promotion, initialDraft, inventory, healthServic
               <Toggle on={!!draft.useChildrenRange} onChange={(value) => setField('useChildrenRange', value)} ariaLabel="restringir por filhos" />
             </div>
             {draft.useChildrenRange && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div className="fa-field">
                   <label>Mínimo de filhos</label>
                   <input className="fa-input" type="number" min="0" max="20" value={draft.minChildren} onChange={(event) => setField('minChildren', event.target.value)} />

@@ -263,7 +263,7 @@ function DeliveryForm({ data, set, stores = [], checkCoverage }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {method !== 'pickup' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="fa-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label="Nome completo" full><input className="fa-input" value={data.recipientName || ''} onChange={(event) => set({ ...data, recipientName: event.target.value })} /></Field>
           <Field label="CEP">
             <input className="fa-input" value={data.cep || ''} onChange={(event) => set({ ...data, cep: formatCep(event.target.value) })} inputMode="numeric" placeholder="00000-000" />
@@ -354,7 +354,7 @@ function CardFieldsForm({ card, onChange }) {
   const value = card || {};
   const update = (patch) => onChange({ ...value, ...patch });
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: '16px 4px 4px' }}>
+    <div className="fa-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: '16px 4px 4px' }}>
       <Field label="Número do cartão" full>
         <input className="fa-input" placeholder="0000 0000 0000 0000" inputMode="numeric" value={value.number || ''} onChange={(event) => update({ number: event.target.value.replace(/\D/g, '').slice(0, 19) })} />
       </Field>

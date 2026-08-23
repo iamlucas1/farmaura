@@ -233,7 +233,7 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
   return (
     <div className="fa-card" style={{ padding: 16 }}>
       <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Retirada ou entrega</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: type === 'delivery' ? 12 : 0 }}>
+      <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: type === 'delivery' ? 12 : 0 }}>
         <button className="fa-choice" data-on={type === 'pickup' ? '1' : '0'} style={{ padding: 12 }} onClick={() => setDelivery({ ...delivery, fulfillmentType: 'pickup' })}>
           <span className="fa-iconbox" style={{ width: 32, height: 32 }}><Icon name="bag" size={16} /></span>
           <span style={{ fontWeight: 700, fontSize: 13 }}>Retirar na loja</span>
@@ -284,7 +284,7 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
             <label>Endereço</label>
             <input className="fa-input" placeholder="Rua, número" value={delivery.addressLine || ''} onChange={(e) => setDelivery({ ...delivery, addressLine: e.target.value })} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+          <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
             <div className="fa-field"><label>Número</label><input className="fa-input" value={delivery.addressNumber || ''} onChange={(e) => setDelivery({ ...delivery, addressNumber: e.target.value })} /></div>
             <div className="fa-field"><label>Bairro</label><input className="fa-input" value={delivery.district || ''} onChange={(e) => setDelivery({ ...delivery, district: e.target.value })} /></div>
           </div>
@@ -950,7 +950,7 @@ function PdvScreen({ ctx }) {
                     </div>
                   )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 12 }}>
+                  <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 12 }}>
                     <PdvCustomerStat label="Pedidos" value={pdvCustomer.orders || 0} />
                     <PdvCustomerStat label="Total gasto" value={brl(pdvCustomer.totalSpent || 0)} />
                     <PdvCustomerStat label="Ticket médio" value={brl(pdvCustomer.avgTicket || 0)} />
@@ -990,7 +990,7 @@ function PdvScreen({ ctx }) {
             {operator === 'caixa' && (
               <div className="fa-card" style={{ padding: 16 }}>
                 <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12 }}>Forma de pagamento</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   {PAY_METHODS.map((m) => (
                     <button key={m.id} className="fa-choice" data-on={pay === m.id ? '1' : '0'} onClick={() => setPay(m.id)} style={{ padding: 12 }}>
                       <span className="fa-iconbox" style={{ width: 34, height: 34 }}><Icon name={m.icon} size={17} /></span>

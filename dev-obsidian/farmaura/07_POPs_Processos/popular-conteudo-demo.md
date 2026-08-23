@@ -25,10 +25,15 @@ que fala só HTTP com a API já rodando (não mexe em banco direto) — ver
    credenciais reais daquele ambiente.
 3. Flags `--skip-banner`/`--skip-brands`/`--skip-deal-of-the-day` pulam qualquer uma das três
    partes; `--deal-limit N` muda quantos produtos mais vendidos entram em "ofertas do dia"
-   (padrão 6).
+   (padrão 6). `--deal-mode scheduled` (padrão continua `manual`) troca a curadoria de "ofertas
+   do dia" para o modo agendado (ver [[../00_Decisoes/2026-08-15-ofertas-do-dia-modo-agendado-e-offers-reaproveitada|ADR do modo agendado]]),
+   criando uma entrada de calendário por dia a partir de hoje via `--scheduled-days N` (padrão
+   7) — útil para testar manualmente o calendário/countdown sem esperar a virada real dos dias,
+   já que a entrada de hoje fica ativa imediatamente e as seguintes já aparecem na UI do console.
 4. Conferir o resultado: `GET /portal/marketplace/public-bootstrap` (sem autenticação) deve
    trazer `home_banner.mode="image"`, `home_brands.circles` com os nomes fictícios, e
-   `deal_of_the_day.mode="manual"` com os `product_refs` escolhidos.
+   `deal_of_the_day.mode="manual"` (ou `"scheduled"`, com `schedule_entries` preenchido, se usado
+   `--deal-mode scheduled`) com os `product_refs` escolhidos.
 
 ## O que este script deliberadamente NÃO faz
 
@@ -57,4 +62,7 @@ sobrescrevíveis de novo pelo console interno ou por uma nova rodada do script).
 
 ## Atualizações
 
+- 2026-08-22: adicionadas as flags `--deal-mode scheduled`/`--scheduled-days N`, para seedar o
+  modo agendado (calendário) de "ofertas do dia" com uma entrada por dia e testar manualmente
+  sem esperar a virada de data real.
 - 2026-08-05: nota criada.

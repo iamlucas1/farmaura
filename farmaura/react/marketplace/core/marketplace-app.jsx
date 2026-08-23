@@ -596,11 +596,14 @@ function normalizeHomeBrands(source) {
 function normalizeDealOfTheDay(source) {
   const deal = source || {};
   const mode = deal.mode || 'off';
-  const isEnabled = mode === 'manual' || mode === 'auto';
+  const isEnabled = mode === 'manual' || mode === 'auto' || mode === 'scheduled';
   return {
     mode,
     productRefs: isEnabled && Array.isArray(deal.product_refs) ? deal.product_refs.filter(Boolean) : [],
     resetTime: deal.reset_time || deal.resetTime || '00:00',
+    title: deal.title || '',
+    subtitle: deal.subtitle || '',
+    showCountdown: deal.show_countdown !== false,
   };
 }
 

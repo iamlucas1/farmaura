@@ -88,7 +88,7 @@ function PharmacistChatInbox({ threads, activeThreadId, onSelectThread, onSendMe
   const activeThread = orderedThreads.find((thread) => thread.id === activeThreadId) || orderedThreads[0] || null;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', minHeight: 460 }}>
+    <div className="fa-form-grid" style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', minHeight: 460 }}>
       <div style={{ borderRight: '1px solid var(--fa-mist)', background: 'var(--fa-bg)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--fa-mist)' }}>
           <div style={{ fontWeight: 800, fontSize: 15 }}>Conversas</div>

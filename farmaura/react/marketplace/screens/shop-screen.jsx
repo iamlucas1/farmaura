@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ProductCard, brl, useModalStack } from "../core/marketplace-components.jsx";
+import { DealCountdown, ProductCard, brl, resolveDealOfTheDayProducts, useModalStack } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 
 /* FARMAURA — Catalog screen: category / search / offers with filters + sort. */
@@ -85,13 +85,13 @@ const SORTS = [
 ];
 
 function ShopScreen({ ctx, mode }) {
-  const { cats, products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant, mostSearchedProductIds } = ctx;
+  const { cats, products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant, mostSearchedProductIds, dealOfTheDay } = ctx;
   const category = mode === 'category' ? cats.find((entry) => entry.id === route.cat) : null;
   const query = mode === 'search' ? (route.query || '') : '';
   const source = useMemo(() => {
     if (mode === 'category') return products.filter((product) => product.cat === route.cat);
     if (mode === 'brand') return products.filter((product) => product.brand === route.brand);
-    if (mode === 'offers') return products.filter((product) => product.discount > 0);
+    if (mode === 'offers') return resolveDealOfTheDayProducts(dealOfTheDay, products);
     if (mode === 'mostsearched') {
       // Real demand ranking (online + PDV sales volume) first, in server-computed order;
       // products with no sales history yet fall back after it, sorted by reviews so the
@@ -110,9 +110,9 @@ function ShopScreen({ ctx, mode }) {
       return products.filter((product) => (product.name + ' ' + product.brand + ' ' + product.sub + ' ' + product.cat).toLowerCase().includes(normalizedQuery));
     }
     return products;
-  }, [fav, mode, products, query, route.cat, route.brand]);
+  }, [dealOfTheDay, fav, mode, products, query, route.cat, route.brand]);
   const maxPrice = useMemo(() => Math.max(60, ...source.map((product) => Math.ceil(product.price / 10) * 10)), [source]);
-  const createInitialFilters = () => ({ subs: [], brands: [], onlyOffers: mode === 'offers', onlySub: false, noRx: false, topRated: false, maxPrice });
+  const createInitialFilters = () => ({ subs: [], brands: [], onlyOffers: false, onlySub: false, noRx: false, topRated: false, maxPrice });
   const [filters, setFilters] = useState(createInitialFilters);
   const [sort, setSort] = useState('relevance');
   const [view, setView] = useState(cardVariant);
@@ -146,7 +146,7 @@ function ShopScreen({ ctx, mode }) {
   const activeChips = [
     ...filters.subs.map((value) => ({ k: 'subs', v: value, l: value })),
     ...filters.brands.map((value) => ({ k: 'brands', v: value, l: value })),
-    ...(filters.onlyOffers && mode !== 'offers' ? [{ k: 'onlyOffers', l: 'Ofertas' }] : []),
+    ...(filters.onlyOffers ? [{ k: 'onlyOffers', l: 'Ofertas' }] : []),
     ...(filters.onlySub ? [{ k: 'onlySub', l: 'Assinatura' }] : []),
     ...(filters.noRx ? [{ k: 'noRx', l: 'Sem receita' }] : []),
     ...(filters.topRated ? [{ k: 'topRated', l: '4★+' }] : []),
@@ -164,7 +164,7 @@ function ShopScreen({ ctx, mode }) {
     : mode === 'brand'
       ? { eyebrow: 'Marca', title: route.brand || '', desc: `${result.length} ${result.length === 1 ? 'produto encontrado' : 'produtos encontrados'} da marca ${route.brand || ''}.` }
     : mode === 'offers'
-      ? { eyebrow: 'Economize', title: 'Ofertas da semana', desc: 'Descontos selecionados com proporção controlada — aproveite enquanto duram.' }
+      ? { eyebrow: 'Economize', title: (dealOfTheDay && dealOfTheDay.title) || 'Ofertas do dia', desc: (dealOfTheDay && dealOfTheDay.subtitle) || 'Descontos selecionados com proporção controlada — aproveite enquanto duram.' }
       : mode === 'mostsearched'
         ? { eyebrow: 'Em alta', title: 'Mais buscados', desc: 'Os produtos que a comunidade Farmaura mais procura agora.' }
         : mode === 'saved'
@@ -180,14 +180,13 @@ function ShopScreen({ ctx, mode }) {
         <Icon name="chevR" size={13} />
         <span style={{ color: 'var(--fa-ink-2)', fontWeight: 600 }}>{header.title}</span>
       </div>
-      {mode === 'offers' && (
-        <div className="fa-card" style={{ background: 'var(--fa-vital)', color: '#fff', border: 'none', padding: '22px 26px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <span className="fa-iconbox" style={{ background: 'rgba(255,255,255,.18)', color: '#fff' }}><Icon name="percent" size={24} stroke={2.2} /></span>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontWeight: 800, fontSize: 19 }}>Até 30% OFF em itens selecionados</div>
-            <div style={{ opacity: .9, fontSize: 14 }}>Vermelho vital é energia: ofertas reais, sem barulho.</div>
+      {mode === 'offers' && result.length > 0 && dealOfTheDay && dealOfTheDay.showCountdown !== false && (
+        <div className="fa-card" style={{ background: 'var(--fa-vital)', color: '#fff', border: 'none', padding: '18px 26px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <span className="fa-iconbox" style={{ background: 'rgba(255,255,255,.18)', color: '#fff' }}><Icon name="percent" size={22} stroke={2.2} /></span>
+          <div style={{ flex: 1, minWidth: 200, fontWeight: 700, fontSize: 14.5 }}>
+            Preços válidos só até às {(dealOfTheDay && dealOfTheDay.resetTime) || '00:00'}
           </div>
-          <span className="fa-badge" style={{ background: '#fff', color: 'var(--fa-vital)' }}><Icon name="clock" size={13} stroke={2.2} />Termina domingo</span>
+          <DealCountdown resetTime={dealOfTheDay && dealOfTheDay.resetTime} />
         </div>
       )}
       <div style={{ marginBottom: 22 }}>

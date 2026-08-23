@@ -899,7 +899,7 @@ function CouponModal({ mode, coupon, inventory, healthServices, onClose, onCreat
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label><CouponFieldLabel label="Código do cupom" tooltip="Identificador que o cliente digita no checkout. Use um código curto, fácil de lembrar e sem espaços, por exemplo BEMVINDO15." align="start" /></label>
             <input className="fa-input" value={draft.code} onChange={(event) => setField('code', normalizeCouponCode(event.target.value))} placeholder="BEMVINDO15" />
@@ -915,7 +915,7 @@ function CouponModal({ mode, coupon, inventory, healthServices, onClose, onCreat
           <input className="fa-input" maxLength={500} value={draft.description} onChange={(event) => setField('description', event.target.value)} placeholder="Resumo curto para o time interno" />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr', gap: 14 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label><CouponFieldLabel label="Tipo" tooltip="Define se o cupom dará desconto percentual, valor fixo em reais ou frete grátis calculado sobre a entrega do pedido." align="start" /></label>
             <select className="fa-select" value={draft.discountType} onChange={(event) => setField('discountType', event.target.value)}>
@@ -934,7 +934,7 @@ function CouponModal({ mode, coupon, inventory, healthServices, onClose, onCreat
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label><CouponFieldLabel label="Pedido mínimo" tooltip="Valor mínimo que o carrinho precisa atingir para liberar o uso do cupom. Preencha o total em reais." align="start" /></label>
             <input className="fa-input" type="number" min="0" step="0.01" value={draft.minimumOrderValue} onChange={(event) => setField('minimumOrderValue', event.target.value)} />
@@ -949,7 +949,7 @@ function CouponModal({ mode, coupon, inventory, healthServices, onClose, onCreat
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label><CouponFieldLabel label="Início" tooltip="Data e hora em que o cupom começa a valer. Deixe vazio apenas se a campanha puder iniciar imediatamente." align="start" /></label>
             <input className="fa-input" type="datetime-local" value={draft.startsAt} onChange={(event) => setField('startsAt', event.target.value)} />
@@ -969,7 +969,7 @@ function CouponModal({ mode, coupon, inventory, healthServices, onClose, onCreat
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div className="fa-field">
             <label><CouponFieldLabel label="Canal" tooltip="Define em quais canais de venda esse cupom pode ser usado: todo o negócio, só a loja online, ou só o balcão (PDV)." align="start" /></label>
             <select className="fa-select" value={draft.channelScope} onChange={(event) => setField('channelScope', event.target.value)}>
@@ -1048,7 +1048,7 @@ function CouponModal({ mode, coupon, inventory, healthServices, onClose, onCreat
           />
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div className="fa-row">
             <div className="fa-row-main">
               <div className="fa-row-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Cupom ativo ao salvar<CouponInfoHint text="Mantém o cupom pronto para uso assim que for salvo, respeitando agenda, escopo e demais limites configurados." align="start" /></div>

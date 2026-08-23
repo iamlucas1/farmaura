@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { resolveMarketplaceAssetUrl } from "./marketplace-assets.js";
@@ -272,15 +272,95 @@ function AuraLayer({ tone = 'rgba(122,13,22,1)' }) {
   );
 }
 
+// Ícone de "info" com dica flutuante ao passar o mouse/focar (teclado) — único primitivo de tooltip
+// do app, criado para explicar controles do console sem depender só de texto corrido. Sem toggle por
+// clique: é um app de uso desktop/admin, hover + foco já cobre mouse e navegação por Tab.
+function InfoTip({ text, icon = 'info', side = 'top' }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      className="fa-infotip"
+      tabIndex={0}
+      role="button"
+      aria-label={text}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Icon name={icon} size={14} />
+      {open && <span className={`fa-infotip-bubble fa-infotip-${side}`} role="tooltip">{text}</span>}
+    </span>
+  );
+}
+
+// "Ofertas do dia": admin-curated product list (Marketplace → Ofertas do dia, console interno),
+// resolved by both the home strip and the /offers extension page — shared here (not in either
+// screen file) since this codebase has no cross-screen imports, every screen only imports shared
+// logic from core/marketplace-*.jsx. The backend only guards an ordered list of refs — no product
+// resolution happens server-side, the marketplace already has the full catalog loaded (`products`),
+// and every CatalogItem carries an `aliases` list containing these same refs, so resolution happens
+// client-side, same principle as home_brands matching by name.
+function resolveDealOfTheDayProducts(dealOfTheDay, products) {
+  const mode = (dealOfTheDay && dealOfTheDay.mode) || 'off';
+  const refs = (dealOfTheDay && dealOfTheDay.productRefs) || [];
+  if ((mode !== 'manual' && mode !== 'auto' && mode !== 'scheduled') || !refs.length) {
+    return [];
+  }
+  return refs
+    .map((ref) => products.find((product) => product.id === ref || (product.aliases || []).includes(ref)))
+    .filter(Boolean);
+}
+
+// Faixa de urgência com contador regressivo até o horário de reset configurado no console (Ofertas
+// do dia → horário do ciclo, default 00:00) — reforça que é a oferta "de hoje", sem relação com a
+// curadoria em si (nos modos manual/agendado a lista permanece igual até o admin trocar/o dia mudar;
+// no modo automático, é exatamente esse horário que dispara o próximo sorteio — ver
+// PortalService._deal_cycle_elapsed/_current_cycle_date).
+function DealCountdown({ resetTime }) {
+  const computeRemaining = () => {
+    const [hour, minute] = (resetTime || '00:00').split(':').map(Number);
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(hour || 0, minute || 0, 0, 0);
+    if (next <= now) {
+      next.setDate(next.getDate() + 1);
+    }
+    return Math.max(0, next - now);
+  };
+  const [remaining, setRemaining] = useState(computeRemaining);
+  useEffect(() => {
+    const timer = setInterval(() => setRemaining(computeRemaining()), 1000);
+    return () => clearInterval(timer);
+  }, [resetTime]);
+  const pad = (n) => String(n).padStart(2, '0');
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  return (
+    <div className="fa-deal-countdown" aria-label="Tempo restante da oferta de hoje">
+      <span className="fa-deal-countdown-seg"><b>{pad(hours)}</b><em>h</em></span>
+      <span className="fa-deal-countdown-colon">:</span>
+      <span className="fa-deal-countdown-seg"><b>{pad(minutes)}</b><em>min</em></span>
+      <span className="fa-deal-countdown-colon">:</span>
+      <span className="fa-deal-countdown-seg"><b>{pad(seconds)}</b><em>seg</em></span>
+    </div>
+  );
+}
+
 export {
   brl,
   AuraLayer,
+  DealCountdown,
   FlagBadge,
+  InfoTip,
   Modal,
   ModalShell,
   ProductCard,
   ProductVisual,
   QtyStepper,
+  resolveDealOfTheDayProducts,
   Stars,
   Toggle,
   useModalStack,

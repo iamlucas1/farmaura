@@ -1,9 +1,15 @@
 /* FARMAURA Console — Shell: Login (e-mail), Sidebar, Topbar, helpers compartilhados. */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { MARKETPLACE_LOGO_MARK_URL, MARKETPLACE_LOGO_FULL_WHITE_URL } from "../../marketplace/core/marketplace-assets.js";
 import { AuraLayer, ModalShell, Toggle } from "../../marketplace/core/marketplace-components.jsx";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { TwoFactorModal } from "../../shared/two-factor-modal.jsx";
+
+/* Below 720px the sidebar becomes an off-canvas drawer (see internal.css). Topbar renders the
+   .ph-burger that opens it and Sidebar renders the backdrop/close button — both need the same
+   open/setOpen pair without threading a prop through every one of the ~40 screens that render
+   <Topbar>, so it travels via context instead. */
+const MobileNavContext = React.createContext({ open: false, setOpen: () => {} });
 
 
 /* ---------- Metadados de status de pedido ---------- */
@@ -219,6 +225,7 @@ function PharmLogin({ onLogin, externalError }) {
 /* ===================== SIDEBAR ===================== */
 function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccount, user }) {
   const P = user;
+  const { open: mobileOpen, setOpen: setMobileOpen } = useContext(MobileNavContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   useEffect(() => {
@@ -288,7 +295,9 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
     .map((group) => ({ ...group, items: group.items.filter((item) => visibleRoutes.has(item.id)) }))
     .filter((group) => group.items.length > 0);
   return (
-    <aside className="ph-side" data-collapsed={collapsed ? '1' : '0'}>
+    <React.Fragment>
+      {mobileOpen && <div className="ph-side-backdrop" onClick={() => setMobileOpen(false)} />}
+      <aside className="ph-side" data-collapsed={collapsed ? '1' : '0'} data-mobile-open={mobileOpen ? '1' : '0'}>
       <div className="ph-side-brand">
         <span className="fa-logo-tile"><img src={MARKETPLACE_LOGO_MARK_URL} alt="" /></span>
         <div className="ph-side-brand-txt">
@@ -298,13 +307,16 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
         <button className="ph-side-toggle" onClick={onToggle} aria-label="expandir ou minimizar menu" title={collapsed ? 'Expandir' : 'Minimizar'}>
           <Icon name={collapsed ? 'chevR' : 'chevL'} size={17} />
         </button>
+        <button className="ph-side-mobile-close" onClick={() => setMobileOpen(false)} aria-label="fechar menu">
+          <Icon name="close" size={16} />
+        </button>
       </div>
       <div className="ph-side-scroll">
         {visibleGroups.map((g, gi) => (
           <div key={gi}>
             {g.label && <div className="ph-nav-group-label">{g.label}</div>}
             {g.items.map((it) => (
-              <button key={it.id} className="ph-navlink" data-active={route === it.id ? '1' : '0'} onClick={() => onNav(it.id)} title={it.label}>
+              <button key={it.id} className="ph-navlink" data-active={route === it.id ? '1' : '0'} onClick={() => { onNav(it.id); setMobileOpen(false); }} title={it.label}>
                 <span className="ph-navic"><Icon name={it.icon} size={20} /></span>
                 <span className="lbl">{it.label}</span>
                 {it.count > 0 && <span className="ph-nav-count" style={it.alert ? { background: 'var(--fa-warn)' } : undefined}>{it.count}</span>}
@@ -341,7 +353,8 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
           </div>
         )}
       </div>
-    </aside>
+      </aside>
+    </React.Fragment>
   );
 }
 
@@ -349,8 +362,12 @@ function Sidebar({ route, onNav, counts, collapsed, onToggle, onLogout, onAccoun
 function Topbar({ title, sub, onLogout, children, ctx }) {
   const isAdmin = !!(ctx && ctx.user && ctx.user.role === window.FA_ACCESS.ROLE.ADMIN);
   const stores = (ctx && ctx.stores) || [];
+  const { setOpen: setMobileOpen } = useContext(MobileNavContext);
   return (
     <header className="ph-topbar">
+      <button className="ph-burger" onClick={() => setMobileOpen(true)} aria-label="abrir menu">
+        <Icon name="menu" size={20} />
+      </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="ph-topbar-title">{title}</div>
         {sub && <div className="ph-topbar-sub">{sub}</div>}
@@ -437,4 +454,4 @@ function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwo
   );
 }
 
-export { AccountModal, FulfillBadge, OC_FLOW, OC_STATUS, PharmLogin, RecurringBadge, SLA_TARGET, Sidebar, Topbar, customerOf, fmtDur, minsSince, normalizeOrderStatusValue, orderStatusMeta, slaState, stockState };
+export { AccountModal, FulfillBadge, MobileNavContext, OC_FLOW, OC_STATUS, PharmLogin, RecurringBadge, SLA_TARGET, Sidebar, Topbar, customerOf, fmtDur, minsSince, normalizeOrderStatusValue, orderStatusMeta, slaState, stockState };

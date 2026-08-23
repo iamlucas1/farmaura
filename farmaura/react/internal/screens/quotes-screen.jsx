@@ -332,7 +332,7 @@ function PaymentTermsEditor({ terms, onChange }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {terms.map((term, index) => (
-        <div key={index} className="fa-card" style={{ padding: 12, display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 0.8fr 0.8fr auto', gap: 8, alignItems: 'end' }}>
+        <div key={index} className="fa-card ph-form-grid" style={{ padding: 12, display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 0.8fr 0.8fr auto', gap: 8, alignItems: 'end' }}>
           <div className="fa-field"><label>Forma</label>
             <select className="fa-select" value={term.method} onChange={(e) => setTerm(index, { method: e.target.value })}>
               {PAYMENT_METHOD_OPTIONS.map((method) => <option key={method} value={method}>{paymentMethodLabel(method)}</option>)}

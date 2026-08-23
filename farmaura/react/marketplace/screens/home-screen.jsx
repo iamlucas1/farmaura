@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ProductCard } from "../core/marketplace-components.jsx";
+import { DealCountdown, ProductCard, resolveDealOfTheDayProducts } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 
 /* FARMAURA — Home / painel principal. */
@@ -207,59 +207,12 @@ function BrandCircles({ brands, onNav }) {
   );
 }
 
-// Ofertas do dia: lista curada manualmente no console interno (Marketplace → Ofertas do dia),
-// substituindo o antigo filtro automático `discount > 0`. O backend só guarda uma lista ordenada de
-// refs ("inv-<id>"/"listing-<id>") — a resolução pro produto completo acontece aqui, comparando
-// contra o catálogo já carregado (mesmo princípio de `home_brands` casando por nome). Refs que não
-// casam mais (produto removido/despublicado) são descartados silenciosamente, preservando a ordem
-// escolhida pelo admin para o que ainda resolve.
-function resolveDealOfTheDayProducts(dealOfTheDay, products) {
-  const mode = (dealOfTheDay && dealOfTheDay.mode) || 'off';
-  const refs = (dealOfTheDay && dealOfTheDay.productRefs) || [];
-  if ((mode !== 'manual' && mode !== 'auto') || !refs.length) {
-    return [];
-  }
-  return refs
-    .map((ref) => products.find((product) => product.id === ref || (product.aliases || []).includes(ref)))
-    .filter(Boolean);
-}
-
-// Faixa de urgência com contador regressivo até o horário de reset configurado no console (Ofertas
-// do dia → horário do ciclo, default 00:00) — reforça que é a oferta "de hoje", sem relação com a
-// curadoria em si (no modo manual a lista permanece igual até o admin trocar; no modo automático,
-// é exatamente esse horário que dispara o próximo sorteio — ver PortalService._deal_cycle_elapsed).
-function DealCountdown({ resetTime }) {
-  const computeRemaining = () => {
-    const [hour, minute] = (resetTime || '00:00').split(':').map(Number);
-    const now = new Date();
-    const next = new Date(now);
-    next.setHours(hour || 0, minute || 0, 0, 0);
-    if (next <= now) {
-      next.setDate(next.getDate() + 1);
-    }
-    return Math.max(0, next - now);
-  };
-  const [remaining, setRemaining] = useState(computeRemaining);
-  useEffect(() => {
-    const timer = setInterval(() => setRemaining(computeRemaining()), 1000);
-    return () => clearInterval(timer);
-  }, [resetTime]);
-  const pad = (n) => String(n).padStart(2, '0');
-  const hours = Math.floor(remaining / 3600000);
-  const minutes = Math.floor((remaining % 3600000) / 60000);
-  const seconds = Math.floor((remaining % 60000) / 1000);
-  return (
-    <div className="fa-deal-countdown" aria-label="Tempo restante da oferta de hoje">
-      <span className="fa-deal-countdown-seg"><b>{pad(hours)}</b><em>h</em></span>
-      <span className="fa-deal-countdown-colon">:</span>
-      <span className="fa-deal-countdown-seg"><b>{pad(minutes)}</b><em>min</em></span>
-      <span className="fa-deal-countdown-colon">:</span>
-      <span className="fa-deal-countdown-seg"><b>{pad(seconds)}</b><em>seg</em></span>
-    </div>
-  );
-}
-
-function DealOfTheDayStrip({ deals, resetTime, cardProps, fav, availabilityAlerts }) {
+// Ofertas do dia: lista curada no console interno (Marketplace → Ofertas do dia — manual, sorteio
+// automático por ciclo, ou calendário/agendado), substituindo o antigo filtro automático
+// `discount > 0`. A home mostra só as 2 primeiras fileiras (cap por CSS, `.fa-deal-grid-limited`,
+// mesmos breakpoints de `.fa-grid-5`) com um botão para a extensão completa da mesma lista em
+// `/offers` (ver `resolveDealOfTheDayProducts`'s outro uso em `shop-screen.jsx`, mode="offers").
+function DealOfTheDayStrip({ deals, title, subtitle, resetTime, showCountdown, cardProps, fav, availabilityAlerts, onNav }) {
   if (!deals.length) {
     return null;
   }
@@ -269,17 +222,20 @@ function DealOfTheDayStrip({ deals, resetTime, cardProps, fav, availabilityAlert
         <div className="fa-deal-head-left">
           <span className="fa-deal-flame" aria-hidden="true">🔥</span>
           <div>
-            <h2 className="fa-deal-title">Ofertas do dia</h2>
-            <p className="fa-deal-sub">Preços válidos só até às {resetTime || '00:00'}</p>
+            <h2 className="fa-deal-title">{title || 'Ofertas do dia'}</h2>
+            <p className="fa-deal-sub">{subtitle || `Preços válidos só até às ${resetTime || '00:00'}`}</p>
           </div>
         </div>
-        <DealCountdown resetTime={resetTime} />
+        {showCountdown !== false && <DealCountdown resetTime={resetTime} />}
       </div>
-      <div className="fa-grid-5 fa-deal-grid">
+      <div className="fa-grid-5 fa-deal-grid fa-deal-grid-limited">
         {deals.map((product) => (
           <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />
         ))}
       </div>
+      <button className="fa-btn fa-btn-soft fa-deal-more" onClick={() => onNav({ name: 'offers' })}>
+        Ver todas as ofertas<Icon name="arrowR" size={16} />
+      </button>
     </section>
   );
 }
@@ -304,7 +260,17 @@ function HomeScreen({ ctx }) {
       <Differentials ctx={ctx} />
       <BrandCircles brands={homeBrands} onNav={onNav} />
       <div className="fa-feed">
-        <DealOfTheDayStrip deals={deals} resetTime={dealOfTheDay && dealOfTheDay.resetTime} cardProps={cardProps} fav={fav} availabilityAlerts={availabilityAlerts} />
+        <DealOfTheDayStrip
+          deals={deals}
+          title={dealOfTheDay && dealOfTheDay.title}
+          subtitle={dealOfTheDay && dealOfTheDay.subtitle}
+          resetTime={dealOfTheDay && dealOfTheDay.resetTime}
+          showCountdown={dealOfTheDay && dealOfTheDay.showCountdown}
+          cardProps={cardProps}
+          fav={fav}
+          availabilityAlerts={availabilityAlerts}
+          onNav={onNav}
+        />
         <section className="fa-feed-sec">
           <SectionHead eyebrow="Hoje" title="Destaque do dia" action="Ver mais" onAction={() => onNav({ name: 'category', cat: 'medicamentos' })} />
           {grid(featured)}

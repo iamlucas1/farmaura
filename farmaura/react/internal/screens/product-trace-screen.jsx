@@ -87,7 +87,7 @@ function ProductTraceScreen({ ctx }) {
       </Topbar>
 
       <div className="ph-content ph-content-wide">
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16, alignItems: 'start' }}>
+        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16, alignItems: 'start' }}>
           <div className="fa-card" style={{ padding: 14 }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Produtos</div>
             {searching && !candidates.length && <div className="ph-cell-sub" style={{ padding: '8px 2px' }}>Carregando produtos…</div>}

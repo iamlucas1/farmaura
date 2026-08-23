@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { AccountModal, PharmLogin, Sidebar } from "./internal-shell.jsx";
+import { AccountModal, MobileNavContext, PharmLogin, Sidebar } from "./internal-shell.jsx";
 import { FontTweaks } from "./internal-tweaks.jsx";
 import { AcquisitionCostsScreen } from "../screens/acquisition-costs-screen.jsx";
 import { AnalyticsScreen } from "../screens/analytics-screen.jsx";
@@ -1337,6 +1337,7 @@ function PharmApp() {
   });
   const [dealOfTheDay, setDealOfTheDayState] = useState(() => ({
     mode: 'off', productRefs: [], resetTime: '00:00', autoParams: emptyDealAutoParams(), lastGeneratedAt: null,
+    title: '', subtitle: '', scheduleEntries: [], showCountdown: true,
     ...readInternalCache(null, 'deal_of_the_day', {}),
   }));
   useEffect(() => { writeInternalCache(user, 'deal_of_the_day', dealOfTheDay); }, [user && user.id, dealOfTheDay]);
@@ -1351,6 +1352,20 @@ function PharmApp() {
     count_discounts: autoParams.countDiscounts || 0,
     count_coupons: autoParams.countCoupons || 0,
     count_random: autoParams.countRandom || 0,
+  });
+  // "Ofertas do dia" agendado: cada entrada do calendário tem título/subtítulo próprios + data(s)
+  // específica(s) ou regra de repetição por dia da semana — ver DealScheduleEntry no backend.
+  const entryToPayload = (e) => ({
+    id: e.id, title: e.title || '', subtitle: e.subtitle || '',
+    product_refs: e.productRefs || [], specific_dates: e.specificDates || [],
+    weekdays: e.weekdays || [], start_date: e.startDate || null, end_date: e.endDate || null,
+    end_time: e.endTime || null,
+  });
+  const entryFromResponse = (e) => ({
+    id: e.id, title: e.title || '', subtitle: e.subtitle || '',
+    productRefs: e.product_refs || [], specificDates: e.specific_dates || [],
+    weekdays: e.weekdays || [], startDate: e.start_date || null, endDate: e.end_date || null,
+    endTime: e.end_time || null,
   });
   const _dealStateFromResponse = (response) => ({
     mode: response.mode || 'off',
@@ -1367,6 +1382,10 @@ function PharmApp() {
       countRandom: response.auto_params.count_random || 0,
     } : emptyDealAutoParams(),
     lastGeneratedAt: response.last_generated_at || null,
+    title: response.title || '',
+    subtitle: response.subtitle || '',
+    scheduleEntries: (response.schedule_entries || []).map(entryFromResponse),
+    showCountdown: response.show_countdown !== false,
   });
   const saveDealOfTheDay = async (patch, options) => {
     const silent = !!(options && options.silent);
@@ -1385,6 +1404,10 @@ function PharmApp() {
           product_refs: next.productRefs || [],
           reset_time: next.resetTime || '00:00',
           auto_params: _dealAutoParamsToPayload(next.autoParams || emptyDealAutoParams()),
+          title: next.title || '',
+          subtitle: next.subtitle || '',
+          schedule_entries: (next.scheduleEntries || []).map(entryToPayload),
+          show_countdown: next.showCountdown !== false,
         }),
       });
       setDealOfTheDayState(_dealStateFromResponse(response));
@@ -1415,6 +1438,13 @@ function PharmApp() {
     const query = new URLSearchParams(params || {}).toString();
     const response = await authClient.request('/portal/internal/deal-suggestions/' + source + (query ? '?' + query : ''));
     return (response && response.items) || [];
+  };
+  // Refs com promoção ativa (qualquer PricingPromotion, campanha ou desconto direto) — usado pelo
+  // painel de curadoria de "ofertas do dia" pra sinalizar o selo "Promoção" em qualquer produto
+  // exibido (sugestão, busca manual ou já curado), não só nas abas Promoção/Desconto.
+  const fetchActivePromotionRefs = async () => {
+    const response = await authClient.request('/portal/internal/deal-suggestions/active-promotion-refs');
+    return (response && response.refs) || [];
   };
   // Modo de lançamento: página de "em breve"/contador que substitui a vitrine inteira do
   // marketplace, para todo visitante, até a data configurada — sem bypass para logado/equipe.
@@ -1612,6 +1642,8 @@ function PharmApp() {
   const [toast, setToast] = useState(null);
   const [collapsed, setCollapsed] = useState(() => !!readInternalCache(null, 'collapsed', false));
   useEffect(() => { writeInternalCache(user, 'collapsed', !!collapsed); }, [user && user.id, collapsed]);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useEffect(() => { setMobileNavOpen(false); }, [safeRoute]);
   const [acctTab, setAcctTab] = useState(null);
   const [nowLabel, setNowLabel] = useState('');
   const [todayIso, setTodayIso] = useState('');
@@ -4309,7 +4341,7 @@ function PharmApp() {
     marketplace, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy,
     homeBanner, setHomeBanner, saveHomeBanner, homeBannerBusy,
     homeBrands, setHomeBrands, saveHomeBrands, homeBrandsBusy,
-    dealOfTheDay, setDealOfTheDay, saveDealOfTheDay, dealOfTheDayBusy, fetchDealSuggestions, generateDealOfTheDayNow,
+    dealOfTheDay, setDealOfTheDay, saveDealOfTheDay, dealOfTheDayBusy, fetchDealSuggestions, fetchActivePromotionRefs, generateDealOfTheDayNow,
     launchMode, setLaunchMode, saveLaunchMode, launchModeBusy,
     setItemPricing, notify: showToast,
     pdvDiscountSettings, setPdvDiscountSettings, savePdvDiscountSettings, pdvDiscountSettingsBusy,
@@ -4375,6 +4407,7 @@ function PharmApp() {
   const toneColor = { success: 'var(--fa-success)', warn: 'var(--fa-warn)', error: 'var(--fa-error)' };
 
   return (
+    <MobileNavContext.Provider value={{ open: mobileNavOpen, setOpen: setMobileNavOpen }}>
     <div id="ph-root">
       <div className="ph-shell">
         <Sidebar route={safeRoute} onNav={onNav} counts={counts} collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} onLogout={onLogout} onAccount={(t) => setAcctTab(t)} user={user} />
@@ -4421,6 +4454,7 @@ function PharmApp() {
         </div>
       )}
     </div>
+    </MobileNavContext.Provider>
   );
 }
 

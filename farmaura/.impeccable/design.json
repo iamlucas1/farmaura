@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-22T00:00:00Z",
+  "title": "Design System: Farmaura",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Vinho Aura", "canonical": "#7A0D16", "tonalRamp": ["#2E0508", "#4A0810", "#660B14", "#7A0D16", "#9A2C33", "#C06066", "#E0A3A7", "#F7DEDF"] },
+      "primary-ink": { "role": "primary", "displayName": "Vinho Aura, ink", "canonical": "#5C0910" },
+      "vital": { "role": "secondary", "displayName": "Vermelho Vital", "canonical": "#C81D28", "tonalRamp": ["#4D0A0F", "#7A1017", "#A5161F", "#C81D28", "#D94C55", "#E68189", "#F2B6BB", "#FBE2E4"] },
+      "rose": { "role": "tertiary", "displayName": "Rosé Cuidado", "canonical": "#FFD6D9", "tonalRamp": ["#7A2E33", "#A94B52", "#D57B80", "#FFD6D9", "#FFE2E4", "#FFEDEE", "#FFF5F6", "#FFFBFB"] },
+      "rose-soft": { "role": "tertiary", "displayName": "Rosé Cuidado, soft", "canonical": "#FFEDEE" },
+      "beige": { "role": "tertiary", "displayName": "Bege Atalho", "canonical": "#F6F1E8" },
+      "bg": { "role": "neutral", "displayName": "Off-white Clínico", "canonical": "#FAF7F5", "tonalRamp": ["#D8CFC9", "#E4DCD7", "#F1EBE7", "#FAF7F5", "#FBF9F7", "#FCFAF9", "#FDFCFB", "#FFFFFF"] },
+      "surface": { "role": "neutral", "displayName": "Surface", "canonical": "#FFFFFF" },
+      "ink": { "role": "neutral", "displayName": "Grafite Quente", "canonical": "#2B1A1A", "tonalRamp": ["#0F0909", "#1C1212", "#2B1A1A", "#4A3232", "#6B5757", "#9A8A8A", "#C9C0C0", "#E8E1DF"] },
+      "ink-2": { "role": "neutral", "displayName": "Grafite Quente, muted", "canonical": "#6B5757" },
+      "ink-3": { "role": "neutral", "displayName": "Grafite Quente, faint", "canonical": "#9A8A8A" },
+      "mist": { "role": "neutral", "displayName": "Cinza Névoa", "canonical": "#E8E1DF" },
+      "mist-2": { "role": "neutral", "displayName": "Cinza Névoa, soft", "canonical": "#F1EBE9" },
+      "success": { "role": "success", "displayName": "Success", "canonical": "#2E7D5B" },
+      "warn": { "role": "warning", "displayName": "Warn", "canonical": "#F2A03D" },
+      "error": { "role": "error", "displayName": "Error", "canonical": "#B3261E" },
+      "info": { "role": "info", "displayName": "Info", "canonical": "#3A6EA5" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page-level hero headlines (.fa-h1)." },
+      "headline": { "displayName": "Headline", "purpose": "Section headings (.fa-h2), internal console stat values." },
+      "title": { "displayName": "Title", "purpose": "Card and subsection titles (.fa-h3)." },
+      "body": { "displayName": "Body", "purpose": "Default running text and form values." },
+      "label": { "displayName": "Label / Eyebrow", "purpose": "Uppercase section kickers in Vermelho Vital." },
+      "mono": { "displayName": "Mono", "purpose": "Prices, order codes, pickup codes — a precision signal." }
+    },
+    "shadows": [
+      { "name": "shadow-sm", "value": "0 1px 2px rgba(43,26,26,.05), 0 1px 3px rgba(43,26,26,.06)", "purpose": "Resting cards, stat tiles, inputs." },
+      { "name": "shadow-md", "value": "0 4px 14px rgba(43,26,26,.07), 0 2px 6px rgba(43,26,26,.05)", "purpose": "Hovered product cards." },
+      { "name": "shadow-lg", "value": "0 18px 50px rgba(43,26,26,.13), 0 6px 16px rgba(43,26,26,.07)", "purpose": "Modals, dropdown menus, collapsed-sidebar toggle." }
+    ],
+    "motion": [
+      { "name": "ease-pop", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Dropdown/menu pop-in (faPop keyframes)." },
+      { "name": "ease-modal", "value": "cubic-bezier(0.2, 0.8, 0.3, 1.1)", "purpose": "Modal entrance, slightly overshooting for warmth." },
+      { "name": "superpromo-pulse", "value": "scale(1) to scale(1.07), 2.2s ease-in-out infinite", "purpose": "The one deliberately loud animation — reserved for superpromoção badges; respects prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "600px" },
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "880px" },
+      { "name": "lg", "value": "1100px" },
+      { "name": "container-marketplace", "value": "1240px" },
+      { "name": "container-internal", "value": "1320px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default CTA — Vinho Aura fill with a wine-tinted glow shadow.",
+      "html": "<button class=\"ds-btn-primary\">Adicionar ao carrinho</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 12px; font-weight: 700; font-size: 14px; padding: 13px 20px; background: #7A0D16; color: #fff; box-shadow: 0 6px 18px -8px #7A0D16; transition: transform .12s ease, background .15s ease; } .ds-btn-primary:hover { background: #6A0B13; } .ds-btn-primary:active { transform: translateY(1px) scale(.99); } .ds-btn-primary:focus-visible { outline: 3px solid #FFD6D9; outline-offset: 2px; }"
+    },
+    {
+      "name": "Vital Button",
+      "kind": "button",
+      "refersTo": "button-vital",
+      "description": "Urgent/promotional CTA — Vermelho Vital fill, brightens on hover instead of deepening.",
+      "html": "<button class=\"ds-btn-vital\">Aproveitar oferta</button>",
+      "css": ".ds-btn-vital { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 12px; font-weight: 700; font-size: 14px; padding: 13px 20px; background: #C81D28; color: #fff; box-shadow: 0 8px 20px -8px #C81D28; transition: filter .15s ease, transform .12s ease; } .ds-btn-vital:hover { filter: brightness(.95); } .ds-btn-vital:active { transform: translateY(1px) scale(.99); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Low-emphasis action — transparent fill, Vinho Aura outline and text.",
+      "html": "<button class=\"ds-btn-ghost\">Ver detalhes</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1.5px solid #7A0D16; border-radius: 12px; font-weight: 700; font-size: 14px; padding: 13px 20px; background: transparent; color: #7A0D16; transition: background .15s ease; } .ds-btn-ghost:hover { background: #FFEDEE; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Standard field — Rosé Cuidado focus glow matches the search bar and favorites treatment.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-label\">CEP</label><input class=\"ds-input\" placeholder=\"00000-000\" /></div>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 7px; font-family: 'Nunito Sans', system-ui, sans-serif; } .ds-label { font-size: 13px; font-weight: 600; color: #6B5757; } .ds-input { height: 46px; border: 1px solid #E8E1DF; border-radius: 10px; background: #FFFFFF; padding: 0 14px; font-size: 14.5px; color: #2B1A1A; outline: none; transition: border-color .15s, box-shadow .15s; } .ds-input::placeholder { color: #9A8A8A; } .ds-input:focus { border-color: #7A0D16; box-shadow: 0 0 0 4px #FFEDEE; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Filter/category chip — pill-shaped, fills solid Vinho Aura when active.",
+      "html": "<div style=\"display:flex;gap:8px\"><button class=\"ds-chip\">Genéricos</button><button class=\"ds-chip ds-chip-active\">Promoções</button></div>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: 999px; border: 1px solid #E8E1DF; background: #FFFFFF; font-weight: 600; font-size: 13px; color: #6B5757; cursor: pointer; transition: all .14s; font-family: 'Nunito Sans', system-ui, sans-serif; } .ds-chip:hover { border-color: #FFD6D9; color: #7A0D16; } .ds-chip-active { background: #7A0D16; color: #fff; border-color: #7A0D16; }"
+    },
+    {
+      "name": "Superpromoção Badge",
+      "kind": "custom",
+      "refersTo": "badge-superpromo",
+      "description": "The one deliberately loud, pulsing component — reserved for genuine best-of-the-best deals.",
+      "html": "<span class=\"ds-superbadge\">🔥 Superpromoção</span>",
+      "css": ".ds-superbadge { display: inline-flex; align-items: center; gap: 3px; background: linear-gradient(135deg, #C81D28, #7A0D16); color: #fff; font-weight: 900; font-size: 15px; letter-spacing: -.01em; padding: 5px 10px 5px 7px; border-radius: 999px; line-height: 1; box-shadow: 0 3px 10px rgba(200,29,40,.45); animation: dsSuperPulse 2.2s ease-in-out infinite; } @keyframes dsSuperPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } } @media (prefers-reduced-motion: reduce) { .ds-superbadge { animation: none; } }"
+    },
+    {
+      "name": "Product Card",
+      "kind": "card",
+      "refersTo": "card-product",
+      "description": "Standard catalog card — soft lift and Rosé border on hover.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-brand\">EMS</div><div class=\"ds-card-name\">Dipirona Monohidratada 500mg, 20 comprimidos</div><div class=\"ds-card-price\">R$ 12,90</div></div>",
+      "css": ".ds-card { background: #FFFFFF; border: 1px solid #E8E1DF; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: transform .16s ease, box-shadow .16s ease, border-color .16s; font-family: 'Nunito Sans', system-ui, sans-serif; } .ds-card:hover { transform: translateY(-3px); box-shadow: 0 4px 14px rgba(43,26,26,.07), 0 2px 6px rgba(43,26,26,.05); border-color: #FFD6D9; } .ds-card-brand { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #9A8A8A; } .ds-card-name { font-weight: 700; font-size: 14.5px; line-height: 1.28; color: #2B1A1A; } .ds-card-price { font-weight: 800; font-size: 19px; color: #2B1A1A; letter-spacing: -.01em; }"
+    },
+    {
+      "name": "Internal Sidebar Nav Link",
+      "kind": "nav",
+      "refersTo": "nav-internal-link",
+      "description": "The one place Vinho Aura becomes a full-surface fill rather than an accent — white text at rest, solid white pill when active.",
+      "html": "<nav style=\"background:#7A0D16;padding:12px;border-radius:12px;width:220px\"><button class=\"ds-navlink ds-navlink-active\">Catálogo</button><button class=\"ds-navlink\">Pedidos</button></nav>",
+      "css": ".ds-navlink { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 11px 12px; border: none; background: transparent; border-radius: 12px; font-weight: 600; font-size: 14px; color: rgba(255,255,255,.82); cursor: pointer; transition: background .14s, color .14s; font-family: 'Nunito Sans', system-ui, sans-serif; } .ds-navlink:hover { background: rgba(255,255,255,.1); color: #fff; } .ds-navlink-active { background: #fff; color: #7A0D16; font-weight: 700; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Warm Apothecary",
+    "overview": "Farmaura is a real, single neighborhood pharmacy that also wants to feel like the biggest, most complete pharmacy in its region — and the visual system carries that tension deliberately. Instead of the generic sterile blue/green most pharmacy software defaults to, Farmaura's own tokens are named in the source itself: Vinho Aura (wine-red primary), Vermelho Vital (an energetic accent reserved for urgency and promotions), Rosé Cuidado (a soft, caring pink used for hover states and gentle emphasis), Off-white Clínico (a warm off-white background, not sterile white), Bege Atalho (a warm beige for quick-access tiles), and Grafite Quente (a warm charcoal ink instead of pure black). A literal --fa-aura token (0-1 intensity) drives soft decorative arcs and halos behind key surfaces — the brand's own name made into a visual device, not just a wordmark.\n\nThe system is shared, not duplicated: internal.css intentionally imports after marketplace.css and reuses its custom properties rather than redefining them, so the pharmacist console and the customer marketplace are two applications of one warm-apothecary language, not two identities. Components favor confident warmth over sterile precision: soft, generous corner radii, gentle hover lifts, pill-shaped chips and badges, and exactly one deliberately loud, pulsing animation reserved for the single moment the interface should feel urgent.",
+    "keyCharacteristics": [
+      "Wine-red trust (Vinho Aura) as the one recurring brand color, never diluted into a generic blue/green pharmacy palette.",
+      "A caring, soft rosé (Rosé Cuidado) as the default hover/focus 'care' color, distinct from the more energetic Vermelho Vital.",
+      "A literal decorative --fa-aura glow/arc layer as the brand's signature atmospheric device.",
+      "Soft, low, warm-tinted shadows (never pure black) — depth is ambient, not dramatic.",
+      "One shared token system across two segregated surfaces (marketplace + internal), never two competing systems.",
+      "Live-retunable via a 'Tweaks' mechanism (radius scale, density, aura intensity, heading font) — treated as a real adjustable system."
+    ],
+    "rules": [
+      { "name": "The No-Sterile-Palette Rule", "body": "Never introduce the generic pharmacy blue/green as a primary or accent color. Vinho Aura and Vermelho Vital are the only two brand hues; every other color is a warm neutral or a semantic status color.", "section": "colors" },
+      { "name": "The Two-Reds Rule", "body": "Vinho Aura (trust, default) and Vermelho Vital (urgency, promotions) are never interchangeable — never use both roles from one color.", "section": "colors" },
+      { "name": "The One Typeface Rule", "body": "Nunito Sans carries the entire hierarchy; don't introduce a second display face. Montserrat and Manrope are loaded but unused — treat them as legacy, not available.", "section": "typography" },
+      { "name": "The Warm Shadow Rule", "body": "Every shadow is tinted from Grafite Quente (rgba(43,26,26,...)), never pure black.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep Vinho Aura and Vermelho Vital role-separated: trust/default vs. urgency/promotion.",
+      "Do use the Rosé Cuidado glow (box-shadow: 0 0 0 4px var(--fa-rose-soft)) as the one focus/hover 'care' signal across inputs, search, and favorited states.",
+      "Do scale radius, density, and aura intensity through their single dial tokens instead of hand-tuning individual components.",
+      "Do reuse marketplace.css's tokens and the shared UI kit from the internal console rather than redefining equivalents.",
+      "Do tint every shadow from Grafite Quente; never use a neutral/black shadow default."
+    ],
+    "donts": [
+      "Don't introduce the generic pharmacy blue/green as a primary or accent color.",
+      "Don't use the superpromoção pulse animation for anything other than genuine best-of-the-best deals.",
+      "Don't reference Montserrat or Manrope as active design fonts — Nunito Sans is the real body/display face.",
+      "Don't treat the marketplace and internal surfaces as separate design systems."
+    ]
+  }
+}

@@ -954,7 +954,7 @@ function InventoryItemModal({ mode, title, submitLabel, products, locations, ini
       >
         <div className="ph-cell-sub" style={{ marginBottom: 10 }}>{mode === 'create' ? 'Defina em quais locais o estoque inicial deste medicamento fica, e a quantidade em cada um.' : 'Adicione estoque deste medicamento em um ou mais locais (recebimento por lote).'}</div>
         {locationRows.map((row, index) => (
-          <div key={row.key} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1fr 0.9fr auto', gap: 8, alignItems: 'end', marginBottom: 8 }}>
+          <div key={row.key} className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1fr 0.9fr auto', gap: 8, alignItems: 'end', marginBottom: 8 }}>
             <div className="fa-field"><label>Local</label><select className="fa-select" value={row.locationCode} onChange={(e) => updateLocationRow(index, 'locationCode', e.target.value)}>{locations.map((location) => <option key={location.id} value={location.code}>{location.code} · {location.name}</option>)}</select></div>
             <div className="fa-field"><label>Quantidade</label><input className="fa-input" type="number" min="1" value={row.quantity} onChange={(e) => updateLocationRow(index, 'quantity', Number(e.target.value || 0))} /></div>
             <div className="fa-field"><label>Lote *</label><input className="fa-input" value={row.batchCode} onChange={(e) => updateLocationRow(index, 'batchCode', e.target.value)} placeholder="Ex.: LOT-2026-001" /></div>
