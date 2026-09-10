@@ -186,7 +186,7 @@ button.rail-store:focus-visible { outline: 2px solid var(--rail-accent); outline
 .rail-item.active { background: var(--rail-bg-active); color: var(--accent); border-color: transparent; box-shadow: var(--shadow-sm); }
 .rail-item-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail-item-badge { margin-left: auto; font-size: 10.5px; font-weight: 700; background: var(--critical); color: #fff; border-radius: 999px; padding: 1px 6px; flex: none; }
-.rail-foot { padding: 12px 14px 16px; border-top: 1px solid var(--rail-border); flex: none; }
+.rail-foot { padding: 12px 14px 16px; border-top: 1px solid var(--rail-border); flex: none; background: var(--rail-bg); position: relative; z-index: 1; }
 .rail-user { display: flex; align-items: center; gap: 9px; cursor: pointer; border-radius: 9px; padding: 3px; margin: -3px; }
 .rail-user:hover { background: var(--rail-bg-2); }
 .rail-avatar { width: 32px; height: 32px; border-radius: 9px; background: var(--rail-bg-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12.5px; flex: none; color: var(--rail-accent); border: 1px solid var(--rail-border); }
