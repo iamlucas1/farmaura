@@ -1,283 +1,250 @@
-import React, { useEffect, useState } from "react";
-import { ModalShell, brl } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { Topbar } from "../core/internal-shell.jsx";
-import { InventoryKpi } from "./inventory-screen.jsx";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
+  Badge, RowIconBtn, SearchInput, KpiChip, money, confirmAction, showToast,
+} from "../core/internal-ui.jsx";
 
 const UF_OPTIONS = [
-  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
-  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
+  "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
 ];
 
 /* FARMAURA Console — Cadastro de fornecedores. */
-function SuppliersScreen({ ctx }) {
-  const { suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive, notify, onLogout } = ctx;
-  const [q, setQ] = useState('');
-  const [kpiFilter, setKpiFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [ufFilter, setUfFilter] = useState('all');
-  const [editSupplier, setEditSupplier] = useState(null);
-  const [newOpen, setNewOpen] = useState(false);
-  const [savingId, setSavingId] = useState('');
 
-  useEffect(() => {
-    refreshSuppliers && refreshSuppliers();
-  }, []);
-
-  const allSuppliers = suppliers || [];
-  const activeCount = allSuppliers.filter((supplier) => supplier.active).length;
-  const inactiveCount = allSuppliers.filter((supplier) => !supplier.active).length;
-  const noLocationCount = allSuppliers.filter((supplier) => !supplier.uf && !supplier.city).length;
-  const categoryOptions = Array.from(new Set(allSuppliers.map((supplier) => supplier.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  const ufOptions = UF_OPTIONS.filter((uf) => allSuppliers.some((supplier) => supplier.uf === uf));
-  const hasExtraFilters = kpiFilter !== 'all' || categoryFilter !== 'all' || ufFilter !== 'all';
-
-  const rows = allSuppliers.filter((supplier) => {
-    if (kpiFilter === 'active' && !supplier.active) return false;
-    if (kpiFilter === 'inactive' && supplier.active) return false;
-    if (kpiFilter === 'no_location' && (supplier.uf || supplier.city)) return false;
-    if (categoryFilter !== 'all' && supplier.category !== categoryFilter) return false;
-    if (ufFilter !== 'all' && supplier.uf !== ufFilter) return false;
-    if (q && !(supplier.legalName + supplier.tradeName + supplier.cnpj + supplier.category + supplier.city).toLowerCase().includes(q.toLowerCase())) return false;
-    return true;
-  }).sort((left, right) => (left.legalName || '').localeCompare(right.legalName || '', 'pt-BR'));
-
-  const clearFilters = () => {
-    setKpiFilter('all');
-    setCategoryFilter('all');
-    setUfFilter('all');
-  };
-
-  const handleToggleActive = async (supplier) => {
-    setSavingId(supplier.id);
-    try {
-      await setSupplierActive(supplier.id, !supplier.active);
-      notify && notify(supplier.active ? 'Fornecedor desativado.' : 'Fornecedor reativado.', 'success');
-    } catch (error) {
-      notify && notify(error && error.message ? error.message : 'Não foi possível atualizar o fornecedor.', 'warn');
-    } finally {
-      setSavingId('');
-    }
-  };
-
-  return (
-    <>
-      <Topbar title="Fornecedores" sub={rows.length + ' fornecedor(es) exibido(s)'} onLogout={onLogout} ctx={ctx}>
-        <div className="ph-topsearch">
-          <Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} />
-          <input placeholder="Buscar por nome, CNPJ, categoria ou cidade" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-      </Topbar>
-
-      <div className="ph-content ph-content-wide">
-        <div className="inv-kpis">
-          <InventoryKpi icon="grid" label="Todos" value={allSuppliers.length} active={kpiFilter === 'all'} onClick={() => setKpiFilter('all')} />
-          <InventoryKpi icon="check" label="Ativos" value={activeCount} tone="success" active={kpiFilter === 'active'} onClick={() => setKpiFilter('active')} />
-          <InventoryKpi icon="pause" label="Inativos" value={inactiveCount} active={kpiFilter === 'inactive'} onClick={() => setKpiFilter('inactive')} />
-          <InventoryKpi icon="pin" label="Sem UF/cidade" value={noLocationCount} tone={noLocationCount ? 'warn' : undefined} active={kpiFilter === 'no_location'} onClick={() => setKpiFilter('no_location')} />
-        </div>
-
-        <div className="inv-toolbar">
-          <div className="inv-toolbar-row">
-            <div className="inv-actions">
-              <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={refreshSuppliers}><Icon name="repeat" size={15} />Atualizar</button>
-              <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={() => setNewOpen(true)}><Icon name="plus" size={15} stroke={2.2} />Novo fornecedor</button>
-            </div>
-          </div>
-          <div className="inv-toolbar-row is-filters">
-            <div className="inv-filter-field">
-              <label>Categoria</label>
-              <select className="fa-select" style={{ minWidth: 170 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                <option value="all">Todas as categorias</option>
-                {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select>
-            </div>
-            <div className="inv-filter-field">
-              <label>UF</label>
-              <select className="fa-select" style={{ minWidth: 120 }} value={ufFilter} onChange={(e) => setUfFilter(e.target.value)}>
-                <option value="all">Todas as UFs</option>
-                {ufOptions.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-              </select>
-            </div>
-            {hasExtraFilters && (
-              <button className="fa-btn fa-btn-ghost fa-btn-sm" onClick={clearFilters}>
-                <Icon name="close" size={14} />Limpar filtros
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="ph-table-wrap">
-          <table className="ph-table">
-            <thead>
-              <tr>
-                <th>Fornecedor</th>
-                <th>CNPJ</th>
-                <th>Categoria</th>
-                <th>UF · Cidade</th>
-                <th>Prazo entrega</th>
-                <th>Pedido mínimo</th>
-                <th>Frete</th>
-                <th>Pagamento</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((supplier) => (
-                <tr key={supplier.id}>
-                  <td>
-                    <div className="ph-td-name">{supplier.legalName}</div>
-                    <div className="ph-cell-sub">{supplier.tradeName || 'Sem nome fantasia'}{supplier.website ? ' · ' + supplier.website : ''}</div>
-                  </td>
-                  <td className="fa-mono">{supplier.cnpj}</td>
-                  <td>{supplier.category || '—'}</td>
-                  <td>{supplier.uf || '—'}{supplier.city ? ' · ' + supplier.city : ''}</td>
-                  <td>{supplier.leadTimeDays} dia(s)</td>
-                  <td className="fa-mono">{brl(supplier.minimumOrderAmount)}</td>
-                  <td>{supplier.freightPolicy || '—'}</td>
-                  <td>{supplier.paymentTerms || '—'}</td>
-                  <td><span className="fa-badge" style={supplier.active ? { background: 'var(--fa-success-soft)', color: 'var(--fa-success)' } : { background: 'var(--fa-mist-2)', color: 'var(--fa-ink-3)' }}>{supplier.active ? 'Ativo' : 'Inativo'}</span></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setEditSupplier(supplier)}><Icon name="edit" size={14} />Editar</button>
-                    <button
-                      className="fa-iconbtn"
-                      style={{ marginLeft: 8, width: 34, height: 34 }}
-                      disabled={savingId === supplier.id}
-                      onClick={() => handleToggleActive(supplier)}
-                      aria-label={supplier.active ? 'Desativar fornecedor' : 'Reativar fornecedor'}
-                      title={supplier.active ? 'Desativar fornecedor' : 'Reativar fornecedor'}
-                    >
-                      <Icon name={supplier.active ? 'trash' : 'repeat'} size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!rows.length && (
-            <div className="ph-empty">
-              <span className="fa-iconbox"><Icon name="truck" size={28} /></span>
-              <div>Nenhum fornecedor encontrado.</div>
-              {(hasExtraFilters || q) && (
-                <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ marginTop: 10 }} onClick={() => { clearFilters(); setQ(''); }}>
-                  <Icon name="close" size={14} />Limpar busca e filtros
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {editSupplier && (
-        <SupplierModal
-          title="Editar fornecedor"
-          submitLabel="Salvar alterações"
-          initialSupplier={editSupplier}
-          onClose={() => setEditSupplier(null)}
-          onSave={async (payload) => {
-            try {
-              await updateSupplier(editSupplier.id, payload);
-              setEditSupplier(null);
-              notify && notify('Fornecedor atualizado.', 'success');
-            } catch (error) {
-              notify && notify(error && error.message ? error.message : 'Não foi possível atualizar o fornecedor.', 'warn');
-            }
-          }}
-        />
-      )}
-      {newOpen && (
-        <SupplierModal
-          title="Novo fornecedor"
-          submitLabel="Cadastrar fornecedor"
-          onClose={() => setNewOpen(false)}
-          onSave={async (payload) => {
-            try {
-              await addSupplier(payload);
-              setNewOpen(false);
-              notify && notify('Fornecedor cadastrado.', 'success');
-            } catch (error) {
-              notify && notify(error && error.message ? error.message : 'Não foi possível cadastrar o fornecedor.', 'warn');
-            }
-          }}
-        />
-      )}
-    </>
-  );
-}
+const KPIS = [
+  { key: "all", label: "Todos", icon: "truck" },
+  { key: "active", label: "Ativos", icon: "check", tone: "good" },
+  { key: "inactive", label: "Inativos", icon: "pause" },
+  { key: "no_location", label: "Sem localização", icon: "pin", tone: "warning" },
+];
 
 function buildSupplierForm(supplier) {
   return {
-    legalName: supplier && supplier.legalName || '',
-    tradeName: supplier && supplier.tradeName || '',
-    cnpj: supplier && supplier.cnpj || '',
-    email: supplier && supplier.email || '',
-    phone: supplier && supplier.phone || '',
-    website: supplier && supplier.website || '',
-    category: supplier && supplier.category || '',
-    contactPersonName: supplier && supplier.contactPersonName || '',
-    uf: supplier && supplier.uf || '',
-    city: supplier && supplier.city || '',
-    addressLine: supplier && supplier.addressLine || '',
-    leadTimeDays: Number(supplier && supplier.leadTimeDays || 0),
-    minimumOrderAmount: Number(supplier && supplier.minimumOrderAmount || 0),
-    freightPolicy: supplier && supplier.freightPolicy || '',
-    paymentTerms: supplier && supplier.paymentTerms || '',
-    notes: supplier && supplier.notes || '',
+    legalName: (supplier && supplier.legalName) || "",
+    tradeName: (supplier && supplier.tradeName) || "",
+    cnpj: (supplier && supplier.cnpj) || "",
+    email: (supplier && supplier.email) || "",
+    phone: (supplier && supplier.phone) || "",
+    website: (supplier && supplier.website) || "",
+    category: (supplier && supplier.category) || "",
+    contactPersonName: (supplier && supplier.contactPersonName) || "",
+    uf: (supplier && supplier.uf) || "",
+    city: (supplier && supplier.city) || "",
+    addressLine: (supplier && supplier.addressLine) || "",
+    leadTimeDays: Number((supplier && supplier.leadTimeDays) || 0),
+    minimumOrderAmount: Number((supplier && supplier.minimumOrderAmount) || 0),
+    freightPolicy: (supplier && supplier.freightPolicy) || "",
+    paymentTerms: (supplier && supplier.paymentTerms) || "",
+    notes: (supplier && supplier.notes) || "",
   };
 }
 
-function SupplierModal({ title, submitLabel, initialSupplier, onClose, onSave }) {
-  const [form, setForm] = useState(() => buildSupplierForm(initialSupplier));
-  const [busy, setBusy] = useState(false);
-  const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const valid = form.legalName.trim().length >= 2 && form.cnpj.trim().length >= 11;
+function SuppliersScreen({ ctx }) {
+  const { suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive } = ctx;
 
-  const handleSave = async () => {
-    setBusy(true);
+  const [query, setQuery] = useState("");
+  const [kpi, setKpi] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [ufFilter, setUfFilter] = useState("all");
+  const [editItem, setEditItem] = useState(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [savingId, setSavingId] = useState("");
+
+  useEffect(() => { if (refreshSuppliers) refreshSuppliers(); }, []);
+
+  const all = suppliers || [];
+  const kpiValues = {
+    all: all.length,
+    active: all.filter((s) => s.active).length,
+    inactive: all.filter((s) => !s.active).length,
+    no_location: all.filter((s) => !s.uf && !s.city).length,
+  };
+  const categoryOptions = Array.from(new Set(all.map((s) => s.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const ufOptions = UF_OPTIONS.filter((uf) => all.some((s) => s.uf === uf));
+  const hasFilters = kpi !== "all" || categoryFilter !== "all" || ufFilter !== "all";
+
+  const rows = all
+    .filter((s) => {
+      if (kpi === "active" && !s.active) return false;
+      if (kpi === "inactive" && s.active) return false;
+      if (kpi === "no_location" && (s.uf || s.city)) return false;
+      if (categoryFilter !== "all" && s.category !== categoryFilter) return false;
+      if (ufFilter !== "all" && s.uf !== ufFilter) return false;
+      if (query && !((s.legalName || "") + (s.tradeName || "") + (s.cnpj || "") + (s.category || "")).toLowerCase().includes(query.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => (a.legalName || "").localeCompare(b.legalName || "", "pt-BR"));
+
+  const toggleActive = async (supplier) => {
+    setSavingId(supplier.id);
     try {
-      await onSave(form);
-    } finally {
-      setBusy(false);
-    }
+      await setSupplierActive(supplier.id, !supplier.active);
+      showToast({ message: supplier.active ? "Fornecedor desativado." : "Fornecedor reativado." });
+    } catch (err) {
+      showToast({ message: (err && err.message) || "Não foi possível atualizar o fornecedor." });
+    } finally { setSavingId(""); }
+  };
+
+  const remove = async (supplier) => {
+    const ok = await confirmAction({
+      title: "Desativar fornecedor?",
+      body: "O fornecedor deixa de aparecer para novas compras. O histórico é preservado.",
+      entity: supplier.legalName, confirmLabel: "Desativar",
+    });
+    if (!ok) return;
+    if (supplier.active) await toggleActive(supplier);
+  };
+
+  const columns = useMemo(() => [
+    { key: "legalName", label: "Fornecedor", render: (s) => (
+      <>
+        <div className="cell-strong">{s.legalName}</div>
+        <div className="cell-muted" style={{ fontSize: 12 }}>{s.tradeName || "Sem nome fantasia"}{s.website ? " · " + s.website : ""}</div>
+      </>
+    ) },
+    { key: "cnpj", label: "CNPJ", mono: true },
+    { key: "category", label: "Categoria", render: (s) => s.category || <span className="cell-muted">—</span> },
+    { key: "location", label: "UF · Cidade", render: (s) => (s.uf || "—") + (s.city ? " · " + s.city : "") },
+    { key: "leadTimeDays", label: "Prazo", render: (s) => `${s.leadTimeDays} dia(s)` },
+    { key: "minimumOrderAmount", label: "Pedido mín.", mono: true, render: (s) => money(s.minimumOrderAmount) },
+    { key: "freightPolicy", label: "Frete", render: (s) => s.freightPolicy || <span className="cell-muted">—</span> },
+    { key: "paymentTerms", label: "Pagamento", render: (s) => s.paymentTerms || <span className="cell-muted">—</span> },
+    { key: "active", label: "Status", render: (s) => <Badge tone={s.active ? "good" : "neutral"} dot>{s.active ? "Ativo" : "Inativo"}</Badge> },
+  ], []);
+
+  return (
+    <div className="route-fade">
+      <PageHead
+        eyebrow="Parceiros & Lojas"
+        title="Fornecedores"
+        desc="Dados cadastrais, prazos de entrega e condições de frete dos fornecedores."
+        actions={(
+          <>
+            <button className="btn btn-secondary" onClick={refreshSuppliers}><Icon name="refresh" size={14} />Atualizar</button>
+            <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icon name="plus" size={14} />Novo fornecedor</button>
+          </>
+        )}
+      />
+
+      <div className="grid g-4" style={{ marginBottom: 16 }}>
+        {KPIS.map((k) => (
+          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
+          <SearchInput value={query} onChange={setQuery} placeholder="Buscar por razão social, fantasia, CNPJ..." />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <select className="input" style={{ width: "auto", minWidth: 150 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="all">Todas as categorias</option>
+              {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className="input" style={{ width: "auto" }} value={ufFilter} onChange={(e) => setUfFilter(e.target.value)}>
+              <option value="all">Toda UF</option>
+              {ufOptions.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+            </select>
+            {hasFilters && <button className="btn btn-ghost btn-sm" onClick={() => { setKpi("all"); setCategoryFilter("all"); setUfFilter("all"); }}><Icon name="x" size={13} />Limpar</button>}
+            <span className="card-head-sub">{rows.length} de {all.length}</span>
+          </div>
+        </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey="id"
+          empty="Nenhum fornecedor encontrado"
+          renderActions={(s) => (
+            <>
+              <RowIconBtn name="edit" onClick={() => setEditItem(s)} label="Editar" />
+              <span style={{ opacity: savingId === s.id ? 0.5 : 1, pointerEvents: savingId === s.id ? "none" : "auto", display: "inline-flex" }}>
+                <SwitchToggle on={s.active} onChange={() => toggleActive(s)} label={s.active ? "Desativar fornecedor" : "Reativar fornecedor"} />
+              </span>
+              <RowIconBtn name="trash" tone="danger" disabled={savingId === s.id || !s.active} onClick={() => remove(s)} label="Desativar" />
+            </>
+          )}
+        />
+      </div>
+
+      {(editItem || newOpen) && (
+        <SupplierModal
+          key={editItem ? editItem.id : "new"}
+          initialSupplier={editItem}
+          onClose={() => { setEditItem(null); setNewOpen(false); }}
+          onSave={async (payload) => {
+            try {
+              if (editItem) await updateSupplier(editItem.id, payload);
+              else await addSupplier(payload);
+              showToast({ message: editItem ? "Fornecedor atualizado." : "Fornecedor cadastrado." });
+              setEditItem(null); setNewOpen(false);
+            } catch (err) {
+              showToast({ message: (err && err.message) || "Não foi possível salvar o fornecedor." });
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Also used by quotes-screen for inline "add supplier" — keeps optional title/submitLabel. */
+function SupplierModal({ initialSupplier, title, submitLabel, onClose, onSave }) {
+  const editing = !!(initialSupplier && initialSupplier.id);
+  const [form, setForm] = useState(() => buildSupplierForm(initialSupplier));
+  const [errors, setErrors] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const change = (k, v) => {
+    setForm((p) => ({ ...p, [k]: (k === "leadTimeDays" || k === "minimumOrderAmount") ? Math.max(0, Number(v) || 0) : v }));
+    setErrors((p) => p.filter((x) => x !== k));
+  };
+
+  const submit = async () => {
+    const missing = [];
+    if (form.legalName.trim().length < 2) missing.push("legalName");
+    if (form.cnpj.trim().length < 11) missing.push("cnpj");
+    if (missing.length) { setErrors(missing); return; }
+    setBusy(true);
+    try { await onSave(form); } finally { setBusy(false); }
   };
 
   return (
-    <ModalShell open={true} onClose={busy ? () => {} : onClose} maxw={760}>
-      <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="truck" size={26} /></span>
-      <h2 className="fa-h3" style={{ fontSize: 20 }}>{title}</h2>
-      <p className="fa-muted" style={{ fontSize: 13.5, marginTop: 6, marginBottom: 18 }}>
-        Cadastre os dados comerciais do fornecedor para uso no recebimento de mercadorias e na gestão de estoque.
-      </p>
-      <div className="fa-form2">
-        <div className="fa-field fa-span2"><label>Razão social *</label><input className="fa-input" value={form.legalName} onChange={(e) => set('legalName', e.target.value)} placeholder="Ex.: Distribuidora Saúde Total Ltda." /></div>
-        <div className="fa-field"><label>Nome fantasia</label><input className="fa-input" value={form.tradeName} onChange={(e) => set('tradeName', e.target.value)} /></div>
-        <div className="fa-field"><label>CNPJ *</label><input className="fa-input" value={form.cnpj} onChange={(e) => set('cnpj', e.target.value)} placeholder="00.000.000/0000-00" /></div>
-        <div className="fa-field"><label>Categoria</label><input className="fa-input" value={form.category} onChange={(e) => set('category', e.target.value)} placeholder="Ex.: Distribuidora, Fabricante" /></div>
-        <div className="fa-field"><label>Site</label><input className="fa-input" value={form.website} onChange={(e) => set('website', e.target.value)} placeholder="https://" /></div>
-        <div className="fa-field"><label>Telefone</label><input className="fa-input" value={form.phone} onChange={(e) => set('phone', e.target.value)} /></div>
-        <div className="fa-field"><label>E-mail</label><input className="fa-input" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} /></div>
-        <div className="fa-field"><label>Contato responsável</label><input className="fa-input" value={form.contactPersonName} onChange={(e) => set('contactPersonName', e.target.value)} /></div>
-        <div className="fa-field">
-          <label>UF</label>
-          <select className="fa-select" value={form.uf} onChange={(e) => set('uf', e.target.value)}>
-            <option value="">Selecione</option>
-            {UF_OPTIONS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-          </select>
-        </div>
-        <div className="fa-field"><label>Cidade</label><input className="fa-input" value={form.city} onChange={(e) => set('city', e.target.value)} /></div>
-        <div className="fa-field fa-span2"><label>Endereço</label><input className="fa-input" value={form.addressLine} onChange={(e) => set('addressLine', e.target.value)} /></div>
-        <div className="fa-field"><label>Prazo de entrega (dias)</label><input className="fa-input" type="number" min="0" value={form.leadTimeDays} onChange={(e) => set('leadTimeDays', Number(e.target.value || 0))} /></div>
-        <div className="fa-field"><label>Pedido mínimo (R$)</label><input className="fa-input" type="number" step="0.01" min="0" value={form.minimumOrderAmount} onChange={(e) => set('minimumOrderAmount', Number(e.target.value || 0))} /></div>
-        <div className="fa-field"><label>Frete</label><input className="fa-input" value={form.freightPolicy} onChange={(e) => set('freightPolicy', e.target.value)} placeholder="Ex.: CIF, FOB, R$ 50 fixo" /></div>
-        <div className="fa-field"><label>Condição de pagamento</label><input className="fa-input" value={form.paymentTerms} onChange={(e) => set('paymentTerms', e.target.value)} placeholder="Ex.: 30/60/90 dias" /></div>
-        <div className="fa-field fa-span2"><label>Observações</label><input className="fa-input" value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
-      </div>
-      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-        <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!valid || busy} onClick={handleSave}><Icon name="check" size={16} />{submitLabel}</button>
-      </div>
-    </ModalShell>
+    <Modal
+      open
+      onClose={busy ? () => {} : onClose}
+      title={title || (editing ? "Editar fornecedor" : "Novo fornecedor")}
+      wide
+      footer={(
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>
+            <Icon name="check" size={14} />{submitLabel || (editing ? "Salvar alterações" : "Cadastrar fornecedor")}
+          </button>
+        </>
+      )}
+    >
+      <FormGrid
+        fields={[
+          { key: "legalName", label: "Razão social", required: true, full: true },
+          { key: "tradeName", label: "Nome fantasia" },
+          { key: "cnpj", label: "CNPJ", required: true, placeholder: "00.000.000/0000-00" },
+          { key: "category", label: "Categoria", placeholder: "Ex.: Medicamentos, Dermocosméticos" },
+          { key: "contactPersonName", label: "Contato" },
+          { key: "email", label: "E-mail comercial", type: "email" },
+          { key: "phone", label: "Telefone" },
+          { key: "website", label: "Website" },
+          { key: "uf", label: "UF", type: "select", options: UF_OPTIONS },
+          { key: "city", label: "Cidade" },
+          { key: "addressLine", label: "Endereço", full: true },
+          { key: "leadTimeDays", label: "Prazo de entrega (dias)", type: "number" },
+          { key: "minimumOrderAmount", label: "Pedido mínimo (R$)", type: "number" },
+          { key: "freightPolicy", label: "Política de frete", placeholder: "CIF, FOB, grátis acima de..." },
+          { key: "paymentTerms", label: "Condições de pagamento", placeholder: "Ex.: 30/60/90 dias" },
+          { key: "notes", label: "Observações", type: "textarea", full: true },
+        ]}
+        values={form}
+        onChange={change}
+        errors={errors}
+      />
+    </Modal>
   );
 }
 

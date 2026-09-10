@@ -1,258 +1,211 @@
-import React, { useEffect, useState } from "react";
-import { ModalShell } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { Topbar } from "../core/internal-shell.jsx";
-import { InventoryKpi } from "./inventory-screen.jsx";
-
-const UF_OPTIONS = [
-  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
-  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
-];
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
+  Badge, RowIconBtn, SearchInput, KpiChip, confirmAction, showToast,
+} from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Cadastro de lojas (filiais) do tenant. */
-function StoresScreen({ ctx }) {
-  const { storeDirectory, refreshStoreDirectory, addStoreEntry, updateStoreEntry, setStoreEntryActive, notify, onLogout } = ctx;
-  const [q, setQ] = useState('');
-  const [kpiFilter, setKpiFilter] = useState('all');
-  const [ufFilter, setUfFilter] = useState('all');
-  const [editStore, setEditStore] = useState(null);
-  const [newOpen, setNewOpen] = useState(false);
-  const [savingId, setSavingId] = useState('');
 
-  useEffect(() => {
-    refreshStoreDirectory && refreshStoreDirectory();
-  }, []);
+const UF_OPTIONS = [
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
+  "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+];
 
-  const allStores = storeDirectory || [];
-  const activeCount = allStores.filter((store) => store.active).length;
-  const inactiveCount = allStores.filter((store) => !store.active).length;
-  const noCnpjCount = allStores.filter((store) => !store.cnpj).length;
-  const ufOptions = UF_OPTIONS.filter((uf) => allStores.some((store) => store.stateCode === uf));
-  const hasExtraFilters = kpiFilter !== 'all' || ufFilter !== 'all';
-
-  const rows = allStores.filter((store) => {
-    if (kpiFilter === 'active' && !store.active) return false;
-    if (kpiFilter === 'inactive' && store.active) return false;
-    if (kpiFilter === 'no_cnpj' && store.cnpj) return false;
-    if (ufFilter !== 'all' && store.stateCode !== ufFilter) return false;
-    if (q && !(store.name + store.code + store.city + store.cnpj).toLowerCase().includes(q.toLowerCase())) return false;
-    return true;
-  }).sort((left, right) => (left.name || '').localeCompare(right.name || '', 'pt-BR'));
-
-  const clearFilters = () => {
-    setKpiFilter('all');
-    setUfFilter('all');
-  };
-
-  const handleToggleActive = async (store) => {
-    setSavingId(store.id);
-    try {
-      await setStoreEntryActive(store.id, !store.active);
-      notify && notify(store.active ? 'Loja desativada.' : 'Loja reativada.', 'success');
-    } catch (error) {
-      notify && notify(error && error.message ? error.message : 'Não foi possível atualizar a loja.', 'warn');
-    } finally {
-      setSavingId('');
-    }
-  };
-
-  return (
-    <>
-      <Topbar title="Lojas" sub={rows.length + ' loja(s) exibida(s)'} onLogout={onLogout} ctx={ctx}>
-        <div className="ph-topsearch">
-          <Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} />
-          <input placeholder="Buscar por nome, código, cidade ou CNPJ" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-      </Topbar>
-
-      <div className="ph-content ph-content-wide">
-        <div className="inv-kpis">
-          <InventoryKpi icon="grid" label="Todas" value={allStores.length} active={kpiFilter === 'all'} onClick={() => setKpiFilter('all')} />
-          <InventoryKpi icon="check" label="Ativas" value={activeCount} tone="success" active={kpiFilter === 'active'} onClick={() => setKpiFilter('active')} />
-          <InventoryKpi icon="pause" label="Inativas" value={inactiveCount} active={kpiFilter === 'inactive'} onClick={() => setKpiFilter('inactive')} />
-          <InventoryKpi icon="edit" label="Sem CNPJ" value={noCnpjCount} tone={noCnpjCount ? 'warn' : undefined} active={kpiFilter === 'no_cnpj'} onClick={() => setKpiFilter('no_cnpj')} />
-        </div>
-
-        <div className="inv-toolbar">
-          <div className="inv-toolbar-row">
-            <div className="inv-actions">
-              <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={refreshStoreDirectory}><Icon name="repeat" size={15} />Atualizar</button>
-              <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={() => setNewOpen(true)}><Icon name="plus" size={15} stroke={2.2} />Nova loja</button>
-            </div>
-          </div>
-          <div className="inv-toolbar-row is-filters">
-            <div className="inv-filter-field">
-              <label>UF</label>
-              <select className="fa-select" style={{ minWidth: 120 }} value={ufFilter} onChange={(e) => setUfFilter(e.target.value)}>
-                <option value="all">Todas as UFs</option>
-                {ufOptions.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-              </select>
-            </div>
-            {hasExtraFilters && (
-              <button className="fa-btn fa-btn-ghost fa-btn-sm" onClick={clearFilters}>
-                <Icon name="close" size={14} />Limpar filtros
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="ph-table-wrap">
-          <table className="ph-table">
-            <thead>
-              <tr>
-                <th>Loja</th>
-                <th>Código</th>
-                <th>UF · Cidade</th>
-                <th>CNPJ</th>
-                <th>Telefone</th>
-                <th>Principal</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((store) => (
-                <tr key={store.id}>
-                  <td>
-                    <div className="ph-td-name">{store.name}</div>
-                    <div className="ph-cell-sub">{store.addressLine || 'Endereço não informado'}</div>
-                  </td>
-                  <td className="fa-mono">{store.code}</td>
-                  <td>{store.stateCode || '—'}{store.city ? ' · ' + store.city : ''}</td>
-                  <td className="fa-mono">{store.cnpj || '—'}</td>
-                  <td>{store.phone || '—'}</td>
-                  <td>{store.isPrimary ? <span className="fa-badge fa-badge-health">Principal</span> : '—'}</td>
-                  <td><span className="fa-badge" style={store.active ? { background: 'var(--fa-success-soft)', color: 'var(--fa-success)' } : { background: 'var(--fa-mist-2)', color: 'var(--fa-ink-3)' }}>{store.active ? 'Ativa' : 'Inativa'}</span></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setEditStore(store)}><Icon name="edit" size={14} />Editar</button>
-                    <button
-                      className="fa-iconbtn"
-                      style={{ marginLeft: 8, width: 34, height: 34 }}
-                      disabled={savingId === store.id}
-                      onClick={() => handleToggleActive(store)}
-                      aria-label={store.active ? 'Desativar loja' : 'Reativar loja'}
-                      title={store.active ? 'Desativar loja' : 'Reativar loja'}
-                    >
-                      <Icon name={store.active ? 'trash' : 'repeat'} size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!rows.length && (
-            <div className="ph-empty">
-              <span className="fa-iconbox"><Icon name="pin" size={28} /></span>
-              <div>Nenhuma loja encontrada.</div>
-              {(hasExtraFilters || q) && (
-                <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ marginTop: 10 }} onClick={() => { clearFilters(); setQ(''); }}>
-                  <Icon name="close" size={14} />Limpar busca e filtros
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {editStore && (
-        <StoreModal
-          title="Editar loja"
-          submitLabel="Salvar alterações"
-          initialStore={editStore}
-          onClose={() => setEditStore(null)}
-          onSave={async (payload) => {
-            try {
-              await updateStoreEntry(editStore.id, payload);
-              setEditStore(null);
-              notify && notify('Loja atualizada.', 'success');
-            } catch (error) {
-              notify && notify(error && error.message ? error.message : 'Não foi possível atualizar a loja.', 'warn');
-            }
-          }}
-        />
-      )}
-      {newOpen && (
-        <StoreModal
-          title="Nova loja"
-          submitLabel="Cadastrar loja"
-          onClose={() => setNewOpen(false)}
-          onSave={async (payload) => {
-            try {
-              await addStoreEntry(payload);
-              setNewOpen(false);
-              notify && notify('Loja cadastrada.', 'success');
-            } catch (error) {
-              notify && notify(error && error.message ? error.message : 'Não foi possível cadastrar a loja.', 'warn');
-            }
-          }}
-        />
-      )}
-    </>
-  );
-}
+const KPIS = [
+  { key: "all", label: "Todas", icon: "store" },
+  { key: "active", label: "Ativas", icon: "check", tone: "good" },
+  { key: "inactive", label: "Inativas", icon: "pause" },
+];
 
 function buildStoreForm(store) {
   return {
-    code: store && store.code || '',
-    name: store && store.name || '',
-    addressLine: store && store.addressLine || '',
-    district: store && store.district || '',
-    city: store && store.city || '',
-    stateCode: store && store.stateCode || '',
-    postalCode: store && store.postalCode || '',
-    phone: store && store.phone || '',
-    cnpj: store && store.cnpj || '',
+    code: (store && store.code) || "",
+    name: (store && store.name) || "",
+    addressLine: (store && store.addressLine) || "",
+    district: (store && store.district) || "",
+    city: (store && store.city) || "",
+    stateCode: (store && store.stateCode) || "",
+    postalCode: (store && store.postalCode) || "",
+    phone: (store && store.phone) || "",
+    cnpj: (store && store.cnpj) || "",
     isPrimary: store ? !!store.isPrimary : false,
   };
 }
 
-function StoreModal({ title, submitLabel, initialStore, onClose, onSave }) {
-  const [form, setForm] = useState(() => buildStoreForm(initialStore));
-  const [busy, setBusy] = useState(false);
-  const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const valid = form.code.trim().length >= 2 && form.name.trim().length >= 2;
+function StoresScreen({ ctx }) {
+  const { storeDirectory, refreshStoreDirectory, addStoreEntry, updateStoreEntry, setStoreEntryActive } = ctx;
 
-  const handleSave = async () => {
-    setBusy(true);
+  const [query, setQuery] = useState("");
+  const [kpi, setKpi] = useState("all");
+  const [editItem, setEditItem] = useState(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [savingId, setSavingId] = useState("");
+
+  useEffect(() => { if (refreshStoreDirectory) refreshStoreDirectory(); }, []);
+
+  const all = storeDirectory || [];
+  const kpiValues = {
+    all: all.length,
+    active: all.filter((s) => s.active).length,
+    inactive: all.filter((s) => !s.active).length,
+  };
+
+  const rows = all
+    .filter((s) => {
+      if (kpi === "active" && !s.active) return false;
+      if (kpi === "inactive" && s.active) return false;
+      if (query && !((s.name || "") + (s.code || "") + (s.city || "") + (s.cnpj || "")).toLowerCase().includes(query.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR"));
+
+  const toggleActive = async (store) => {
+    setSavingId(store.id);
     try {
-      await onSave(form);
-    } finally {
-      setBusy(false);
-    }
+      await setStoreEntryActive(store.id, !store.active);
+      showToast({ message: store.active ? "Loja desativada." : "Loja reativada." });
+    } catch (err) {
+      showToast({ message: (err && err.message) || "Não foi possível atualizar a loja." });
+    } finally { setSavingId(""); }
+  };
+
+  const remove = async (store) => {
+    const ok = await confirmAction({
+      title: "Desativar loja?",
+      body: "A loja deixa de operar no sistema enquanto estiver inativa. O histórico é preservado.",
+      entity: store.name, confirmLabel: "Desativar",
+    });
+    if (!ok) return;
+    if (store.active) await toggleActive(store);
+  };
+
+  const columns = useMemo(() => [
+    { key: "name", label: "Loja", render: (s) => (
+      <>
+        <div className="cell-strong">{s.name}</div>
+        <div className="cell-muted" style={{ fontSize: 12 }}>{s.addressLine || "Endereço não informado"}</div>
+      </>
+    ) },
+    { key: "code", label: "Código", mono: true },
+    { key: "location", label: "UF · Cidade", render: (s) => (s.stateCode || "—") + (s.city ? " · " + s.city : "") },
+    { key: "cnpj", label: "CNPJ", mono: true, render: (s) => s.cnpj || <span className="cell-muted">—</span> },
+    { key: "phone", label: "Telefone", render: (s) => s.phone || <span className="cell-muted">—</span> },
+    { key: "isPrimary", label: "Principal", render: (s) => (s.isPrimary ? <Badge tone="good">Principal</Badge> : <span className="cell-muted">—</span>) },
+    { key: "active", label: "Status", render: (s) => <Badge tone={s.active ? "good" : "neutral"} dot>{s.active ? "Ativa" : "Inativa"}</Badge> },
+  ], []);
+
+  return (
+    <div className="route-fade">
+      <PageHead
+        eyebrow="Parceiros & Lojas"
+        title="Lojas"
+        desc="Unidades da rede Farmaura — endereço, CNPJ e horário de funcionamento."
+        actions={(
+          <>
+            <button className="btn btn-secondary" onClick={refreshStoreDirectory}><Icon name="refresh" size={14} />Atualizar</button>
+            <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icon name="plus" size={14} />Nova loja</button>
+          </>
+        )}
+      />
+
+      <div className="grid g-3" style={{ marginBottom: 16 }}>
+        {KPIS.map((k) => (
+          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
+          <SearchInput value={query} onChange={setQuery} placeholder="Buscar por nome, código, cidade ou CNPJ..." />
+          <span className="card-head-sub">{rows.length} de {all.length}</span>
+        </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey="id"
+          empty="Nenhuma loja encontrada"
+          renderActions={(s) => (
+            <>
+              <RowIconBtn name="edit" onClick={() => setEditItem(s)} label="Editar" />
+              <span style={{ opacity: savingId === s.id ? 0.5 : 1, pointerEvents: savingId === s.id ? "none" : "auto", display: "inline-flex" }}>
+                <SwitchToggle on={s.active} onChange={() => toggleActive(s)} label={s.active ? "Desativar loja" : "Reativar loja"} />
+              </span>
+              <RowIconBtn name="trash" tone="danger" disabled={savingId === s.id || !s.active} onClick={() => remove(s)} label="Desativar" />
+            </>
+          )}
+        />
+      </div>
+
+      {(editItem || newOpen) && (
+        <StoreModal
+          key={editItem ? editItem.id : "new"}
+          initial={editItem}
+          onClose={() => { setEditItem(null); setNewOpen(false); }}
+          onSave={async (payload) => {
+            try {
+              if (editItem) await updateStoreEntry(editItem.id, payload);
+              else await addStoreEntry(payload);
+              showToast({ message: editItem ? "Loja atualizada." : "Loja cadastrada." });
+              setEditItem(null); setNewOpen(false);
+            } catch (err) {
+              showToast({ message: (err && err.message) || "Não foi possível salvar a loja." });
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function StoreModal({ initial, onClose, onSave }) {
+  const editing = !!(initial && initial.id);
+  const [form, setForm] = useState(() => buildStoreForm(initial));
+  const [errors, setErrors] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const change = (k, v) => { setForm((p) => ({ ...p, [k]: v })); setErrors((p) => p.filter((x) => x !== k)); };
+
+  const submit = async () => {
+    const missing = [];
+    if (form.code.trim().length < 2) missing.push("code");
+    if (form.name.trim().length < 2) missing.push("name");
+    if (missing.length) { setErrors(missing); return; }
+    setBusy(true);
+    try { await onSave(form); } finally { setBusy(false); }
   };
 
   return (
-    <ModalShell open={true} onClose={busy ? () => {} : onClose} maxw={760}>
-      <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="pin" size={26} /></span>
-      <h2 className="fa-h3" style={{ fontSize: 20 }}>{title}</h2>
-      <p className="fa-muted" style={{ fontSize: 13.5, marginTop: 6, marginBottom: 18 }}>
-        Cadastre os dados da loja física — eles são usados no estoque, no PDV e na roteirização de entregas.
-      </p>
-      <div className="fa-form2">
-        <div className="fa-field"><label>Código *</label><input className="fa-input" value={form.code} onChange={(e) => set('code', e.target.value)} placeholder="Ex.: LOJA-01" /></div>
-        <div className="fa-field"><label>Nome *</label><input className="fa-input" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Ex.: Farmaura Centro" /></div>
-        <div className="fa-field fa-span2"><label>Endereço</label><input className="fa-input" value={form.addressLine} onChange={(e) => set('addressLine', e.target.value)} /></div>
-        <div className="fa-field"><label>Bairro</label><input className="fa-input" value={form.district} onChange={(e) => set('district', e.target.value)} /></div>
-        <div className="fa-field"><label>Cidade</label><input className="fa-input" value={form.city} onChange={(e) => set('city', e.target.value)} /></div>
-        <div className="fa-field">
-          <label>UF</label>
-          <select className="fa-select" value={form.stateCode} onChange={(e) => set('stateCode', e.target.value)}>
-            <option value="">Selecione</option>
-            {UF_OPTIONS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-          </select>
-        </div>
-        <div className="fa-field"><label>CEP</label><input className="fa-input" value={form.postalCode} onChange={(e) => set('postalCode', e.target.value)} /></div>
-        <div className="fa-field"><label>Telefone</label><input className="fa-input" value={form.phone} onChange={(e) => set('phone', e.target.value)} /></div>
-        <div className="fa-field"><label>CNPJ</label><input className="fa-input" value={form.cnpj} onChange={(e) => set('cnpj', e.target.value)} placeholder="00.000.000/0000-00" /></div>
-      </div>
-      <label className="fa-check" data-on={form.isPrimary ? '1' : '0'} onClick={() => set('isPrimary', !form.isPrimary)} style={{ marginTop: 12 }}>
-        <span className="box"><Icon name="check" size={14} stroke={2.6} /></span>Loja principal (matriz)
-      </label>
-      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-        <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!valid || busy} onClick={handleSave}><Icon name="check" size={16} />{submitLabel}</button>
-      </div>
-    </ModalShell>
+    <Modal
+      open
+      onClose={busy ? () => {} : onClose}
+      title={editing ? "Editar loja" : "Nova loja"}
+      wide
+      footer={(
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>
+            <Icon name="check" size={14} />{editing ? "Salvar alterações" : "Cadastrar loja"}
+          </button>
+        </>
+      )}
+    >
+      <FormGrid
+        fields={[
+          { key: "code", label: "Código", required: true, placeholder: "Ex.: LOJA-01" },
+          { key: "name", label: "Nome", required: true, placeholder: "Ex.: Farmaura Centro" },
+          { key: "addressLine", label: "Endereço", full: true },
+          { key: "district", label: "Bairro" },
+          { key: "city", label: "Cidade" },
+          { key: "stateCode", label: "UF", type: "select", options: UF_OPTIONS },
+          { key: "postalCode", label: "CEP" },
+          { key: "phone", label: "Telefone" },
+          { key: "cnpj", label: "CNPJ", placeholder: "00.000.000/0000-00" },
+          { key: "isPrimary", label: "Loja principal", type: "switch" },
+        ]}
+        values={form}
+        onChange={change}
+        errors={errors}
+      />
+    </Modal>
   );
 }
 

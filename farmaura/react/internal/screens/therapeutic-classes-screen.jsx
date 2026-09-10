@@ -1,384 +1,245 @@
-import React, { useEffect, useState } from "react";
-import { ModalShell, Toggle } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { Topbar } from "../core/internal-shell.jsx";
-import { InventoryKpi } from "./inventory-screen.jsx";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
+  Badge, RowIconBtn, SearchInput, KpiChip, RecoverModal, confirmAction, showToast,
+} from "../core/internal-ui.jsx";
 
-/* FARMAURA Console — Cadastro de classes terapêuticas. */
+/* FARMAURA Console — Cadastro de classes terapêuticas, vinculadas a uma categoria de produto. */
+
+const KPIS = [
+  { key: "all", label: "Todas", icon: "pill" },
+  { key: "active", label: "Ativas", icon: "check", tone: "good" },
+  { key: "inactive", label: "Inativas", icon: "pause" },
+  { key: "no_category", label: "Sem categoria", icon: "grid", tone: "warning" },
+];
+
 function TherapeuticClassesScreen({ ctx }) {
   const {
     therapeuticClasses, refreshTherapeuticClasses, categories, refreshCategories,
-    addTherapeuticClass, updateTherapeuticClass, setTherapeuticClassActive, setTherapeuticClassDiscarded,
-    notify, onLogout, user,
+    addTherapeuticClass, updateTherapeuticClass, setTherapeuticClassActive, setTherapeuticClassDiscarded, user,
   } = ctx;
   const isAdmin = !!(user && window.FA_ACCESS && user.role === window.FA_ACCESS.ROLE.ADMIN);
-  const [q, setQ] = useState('');
-  const [kpiFilter, setKpiFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [editClass, setEditClass] = useState(null);
+
+  const [query, setQuery] = useState("");
+  const [kpi, setKpi] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [editItem, setEditItem] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
-  const [savingId, setSavingId] = useState('');
-  const [discardTarget, setDiscardTarget] = useState(null);
+  const [savingId, setSavingId] = useState("");
   const [recoverOpen, setRecoverOpen] = useState(false);
-  const [selectedRecoverIds, setSelectedRecoverIds] = useState(() => new Set());
-  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
-    refreshTherapeuticClasses && refreshTherapeuticClasses();
-    refreshCategories && refreshCategories();
+    if (refreshTherapeuticClasses) refreshTherapeuticClasses();
+    if (refreshCategories) refreshCategories();
   }, []);
 
-  const availableClasses = (therapeuticClasses || []).filter((item) => !item.discarded);
-  const activeCount = availableClasses.filter((item) => item.active).length;
-  const inactiveCount = availableClasses.filter((item) => !item.active).length;
-  const noCategoryCount = availableClasses.filter((item) => !item.categoryId).length;
-  const categoryOptions = (categories || []).filter((category) => category.active && !category.discarded);
-  const hasExtraFilters = kpiFilter !== 'all' || categoryFilter !== 'all';
-
-  const rows = availableClasses.filter((item) => {
-    if (kpiFilter === 'active' && !item.active) return false;
-    if (kpiFilter === 'inactive' && item.active) return false;
-    if (kpiFilter === 'no_category' && item.categoryId) return false;
-    if (categoryFilter !== 'all' && item.categoryId !== categoryFilter) return false;
-    if (q && !(item.name + item.description).toLowerCase().includes(q.toLowerCase())) return false;
-    return true;
-  }).sort((left, right) => (left.name || '').localeCompare(right.name || '', 'pt-BR'));
-
-  const clearFilters = () => {
-    setKpiFilter('all');
-    setCategoryFilter('all');
+  const available = (therapeuticClasses || []).filter((c) => !c.discarded);
+  const discarded = (therapeuticClasses || []).filter((c) => c.discarded);
+  const categoryOptions = (categories || []).filter((c) => c.active && !c.discarded);
+  const kpiValues = {
+    all: available.length,
+    active: available.filter((c) => c.active).length,
+    inactive: available.filter((c) => !c.active).length,
+    no_category: available.filter((c) => !c.categoryId).length,
   };
 
-  const handleToggleActive = async (item) => {
+  const hasFilters = kpi !== "all" || categoryFilter !== "all";
+  const rows = available
+    .filter((c) => {
+      if (kpi === "active" && !c.active) return false;
+      if (kpi === "inactive" && c.active) return false;
+      if (kpi === "no_category" && c.categoryId) return false;
+      if (categoryFilter !== "all" && c.categoryId !== categoryFilter) return false;
+      if (query && !((c.name || "") + (c.description || "")).toLowerCase().includes(query.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR"));
+
+  const toggleActive = async (item) => {
     setSavingId(item.id);
     try {
       await setTherapeuticClassActive(item.id, !item.active);
-      notify && notify(item.active ? 'Classe terapêutica desativada.' : 'Classe terapêutica ativada.', 'success');
-    } catch (error) {
-      notify && notify(error && error.message ? error.message : 'Não foi possível atualizar a classe terapêutica.', 'warn');
-    } finally {
-      setSavingId('');
-    }
+      showToast({ message: item.active ? "Classe desativada." : "Classe ativada." });
+    } catch (err) {
+      showToast({ message: (err && err.message) || "Não foi possível atualizar a classe." });
+    } finally { setSavingId(""); }
   };
 
-  const confirmDiscard = async () => {
-    const item = discardTarget;
-    if (!item) return;
+  const discard = async (item) => {
+    const ok = await confirmAction({
+      title: "Descartar classe terapêutica?",
+      body: "Deixa de aparecer na lista. Um administrador pode recuperá-la depois.",
+      entity: item.name, danger: true, confirmLabel: "Descartar",
+    });
+    if (!ok) return;
     setSavingId(item.id);
     try {
       await setTherapeuticClassDiscarded(item.id, true);
-      notify && notify('Classe terapêutica descartada.', 'success');
-      setDiscardTarget(null);
-      setEditClass((prev) => (prev && prev.id === item.id ? null : prev));
-    } catch (error) {
-      notify && notify(error && error.message ? error.message : 'Não foi possível descartar a classe terapêutica.', 'warn');
-    } finally {
-      setSavingId('');
-    }
+      showToast({ message: "Classe descartada." });
+      setEditItem((p) => (p && p.id === item.id ? null : p));
+    } catch (err) {
+      showToast({ message: (err && err.message) || "Não foi possível descartar." });
+    } finally { setSavingId(""); }
   };
 
-  const discardedClasses = (therapeuticClasses || []).filter((item) => item.discarded);
-
-  const openRecoverModal = () => {
-    setSelectedRecoverIds(new Set());
-    setRecoverOpen(true);
-  };
-
-  const toggleRecoverSelection = (classId) => {
-    setSelectedRecoverIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(classId)) next.delete(classId); else next.add(classId);
-      return next;
-    });
-  };
-
-  const recoverClasses = async (ids) => {
-    if (!ids.length) return;
-    setRecovering(true);
-    try {
-      for (const id of ids) {
-        await setTherapeuticClassDiscarded(id, false);
-      }
-      notify && notify(ids.length + ' classe(s) recuperada(s).', 'success');
-      setRecoverOpen(false);
-    } catch (error) {
-      notify && notify(error && error.message ? error.message : 'Não foi possível recuperar as classes selecionadas.', 'warn');
-    } finally {
-      setRecovering(false);
-    }
-  };
-
-  const confirmRecoverAll = () => recoverClasses(discardedClasses.map((item) => item.id));
-  const confirmRecoverSelected = () => recoverClasses(Array.from(selectedRecoverIds));
+  const columns = useMemo(() => [
+    { key: "name", label: "Classe terapêutica", render: (c) => <span className="cell-strong">{c.name}</span> },
+    { key: "categoryName", label: "Categoria", render: (c) => c.categoryName || <span className="cell-muted">—</span> },
+    { key: "description", label: "Descrição", render: (c) => c.description || <span className="cell-muted">—</span> },
+    { key: "active", label: "Status", render: (c) => <Badge tone={c.active ? "good" : "neutral"} dot>{c.active ? "Ativa" : "Inativa"}</Badge> },
+  ], []);
 
   return (
-    <>
-      <Topbar title="Classes terapêuticas" sub={rows.length + ' classe(s) exibida(s)'} onLogout={onLogout} ctx={ctx}>
-        <div className="ph-topsearch">
-          <Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} />
-          <input placeholder="Buscar por nome ou descrição" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-      </Topbar>
-
-      <div className="ph-content ph-content-wide">
-        <div className="inv-kpis">
-          <InventoryKpi icon="pill" label="Todas" value={availableClasses.length} active={kpiFilter === 'all'} onClick={() => setKpiFilter('all')} />
-          <InventoryKpi icon="check" label="Ativas" value={activeCount} tone="success" active={kpiFilter === 'active'} onClick={() => setKpiFilter('active')} />
-          <InventoryKpi icon="pause" label="Inativas" value={inactiveCount} active={kpiFilter === 'inactive'} onClick={() => setKpiFilter('inactive')} />
-          <InventoryKpi icon="grid" label="Sem categoria" value={noCategoryCount} tone={noCategoryCount ? 'warn' : undefined} active={kpiFilter === 'no_category'} onClick={() => setKpiFilter('no_category')} />
-          {isAdmin && (
-            <InventoryKpi
-              icon="trash"
-              label="Descartadas"
-              value={discardedClasses.length}
-              tone={discardedClasses.length ? 'error' : undefined}
-              active={false}
-              onClick={discardedClasses.length ? openRecoverModal : undefined}
-            />
-          )}
-        </div>
-
-        <div className="inv-toolbar">
-          <div className="inv-toolbar-row">
-            <div className="inv-actions">
-              {isAdmin && (
-                <button
-                  className="fa-btn fa-btn-soft fa-btn-sm"
-                  disabled={!discardedClasses.length}
-                  onClick={openRecoverModal}
-                  title={discardedClasses.length ? 'Recuperar classes descartadas' : 'Não há classes descartadas'}
-                >
-                  <Icon name="repeat" size={15} />Recuperar descartadas{discardedClasses.length ? ' (' + discardedClasses.length + ')' : ''}
-                </button>
-              )}
-              <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={refreshTherapeuticClasses}><Icon name="repeat" size={15} />Atualizar</button>
-              <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={() => setNewOpen(true)}><Icon name="plus" size={15} stroke={2.2} />Nova classe</button>
-            </div>
-          </div>
-          <div className="inv-toolbar-row is-filters">
-            <div className="inv-filter-field">
-              <label>Categoria</label>
-              <select className="fa-select" style={{ minWidth: 170 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                <option value="all">Todas as categorias</option>
-                {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-              </select>
-            </div>
-            {hasExtraFilters && (
-              <button className="fa-btn fa-btn-ghost fa-btn-sm" onClick={clearFilters}>
-                <Icon name="close" size={14} />Limpar filtros
+    <div className="route-fade">
+      <PageHead
+        eyebrow="Catálogo"
+        title="Classes terapêuticas"
+        desc="Classificação terapêutica dos produtos, vinculada a uma categoria do catálogo."
+        actions={(
+          <>
+            {isAdmin && discarded.length > 0 && (
+              <button className="btn btn-secondary" onClick={() => setRecoverOpen(true)}>
+                <Icon name="repeat" size={14} />Recuperar descartadas ({discarded.length})
               </button>
             )}
-          </div>
-        </div>
+            <button className="btn btn-secondary" onClick={refreshTherapeuticClasses}><Icon name="refresh" size={14} />Atualizar</button>
+            <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icon name="plus" size={14} />Nova classe</button>
+          </>
+        )}
+      />
 
-        <div className="ph-table-wrap">
-          <table className="ph-table">
-            <thead>
-              <tr>
-                <th>Classe terapêutica</th>
-                <th>Categoria</th>
-                <th>Descrição</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((item) => (
-                <tr key={item.id}>
-                  <td><div className="ph-td-name">{item.name}</div></td>
-                  <td>{item.categoryName || '—'}</td>
-                  <td>{item.description || '—'}</td>
-                  <td><span className="fa-badge" style={item.active ? { background: 'var(--fa-success-soft)', color: 'var(--fa-success)' } : { background: 'var(--fa-mist-2)', color: 'var(--fa-ink-3)' }}>{item.active ? 'Ativa' : 'Inativa'}</span></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setEditClass(item)}><Icon name="edit" size={14} />Editar</button>
-                    <span style={{ marginLeft: 12, display: 'inline-flex', verticalAlign: 'middle', opacity: savingId === item.id ? 0.5 : 1, pointerEvents: savingId === item.id ? 'none' : 'auto' }}>
-                      <Toggle
-                        on={item.active}
-                        onChange={() => handleToggleActive(item)}
-                        ariaLabel={item.active ? 'Desativar classe' : 'Ativar classe'}
-                      />
-                    </span>
-                    <button
-                      className="fa-iconbtn"
-                      style={{ marginLeft: 8, width: 34, height: 34 }}
-                      disabled={savingId === item.id}
-                      onClick={() => setDiscardTarget(item)}
-                      aria-label="Descartar classe"
-                      title="Descartar classe"
-                    >
-                      <Icon name="trash" size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!rows.length && (
-            <div className="ph-empty">
-              <span className="fa-iconbox"><Icon name="pill" size={28} /></span>
-              <div>Nenhuma classe terapêutica encontrada.</div>
-              {(hasExtraFilters || q) && (
-                <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ marginTop: 10 }} onClick={() => { clearFilters(); setQ(''); }}>
-                  <Icon name="close" size={14} />Limpar busca e filtros
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+      <div className="grid g-4" style={{ marginBottom: 16 }}>
+        {KPIS.map((k) => (
+          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
+        ))}
       </div>
 
-      {editClass && (
-        <TherapeuticClassModal
-          title="Editar classe terapêutica"
-          submitLabel="Salvar alterações"
-          initialClass={editClass}
-          categories={categoryOptions}
-          activeBusy={savingId === editClass.id}
-          onToggleActive={() => handleToggleActive(editClass)}
-          onDiscard={() => setDiscardTarget(editClass)}
-          onClose={() => setEditClass(null)}
-          onSave={async (payload) => {
-            try {
-              await updateTherapeuticClass(editClass.id, payload);
-              setEditClass(null);
-              notify && notify('Classe terapêutica atualizada.', 'success');
-            } catch (error) {
-              notify && notify(error && error.message ? error.message : 'Não foi possível atualizar a classe terapêutica.', 'warn');
-            }
-          }}
-        />
-      )}
-      {newOpen && (
-        <TherapeuticClassModal
-          title="Nova classe terapêutica"
-          submitLabel="Cadastrar classe"
-          categories={categoryOptions}
-          onClose={() => setNewOpen(false)}
-          onSave={async (payload) => {
-            try {
-              await addTherapeuticClass(payload);
-              setNewOpen(false);
-              notify && notify('Classe terapêutica cadastrada.', 'success');
-            } catch (error) {
-              notify && notify(error && error.message ? error.message : 'Não foi possível cadastrar a classe terapêutica.', 'warn');
-            }
-          }}
-        />
-      )}
-
-      {discardTarget && (
-        <ModalShell open={true} onClose={savingId === discardTarget.id ? () => {} : () => setDiscardTarget(null)} maxw={400}>
-          <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 14, background: '#FBEAE9', color: 'var(--fa-error)' }}><Icon name="trash" size={24} /></span>
-          <h2 className="fa-h3" style={{ fontSize: 20 }}>Descartar classe terapêutica?</h2>
-          <p className="fa-muted" style={{ fontSize: 13.5, marginTop: 6, marginBottom: 18 }}>
-            <strong>{discardTarget.name}</strong> será descartada e deixará de aparecer na lista de classes. Um administrador pode recuperá-la a qualquer momento em "Recuperar descartadas".
-          </p>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button className="fa-btn fa-btn-ghost fa-btn-block" disabled={savingId === discardTarget.id} onClick={() => setDiscardTarget(null)}>Cancelar</button>
-            <button className="fa-btn fa-btn-block" style={{ background: 'var(--fa-error)', color: '#fff', border: 'none' }} disabled={savingId === discardTarget.id} onClick={confirmDiscard}>
-              <Icon name="trash" size={15} />Descartar
-            </button>
+      <div className="card">
+        <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
+          <SearchInput value={query} onChange={setQuery} placeholder="Buscar por nome ou descrição..." />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <select className="input" style={{ width: "auto", minWidth: 170 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="all">Todas as categorias</option>
+              {categoryOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {hasFilters && <button className="btn btn-ghost btn-sm" onClick={() => { setKpi("all"); setCategoryFilter("all"); }}><Icon name="x" size={13} />Limpar</button>}
+            <span className="card-head-sub">{rows.length} de {available.length}</span>
           </div>
-        </ModalShell>
+        </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey="id"
+          empty="Nenhuma classe encontrada"
+          renderActions={(c) => (
+            <>
+              <RowIconBtn name="edit" onClick={() => setEditItem(c)} label="Editar" />
+              <span style={{ opacity: savingId === c.id ? 0.5 : 1, pointerEvents: savingId === c.id ? "none" : "auto", display: "inline-flex" }}>
+                <SwitchToggle on={c.active} onChange={() => toggleActive(c)} label={c.active ? "Desativar classe" : "Ativar classe"} />
+              </span>
+              <RowIconBtn name="trash" tone="danger" disabled={savingId === c.id} onClick={() => discard(c)} label="Descartar" />
+            </>
+          )}
+        />
+      </div>
+
+      {(editItem || newOpen) && (
+        <ClassModal
+          key={editItem ? editItem.id : "new"}
+          initial={editItem}
+          categoryOptions={categoryOptions}
+          activeBusy={editItem && savingId === editItem.id}
+          onToggleActive={editItem ? () => toggleActive(editItem) : undefined}
+          onDiscard={editItem ? () => discard(editItem) : undefined}
+          onClose={() => { setEditItem(null); setNewOpen(false); }}
+          onSave={async (payload) => {
+            try {
+              if (editItem) await updateTherapeuticClass(editItem.id, payload);
+              else await addTherapeuticClass(payload);
+              showToast({ message: editItem ? "Classe atualizada." : "Classe cadastrada." });
+              setEditItem(null); setNewOpen(false);
+            } catch (err) {
+              showToast({ message: (err && err.message) || "Não foi possível salvar a classe." });
+            }
+          }}
+        />
       )}
 
       {recoverOpen && (
-        <ModalShell open={true} onClose={recovering ? () => {} : () => setRecoverOpen(false)} maxw={480}>
-          <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="repeat" size={24} /></span>
-          <h2 className="fa-h3" style={{ fontSize: 20 }}>Recuperar classes descartadas</h2>
-          <p className="fa-muted" style={{ fontSize: 13.5, marginTop: 6, marginBottom: 18 }}>
-            Recupere todas de uma vez ou escolha individualmente quais classes devem voltar a aparecer na lista.
-          </p>
-          {discardedClasses.length ? (
-            <>
-              <button className="fa-btn fa-btn-primary fa-btn-block" disabled={recovering} onClick={confirmRecoverAll}>
-                <Icon name="repeat" size={15} />Recuperar todas ({discardedClasses.length})
-              </button>
-              <div className="ph-cell-sub" style={{ margin: '16px 0 8px' }}>Ou escolha quais recuperar:</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto', border: '1px solid var(--fa-mist)', borderRadius: 12, padding: 8 }}>
-                {discardedClasses.map((item) => (
-                  <label key={item.id} className="fa-check" data-on={selectedRecoverIds.has(item.id) ? '1' : '0'} onClick={() => toggleRecoverSelection(item.id)} style={{ padding: '6px 4px' }}>
-                    <span className="box"><Icon name="check" size={14} stroke={2.6} /></span>
-                    <span>{item.name}</span>
-                  </label>
-                ))}
-              </div>
-              <button
-                className="fa-btn fa-btn-soft fa-btn-block"
-                style={{ marginTop: 12 }}
-                disabled={recovering || !selectedRecoverIds.size}
-                onClick={confirmRecoverSelected}
-              >
-                <Icon name="check" size={15} />Recuperar selecionadas ({selectedRecoverIds.size})
-              </button>
-            </>
-          ) : (
-            <div className="ph-cell-sub">Nenhuma classe descartada no momento.</div>
-          )}
-          <button className="fa-btn fa-btn-ghost fa-btn-block" style={{ marginTop: 12 }} disabled={recovering} onClick={() => setRecoverOpen(false)}>Fechar</button>
-        </ModalShell>
+        <RecoverModal
+          label="classes"
+          discarded={discarded}
+          onClose={() => setRecoverOpen(false)}
+          onRecover={async (ids) => {
+            try {
+              for (const id of ids) await setTherapeuticClassDiscarded(id, false);
+              showToast({ message: `${ids.length} classe(s) recuperada(s).` });
+              setRecoverOpen(false);
+            } catch (err) {
+              showToast({ message: (err && err.message) || "Não foi possível recuperar." });
+            }
+          }}
+        />
       )}
-    </>
+    </div>
   );
 }
 
-function TherapeuticClassModal({ title, submitLabel, initialClass, categories, onClose, onSave, onToggleActive, onDiscard, activeBusy }) {
+function ClassModal({ initial, categoryOptions, onClose, onSave, onToggleActive, onDiscard, activeBusy }) {
+  const editing = !!(initial && initial.id);
   const [form, setForm] = useState(() => ({
-    name: initialClass && initialClass.name || '',
-    description: initialClass && initialClass.description || '',
-    categoryId: initialClass && initialClass.categoryId || '',
+    name: (initial && initial.name) || "",
+    categoryId: (initial && initial.categoryId) || "",
+    description: (initial && initial.description) || "",
   }));
+  const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
-  const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const valid = form.name.trim().length >= 2 && !!form.categoryId;
+  const change = (k, v) => { setForm((p) => ({ ...p, [k]: v })); setErrors((p) => p.filter((x) => x !== k)); };
 
-  const handleSave = async () => {
+  const submit = async () => {
+    const missing = [];
+    if (form.name.trim().length < 2) missing.push("name");
+    if (!form.categoryId) missing.push("categoryId");
+    if (missing.length) { setErrors(missing); return; }
     setBusy(true);
-    try {
-      await onSave(form);
-    } finally {
-      setBusy(false);
-    }
+    try { await onSave(form); } finally { setBusy(false); }
   };
 
   return (
-    <ModalShell open={true} onClose={busy ? () => {} : onClose} maxw={480}>
-      <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="pill" size={26} /></span>
-      <h2 className="fa-h3" style={{ fontSize: 20 }}>{title}</h2>
-
-      {initialClass && (
-        <div className="fa-field" style={{ marginTop: 14, marginBottom: 4 }}>
-          <label>Status da classe</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ opacity: activeBusy ? 0.5 : 1, pointerEvents: activeBusy ? 'none' : 'auto', display: 'inline-flex' }}>
-              <Toggle on={initialClass.active} onChange={onToggleActive} ariaLabel={initialClass.active ? 'Desativar classe' : 'Ativar classe'} />
-            </span>
-            <span className="fa-badge" style={initialClass.active ? { background: 'var(--fa-success-soft)', color: 'var(--fa-success)' } : { background: 'var(--fa-mist-2)', color: 'var(--fa-ink-3)' }}>
-              {initialClass.active ? 'Ativa' : 'Inativa'}
-            </span>
-          </div>
-          <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" style={{ marginTop: 10, alignSelf: 'flex-start' }} disabled={activeBusy} onClick={onDiscard}>
-            <Icon name="trash" size={14} />Descartar classe
+    <Modal
+      open
+      onClose={busy ? () => {} : onClose}
+      title={editing ? "Editar classe terapêutica" : "Nova classe terapêutica"}
+      wide
+      footer={(
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>
+            <Icon name="check" size={14} />{editing ? "Salvar alterações" : "Cadastrar classe"}
           </button>
-          <div className="ph-cell-sub" style={{ marginTop: 4 }}>Descartar remove a classe da lista; um administrador pode recuperá-la depois.</div>
+        </>
+      )}
+    >
+      {editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--border)" }}>
+          <SwitchToggle on={initial.active} onChange={onToggleActive} label="Status da classe" />
+          <Badge tone={initial.active ? "good" : "neutral"} dot>{initial.active ? "Ativa" : "Inativa"}</Badge>
+          <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: "auto" }} disabled={activeBusy} onClick={onDiscard}>
+            <Icon name="trash" size={13} />Descartar
+          </button>
         </div>
       )}
-
-      <div className="fa-field" style={{ marginTop: 14 }}><label>Nome *</label><input className="fa-input" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Ex.: Antibiótico" /></div>
-      <div className="fa-field" style={{ marginTop: 12 }}>
-        <label>Categoria *</label>
-        <select className="fa-select" value={form.categoryId} onChange={(e) => set('categoryId', e.target.value)}>
-          <option value="">Selecione uma categoria</option>
-          {(categories || []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-        </select>
-        <div className="ph-cell-sub" style={{ marginTop: 6 }}>Define em quais produtos esta classe pode ser usada, e como ela aparece no filtro "Tipo" do marketplace.</div>
-      </div>
-      <div className="fa-field" style={{ marginTop: 12 }}><label>Descrição</label><input className="fa-input" value={form.description} onChange={(e) => set('description', e.target.value)} /></div>
-      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-        <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={!valid || busy} onClick={handleSave}><Icon name="check" size={16} />{submitLabel}</button>
-      </div>
-    </ModalShell>
+      <FormGrid
+        fields={[
+          { key: "name", label: "Nome", required: true, full: true, placeholder: "Ex.: Antibiótico" },
+          { key: "categoryId", label: "Categoria", required: true, full: true, type: "select", options: categoryOptions.map((c) => [c.id, c.name]) },
+          { key: "description", label: "Descrição", full: true },
+        ]}
+        values={form}
+        onChange={change}
+        errors={errors}
+      />
+    </Modal>
   );
 }
 
