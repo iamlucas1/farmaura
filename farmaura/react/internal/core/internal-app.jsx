@@ -3,8 +3,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { AccountModal, MobileNavContext, PharmLogin, Sidebar } from "./internal-shell.jsx";
-import { FontTweaks } from "./internal-tweaks.jsx";
+import { AccountModal, AppShell, PharmLogin } from "./internal-shell.jsx";
+import { confirmAction as kitConfirmAction, showToast as kitShowToast } from "./internal-ui.jsx";
 import { AcquisitionCostsScreen } from "../screens/acquisition-costs-screen.jsx";
 import { AnalyticsScreen } from "../screens/analytics-screen.jsx";
 import { BrandsScreen } from "../screens/brands-screen.jsx";
@@ -12,6 +12,7 @@ import { HealthServicesScreen } from "../screens/health-services-screen.jsx";
 import { HomeBannerScreen } from "../screens/home-banner-screen.jsx";
 import { LaunchModeScreen } from "../screens/launch-mode-screen.jsx";
 import { HomeBrandsScreen } from "../screens/home-brands-screen.jsx";
+import { HomeTrendsScreen } from "../screens/home-trends-screen.jsx";
 import { DealOfTheDayScreen } from "../screens/deal-of-the-day-screen.jsx";
 import { CategoriesScreen } from "../screens/categories-screen.jsx";
 import { CrmScreen } from "../screens/crm-screen.jsx";
@@ -20,6 +21,7 @@ import { DeliveriesScreen } from "../screens/deliveries-screen.jsx";
 import { DriverRouteScreen } from "../screens/driver-route-screen.jsx";
 import { DeliveryZonesScreen } from "../screens/delivery-zones-screen.jsx";
 import { ChatScreen } from "../screens/chat-screen.jsx";
+import { UnblockRequestsScreen } from "../screens/chat-unblock-requests-screen.jsx";
 import { ConstructionCostsScreen } from "../screens/construction-costs-screen.jsx";
 import { CouponModal, CouponsScreen, getCouponStatusKey } from "../screens/coupons-screen.jsx";
 import { PromotionModal, PromotionsScreen, getPromotionStatusKey } from "../screens/promotions-screen.jsx";
@@ -56,6 +58,28 @@ function normalizePriceRule(rule) {
       fuelMarginPercent: Number((source.fuel && source.fuel.fuel_margin_percent) || 0),
     },
   };
+}
+
+/* Converte a lista de regras de parcelamento (produto/valor mínimo) snake_case → camelCase */
+function normalizeInstallmentOverrides(list) {
+  return (Array.isArray(list) ? list : []).map((rule) => ({
+    scopeType: rule.scope_type ?? rule.scopeType ?? 'product',
+    productRef: rule.product_ref ?? rule.productRef ?? '',
+    minValue: Number(rule.min_value ?? rule.minValue ?? 0),
+    maxInstallments: Number(rule.max_installments ?? rule.maxInstallments ?? 1),
+    interestFreeInstallments: Number(rule.interest_free_installments ?? rule.interestFreeInstallments ?? 1),
+  }));
+}
+
+/* Converte a lista de regras de parcelamento camelCase → snake_case, pro payload de PUT */
+function installmentOverridesToApi(list) {
+  return (Array.isArray(list) ? list : []).map((rule) => ({
+    scope_type: rule.scopeType || 'product',
+    product_ref: rule.productRef || '',
+    min_value: Number(rule.minValue || 0),
+    max_installments: Math.round(Number(rule.maxInstallments || 1)),
+    interest_free_installments: Math.round(Number(rule.interestFreeInstallments || 1)),
+  }));
 }
 
 /* Converte o payload snake_case de /portal/internal/delivery-areas para o formato camelCase usado no estado local */
@@ -282,13 +306,13 @@ function PharmApp() {
     if (product && product.rx) {
       const isBlackStripe = controlledCategory === "black_stripe" || joined.includes("tarja preta") || joined.includes("tarjapreta") || joined.includes("psicotrop");
       const requiresRetention = controlledCategory === "prescription_retention" || controlledCategory === "special_control" || controlledCategory === "black_stripe" || joined.includes("retencao") || joined.includes("receita");
-      if (isBlackStripe) return base + (isGeneric ? "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.png" : "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png");
-      if (requiresRetention) return base + (isGeneric ? "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.png" : "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png");
-      return base + (isGeneric ? "PlaceHolder-venda-sob-prescricao-medica-generico.png" : "PlaceHolder-venda-sob-prescricao-medica.png");
+      if (isBlackStripe) return base + (isGeneric ? "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.webp" : "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.webp");
+      if (requiresRetention) return base + (isGeneric ? "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.webp" : "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.webp");
+      return base + (isGeneric ? "PlaceHolder-venda-sob-prescricao-medica-generico.webp" : "PlaceHolder-venda-sob-prescricao-medica.webp");
     }
 
-    if (isGeneric) return base + "PlaceHolder-generico.png";
-    return base + "PlaceHolder.png";
+    if (isGeneric) return base + "PlaceHolder-generico.webp";
+    return base + "PlaceHolder.webp";
   };
   const buildMarketplaceCatalog = (items) => {
     const groups = new Map();
@@ -969,6 +993,7 @@ function PharmApp() {
     status: item.status || 'pending',
     pharmacistNotes: item.pharmacist_notes || '',
     rejectionReason: item.rejection_reason || '',
+    digitalReferenceUrl: item.digital_reference_url || '',
     meds: Array.isArray(item.meds) ? item.meds.map((med) => ({
       name: med.name || '',
       dose: med.dose || '',
@@ -981,10 +1006,16 @@ function PharmApp() {
     id: item.id,
     customer: item.customer || '',
     order: item.order || '—',
+    protocol: item.protocol || '',
     unread: Number(item.unread || 0),
     online: !!item.online,
     lastAt: item.last_at || '',
     topic: item.topic || 'Atendimento',
+    threadStatus: item.thread_status || 'open',
+    closedReason: item.closed_reason || '',
+    customerFlaggedSpam: !!item.customer_flagged_spam,
+    customerPermanentlyBlocked: !!item.customer_permanently_blocked,
+    customerBlockedUntil: item.customer_blocked_until || '',
     msgs: Array.isArray(item.msgs) ? item.msgs.map((message) => ({
       id: message.id,
       from: message.from_role === 'cust' ? 'cust' : 'me',
@@ -993,7 +1024,26 @@ function PharmApp() {
       prescriptionId: message.prescription_id || null,
       prescriptionStatus: message.prescription_status || '',
       prescriptionReferenceUrl: message.prescription_reference_url || '',
+      attachment: message.attachment ? {
+        fileId: message.attachment.file_id,
+        name: message.attachment.name,
+        contentType: message.attachment.content_type,
+      } : null,
     })) : [],
+  })) : [];
+  const normalizeUnblockRequests = (payload) => Array.isArray(payload && payload.items) ? payload.items.map((item) => ({
+    id: item.id,
+    customerId: item.customer_id,
+    customerName: item.customer_name || '',
+    status: item.status || 'pending',
+    customerMessage: item.customer_message || '',
+    violationCount: Number(item.violation_count_snapshot || 0),
+    permanentlyBlocked: !!item.permanently_blocked_snapshot,
+    totalRequests: Number(item.total_requests_from_customer || 0),
+    recentMessages: Array.isArray(item.recent_messages) ? item.recent_messages.map((message) => ({ text: message.text || '', at: message.at || '' })) : [],
+    decidedAt: item.decided_at || '',
+    pharmacistNotes: item.pharmacist_notes || '',
+    createdAtLabel: item.created_at_label || '',
   })) : [];
   const normalizePdvCustomer = (item, customerMap) => {
     if (!item) {
@@ -1202,6 +1252,13 @@ function PharmApp() {
           max_installments: Number(marketplace.maxInstallments || 1),
           interest_free_installments: Number(marketplace.interestFreeInstallments || 1),
           installment_interest_percent: Number(marketplace.installmentInterestPercent || 0),
+          installment_overrides: installmentOverridesToApi(marketplace.installmentOverrides),
+          cashback_default_percent: Number(marketplace.cashbackDefaultPercent || 0),
+          cashback_redeem_max_percent: Number(marketplace.cashbackRedeemMaxPercent ?? 25),
+          birthday_discount_enabled: !!marketplace.birthdayDiscountEnabled,
+          birthday_discount_percent: Number(marketplace.birthdayDiscountPercent ?? 10),
+          customer_anniversary_discount_enabled: !!marketplace.customerAnniversaryDiscountEnabled,
+          customer_anniversary_discount_percent: Number(marketplace.customerAnniversaryDiscountPercent ?? 10),
         }),
       });
       setMkt((m) => ({
@@ -1216,6 +1273,13 @@ function PharmApp() {
         maxInstallments: Number(response.max_installments ?? m.maxInstallments),
         interestFreeInstallments: Number(response.interest_free_installments ?? m.interestFreeInstallments),
         installmentInterestPercent: Number(response.installment_interest_percent ?? m.installmentInterestPercent),
+        installmentOverrides: response.installment_overrides ? normalizeInstallmentOverrides(response.installment_overrides) : m.installmentOverrides,
+        cashbackDefaultPercent: Number(response.cashback_default_percent ?? m.cashbackDefaultPercent),
+        cashbackRedeemMaxPercent: Number(response.cashback_redeem_max_percent ?? m.cashbackRedeemMaxPercent),
+        birthdayDiscountEnabled: typeof response.birthday_discount_enabled === 'boolean' ? response.birthday_discount_enabled : m.birthdayDiscountEnabled,
+        birthdayDiscountPercent: Number(response.birthday_discount_percent ?? m.birthdayDiscountPercent),
+        customerAnniversaryDiscountEnabled: typeof response.customer_anniversary_discount_enabled === 'boolean' ? response.customer_anniversary_discount_enabled : m.customerAnniversaryDiscountEnabled,
+        customerAnniversaryDiscountPercent: Number(response.customer_anniversary_discount_percent ?? m.customerAnniversaryDiscountPercent),
       }));
       showToast('Taxas da vitrine salvas', 'success');
     } catch (error) {
@@ -1326,6 +1390,41 @@ function PharmApp() {
       showToast(error && error.message ? error.message : 'Não foi possível salvar as marcas em destaque.', 'warn');
     } finally {
       setHomeBrandsBusy(false);
+    }
+  };
+  // Tendências: faixa da home com uma lista curada e ordenada de produtos em alta — mesmo
+  // contrato simples "off preserva os itens" de Marcas em destaque, sem os modos automático/
+  // agendado nem contador de Ofertas do dia (ver home-trends-screen.jsx).
+  const [homeTrends, setHomeTrendsState] = useState(() => ({ mode: 'off', productRefs: [], ...readInternalCache(null, 'home_trends', {}) }));
+  useEffect(() => { writeInternalCache(user, 'home_trends', homeTrends); }, [user && user.id, homeTrends]);
+  const [homeTrendsBusy, setHomeTrendsBusy] = useState(false);
+  const setHomeTrends = (patch) => setHomeTrendsState((t) => ({ ...t, ...patch }));
+  const saveHomeTrends = async (patch, options) => {
+    const silent = !!(options && options.silent);
+    const next = { ...homeTrends, ...(patch || {}) };
+    if (isFilePreview || !user) {
+      setHomeTrendsState(next);
+      if (!silent) showToast('Tendências salvas', 'success');
+      return;
+    }
+    setHomeTrendsBusy(true);
+    try {
+      const response = await authClient.request('/portal/internal/home-trends', {
+        method: 'PUT',
+        body: JSON.stringify({
+          mode: next.mode || 'off',
+          product_refs: next.productRefs || [],
+        }),
+      });
+      setHomeTrendsState({
+        mode: response.mode || 'off',
+        productRefs: response.product_refs || [],
+      });
+      if (!silent) showToast('Tendências salvas', 'success');
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível salvar as tendências.', 'warn');
+    } finally {
+      setHomeTrendsBusy(false);
     }
   };
   // Ofertas do dia: mode="manual" é a lista curada à mão (Marketplace → Ofertas do dia), substitui
@@ -1633,13 +1732,13 @@ function PharmApp() {
     }
   };
   const [threads, setThreads] = useState([]);
+  const [unblockRequests, setUnblockRequests] = useState([]);
   const [activeThread, setActiveThreadId] = useState(null);
   const [coupons, setCoupons] = useState([]);
   const [couponModalState, setCouponModalState] = useState({ open: false, mode: 'create', couponId: null });
   const [promotions, setPromotions] = useState([]);
   const [promotionModalState, setPromotionModalState] = useState({ open: false, mode: 'create', promotionId: null, initialDraft: null });
   const [drawerOrder, setDrawerOrder] = useState(null);
-  const [toast, setToast] = useState(null);
   const [collapsed, setCollapsed] = useState(() => !!readInternalCache(null, 'collapsed', false));
   useEffect(() => { writeInternalCache(user, 'collapsed', !!collapsed); }, [user && user.id, collapsed]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -2077,6 +2176,12 @@ function PharmApp() {
     cnaeCode: item.cnae_code || '',
     marketplaceImageUrl: item.marketplace_image_url || '',
     marketplaceGalleryUrls: Array.isArray(item.marketplace_gallery_urls) ? item.marketplace_gallery_urls : [],
+    shortDescription: item.short_description || '',
+    bulaMarkdown: item.bula_markdown || '',
+    marketingHighlights: Array.isArray(item.marketing_highlights) ? item.marketing_highlights : [],
+    variantGroupId: item.variant_group_id || '',
+    variantLabel: item.variant_label || '',
+    cashbackPercent: item.cashback_percent == null ? '' : String(item.cashback_percent),
     active: item.is_active == null ? true : !!item.is_active,
     discarded: !!item.is_discarded,
     storeCount: Number(item.store_count || 0),
@@ -2110,6 +2215,11 @@ function PharmApp() {
     cnae_code: payload.cnaeCode || '',
     marketplace_image_url: payload.marketplaceImageUrl || '',
     marketplace_gallery_urls: Array.isArray(payload.marketplaceGalleryUrls) ? payload.marketplaceGalleryUrls : [],
+    short_description: payload.shortDescription || '',
+    bula_markdown: payload.bulaMarkdown || '',
+    marketing_highlights: Array.isArray(payload.marketingHighlights) ? payload.marketingHighlights : [],
+    variant_label: payload.variantLabel || '',
+    cashback_percent: payload.cashbackPercent === '' || payload.cashbackPercent == null ? null : Number(payload.cashbackPercent),
   });
   const addProduct = async (payload) => {
     const response = await authClient.request('/products', {
@@ -2140,6 +2250,19 @@ function PharmApp() {
       method: 'PATCH',
       body: JSON.stringify({ is_discarded: !!isDiscarded }),
     });
+    await refreshProducts();
+    return _productFromResponse(response);
+  };
+  const linkProductVariant = async (productId, linkToProductId, variantLabel) => {
+    const response = await authClient.request('/products/' + productId + '/variant-group', {
+      method: 'POST',
+      body: JSON.stringify({ link_to_product_id: linkToProductId, variant_label: variantLabel || '' }),
+    });
+    await refreshProducts();
+    return _productFromResponse(response);
+  };
+  const unlinkProductVariant = async (productId) => {
+    const response = await authClient.request('/products/' + productId + '/variant-group', { method: 'DELETE' });
     await refreshProducts();
     return _productFromResponse(response);
   };
@@ -2809,7 +2932,7 @@ function PharmApp() {
   };
   const finalizeSale = (msg) => showToast(msg || 'Venda registrada · nota emitida', 'success');
 
-  const showToast = (msg, tone) => { setToast({ msg, tone }); clearTimeout(window.__phT); window.__phT = setTimeout(() => setToast(null), 2400); };
+  const showToast = (msg) => { kitShowToast({ message: msg }); };
   const hydrateInventoryDashboard = (payload) => {
     const items = Array.isArray(payload && payload.items) ? payload.items.map(normalizeInventoryItem) : [];
     const itemMap = Object.fromEntries(items.map((it) => [it.id, it]));
@@ -2943,13 +3066,14 @@ function PharmApp() {
         canRx ? authClient.request('/prescriptions/review-queue', { method: 'GET' }) : Promise.resolve(null),
         canCrm ? authClient.request('/crm/customers', { method: 'GET' }) : Promise.resolve(null),
         canChat ? authClient.request('/chat/threads', { method: 'GET' }) : Promise.resolve(null),
+        canChat ? authClient.request('/chat/unblock-requests', { method: 'GET' }) : Promise.resolve(null),
         canPdv ? authClient.request(withStoreParam('/pdv/queue'), { method: 'GET' }) : Promise.resolve(null),
         canPdv ? authClient.request(withStoreParam('/pdv/sales'), { method: 'GET' }) : Promise.resolve(null),
       ]);
       if (!active) {
         return;
       }
-      const [bootstrapResult, ordersResult, rxResult, crmResult, chatResult, queueResult, salesResult] = tasks;
+      const [bootstrapResult, ordersResult, rxResult, crmResult, chatResult, unblockRequestsResult, queueResult, salesResult] = tasks;
       if (bootstrapResult.status === 'fulfilled' && bootstrapResult.value) {
         const bootstrap = bootstrapResult.value;
         setNowLabel(bootstrap.now_label || bootstrap.nowLabel || '');
@@ -2982,6 +3106,13 @@ function PharmApp() {
           maxInstallments: Number(bootstrap.marketplace && (bootstrap.marketplace.max_installments ?? bootstrap.marketplace.maxInstallments) || 1),
           interestFreeInstallments: Number(bootstrap.marketplace && (bootstrap.marketplace.interest_free_installments ?? bootstrap.marketplace.interestFreeInstallments) || 1),
           installmentInterestPercent: Number(bootstrap.marketplace && (bootstrap.marketplace.installment_interest_percent ?? bootstrap.marketplace.installmentInterestPercent) || 0),
+          installmentOverrides: normalizeInstallmentOverrides(bootstrap.marketplace && (bootstrap.marketplace.installment_overrides ?? bootstrap.marketplace.installmentOverrides)),
+          cashbackDefaultPercent: Number(bootstrap.marketplace && (bootstrap.marketplace.cashback_default_percent ?? bootstrap.marketplace.cashbackDefaultPercent) || 0),
+          cashbackRedeemMaxPercent: Number((bootstrap.marketplace && (bootstrap.marketplace.cashback_redeem_max_percent ?? bootstrap.marketplace.cashbackRedeemMaxPercent)) ?? 25),
+          birthdayDiscountEnabled: !!(bootstrap.marketplace && (bootstrap.marketplace.birthday_discount_enabled ?? bootstrap.marketplace.birthdayDiscountEnabled)),
+          birthdayDiscountPercent: Number((bootstrap.marketplace && (bootstrap.marketplace.birthday_discount_percent ?? bootstrap.marketplace.birthdayDiscountPercent)) ?? 10),
+          customerAnniversaryDiscountEnabled: !!(bootstrap.marketplace && (bootstrap.marketplace.customer_anniversary_discount_enabled ?? bootstrap.marketplace.customerAnniversaryDiscountEnabled)),
+          customerAnniversaryDiscountPercent: Number((bootstrap.marketplace && (bootstrap.marketplace.customer_anniversary_discount_percent ?? bootstrap.marketplace.customerAnniversaryDiscountPercent)) ?? 10),
         });
         const homeBannerPayload = bootstrap.home_banner || bootstrap.homeBanner || null;
         setHomeBannerState({
@@ -3009,6 +3140,11 @@ function PharmApp() {
             altText: c.alt_text ?? c.altText ?? '',
             brandName: c.brand_name ?? c.brandName ?? '',
           })),
+        });
+        const homeTrendsPayload = bootstrap.home_trends || bootstrap.homeTrends || null;
+        setHomeTrendsState({
+          mode: (homeTrendsPayload && homeTrendsPayload.mode) || 'off',
+          productRefs: (homeTrendsPayload && (homeTrendsPayload.product_refs ?? homeTrendsPayload.productRefs)) || [],
         });
         const dealOfTheDayPayload = bootstrap.deal_of_the_day || bootstrap.dealOfTheDay || null;
         setDealOfTheDayState(_dealStateFromResponse(dealOfTheDayPayload || {}));
@@ -3075,6 +3211,9 @@ function PharmApp() {
       if (chatResult.status === 'fulfilled' && chatResult.value) {
         setThreads(normalizeChatThreads(chatResult.value));
       }
+      if (unblockRequestsResult.status === 'fulfilled' && unblockRequestsResult.value) {
+        setUnblockRequests(normalizeUnblockRequests(unblockRequestsResult.value));
+      }
       if (queueResult.status === 'fulfilled' && queueResult.value) {
         setPdvQueue(normalizePdvQueue(queueResult.value, customerMap));
       }
@@ -3087,6 +3226,38 @@ function PharmApp() {
       active = false;
     };
   }, [user, storeIdOverride]);
+
+  // Chat has no push/real-time delivery (REST-only by design) — without this, a customer's reply
+  // only showed up on the pharmacist's side after something else forced a refetch (switching
+  // threads, a reload). Mirrors the poll already added on the marketplace side (2026-08-30).
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    const canChat = window.FA_ACCESS.canAccessInternalRoute(user, 'chat');
+    if (!canChat) {
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await authClient.request('/chat/threads', { method: 'GET' });
+        if (cancelled) {
+          return;
+        }
+        const normalized = normalizeChatThreads(response);
+        setThreads(normalized.map((thread) => (
+          // Don't let a poll resurrect an unread badge on the thread the pharmacist is
+          // currently looking at — same reasoning as the marketplace-side poll.
+          thread.id === activeThread ? { ...thread, unread: 0 } : thread
+        )));
+      } catch {
+        // best-effort — a transient failure here shouldn't surface as an error toast
+      }
+    };
+    const interval = setInterval(poll, 4000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [user, authClient, activeThread]);
 
   useEffect(() => {
     if (!user) {
@@ -3288,6 +3459,7 @@ function PharmApp() {
     myDeliveryStops: myDeliveryRoutes.reduce((sum, route) => sum + route.stops.filter((stop) => stop.status !== 'delivered').length, 0),
     pendingRx: prescriptions.filter((r) => r.status === 'pending').length,
     unread: threads.reduce((s, t) => s + t.unread, 0),
+    unblockRequests: unblockRequests.filter((r) => r.status === 'pending').length,
     lowStock: inventory.filter((it) => deriveStockStateKey(it) !== 'normal').length,
     pdv: pdvCart.reduce((s, c) => s + c.qty, 0),
     salesPending: orders.filter((o) => /pago/i.test(o.payment) && !o.nfce).length,
@@ -3613,7 +3785,7 @@ function PharmApp() {
     showToast('Etiqueta gerada e pedido despachado', 'success');
   };
 
-  const validateRx = async (id, status) => {
+  const validateRx = async (id, status, rejectionReason = '') => {
     window.FA_OBS.emit({ portal: 'internal', type: 'clinical', action: 'prescription.review', route, userRole: user && user.role || '', accessScope: user && user.accessScope || '', metadata: { prescriptionId: id, status } });
     if (!isFilePreview && user) {
       try {
@@ -3622,7 +3794,7 @@ function PharmApp() {
           body: JSON.stringify({
             status,
             pharmacist_notes: '',
-            rejection_reason: status === 'rejected' ? 'Recusada pelo farmacêutico.' : '',
+            rejection_reason: status === 'rejected' ? rejectionReason.trim() : '',
           }),
         });
         const normalized = normalizePrescriptionQueue({ items: [response] })[0];
@@ -3637,7 +3809,7 @@ function PharmApp() {
         return;
       }
     } else {
-      setRx((prev) => prev.map((r) => r.id === id ? { ...r, status } : r));
+      setRx((prev) => prev.map((r) => r.id === id ? { ...r, status, rejectionReason: status === 'rejected' ? rejectionReason.trim() : '' } : r));
       const rx = prescriptions.find((r) => r.id === id);
       if (rx && status === 'approved') setOrders((prev) => prev.map((o) => o.id === rx.order ? { ...o, rxStatus: 'approved' } : o));
     }
@@ -4189,10 +4361,64 @@ function PharmApp() {
         if (normalized) {
           setThreads((prev) => prev.map((item) => item.id === threadId ? normalized : item));
         }
-        return;
-      } catch {}
+      } catch (error) {
+        // A rejection here (thread frozen because its order completed — see
+        // ChatService._require_thread_open, or any other failure) must NOT fall through to the
+        // optimistic local append below: that used to happen silently (bare `catch {}` with no
+        // `return`), making a rejected send look sent.
+        showToast(error && error.message ? error.message : 'Não foi possível enviar a mensagem. Tente novamente.', 'warn');
+      }
+      return;
     }
     setThreads((prev) => prev.map((t) => t.id === threadId ? { ...t, msgs: [...t.msgs, { from: 'me', text, at: 'agora' }], lastAt: 'agora', unread: 0 } : t));
+  };
+
+  const flagSpam = async (threadId, isFlagged) => {
+    window.FA_OBS.emit({ portal: 'internal', type: 'communication', action: 'chat.flag_spam', route, userRole: user && user.role || '', accessScope: user && user.accessScope || '', metadata: { threadId, isFlagged } });
+    try {
+      const response = await authClient.request('/chat/threads/' + threadId + '/flag-spam', {
+        method: 'POST',
+        body: JSON.stringify({ is_flagged: isFlagged }),
+      });
+      const normalized = normalizeChatThreads({ items: [response] })[0];
+      if (normalized) {
+        setThreads((prev) => prev.map((item) => item.id === threadId ? normalized : item));
+      }
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível atualizar a sinalização de spam.', 'warn');
+      return;
+    }
+    showToast(isFlagged ? 'Cliente sinalizado como spam' : 'Sinalização de spam removida', 'success');
+  };
+
+  const unblockCustomer = async (threadId) => {
+    window.FA_OBS.emit({ portal: 'internal', type: 'communication', action: 'chat.unblock', route, userRole: user && user.role || '', accessScope: user && user.accessScope || '', metadata: { threadId } });
+    try {
+      const response = await authClient.request('/chat/threads/' + threadId + '/unblock', { method: 'POST' });
+      const normalized = normalizeChatThreads({ items: [response] })[0];
+      if (normalized) {
+        setThreads((prev) => prev.map((item) => item.id === threadId ? normalized : item));
+      }
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível desbloquear o cliente.', 'warn');
+      return;
+    }
+    showToast('Cliente desbloqueado', 'success');
+  };
+
+  const decideUnblockRequest = async (requestId, decisionStatus, pharmacistNotes) => {
+    window.FA_OBS.emit({ portal: 'internal', type: 'communication', action: 'chat.unblock_request_decision', route, userRole: user && user.role || '', accessScope: user && user.accessScope || '', metadata: { requestId, decisionStatus } });
+    try {
+      const response = await authClient.request('/chat/unblock-requests/' + requestId + '/decision', {
+        method: 'POST',
+        body: JSON.stringify({ status: decisionStatus, pharmacist_notes: pharmacistNotes || '' }),
+      });
+      setUnblockRequests(normalizeUnblockRequests(response));
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível registrar a decisão.', 'warn');
+      return;
+    }
+    showToast(decisionStatus === 'approved' ? 'Contestação aceita · cliente desbloqueado' : 'Contestação negada', decisionStatus === 'approved' ? 'success' : 'warn');
   };
 
   const onLogout = async () => {
@@ -4245,7 +4471,6 @@ function PharmApp() {
             </p>
           </div>
         </div>
-        <FontTweaks />
       </div>
     );
   }
@@ -4294,7 +4519,6 @@ function PharmApp() {
           showToast('Sessão iniciada · ' + window.FA_ACCESS.INTERNAL_ROLE_LABEL[normalizedUser.role], 'success');
           return response;
         }} externalError={loginError} />
-        <FontTweaks />
       </div>
     );
   }
@@ -4313,13 +4537,15 @@ function PharmApp() {
   };
 
   const ctx = {
+    authClient,
     orders, prescriptions, inventory, threads, activeThread,
     inventoryLocations, inventoryMovements, inventorySummary, inventoryBusy, inventoryError, refreshInventory,
     stockLots, refreshStockLots, receiveLot, transferLot, adjustLot, searchItemTrace, fetchItemTrace,
     fetchStoreLocations, createStoreLocation, updateStoreLocation, setStoreLocationActive,
     route, onNav, openOrder, closeDrawer, drawerOrder,
     advanceOrder, confirmPickupCode, updateOrderItemLocation, toggleOrderItemPicked, dispatchShippingOrder, validateRx, adjustStock, addInventory, updateInventory, addInventoryLocation, transferInventory, exportInventory, previewInventoryInvoice, confirmInventoryInvoice, applyInventoryItemInvoice, fetchInventoryItemInvoices, downloadInventoryInvoiceFile, fetchInventoryAudit, dispatchRoute,
-    openChatFor, openChatForName, setActiveThread, sendChat, onLogout,
+    openChatFor, openChatForName, setActiveThread, sendChat, flagSpam, unblockCustomer, onLogout,
+    unblockRequests, decideUnblockRequest,
     openCustomer: (name) => { setCrmFocus(name); goTo('crm'); setDrawerOrder(null); },
     crmFocus,
     pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, pdvCreateReservation, fetchPdvPrescriptionStatus, createPdvPrescription, finalizeSale,
@@ -4331,6 +4557,7 @@ function PharmApp() {
     fetchCouponAnalytics,
     previewPurchaseQuoteReceiving, pendingPurchaseQuoteId, setPendingPurchaseQuoteId,
     products, refreshProducts, addProduct, updateProduct, setProductActive, setProductDiscarded, fetchProductStoreLinks, linkProductToStore,
+    linkProductVariant, unlinkProductVariant,
     brands, refreshBrands, addBrand, updateBrand, setBrandActive, setBrandDiscarded,
     healthServicesAdmin, refreshHealthServicesAdmin, addHealthService, updateHealthService, setHealthServiceActive,
     categories, refreshCategories, addCategory, updateCategory, setCategoryActive, setCategoryDiscarded,
@@ -4341,9 +4568,10 @@ function PharmApp() {
     marketplace, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy,
     homeBanner, setHomeBanner, saveHomeBanner, homeBannerBusy,
     homeBrands, setHomeBrands, saveHomeBrands, homeBrandsBusy,
+    homeTrends, setHomeTrends, saveHomeTrends, homeTrendsBusy,
     dealOfTheDay, setDealOfTheDay, saveDealOfTheDay, dealOfTheDayBusy, fetchDealSuggestions, fetchActivePromotionRefs, generateDealOfTheDayNow,
     launchMode, setLaunchMode, saveLaunchMode, launchModeBusy,
-    setItemPricing, notify: showToast,
+    setItemPricing, notify: showToast, confirmAction: kitConfirmAction,
     pdvDiscountSettings, setPdvDiscountSettings, savePdvDiscountSettings, pdvDiscountSettingsBusy,
     cnaeSettings, setCnaeItems, setTaxRegime, saveCnaeSettings, cnaeSettingsBusy,
     stores, selectedStoreId, setSelectedStoreId,
@@ -4373,11 +4601,13 @@ function PharmApp() {
       case 'settings': return <SettingsScreen ctx={ctx} />;
       case 'locations': return <LocationsScreen ctx={ctx} />;
       case 'chat': return <ChatScreen ctx={ctx} />;
+      case 'chat-unblock-requests': return <UnblockRequestsScreen ctx={ctx} />;
       case 'crm': return <CrmScreen ctx={ctx} />;
       case 'pdv': return <PdvScreen ctx={ctx} />;
       case 'sales': return <SalesScreen ctx={ctx} />;
       case 'home-banner': return <HomeBannerScreen ctx={ctx} />;
       case 'home-brands': return <HomeBrandsScreen ctx={ctx} />;
+      case 'home-trends': return <HomeTrendsScreen ctx={ctx} />;
       case 'deal-of-the-day': return <DealOfTheDayScreen ctx={ctx} />;
       case 'launch-mode': return <LaunchModeScreen ctx={ctx} />;
       case 'pricing': return <PricingScreen ctx={ctx} />;
@@ -4404,17 +4634,24 @@ function PharmApp() {
     }
   };
 
-  const toneColor = { success: 'var(--fa-success)', warn: 'var(--fa-warn)', error: 'var(--fa-error)' };
-
   return (
-    <MobileNavContext.Provider value={{ open: mobileNavOpen, setOpen: setMobileNavOpen }}>
-    <div id="ph-root">
-      <div className="ph-shell">
-        <Sidebar route={safeRoute} onNav={onNav} counts={counts} collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} onLogout={onLogout} onAccount={(t) => setAcctTab(t)} user={user} />
-        <div className="ph-main">
-          <div key={safeRoute}>{screen()}</div>
-        </div>
-      </div>
+    <>
+      <AppShell
+        route={safeRoute}
+        onNav={onNav}
+        counts={counts}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((c) => !c)}
+        onLogout={onLogout}
+        onAccount={(t) => setAcctTab(t)}
+        user={user}
+        stores={stores}
+        selectedStoreId={selectedStoreId}
+        setSelectedStoreId={setSelectedStoreId}
+        mobileNav={{ open: mobileNavOpen, setOpen: setMobileNavOpen }}
+      >
+        <div key={safeRoute}>{screen()}</div>
+      </AppShell>
 
       {drawerOrder && <OrderDrawer ctx={ctx} />}
       {couponModalState.open && (
@@ -4445,16 +4682,7 @@ function PharmApp() {
         />
       )}
       {acctTab && <AccountModal tab={acctTab} onClose={() => setAcctTab(null)} user={user} onLogoutAll={onLogoutAll} onTwoFactorSetup={beginTwoFactorSetup} onTwoFactorEnable={enableTwoFactor} onTwoFactorDisable={disableTwoFactor} onTwoFactorStatusChange={applyInternalTwoFactorState} stores={stores} selectedStoreId={selectedStoreId} />}
-      <FontTweaks />
-
-      {toast && (
-        <div role="status" aria-live="polite" style={{ position: 'fixed', left: '50%', bottom: 28, transform: 'translateX(-50%)', zIndex: 1300, background: 'var(--fa-ink)', color: '#fff', padding: '14px 20px', borderRadius: 'var(--fa-r-btn)', boxShadow: 'var(--fa-shadow-lg)', display: 'flex', alignItems: 'center', gap: 10, fontWeight: 600, fontSize: 14 }} className="fa-fadein">
-          <span style={{ width: 24, height: 24, borderRadius: 99, background: toneColor[toast.tone] || 'var(--fa-success)', display: 'grid', placeItems: 'center', flex: 'none' }}><Icon name="check" size={15} stroke={2.8} /></span>
-          {toast.msg}
-        </div>
-      )}
-    </div>
-    </MobileNavContext.Provider>
+    </>
   );
 }
 

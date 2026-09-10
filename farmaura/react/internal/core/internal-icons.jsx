@@ -34,6 +34,10 @@ Object.assign(FA_ICON_PATHS, {
   wrench:   '<path d="M14.6 5.8a3.6 3.6 0 0 0-4.9 4.4l-5.5 5.5a1.6 1.6 0 0 0 2.3 2.3l5.5-5.5a3.6 3.6 0 0 0 4.4-4.9l-2.3 2.3-1.8-1.8 2.3-2.3Z"/>',
   bank:     '<path d="M4 10 12 4l8 6M5 10v8M19 10v8M9 10v8M15 10v8M3 21h18"/>',
   image:    '<rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="9" r="1.6"/><path d="m21 15-5-4.5L9.5 16 7 13.5 3 17.5"/>',
+  /* Added for the migrated internal design system (kit deltas / trends). */
+  arrowupright:   '<path d="M7 17 17 7M9 7h8v8"/>',
+  arrowdownright: '<path d="M7 7l10 10M17 9v8H9"/>',
+  trenddown:      '<path d="M4 8 10 14l4-4 6 7M16 17h4v-4"/>',
 });
 
 

@@ -15,6 +15,7 @@ Observations:
 
 import "../react/marketplace/marketplace.css";
 import "../react/internal/internal.css";
+import "../react/internal/internal-legacy.css";
 import "../react/shared/access-control.js";
 import "../react/shared/api-client.js";
 import "../react/shared/observability.js";
