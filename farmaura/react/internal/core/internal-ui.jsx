@@ -358,6 +358,25 @@ function FormGrid({ fields, values, onChange, errors = [] }) {
           control = <textarea className={cls} rows={3} placeholder={f.placeholder} value={values[f.key] ?? ""} onChange={(e) => onChange(f.key, e.target.value)} />;
         } else if (f.type === "switch") {
           control = <SwitchToggle on={!!values[f.key]} onChange={(v) => onChange(f.key, v)} label={f.label} />;
+        } else if (f.type === "multiselect") {
+          const picked = Array.isArray(values[f.key]) ? values[f.key] : [];
+          const opts = (f.options || []).map((o) => (Array.isArray(o) ? { value: o[0], label: o[1] } : (typeof o === "object" ? o : { value: o, label: o })));
+          control = (
+            <div className="icon-picker scrollbar-thin" style={{ display: "block", gridTemplateColumns: "none", maxHeight: 180 }}>
+              {opts.length === 0 && <div className="cell-muted" style={{ fontSize: 12 }}>Nada disponível.</div>}
+              {opts.map((o) => (
+                <label key={o.value} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 4px", fontSize: 12.5, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(o.value)}
+                    onChange={() => onChange(f.key, picked.includes(o.value) ? picked.filter((v) => v !== o.value) : [...picked, o.value])}
+                    style={{ accentColor: "var(--accent)" }}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          );
         } else if (f.type === "icon") {
           control = <IconPicker value={values[f.key]} onChange={(v) => onChange(f.key, v)} choices={f.choices} />;
         } else {
@@ -407,6 +426,74 @@ function DataTable({ columns, rows, rowKey, onRowClick, renderActions, empty }) 
         </tbody>
       </table>
     </div>
+  );
+}
+
+/* ---------- KPI filter chip (clickable stat card) ---------- */
+function KpiChip({ icon, label, value, tone, active, onClick }) {
+  const fg = { good: "var(--good)", warning: "var(--warning)", critical: "var(--critical)" }[tone] || "var(--text-secondary)";
+  return (
+    <button
+      type="button"
+      className="stat-card"
+      onClick={onClick}
+      disabled={!onClick}
+      style={{
+        textAlign: "left", cursor: onClick ? "pointer" : "default", gap: 6,
+        borderColor: active ? "var(--accent)" : "var(--border)",
+        boxShadow: active ? "0 0 0 3px var(--accent-soft)" : "var(--shadow-sm)",
+      }}
+    >
+      <div className="stat-top">
+        <span className="stat-label">{label}</span>
+        <span className="stat-icon" style={{ background: "var(--surface-2)", color: fg }}><Icon name={icon} size={15} /></span>
+      </div>
+      <div className="stat-value tnum" style={{ fontSize: 20 }}>{value}</div>
+    </button>
+  );
+}
+
+/* ---------- recover-discarded modal (soft-delete restore) ---------- */
+function RecoverModal({ label, discarded, nameOf = (d) => d.name, onClose, onRecover }) {
+  const [picked, setPicked] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const run = async (ids) => { setBusy(true); try { await onRecover(ids); } finally { setBusy(false); } };
+  return (
+    <Modal
+      open
+      onClose={busy ? () => {} : onClose}
+      title={`Recuperar ${label} descartadas`}
+      footer={(
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Fechar</button>
+          <button className="btn btn-primary" disabled={busy || !picked.size} onClick={() => run([...picked])}>
+            <Icon name="check" size={14} />Recuperar selecionadas ({picked.size})
+          </button>
+        </>
+      )}
+    >
+      <p className="page-desc" style={{ marginTop: 0 }}>Recupere todas de uma vez ou escolha individualmente.</p>
+      <button className="btn btn-secondary" style={{ marginBottom: 12 }} disabled={busy || !discarded.length} onClick={() => run(discarded.map((d) => d.id))}>
+        <Icon name="repeat" size={14} />Recuperar todas ({discarded.length})
+      </button>
+      {discarded.length === 0
+        ? <EmptyState title="Nada descartado no momento" />
+        : (
+          <div className="icon-picker scrollbar-thin" style={{ display: "block", gridTemplateColumns: "none", maxHeight: 260 }}>
+            {discarded.map((d) => (
+              <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", fontSize: 12.5, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={picked.has(d.id)}
+                  onChange={() => setPicked((prev) => { const n = new Set(prev); if (n.has(d.id)) n.delete(d.id); else n.add(d.id); return n; })}
+                  style={{ accentColor: "var(--accent)" }}
+                />
+                {nameOf(d)}
+              </label>
+            ))}
+          </div>
+        )}
+    </Modal>
   );
 }
 
@@ -745,7 +832,7 @@ export {
   Badge, StatusBadge, TierBadge, Avatar, StatCard,
   SearchInput, EmptyState, KV, SwitchToggle, Tabs, PillNav,
   Modal, Drawer, Field, FormGrid, IconPicker, DataTable,
-  PageHead, RowIconBtn, CrudPage,
+  PageHead, RowIconBtn, CrudPage, KpiChip, RecoverModal,
   ChartData, ChartTooltip, VBars, AreaTrend, HBarList, Heatmap,
   useModalStack, useDialogFocus, trapTab,
 };
