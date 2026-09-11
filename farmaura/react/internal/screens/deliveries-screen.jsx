@@ -14,9 +14,9 @@ Observations:
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { loadLeaflet } from "../../shared/leaflet.js";
-import { Topbar, orderStatusMeta } from "../core/internal-shell.jsx";
+import { orderStatusMeta } from "../core/internal-shell.jsx";
+import { Icon, PageHead, Badge, EmptyState } from "../core/internal-ui.jsx";
 
 const DEFAULT_CENTER = { lat: -15.9775167, lng: -48.0383778 };
 const TILE_LAYER_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -28,8 +28,8 @@ function buildStopContent(stop, index) {
   return `
     <div style="min-width:220px">
       <div style="font-weight:800;font-size:14px;margin-bottom:4px">${index + 1}. ${stop.customer}</div>
-      <div style="font-size:12.5px;color:#4b5563">${stop.address}</div>
-      <div style="font-size:12px;color:#6b7280;margin-top:4px">${stop.district} · ${stop.cep || "Sem CEP"}</div>
+      <div style="font-size:12.5px;color:var(--text-secondary)">${stop.address}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${stop.district} · ${stop.cep || "Sem CEP"}</div>
     </div>
   `;
 }
@@ -40,7 +40,7 @@ function buildHubContent(hub) {
   return `
     <div style="min-width:220px">
       <div style="font-weight:800;font-size:14px;margin-bottom:4px">${hub.name}</div>
-      <div style="font-size:12.5px;color:#4b5563">${hub.addr}</div>
+      <div style="font-size:12.5px;color:var(--text-secondary)">${hub.addr}</div>
     </div>
   `;
 }
@@ -62,7 +62,7 @@ function createDriverIcon(leaflet) {
 
   return leaflet.divIcon({
     className: "lf-icon",
-    html: "<div class=\"lf-hub\" style=\"background:var(--fa-success)\"></div>",
+    html: "<div class=\"lf-hub\" style=\"background:var(--good)\"></div>",
     iconSize: [26, 26],
     iconAnchor: [13, 13],
     popupAnchor: [0, -14],
@@ -200,7 +200,7 @@ function RouteMap({ hub, stops, active, driverPosition }) {
         if (routePath.length >= 2) {
           routeLineRef.current = leaflet
             .polyline(routePath, {
-              color: "#7A0D16",
+              color: "#A11017",
               weight: 4,
               opacity: 0.82,
               lineJoin: "round",
@@ -295,25 +295,25 @@ function RouteMap({ hub, stops, active, driverPosition }) {
 
   if (mapError) {
     return (
-      <div className="ph-map" style={{ display: "grid", placeItems: "center", padding: 24 }}>
+      <div className="card" style={{ display: "grid", placeItems: "center", padding: 24, minHeight: 360 }}>
         <div style={{ maxWidth: 420, textAlign: "center" }}>
-          <span className="fa-iconbox" style={{ margin: "0 auto 14px", width: 52, height: 52 }}>
+          <span className="stat-icon" style={{ margin: "0 auto 14px", width: 52, height: 52 }}>
             <Icon name="pin" size={24} />
           </span>
-          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8 }}>Mapa indisponivel</div>
-          <div className="ph-cell-sub">{mapError}</div>
+          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8 }}>Mapa indisponível</div>
+          <div className="cell-muted">{mapError}</div>
         </div>
       </div>
     );
   }
 
-  return <div className="ph-map" ref={elementRef}></div>;
+  return <div className="card" style={{ height: 420, overflow: "hidden", padding: 0 }} ref={elementRef}></div>;
 }
 
 function DeliveriesScreen({ ctx }) {
   /** Render the deliveries route page and actions. */
 
-  const { orders, openOrder, openChatFor, onLogout, dispatchRoute, deliveryRoute, driverLivePosition, assignRouteDriver, fetchTeamMembers } = ctx;
+  const { orders, openOrder, openChatFor, dispatchRoute, deliveryRoute, driverLivePosition, assignRouteDriver, fetchTeamMembers } = ctx;
   const hub = ctx.hub || { name: "", addr: "", lat: null, lng: null };
   const route = {
     id: (deliveryRoute && deliveryRoute.id) || "",
@@ -332,7 +332,7 @@ function DeliveriesScreen({ ctx }) {
     let alive = true;
     (async () => {
       const members = fetchTeamMembers ? await fetchTeamMembers() : [];
-      if (alive) setDrivers((members || []).filter((member) => member.role === 'driver'));
+      if (alive) setDrivers((members || []).filter((member) => member.role === "driver"));
     })();
     return () => { alive = false; };
   }, []);
@@ -363,150 +363,92 @@ function DeliveriesScreen({ ctx }) {
     : `https://www.google.com/maps/dir/?api=1&destination=${order.lat},${order.lng}`;
 
   return (
-    <>
-      <Topbar
-        title="Entregas & rota"
-        sub={`${stops.length} entregas pendentes · ${readyCount} prontas para sair`}
-        onLogout={onLogout} ctx={ctx}
-      />
-      <div className="ph-content ph-content-wide">
-        <div className="ph-map-grid">
-          <div>
-            <RouteMap hub={hub} stops={stops} active={active} driverPosition={driverLivePosition} />
-            <div className="fa-card" style={{ marginTop: 16, padding: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-              <span className="fa-iconbox" style={{ background: "var(--fa-rose-soft)" }}>
-                <Icon name="route" size={22} />
-              </span>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>Melhor rota planejada</div>
-                <div className="ph-cell-sub">Calculada a partir da loja · {hub.addr}</div>
-              </div>
-              <div style={{ display: "flex", gap: 22, marginLeft: "auto" }}>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 18 }}>{stops.length}</div>
-                  <div className="ph-cell-sub">paradas</div>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 18 }}>{route.totalKm} km</div>
-                  <div className="ph-cell-sub">distância</div>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 18 }}>{route.totalMin} min</div>
-                  <div className="ph-cell-sub">estimativa</div>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 18 }}>{mappedStops.length}</div>
-                  <div className="ph-cell-sub">com mapa</div>
-                </div>
-              </div>
+    <div className="route-fade">
+      <PageHead eyebrow="Atendimento" title="Entregas & rota" desc={`${stops.length} entregas pendentes · ${readyCount} prontas para sair`} />
+      <div className="grid" style={{ gridTemplateColumns: "1.35fr 1fr", gap: 20, alignItems: "start" }}>
+        <div>
+          <RouteMap hub={hub} stops={stops} active={active} driverPosition={driverLivePosition} />
+          <div className="card card-pad" style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <span className="stat-icon" style={{ background: "var(--critical-soft)", color: "var(--critical)" }}>
+              <Icon name="route" size={22} />
+            </span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Melhor rota planejada</div>
+              <div className="cell-muted">Calculada a partir da loja · {hub.addr}</div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13, color: "var(--fa-success)", fontWeight: 600 }}>
-              <Icon name="sparkle" size={15} />
-              Rota otimizada economiza ~{route.savedKm} km vs. ordem de chegada dos pedidos.
+            <div style={{ display: "flex", gap: 22, marginLeft: "auto" }}>
+              <div><div style={{ fontWeight: 800, fontSize: 18 }}>{stops.length}</div><div className="cell-muted">paradas</div></div>
+              <div><div style={{ fontWeight: 800, fontSize: 18 }}>{route.totalKm} km</div><div className="cell-muted">distância</div></div>
+              <div><div style={{ fontWeight: 800, fontSize: 18 }}>{route.totalMin} min</div><div className="cell-muted">estimativa</div></div>
+              <div><div style={{ fontWeight: 800, fontSize: 18 }}>{mappedStops.length}</div><div className="cell-muted">com mapa</div></div>
             </div>
           </div>
-          <div>
-            <div className="ph-sec-head" style={{ marginTop: 0 }}>
-              <div style={{ flex: 1 }}>
-                <div className="ph-sec-title">Lista de endereços</div>
-                <div className="ph-sec-sub">Sequência otimizada{driverLivePosition ? ` · posição atualizada às ${driverLivePosition.updatedLabel}` : ''}</div>
-              </div>
-            </div>
-            <div className="fa-card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <span className="fa-iconbox"><Icon name="truck" size={18} /></span>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Entregador</div>
-                <div className="ph-cell-sub">{route.driver || 'Nenhum entregador atribuído'}</div>
-              </div>
-              <select
-                className="fa-select"
-                value={route.driverUserId}
-                disabled={assigningDriver || !route.id}
-                onChange={(event) => handleAssignDriver(event.target.value)}
-                style={{ width: 220, flex: "none" }}
-              >
-                <option value="">Sem entregador</option>
-                {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
-              </select>
-            </div>
-            <div className="fa-card" style={{ padding: "4px 16px" }}>
-              {stops.map((order, index) => (
-                <div
-                  key={order.id}
-                  className="ph-routestep"
-                  data-active={active === order.id ? "1" : "0"}
-                  onMouseEnter={() => setActive(order.id)}
-                  onMouseLeave={() => setActive(null)}
-                  onClick={() => openOrder(order.id)}
-                >
-                  <span className="ph-routenum">{index + 1}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{order.customer}</span>
-                      {order.priority === "express" ? <Icon name="bolt" size={13} style={{ color: "var(--fa-vital)" }} /> : null}
-                    </div>
-                    <div className="ph-cell-sub" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {order.address}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                      <span className="ph-cell-sub">{order.district} · {order.cep}</span>
-                      <span className="ph-cell-sub">·</span>
-                      <span className="ph-cell-sub">{order.dist} km</span>
-                      {order.status === "ready" ? (
-                        <span className="fa-badge fa-badge-health" style={{ fontSize: 10 }}>pronto</span>
-                      ) : (
-                        <span className="fa-badge fa-badge-warn" style={{ fontSize: 10 }}>
-                          {orderStatusMeta(order.status).label.toLowerCase()}
-                        </span>
-                      )}
-                      {!getCoordinates(order) ? <span className="fa-badge fa-badge-mist" style={{ fontSize: 10 }}>sem coordenada</span> : null}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "none" }}>
-                    <a
-                      className="fa-iconbtn"
-                      style={{
-                        width: 34,
-                        height: 34,
-                        opacity: getCoordinates(order) ? 1 : 0.45,
-                        pointerEvents: getCoordinates(order) ? "auto" : "none",
-                      }}
-                      href={mapsUrl(order)}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Abrir navegacao"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <Icon name="nav" size={15} />
-                    </a>
-                    <button
-                      className="fa-iconbtn"
-                      style={{ width: 34, height: 34 }}
-                      aria-label="conversar"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openChatFor(order);
-                      }}
-                    >
-                      <Icon name="chat" size={15} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {stops.length === 0 ? (
-                <div className="ph-empty" style={{ padding: "30px 10px" }}>
-                  <div className="fa-faint">Nenhuma entrega pendente.</div>
-                </div>
-              ) : null}
-            </div>
-            <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" style={{ marginTop: 14 }} disabled={readyCount === 0} onClick={dispatchRoute}>
-              <Icon name="nav" size={18} />
-              Despachar rota ({readyCount} {readyCount === 1 ? "pronta" : "prontas"})
-            </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13, color: "var(--good)", fontWeight: 600 }}>
+            <Icon name="sparkle" size={15} />
+            Rota otimizada economiza ~{route.savedKm} km vs. ordem de chegada dos pedidos.
           </div>
         </div>
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>Lista de endereços</div>
+            <div className="cell-muted">Sequência otimizada{driverLivePosition ? ` · posição atualizada às ${driverLivePosition.updatedLabel}` : ""}</div>
+          </div>
+          <div className="card card-pad" style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span className="stat-icon"><Icon name="truck" size={18} /></span>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5 }}>Entregador</div>
+              <div className="cell-muted">{route.driver || "Nenhum entregador atribuído"}</div>
+            </div>
+            <select className="input" value={route.driverUserId} disabled={assigningDriver || !route.id} onChange={(e) => handleAssignDriver(e.target.value)} style={{ width: 220, flex: "none" }}>
+              <option value="">Sem entregador</option>
+              {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
+            </select>
+          </div>
+          <div className="card" style={{ padding: "4px 6px" }}>
+            {stops.map((order, index) => (
+              <div
+                key={order.id}
+                onMouseEnter={() => setActive(order.id)}
+                onMouseLeave={() => setActive(null)}
+                onClick={() => openOrder(order.id)}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 10px", borderTop: index ? "1px solid var(--border)" : "none", cursor: "pointer", borderRadius: "var(--radius-md)", background: active === order.id ? "var(--surface-2)" : "transparent" }}
+              >
+                <span className="stat-icon" style={{ width: 30, height: 30, fontWeight: 800, fontSize: 13, flex: "none" }}>{index + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{order.customer}</span>
+                    {order.priority === "express" ? <Icon name="bolt" size={13} style={{ color: "var(--critical)" }} /> : null}
+                  </div>
+                  <div className="cell-muted" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{order.address}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                    <span className="cell-muted">{order.district} · {order.cep}</span>
+                    <span className="cell-muted">·</span>
+                    <span className="cell-muted">{order.dist} km</span>
+                    {order.status === "ready" ? <Badge tone="good">pronto</Badge> : <Badge tone="warning">{orderStatusMeta(order.status).label.toLowerCase()}</Badge>}
+                    {!getCoordinates(order) ? <Badge tone="neutral">sem coordenada</Badge> : null}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "none" }}>
+                  <a
+                    className="btn btn-secondary btn-sm" style={{ width: 34, height: 34, padding: 0, justifyContent: "center", opacity: getCoordinates(order) ? 1 : 0.45, pointerEvents: getCoordinates(order) ? "auto" : "none" }}
+                    href={mapsUrl(order)} target="_blank" rel="noreferrer" title="Abrir navegação" onClick={(e) => e.stopPropagation()}
+                  >
+                    <Icon name="nav" size={15} />
+                  </a>
+                  <button className="btn btn-secondary btn-sm" style={{ width: 34, height: 34, padding: 0, justifyContent: "center" }} aria-label="conversar" onClick={(e) => { e.stopPropagation(); openChatFor(order); }}>
+                    <Icon name="chat" size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {stops.length === 0 && <EmptyState icon="truck" title="Nenhuma entrega pendente" />}
+          </div>
+          <button className="btn btn-primary" style={{ marginTop: 14, width: "100%", justifyContent: "center" }} disabled={readyCount === 0} onClick={dispatchRoute}>
+            <Icon name="nav" size={18} />Despachar rota ({readyCount} {readyCount === 1 ? "pronta" : "prontas"})
+          </button>
+        </div>
       </div>
-    </>
+    </div>
   );
 }
 

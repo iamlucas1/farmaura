@@ -397,6 +397,11 @@ tr.clickable:hover .link-cell { text-decoration: underline; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
+.typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); opacity: .5; animation: typing-blink 1.1s infinite; }
+.typing-dot:nth-child(2) { animation-delay: .15s; }
+.typing-dot:nth-child(3) { animation-delay: .3s; }
+@keyframes typing-blink { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+
 /* ---------- destructive confirm ---------- */
 .confirm-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
 .confirm-entity {
