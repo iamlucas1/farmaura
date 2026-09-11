@@ -412,7 +412,7 @@ function DataTable({ columns, rows, rowKey, onRowClick, renderActions, empty }) 
         <tbody>
           {rows.map((row, i) => (
             <tr
-              key={rowKey ? row[rowKey] : i}
+              key={typeof rowKey === "function" ? rowKey(row, i) : rowKey ? row[rowKey] : i}
               className={onRowClick ? "clickable" : ""}
               onClick={onRowClick ? () => onRowClick(row, i) : undefined}
               tabIndex={onRowClick ? 0 : undefined}

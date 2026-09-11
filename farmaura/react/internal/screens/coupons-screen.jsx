@@ -1,10 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { ModalShell, Toggle } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { Topbar } from "../core/internal-shell.jsx";
-import { AnCard } from "./analytics-screen.jsx";
-import { StatCard } from "./dashboard-screen.jsx";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Icon, PageHead, Modal, Field, SwitchToggle, Tabs, Badge, StatCard, DataTable,
+  EmptyState, confirmAction, showToast, money,
+} from "../core/internal-ui.jsx";
 
 /*
 farmaura/react/internal/screens/coupons-screen.jsx
@@ -18,124 +16,94 @@ Responsibilities:
 
 Observations:
 - coupon persistence is handled by the internal app state via the /portal/internal/coupons API;
-- this module relies on shared UI primitives already attached to window;
+- CouponInfoHint/CouponFieldLabel stay exported unchanged for purchase-analytics-screen.jsx (still
+  on the legacy design); this screen's own UI uses Field's hint text instead of a hover tooltip.
 */
 
 const COUPON_AUDIENCE_LABELS = {
-  all: 'Todo o marketplace',
-  new_customers: 'Novos clientes',
-  recurring: 'Clientes recorrentes',
-  prescription: 'Pedidos com receita',
+  all: "Todo o marketplace",
+  new_customers: "Novos clientes",
+  recurring: "Clientes recorrentes",
+  prescription: "Pedidos com receita",
 };
 
 const COUPON_SCOPE_LABELS = {
-  all: 'Catálogo completo',
-  categories: 'Categorias específicas',
-  products: 'Remédios e produtos específicos',
-  services: 'Serviços de saúde',
+  all: "Catálogo completo",
+  categories: "Categorias específicas",
+  products: "Remédios e produtos específicos",
+  services: "Serviços de saúde",
 };
 
 const COUPON_CHANNEL_LABELS = {
-  all: 'Todos os canais',
-  online: 'Somente loja online',
-  pdv: 'Somente balcão (PDV)',
+  all: "Todos os canais",
+  online: "Somente loja online",
+  pdv: "Somente balcão (PDV)",
 };
 
-const COUPON_DISCOUNT_TYPE_ICONS = { percent: 'percent', fixed: 'tag', shipping: 'truck' };
-
-const COUPON_PAYMENT_ICONS = { 'Pix': 'pix', 'Cartão de crédito': 'card', 'Cartão de débito': 'card', 'Dinheiro': 'bag' };
+const COUPON_DISCOUNT_TYPE_ICONS = { percent: "percent", fixed: "tag", shipping: "truck" };
+const COUPON_PAYMENT_ICONS = { Pix: "pix", "Cartão de crédito": "card", "Cartão de débito": "card", Dinheiro: "bag" };
 
 const COUPON_STATUS_META = {
-  active: { label: 'Ativo', badge: 'fa-badge-health', icon: 'check' },
-  scheduled: { label: 'Agendado', badge: 'fa-badge-mist', icon: 'calendar' },
-  expiring: { label: 'Expira em breve', badge: 'fa-badge-warn', icon: 'clock' },
-  exhausted: { label: 'Esgotado', badge: 'fa-badge-rose', icon: 'minus' },
-  expired: { label: 'Expirado', badge: 'fa-badge-mist', icon: 'close' },
-  inactive: { label: 'Pausado', badge: 'fa-badge-mist', icon: 'pause' },
+  active: { label: "Ativo", tone: "good", icon: "check" },
+  scheduled: { label: "Agendado", tone: "neutral", icon: "calendar" },
+  expiring: { label: "Expira em breve", tone: "warning", icon: "clock" },
+  exhausted: { label: "Esgotado", tone: "critical", icon: "minus" },
+  expired: { label: "Expirado", tone: "neutral", icon: "close" },
+  inactive: { label: "Pausado", tone: "neutral", icon: "pause" },
 };
 
 /** Split comma-separated targets into a normalized array. */
 function parseCouponTargets(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || '').trim()).filter(Boolean);
-  }
-  return String(value || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
 }
-
 /** Join target values into a comma-separated string for search-text building. */
-function stringifyCouponTargets(value) {
-  return parseCouponTargets(value).join(', ');
-}
+function stringifyCouponTargets(value) { return parseCouponTargets(value).join(", "); }
 
 /** Build a view-model draft for coupon forms. */
 function createCouponDraft(sourceCoupon) {
   const coupon = sourceCoupon || {};
   return {
-    code: coupon.code || '',
-    title: coupon.title || '',
-    description: coupon.description || '',
-    discountType: coupon.discountType || 'percent',
-    shippingDiscountMode: coupon.shippingDiscountMode || 'full',
-    discountValue: coupon.discountType === 'shipping' && (coupon.shippingDiscountMode || 'full') === 'full' ? 0 : coupon.discountValue == null ? 10 : Number(coupon.discountValue || 0),
+    code: coupon.code || "",
+    title: coupon.title || "",
+    description: coupon.description || "",
+    discountType: coupon.discountType || "percent",
+    shippingDiscountMode: coupon.shippingDiscountMode || "full",
+    discountValue: coupon.discountType === "shipping" && (coupon.shippingDiscountMode || "full") === "full" ? 0 : coupon.discountValue == null ? 10 : Number(coupon.discountValue || 0),
     minimumOrderValue: coupon.minimumOrderValue == null ? 0 : Number(coupon.minimumOrderValue || 0),
-    maxDiscountValue: coupon.discountType === 'shipping' ? '' : coupon.maxDiscountValue == null ? '' : Number(coupon.maxDiscountValue || 0),
-    startsAt: coupon.startsAt || '',
-    endsAt: coupon.endsAt || '',
-    usageLimit: coupon.usageLimit == null ? '' : Number(coupon.usageLimit || 0),
+    maxDiscountValue: coupon.discountType === "shipping" ? "" : coupon.maxDiscountValue == null ? "" : Number(coupon.maxDiscountValue || 0),
+    startsAt: coupon.startsAt || "",
+    endsAt: coupon.endsAt || "",
+    usageLimit: coupon.usageLimit == null ? "" : Number(coupon.usageLimit || 0),
     perCustomerLimit: coupon.perCustomerLimit == null ? 1 : Number(coupon.perCustomerLimit || 1),
-    audience: coupon.audience || 'all',
-    channelScope: coupon.channelScope || 'all',
-    scopeType: coupon.scopeType || 'all',
+    audience: coupon.audience || "all",
+    channelScope: coupon.channelScope || "all",
+    scopeType: coupon.scopeType || "all",
     targetCategories: parseCouponTargets(coupon.targetCategories || []),
     targetProducts: parseCouponTargets(coupon.targetProducts || []),
     targetServices: parseCouponTargets(coupon.targetServices || []),
     firstPurchaseOnly: !!coupon.firstPurchaseOnly,
     stackable: !!coupon.stackable,
     active: coupon.active !== false,
-    notes: coupon.notes || '',
+    notes: coupon.notes || "",
   };
 }
 
 /** Normalize coupon code input for consistent identifiers. */
 function normalizeCouponCode(value) {
-  return String(value || '')
-    .toUpperCase()
-    .replace(/\s+/g, '')
-    .replace(/[^A-Z0-9_-]+/g, '')
-    .slice(0, 24);
+  return String(value || "").toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9_-]+/g, "").slice(0, 24);
 }
-
 /** Format monetary values in BRL. */
-function formatCouponCurrency(value) {
-  return 'R$ ' + Number(value || 0).toFixed(2).replace('.', ',');
-}
-
+function formatCouponCurrency(value) { return money(value); }
 /** Format percentage values for labels. */
-function formatCouponPercent(value) {
-  return Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + '%';
-}
-
+function formatCouponPercent(value) { return Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + "%"; }
 /** Format local datetime labels from ISO-like input. */
 function formatCouponDateTime(value) {
-  if (!value) {
-    return 'Sem agendamento';
-  }
+  if (!value) return "Sem agendamento";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return 'Sem agendamento';
-  }
-  return date.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (Number.isNaN(date.getTime())) return "Sem agendamento";
+  return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
-
 /** Calculate coupon status according to activation, schedule, and usage caps. */
 function getCouponStatusKey(coupon) {
   const now = new Date();
@@ -144,943 +112,608 @@ function getCouponStatusKey(coupon) {
   const usageLimit = coupon && coupon.usageLimit != null ? Number(coupon.usageLimit || 0) : null;
   const usageCount = Number(coupon && coupon.usageCount || 0);
   const msInDay = 24 * 60 * 60 * 1000;
-
-  if (!coupon || coupon.active === false) {
-    return 'inactive';
-  }
-  if (startsAt && !Number.isNaN(startsAt.getTime()) && startsAt.getTime() > now.getTime()) {
-    return 'scheduled';
-  }
-  if (usageLimit != null && usageLimit > 0 && usageCount >= usageLimit) {
-    return 'exhausted';
-  }
-  if (endsAt && !Number.isNaN(endsAt.getTime()) && endsAt.getTime() < now.getTime()) {
-    return 'expired';
-  }
-  if (endsAt && !Number.isNaN(endsAt.getTime()) && endsAt.getTime() - now.getTime() <= msInDay * 3) {
-    return 'expiring';
-  }
-  return 'active';
+  if (!coupon || coupon.active === false) return "inactive";
+  if (startsAt && !Number.isNaN(startsAt.getTime()) && startsAt.getTime() > now.getTime()) return "scheduled";
+  if (usageLimit != null && usageLimit > 0 && usageCount >= usageLimit) return "exhausted";
+  if (endsAt && !Number.isNaN(endsAt.getTime()) && endsAt.getTime() < now.getTime()) return "expired";
+  if (endsAt && !Number.isNaN(endsAt.getTime()) && endsAt.getTime() - now.getTime() <= msInDay * 3) return "expiring";
+  return "active";
 }
-
 /** Return a human-readable status metadata object. */
-function getCouponStatusMeta(coupon) {
-  return COUPON_STATUS_META[getCouponStatusKey(coupon)] || COUPON_STATUS_META.inactive;
-}
-
+function getCouponStatusMeta(coupon) { return COUPON_STATUS_META[getCouponStatusKey(coupon)] || COUPON_STATUS_META.inactive; }
 /** Format discount label depending on coupon type. */
 function formatCouponDiscount(coupon) {
-  if (coupon.discountType === 'shipping') {
-    if ((coupon.shippingDiscountMode || 'full') === 'percent') {
-      return formatCouponPercent(coupon.discountValue) + ' no frete';
-    }
-    if ((coupon.shippingDiscountMode || 'full') === 'fixed') {
-      return formatCouponCurrency(coupon.discountValue) + ' no frete';
-    }
-    return 'Frete grátis';
+  if (coupon.discountType === "shipping") {
+    if ((coupon.shippingDiscountMode || "full") === "percent") return formatCouponPercent(coupon.discountValue) + " no frete";
+    if ((coupon.shippingDiscountMode || "full") === "fixed") return formatCouponCurrency(coupon.discountValue) + " no frete";
+    return "Frete grátis";
   }
-  if (coupon.discountType === 'fixed') {
-    return formatCouponCurrency(coupon.discountValue);
-  }
+  if (coupon.discountType === "fixed") return formatCouponCurrency(coupon.discountValue);
   return formatCouponPercent(coupon.discountValue);
 }
-
 /** Calculate usage progress percentage with sensible bounds. */
 function getCouponUsageProgress(coupon) {
   const usageLimit = coupon.usageLimit == null ? null : Number(coupon.usageLimit || 0);
-  if (!usageLimit || usageLimit <= 0) {
-    return Math.min(100, Number(coupon.usageCount || 0) > 0 ? 24 : 0);
-  }
+  if (!usageLimit || usageLimit <= 0) return Math.min(100, Number(coupon.usageCount || 0) > 0 ? 24 : 0);
   return Math.max(0, Math.min(100, Math.round(Number(coupon.usageCount || 0) / usageLimit * 100)));
 }
-
 /** Build human-readable scope labels for the coupon. */
 function getCouponScopeBadges(coupon) {
   const badges = [];
   badges.push(COUPON_SCOPE_LABELS[coupon.scopeType] || COUPON_SCOPE_LABELS.all);
-  if (coupon.scopeType === 'categories') {
+  if (coupon.scopeType === "categories") {
     parseCouponTargets(coupon.targetCategories).slice(0, 3).forEach((item) => badges.push(item));
-    if (parseCouponTargets(coupon.targetCategories).length > 3) {
-      badges.push('+' + (parseCouponTargets(coupon.targetCategories).length - 3));
-    }
+    if (parseCouponTargets(coupon.targetCategories).length > 3) badges.push("+" + (parseCouponTargets(coupon.targetCategories).length - 3));
   }
-  if (coupon.scopeType === 'products') {
+  if (coupon.scopeType === "products") {
     parseCouponTargets(coupon.targetProducts).slice(0, 3).forEach((item) => badges.push(item));
-    if (parseCouponTargets(coupon.targetProducts).length > 3) {
-      badges.push('+' + (parseCouponTargets(coupon.targetProducts).length - 3));
-    }
+    if (parseCouponTargets(coupon.targetProducts).length > 3) badges.push("+" + (parseCouponTargets(coupon.targetProducts).length - 3));
   }
-  if (coupon.scopeType === 'services') {
+  if (coupon.scopeType === "services") {
     parseCouponTargets(coupon.targetServices).slice(0, 3).forEach((item) => badges.push(item));
-    if (parseCouponTargets(coupon.targetServices).length > 3) {
-      badges.push('+' + (parseCouponTargets(coupon.targetServices).length - 3));
-    }
+    if (parseCouponTargets(coupon.targetServices).length > 3) badges.push("+" + (parseCouponTargets(coupon.targetServices).length - 3));
   }
-  if (coupon.firstPurchaseOnly) {
-    badges.push('Primeira compra');
-  }
-  if (coupon.channelScope && coupon.channelScope !== 'all') {
-    badges.push(COUPON_CHANNEL_LABELS[coupon.channelScope] || coupon.channelScope);
-  }
+  if (coupon.firstPurchaseOnly) badges.push("Primeira compra");
+  if (coupon.channelScope && coupon.channelScope !== "all") badges.push(COUPON_CHANNEL_LABELS[coupon.channelScope] || coupon.channelScope);
   return badges;
 }
-
 /** Build searchable coupon text including scope metadata. */
 function buildCouponSearchText(coupon) {
-  return [
-    coupon.code,
-    coupon.title,
-    coupon.description,
-    coupon.notes,
-    stringifyCouponTargets(coupon.targetCategories),
-    stringifyCouponTargets(coupon.targetProducts),
-    stringifyCouponTargets(coupon.targetServices),
-  ].join(' ').toLowerCase();
+  return [coupon.code, coupon.title, coupon.description, coupon.notes, stringifyCouponTargets(coupon.targetCategories), stringifyCouponTargets(coupon.targetProducts), stringifyCouponTargets(coupon.targetServices)].join(" ").toLowerCase();
 }
-
 /** Normalize and validate scope fields before persistence. */
 function buildCouponPayloadFromDraft(draft) {
   return {
     ...draft,
-    scopeType: draft.scopeType || 'all',
-    targetCategories: parseCouponTargets(draft.scopeType === 'categories' ? draft.targetCategories || [] : []),
-    targetProducts: parseCouponTargets(draft.scopeType === 'products' ? draft.targetProducts || [] : []),
-    targetServices: parseCouponTargets(draft.scopeType === 'services' ? draft.targetServices || [] : []),
-    shippingDiscountMode: draft.discountType === 'shipping' ? (draft.shippingDiscountMode || 'full') : 'full',
+    scopeType: draft.scopeType || "all",
+    targetCategories: parseCouponTargets(draft.scopeType === "categories" ? draft.targetCategories || [] : []),
+    targetProducts: parseCouponTargets(draft.scopeType === "products" ? draft.targetProducts || [] : []),
+    targetServices: parseCouponTargets(draft.scopeType === "services" ? draft.targetServices || [] : []),
+    shippingDiscountMode: draft.discountType === "shipping" ? (draft.shippingDiscountMode || "full") : "full",
     firstPurchaseOnly: !!draft.firstPurchaseOnly,
   };
 }
-
 /** Build stable category options from inventory records. */
 function buildCouponCategoryOptions(inventory) {
-  return [...new Set((inventory || [])
-    .filter((item) => item && item.active !== false)
-    .map((item) => String(item.cat || 'Medicamentos').trim())
-    .filter(Boolean))]
-    .sort((left, right) => left.localeCompare(right, 'pt-BR'))
-    .map((value) => ({ value, label: value }));
+  return [...new Set((inventory || []).filter((item) => item && item.active !== false).map((item) => String(item.cat || "Medicamentos").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR")).map((value) => ({ value, label: value }));
 }
-
 /** Build stable product options from inventory records. */
 function buildCouponProductOptions(inventory) {
   const unique = new Map();
   (inventory || [])
-    .filter((item) => item && item.active !== false && String(item.name || '').trim())
-    .slice()
-    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR'))
+    .filter((item) => item && item.active !== false && String(item.name || "").trim())
+    .slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"))
     .forEach((item) => {
-      const value = String(item.name || '').trim();
+      const value = String(item.name || "").trim();
       const key = value.toLowerCase();
-      if (unique.has(key)) {
-        return;
-      }
-      unique.set(key, {
-        value,
-        label: value,
-        meta: [
-          String(item.brand || '').trim(),
-          String(item.cat || 'Medicamentos').trim(),
-          'Estoque ' + Number(item.qty || 0),
-        ].filter(Boolean).join(' · '),
-      });
+      if (unique.has(key)) return;
+      unique.set(key, { value, label: value, meta: [String(item.brand || "").trim(), String(item.cat || "Medicamentos").trim(), "Estoque " + Number(item.qty || 0)].filter(Boolean).join(" · ") });
     });
   return Array.from(unique.values());
 }
-
 /** Build stable service options from the health-services admin catalog. */
 function buildCouponServiceOptions(healthServices) {
   return (healthServices || [])
-    .filter((service) => service && service.active !== false && String(service.name || '').trim())
-    .slice()
-    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR'))
-    .map((service) => ({
-      value: String(service.name || '').trim(),
-      label: String(service.name || '').trim(),
-      meta: [String(service.group || '').trim(), 'R$ ' + Number(service.price || 0).toFixed(2).replace('.', ',')].filter(Boolean).join(' · '),
-    }));
+    .filter((service) => service && service.active !== false && String(service.name || "").trim())
+    .slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"))
+    .map((service) => ({ value: String(service.name || "").trim(), label: String(service.name || "").trim(), meta: [String(service.group || "").trim(), money(service.price || 0)].filter(Boolean).join(" · ") }));
 }
 
-/** Render a searchable multi-select bound to inventory-derived options. */
-function CouponInfoHint({ text, align = 'center' }) {
-  const triggerRef = useRef(null);
-  const [open, setOpen] = useState(false);
-  const [tipStyle, setTipStyle] = useState({ top: 0, left: 0, width: 260, arrowLeft: 24 });
-
-  function updatePosition() {
-    if (!triggerRef.current) {
-      return;
-    }
-    const rect = triggerRef.current.getBoundingClientRect();
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-    const tooltipWidth = Math.min(260, Math.max(180, viewportWidth - 24));
-    const margin = 12;
-    let left = rect.left + rect.width / 2 - tooltipWidth / 2;
-
-    if (align === 'start') {
-      left = rect.left;
-    }
-    if (align === 'end') {
-      left = rect.right - tooltipWidth;
-    }
-
-    left = Math.max(margin, Math.min(left, viewportWidth - tooltipWidth - margin));
-    const centerX = rect.left + rect.width / 2;
-    const arrowLeft = Math.max(14, Math.min(tooltipWidth - 14, centerX - left));
-    setTipStyle({
-      top: rect.top - 10,
-      left,
-      width: tooltipWidth,
-      arrowLeft,
-    });
-  }
-
-  function openTip() {
-    updatePosition();
-    setOpen(true);
-  }
-
-  function closeTip() {
-    setOpen(false);
-  }
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const syncPosition = () => updatePosition();
-    window.addEventListener('resize', syncPosition);
-    window.addEventListener('scroll', syncPosition, true);
-    return () => {
-      window.removeEventListener('resize', syncPosition);
-      window.removeEventListener('scroll', syncPosition, true);
-    };
-  }, [open, align]);
-
-  return (
-    <span
-      ref={triggerRef}
-      className="cpn-info"
-      tabIndex={0}
-      aria-label={text}
-      onMouseEnter={openTip}
-      onMouseLeave={closeTip}
-      onFocus={openTip}
-      onBlur={closeTip}
-    >
-      <Icon name="info" size={13} />
-      {open && createPortal(
-        <span className="cpn-info-tip" style={{ top: tipStyle.top, left: tipStyle.left, width: tipStyle.width }}>
-          {text}
-          <span className="cpn-info-tip-arrow" style={{ left: tipStyle.arrowLeft }} />
-        </span>,
-        document.body,
-      )}
-    </span>
-  );
+/* ---------- kept for purchase-analytics-screen.jsx (still on the legacy design) ---------- */
+function CouponInfoHint({ text }) {
+  return <span title={text} style={{ display: "inline-flex", cursor: "help", color: "var(--text-muted)" }}><Icon name="info" size={12} /></span>;
+}
+function CouponFieldLabel({ label, tooltip }) {
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{label}<CouponInfoHint text={tooltip} /></span>;
 }
 
-function CouponFieldLabel({ label, tooltip, align = 'center' }) {
-  return (
-    <span className="cpn-field-label">
-      <span>{label}</span>
-      <CouponInfoHint text={tooltip} align={align} />
-    </span>
-  );
-}
-
-function CouponTargetPicker({ label, tooltip, align = 'start', placeholder, options, selectedValues, onChange, emptyMessage, searchPlaceholder }) {
-  const [query, setQuery] = useState('');
-  const normalizedQuery = String(query || '').trim().toLowerCase();
+/** Searchable multi-select bound to inventory/category/service-derived options. */
+function CouponTargetPicker({ label, tooltip, placeholder, options, selectedValues, onChange, emptyMessage, searchPlaceholder }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = String(query || "").trim().toLowerCase();
   const selected = Array.isArray(selectedValues) ? selectedValues : [];
-  const selectedKeySet = new Set(selected.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+  const selectedKeySet = new Set(selected.map((v) => String(v || "").trim().toLowerCase()).filter(Boolean));
   const filteredOptions = options.filter((option) => {
-    if (!normalizedQuery) {
-      return true;
-    }
-    const haystack = [option.label, option.meta].join(' ').toLowerCase();
-    return haystack.includes(normalizedQuery);
+    if (!normalizedQuery) return true;
+    return [option.label, option.meta].join(" ").toLowerCase().includes(normalizedQuery);
   });
-
-  /** Toggle a value in the current multi-selection. */
-  function toggleValue(value) {
-    const normalizedValue = String(value || '').trim();
-    const normalizedKey = normalizedValue.toLowerCase();
-    if (!normalizedValue) {
-      return;
-    }
-    if (selectedKeySet.has(normalizedKey)) {
-      onChange(selected.filter((item) => String(item || '').trim().toLowerCase() !== normalizedKey));
-      return;
-    }
-    onChange([...selected, normalizedValue]);
-  }
-
-  /** Remove a single selected value. */
-  function removeValue(value) {
-    const normalizedKey = String(value || '').trim().toLowerCase();
-    onChange(selected.filter((item) => String(item || '').trim().toLowerCase() !== normalizedKey));
-  }
+  const toggleValue = (value) => {
+    const normalizedValue = String(value || "").trim();
+    const key = normalizedValue.toLowerCase();
+    if (!normalizedValue) return;
+    onChange(selectedKeySet.has(key) ? selected.filter((item) => String(item || "").trim().toLowerCase() !== key) : [...selected, normalizedValue]);
+  };
+  const removeValue = (value) => {
+    const key = String(value || "").trim().toLowerCase();
+    onChange(selected.filter((item) => String(item || "").trim().toLowerCase() !== key));
+  };
 
   return (
-    <div className="fa-field">
-      <label><CouponFieldLabel label={label} tooltip={tooltip} align={align} /></label>
-      <div className="cpn-picker">
-        <input
-          className="fa-input"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={searchPlaceholder || placeholder}
-        />
-        {selected.length > 0 && (
-          <div className="cpn-picker-selected">
-            {selected.map((value) => (
-              <button key={value} type="button" className="cpn-picker-chip" onClick={() => removeValue(value)}>
-                <span>{value}</span>
-                <Icon name="close" size={12} />
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="cpn-picker-list" role="listbox" aria-label={label}>
-          {filteredOptions.length ? filteredOptions.map((option) => {
-            const checked = selectedKeySet.has(String(option.value || '').trim().toLowerCase());
-            return (
-              <button
-                key={option.value}
-                type="button"
-                className="cpn-picker-option"
-                data-on={checked ? '1' : '0'}
-                onClick={() => toggleValue(option.value)}
-              >
-                <span className="cpn-picker-check">
-                  {checked && <Icon name="check" size={13} stroke={2.8} />}
-                </span>
-                <span className="cpn-picker-copy">
-                  <strong>{option.label}</strong>
-                  {option.meta && <small>{option.meta}</small>}
-                </span>
-              </button>
-            );
-          }) : <div className="cpn-picker-empty">{emptyMessage || 'Nenhuma opção encontrada no estoque.'}</div>}
+    <Field label={label} hint={tooltip}>
+      <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchPlaceholder || placeholder} style={{ marginBottom: 8 }} />
+      {selected.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {selected.map((value) => (
+            <button key={value} type="button" className="badge badge-accent" style={{ border: "none", cursor: "pointer" }} onClick={() => removeValue(value)}>
+              {value}<Icon name="x" size={11} />
+            </button>
+          ))}
         </div>
+      )}
+      <div className="icon-picker scrollbar-thin" style={{ display: "block", gridTemplateColumns: "none", maxHeight: 200 }}>
+        {filteredOptions.length ? filteredOptions.map((option) => {
+          const checked = selectedKeySet.has(String(option.value || "").trim().toLowerCase());
+          return (
+            <button
+              key={option.value} type="button" onClick={() => toggleValue(option.value)}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 6px", border: "none", background: checked ? "var(--accent-soft)" : "none", cursor: "pointer", textAlign: "left", font: "inherit", color: "inherit", borderRadius: 6 }}
+            >
+              <span style={{ width: 16, height: 16, borderRadius: 4, border: "1px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: checked ? "var(--accent)" : "var(--surface)", color: "var(--accent-contrast)" }}>
+                {checked && <Icon name="check" size={11} />}
+              </span>
+              <span style={{ minWidth: 0 }}>
+                <strong style={{ fontSize: 12.5 }}>{option.label}</strong>
+                {option.meta && <div className="cell-muted" style={{ fontSize: 11 }}>{option.meta}</div>}
+              </span>
+            </button>
+          );
+        }) : <div className="page-desc" style={{ padding: 8 }}>{emptyMessage || "Nenhuma opção encontrada no estoque."}</div>}
       </div>
-    </div>
+    </Field>
   );
 }
+
+const STATUS_FILTERS = [
+  { key: "all", label: "Todos" }, { key: "active", label: "Ativos" }, { key: "scheduled", label: "Agendados" },
+  { key: "expiring", label: "Expirando" }, { key: "expired", label: "Expirados" }, { key: "exhausted", label: "Esgotados" },
+  { key: "inactive", label: "Inativos" },
+];
 
 /** Render the main coupon administration experience. */
 function CouponsScreen({ ctx }) {
-  const { coupons, openCouponCreate, openCouponEdit, toggleCouponState, removeCoupon, duplicateCoupon, onLogout, fetchCouponAnalytics } = ctx;
-  const [view, setView] = useState('manage');
-  const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [audienceFilter, setAudienceFilter] = useState('all');
-  const [scopeFilter, setScopeFilter] = useState('all');
-  const [channelFilter, setChannelFilter] = useState('all');
+  const { coupons, openCouponCreate, openCouponEdit, toggleCouponState, removeCoupon, duplicateCoupon, fetchCouponAnalytics } = ctx;
+  const [view, setView] = useState("manage");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [audienceFilter, setAudienceFilter] = useState("all");
+  const [scopeFilter, setScopeFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState('');
+  const [analyticsError, setAnalyticsError] = useState("");
 
   useEffect(() => {
-    if (view !== 'insights' || analytics || analyticsLoading || !fetchCouponAnalytics) {
-      return;
-    }
+    if (view !== "insights" || analytics || analyticsLoading || !fetchCouponAnalytics) return;
     setAnalyticsLoading(true);
     fetchCouponAnalytics()
-      .then((result) => { setAnalytics(result); setAnalyticsError(''); })
-      .catch((error) => setAnalyticsError(error && error.message ? error.message : 'Não foi possível carregar as análises.'))
+      .then((result) => { setAnalytics(result); setAnalyticsError(""); })
+      .catch((error) => setAnalyticsError((error && error.message) || "Não foi possível carregar as análises."))
       .finally(() => setAnalyticsLoading(false));
   }, [view, analytics, analyticsLoading, fetchCouponAnalytics]);
 
-  const enrichedCoupons = coupons.map((coupon) => ({
-    coupon,
-    statusKey: getCouponStatusKey(coupon),
-    statusMeta: getCouponStatusMeta(coupon),
-    usageProgress: getCouponUsageProgress(coupon),
-  }));
-
+  const enrichedCoupons = coupons.map((coupon) => ({ coupon, statusKey: getCouponStatusKey(coupon), statusMeta: getCouponStatusMeta(coupon), usageProgress: getCouponUsageProgress(coupon) }));
   const couponsByCode = Object.fromEntries(coupons.map((coupon) => [coupon.code, coupon]));
 
   const stats = {
     total: coupons.length,
-    active: enrichedCoupons.filter((entry) => entry.statusKey === 'active' || entry.statusKey === 'expiring').length,
-    scheduled: enrichedCoupons.filter((entry) => entry.statusKey === 'scheduled').length,
-    expiring: enrichedCoupons.filter((entry) => entry.statusKey === 'expiring').length,
-    expired: enrichedCoupons.filter((entry) => entry.statusKey === 'expired').length,
-    exhausted: enrichedCoupons.filter((entry) => entry.statusKey === 'exhausted').length,
-    inactive: enrichedCoupons.filter((entry) => entry.statusKey === 'inactive').length,
-    redeemed: coupons.reduce((total, coupon) => total + Number(coupon.usageCount || 0), 0),
+    active: enrichedCoupons.filter((e) => e.statusKey === "active" || e.statusKey === "expiring").length,
+    scheduled: enrichedCoupons.filter((e) => e.statusKey === "scheduled").length,
+    expiring: enrichedCoupons.filter((e) => e.statusKey === "expiring").length,
+    expired: enrichedCoupons.filter((e) => e.statusKey === "expired").length,
+    exhausted: enrichedCoupons.filter((e) => e.statusKey === "exhausted").length,
+    inactive: enrichedCoupons.filter((e) => e.statusKey === "inactive").length,
+    redeemed: coupons.reduce((total, c) => total + Number(c.usageCount || 0), 0),
   };
+  const statusCounts = { all: stats.total, active: stats.active, scheduled: stats.scheduled, expiring: stats.expiring, expired: stats.expired, exhausted: stats.exhausted, inactive: stats.inactive };
 
   const filteredCoupons = enrichedCoupons.filter(({ coupon, statusKey }) => {
-    if (statusFilter !== 'all' && statusKey !== statusFilter) {
-      return false;
-    }
-    if (audienceFilter !== 'all' && coupon.audience !== audienceFilter) {
-      return false;
-    }
-    if (channelFilter !== 'all' && (coupon.channelScope || 'all') !== channelFilter) {
-      return false;
-    }
-    if (scopeFilter === 'first_purchase' && !coupon.firstPurchaseOnly) {
-      return false;
-    }
-    if (scopeFilter !== 'all' && scopeFilter !== 'first_purchase' && coupon.scopeType !== scopeFilter) {
-      return false;
-    }
-    if (query && !buildCouponSearchText(coupon).includes(query.toLowerCase())) {
-      return false;
-    }
+    if (statusFilter !== "all" && statusKey !== statusFilter) return false;
+    if (audienceFilter !== "all" && coupon.audience !== audienceFilter) return false;
+    if (channelFilter !== "all" && (coupon.channelScope || "all") !== channelFilter) return false;
+    if (scopeFilter === "first_purchase" && !coupon.firstPurchaseOnly) return false;
+    if (scopeFilter !== "all" && scopeFilter !== "first_purchase" && coupon.scopeType !== scopeFilter) return false;
+    if (query && !buildCouponSearchText(coupon).includes(query.toLowerCase())) return false;
     return true;
   }).sort((left, right) => {
-    const leftActiveRank = ['active', 'expiring', 'scheduled', 'inactive', 'exhausted', 'expired'].indexOf(left.statusKey);
-    const rightActiveRank = ['active', 'expiring', 'scheduled', 'inactive', 'exhausted', 'expired'].indexOf(right.statusKey);
-    if (leftActiveRank !== rightActiveRank) {
-      return leftActiveRank - rightActiveRank;
-    }
-    return String(right.coupon.updatedAt || '').localeCompare(String(left.coupon.updatedAt || ''));
+    const order = ["active", "expiring", "scheduled", "inactive", "exhausted", "expired"];
+    const rankDiff = order.indexOf(left.statusKey) - order.indexOf(right.statusKey);
+    return rankDiff !== 0 ? rankDiff : String(right.coupon.updatedAt || "").localeCompare(String(left.coupon.updatedAt || ""));
   });
 
-  const topCoupons = [...enrichedCoupons]
-    .sort((left, right) => Number(right.coupon.usageCount || 0) - Number(left.coupon.usageCount || 0))
-    .slice(0, 4);
+  const topCoupons = [...enrichedCoupons].sort((a, b) => Number(b.coupon.usageCount || 0) - Number(a.coupon.usageCount || 0)).slice(0, 4);
+
+  const removeConfirm = async (coupon) => {
+    const ok = await confirmAction({
+      title: "Excluir cupom?",
+      body: "O cupom deixará de funcionar imediatamente para qualquer cliente, mesmo em pedidos já em andamento que ainda não finalizaram o pagamento. Essa ação não pode ser desfeita.",
+      entity: coupon.code, danger: true, confirmLabel: "Excluir",
+    });
+    if (ok) removeCoupon(coupon.id);
+  };
+
+  const columns = [
+    { key: "coupon", label: "Cupom", render: ({ coupon, statusMeta }) => (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span className="mono cell-strong"><Icon name="tag" size={12} />{coupon.code}</span>
+          <Badge tone={statusMeta.tone} dot><Icon name={statusMeta.icon} size={10} />{statusMeta.label}</Badge>
+          {coupon.stackable && <Badge tone="neutral"><Icon name="repeat" size={10} />Acumulável</Badge>}
+        </div>
+        <div>
+          <div className="cell-strong">{coupon.title}</div>
+          <div className="cell-muted" style={{ fontSize: 12 }}>{coupon.description || "Sem descrição operacional."}</div>
+        </div>
+      </div>
+    ) },
+    { key: "discount", label: "Desconto", render: ({ coupon }) => (
+      <>
+        <div style={{ fontWeight: 800, fontSize: 14 }}>{formatCouponDiscount(coupon)}</div>
+        <div className="cell-muted" style={{ fontSize: 11.5 }}>Pedido mínimo {formatCouponCurrency(coupon.minimumOrderValue)}{coupon.maxDiscountValue != null && coupon.maxDiscountValue !== "" ? " · teto " + formatCouponCurrency(coupon.maxDiscountValue) : ""}</div>
+      </>
+    ) },
+    { key: "window", label: "Janela", render: ({ coupon }) => (
+      <>
+        <div className="cell-muted" style={{ fontSize: 11 }}>Início</div>
+        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{formatCouponDateTime(coupon.startsAt)}</div>
+        <div className="cell-muted" style={{ fontSize: 11, marginTop: 4 }}>Fim · {formatCouponDateTime(coupon.endsAt)}</div>
+      </>
+    ) },
+    { key: "usage", label: "Uso", render: ({ coupon, usageProgress }) => (
+      <>
+        <div style={{ fontWeight: 800, fontSize: 14 }}>{Number(coupon.usageCount || 0)}{coupon.usageLimit ? " / " + coupon.usageLimit : ""}</div>
+        <div style={{ height: 5, borderRadius: 5, background: "var(--surface-2)", marginTop: 6, overflow: "hidden", width: 100 }}>
+          <div style={{ height: "100%", width: usageProgress + "%", background: usageProgress >= 85 ? "var(--warning)" : "var(--good)" }} />
+        </div>
+        <div className="cell-muted" style={{ fontSize: 11, marginTop: 4 }}>Limite por cliente · {coupon.perCustomerLimit || 1}</div>
+      </>
+    ) },
+    { key: "scope", label: "Escopo", render: ({ coupon }) => (
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{getCouponScopeBadges(coupon).map((b) => <Badge key={b} tone="neutral">{b}</Badge>)}</div>
+    ) },
+    { key: "audience", label: "Público", render: ({ coupon }) => (
+      <>
+        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{COUPON_AUDIENCE_LABELS[coupon.audience] || COUPON_AUDIENCE_LABELS.all}</div>
+        <div className="cell-muted" style={{ fontSize: 11 }}>{coupon.notes || "Sem observação extra."}</div>
+      </>
+    ) },
+  ];
 
   return (
-    <>
-      <Topbar title="Cupons" sub="Campanhas, regras promocionais e governança do marketplace" onLogout={onLogout} ctx={ctx}>
-        <div className="ph-topsearch">
-          <Icon name="search" size={17} style={{ color: 'var(--fa-ink-3)' }} />
-          <input placeholder="Buscar por código, campanha, categoria ou produto" value={query} onChange={(event) => setQuery(event.target.value)} />
-        </div>
-        <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={openCouponCreate}>
-          <Icon name="plus" size={15} />
-          Novo cupom
-        </button>
-      </Topbar>
+    <div className="route-fade">
+      <PageHead
+        eyebrow="Preço & Promoções"
+        title="Cupons"
+        desc="Campanhas, regras promocionais e governança do marketplace."
+        actions={<button className="btn btn-primary" onClick={openCouponCreate}><Icon name="plus" size={14} />Novo cupom</button>}
+      />
 
-      <div className="ph-content ph-content-wide" data-screen-label="Gestão de cupons do marketplace">
-        <div className="ph-seg" style={{ marginBottom: 18 }}>
-          <button data-on={view === 'manage' ? '1' : '0'} onClick={() => setView('manage')}><Icon name="gift" size={14} />Gestão da tabela</button>
-          <button data-on={view === 'insights' ? '1' : '0'} onClick={() => setView('insights')}><Icon name="activity" size={14} />Análises</button>
-        </div>
+      <Tabs tabs={[{ key: "manage", label: "Gestão da tabela" }, { key: "insights", label: "Análises" }]} active={view} onChange={setView} />
 
-        {view === 'manage' && (
-          <>
-            <div className="cpn-filterbar" style={{ marginTop: 0 }}>
-              <div className="ph-seg">
-                <button data-on={statusFilter === 'all' ? '1' : '0'} onClick={() => setStatusFilter('all')}>Todos <span className="ph-seg-n">{stats.total}</span></button>
-                <button data-on={statusFilter === 'active' ? '1' : '0'} onClick={() => setStatusFilter('active')}>Ativos <span className="ph-seg-n">{stats.active}</span></button>
-                <button data-on={statusFilter === 'scheduled' ? '1' : '0'} onClick={() => setStatusFilter('scheduled')}>Agendados <span className="ph-seg-n">{stats.scheduled}</span></button>
-                <button data-on={statusFilter === 'expiring' ? '1' : '0'} onClick={() => setStatusFilter('expiring')}>Expirando <span className="ph-seg-n">{stats.expiring}</span></button>
-                <button data-on={statusFilter === 'expired' ? '1' : '0'} onClick={() => setStatusFilter('expired')}>Expirados <span className="ph-seg-n">{stats.expired}</span></button>
-                <button data-on={statusFilter === 'exhausted' ? '1' : '0'} onClick={() => setStatusFilter('exhausted')}>Esgotados <span className="ph-seg-n">{stats.exhausted}</span></button>
-                <button data-on={statusFilter === 'inactive' ? '1' : '0'} onClick={() => setStatusFilter('inactive')}>Inativos <span className="ph-seg-n">{stats.inactive}</span></button>
-              </div>
-              <select className="fa-select" style={{ minWidth: 220 }} value={audienceFilter} onChange={(event) => setAudienceFilter(event.target.value)}>
+      {view === "manage" && (
+        <>
+          <div className="card card-pad" style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            <input className="input" placeholder="Buscar por código, campanha, categoria ou produto" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {STATUS_FILTERS.map((f) => (
+                <button
+                  key={f.key} type="button" className="btn btn-sm"
+                  onClick={() => setStatusFilter(f.key)}
+                  style={statusFilter === f.key ? { background: "var(--accent)", color: "var(--accent-contrast)", border: "1px solid var(--accent)" } : { background: "var(--surface)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
+                >
+                  {f.label} <span className="tab-count" style={{ marginLeft: 4 }}>{statusCounts[f.key]}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select className="input" style={{ width: "auto", minWidth: 200 }} value={audienceFilter} onChange={(e) => setAudienceFilter(e.target.value)}>
                 <option value="all">Todos os públicos</option>
                 <option value="new_customers">Novos clientes</option>
                 <option value="recurring">Clientes recorrentes</option>
                 <option value="prescription">Pedidos com receita</option>
               </select>
-              <select className="fa-select" style={{ minWidth: 240 }} value={scopeFilter} onChange={(event) => setScopeFilter(event.target.value)}>
+              <select className="input" style={{ width: "auto", minWidth: 220 }} value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value)}>
                 <option value="all">Todos os escopos</option>
                 <option value="products">Remédios e produtos específicos</option>
                 <option value="categories">Categorias específicas</option>
                 <option value="services">Serviços de saúde</option>
                 <option value="first_purchase">Apenas primeira compra</option>
               </select>
-              <select className="fa-select" style={{ minWidth: 200 }} value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
+              <select className="input" style={{ width: "auto", minWidth: 190 }} value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)}>
                 <option value="all">Todos os canais</option>
                 <option value="online">Somente loja online</option>
                 <option value="pdv">Somente balcão (PDV)</option>
               </select>
             </div>
+          </div>
 
-            <div className="ph-table-wrap cpn-table-wrap">
-              <table className="ph-table">
-                <thead>
-                  <tr>
-                    <th>Cupom</th>
-                    <th>Desconto</th>
-                    <th>Janela</th>
-                    <th>Uso</th>
-                    <th>Escopo</th>
-                    <th>Público</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCoupons.map(({ coupon, statusMeta, usageProgress }) => (
-                    <tr key={coupon.id}>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                            <span className="cpn-code"><Icon name="tag" size={13} />{coupon.code}</span>
-                            <span className={'fa-badge ' + statusMeta.badge}><Icon name={statusMeta.icon} size={11} />{statusMeta.label}</span>
-                            {coupon.stackable && <span className="fa-badge fa-badge-mist"><Icon name="repeat" size={11} />Acumulável</span>}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: 14.5 }}>{coupon.title}</div>
-                            <div className="ph-cell-sub">{coupon.description || 'Sem descrição operacional.'}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 800, fontSize: 15 }}>{formatCouponDiscount(coupon)}</div>
-                        <div className="ph-cell-sub">
-                          Pedido mínimo {formatCouponCurrency(coupon.minimumOrderValue)}
-                          {coupon.maxDiscountValue != null && coupon.maxDiscountValue !== '' ? ' · teto ' + formatCouponCurrency(coupon.maxDiscountValue) : ''}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="ph-cell-sub">Início</div>
-                        <div style={{ fontWeight: 700 }}>{formatCouponDateTime(coupon.startsAt)}</div>
-                        <div className="ph-cell-sub" style={{ marginTop: 6 }}>Fim · {formatCouponDateTime(coupon.endsAt)}</div>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 800, fontSize: 15 }}>{Number(coupon.usageCount || 0)}{coupon.usageLimit ? ' / ' + coupon.usageLimit : ''}</div>
-                        <div className="prc-bar" style={{ marginTop: 8 }}><i style={{ width: usageProgress + '%', background: usageProgress >= 85 ? 'var(--fa-warn)' : 'var(--fa-success)' }} /></div>
-                        <div className="ph-cell-sub" style={{ marginTop: 6 }}>Limite por cliente · {coupon.perCustomerLimit || 1}</div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {getCouponScopeBadges(coupon).map((badge) => <span key={badge} className="fa-badge fa-badge-mist">{badge}</span>)}
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 700 }}>{COUPON_AUDIENCE_LABELS[coupon.audience] || COUPON_AUDIENCE_LABELS.all}</div>
-                        <div className="ph-cell-sub">{coupon.notes || 'Sem observação extra.'}</div>
-                      </td>
-                      <td>
-                        <div className="cpn-row-actions">
-                          <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => openCouponEdit(coupon.id)}><Icon name="edit" size={14} />Editar</button>
-                          <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => duplicateCoupon(coupon.id)}><Icon name="plusCircle" size={14} />Duplicar</button>
-                          <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => toggleCouponState(coupon.id, !coupon.active)}>
-                            <Icon name={coupon.active ? 'pause' : 'play'} size={14} />
-                            {coupon.active ? 'Pausar' : 'Ativar'}
-                          </button>
-                          <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ color: 'var(--fa-error)' }} onClick={() => removeCoupon(coupon.id)}>
-                            <Icon name="trash" size={14} />
-                            Excluir
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {filteredCoupons.length === 0 && (
-                <div className="ph-empty">
-                  <span className="fa-iconbox"><Icon name="gift" size={28} /></span>
-                  <div>Nenhum cupom encontrado com os filtros atuais.</div>
-                </div>
+          <div className="card">
+            <DataTable
+              columns={columns}
+              rows={filteredCoupons}
+              rowKey={(row) => row.coupon.id}
+              empty="Nenhum cupom encontrado com os filtros atuais"
+              renderActions={({ coupon }) => (
+                <>
+                  <button className="btn btn-secondary btn-sm" onClick={() => openCouponEdit(coupon.id)}><Icon name="edit" size={12} />Editar</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => duplicateCoupon(coupon.id)}><Icon name="plusCircle" size={12} />Duplicar</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => toggleCouponState(coupon.id, !coupon.active)}><Icon name={coupon.active ? "pause" : "play"} size={12} />{coupon.active ? "Pausar" : "Ativar"}</button>
+                  <button className="btn btn-ghost btn-sm" style={{ color: "var(--critical)" }} onClick={() => removeConfirm(coupon)}><Icon name="trash" size={12} />Excluir</button>
+                </>
               )}
+            />
+          </div>
+        </>
+      )}
+
+      {view === "insights" && (
+        <>
+          <div className="grid g-4" style={{ marginBottom: 16 }}>
+            <StatCard icon="gift" value={analytics ? analytics.summary.activeCount : stats.active} label="Cupons ativos" tone="good" />
+            <StatCard icon="calendar" value={analytics ? analytics.summary.scheduledCount : stats.scheduled} label="Campanhas agendadas" />
+            <StatCard icon="clock" value={analytics ? analytics.summary.expiringCount : stats.expiring} label="Expiram em 72h" tone="warning" />
+            <StatCard icon="repeat" value={analytics ? analytics.summary.totalRedemptions : stats.redeemed} label="Resgates reais registrados" />
+          </div>
+
+          <div className="grid g-2" style={{ marginBottom: 16, alignItems: "start" }}>
+            <div className="card">
+              <div className="card-head"><div><h3>Visão operacional</h3><div className="card-head-sub">Estados que pedem atenção — calculados no servidor a partir do uso real</div></div></div>
+              <div className="card-pad" style={{ display: "grid", gap: 8 }}>
+                {[["Expirados", analytics ? analytics.summary.expiredCount : "—"], ["Esgotados", analytics ? analytics.summary.exhaustedCount : "—"], ["Próximos do limite de uso", analytics ? analytics.summary.nearLimitCount : "—"], ["Pausados manualmente", analytics ? analytics.summary.inactiveCount : "—"], ["Desconto total concedido", analytics ? formatCouponCurrency(analytics.summary.totalDiscountGranted) : "—"]].map(([label, val]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}><span className="cell-muted">{label}</span><strong>{val}</strong></div>
+                ))}
+              </div>
             </div>
-          </>
-        )}
 
-        {view === 'insights' && (
-          <>
-            <div className="cpn-kpis">
-              <StatCard icon="gift" value={analytics ? analytics.summary.activeCount : stats.active} label="Cupons ativos" tint={{ bg: 'var(--fa-success-soft)', fg: 'var(--fa-success)' }} />
-              <StatCard icon="calendar" value={analytics ? analytics.summary.scheduledCount : stats.scheduled} label="Campanhas agendadas" tint={{ bg: 'var(--fa-info-soft)', fg: 'var(--fa-info)' }} />
-              <StatCard icon="clock" value={analytics ? analytics.summary.expiringCount : stats.expiring} label="Expiram em 72h" tint={{ bg: 'var(--fa-warn-soft)', fg: 'var(--fa-warn)' }} />
-              <StatCard icon="repeat" value={analytics ? analytics.summary.totalRedemptions : stats.redeemed} label="Resgates reais registrados" tint={{ bg: 'var(--fa-rose-soft)', fg: 'var(--fa-primary)' }} />
-            </div>
-
-            <div className="cpn-insights-grid">
-              <AnCard icon="activity" title="Visão operacional" sub="Estados que pedem atenção — calculados no servidor a partir do uso real">
-                <div className="cpn-sidecard">
-                  <div className="cpn-statline"><span>Expirados</span><strong>{analytics ? analytics.summary.expiredCount : '—'}</strong></div>
-                  <div className="cpn-statline"><span>Esgotados</span><strong>{analytics ? analytics.summary.exhaustedCount : '—'}</strong></div>
-                  <div className="cpn-statline"><span>Próximos do limite de uso</span><strong>{analytics ? analytics.summary.nearLimitCount : '—'}</strong></div>
-                  <div className="cpn-statline"><span>Pausados manualmente</span><strong>{analytics ? analytics.summary.inactiveCount : '—'}</strong></div>
-                  <div className="cpn-statline"><span>Desconto total concedido</span><strong>{analytics ? formatCouponCurrency(analytics.summary.totalDiscountGranted) : '—'}</strong></div>
-                </div>
-              </AnCard>
-
-              <AnCard icon="trophy" title="Mais resgatados" sub="Campanhas com maior tração recente" tint={{ bg: 'var(--fa-warn-soft)', fg: 'var(--fa-warn)' }}>
+            <div className="card">
+              <div className="card-head"><div><h3>Mais resgatados</h3><div className="card-head-sub">Campanhas com maior tração recente</div></div></div>
+              <div className="card-pad" style={{ display: "grid", gap: 12 }}>
                 {topCoupons.length ? topCoupons.map(({ coupon, statusMeta, usageProgress }) => (
-                  <div key={coupon.id} className="cpn-summary">
+                  <div key={coupon.id} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <strong>{coupon.code}</strong>
-                        <span className={'fa-badge ' + statusMeta.badge}><Icon name={statusMeta.icon} size={11} />{statusMeta.label}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: 13 }}>{coupon.code}</strong>
+                        <Badge tone={statusMeta.tone} dot>{statusMeta.label}</Badge>
                       </div>
-                      <div className="ph-cell-sub" style={{ marginTop: 4 }}>{coupon.title}</div>
-                      <div className="prc-bar" style={{ marginTop: 8, width: 180 }}><i style={{ width: usageProgress + '%', background: 'var(--fa-primary)' }} /></div>
+                      <div className="cell-muted" style={{ fontSize: 12, marginTop: 4 }}>{coupon.title}</div>
+                      <div style={{ height: 5, borderRadius: 5, background: "var(--surface-2)", marginTop: 8, width: 160, overflow: "hidden" }}><div style={{ height: "100%", width: usageProgress + "%", background: "var(--accent)" }} /></div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 800, fontSize: 15 }}>{Number(coupon.usageCount || 0)} usos</div>
-                      <div className="ph-cell-sub">{formatCouponDiscount(coupon)}</div>
+                    <div style={{ textAlign: "right", flex: "none" }}>
+                      <div style={{ fontWeight: 800, fontSize: 14 }}>{Number(coupon.usageCount || 0)} usos</div>
+                      <div className="cell-muted" style={{ fontSize: 11.5 }}>{formatCouponDiscount(coupon)}</div>
                     </div>
                   </div>
-                )) : <div className="ph-cell-sub">Sem resgates registrados até o momento.</div>}
-              </AnCard>
-
-              <AnCard icon="sparkle" title="Boas práticas" sub="Checklist rápido para publicar promoções com menor risco de margem">
-                <div className="cpn-badges">
-                  <span className="fa-badge fa-badge-mist"><Icon name="check" size={11} />Use categorias para giro controlado</span>
-                  <span className="fa-badge fa-badge-mist"><Icon name="check" size={11} />Aplique produto específico em remédios âncora</span>
-                  <span className="fa-badge fa-badge-mist"><Icon name="check" size={11} />Restrinja primeira compra quando necessário</span>
-                  <span className="fa-badge fa-badge-mist"><Icon name="check" size={11} />Revise teto e limite por cliente</span>
-                </div>
-              </AnCard>
-
-              <AnCard icon="grid" title="Detalhamento por cupom" sub="Pagamento, canal (online × PDV), entrega e perfil de cliente de cada resgate real" style={{ gridColumn: '1 / -1' }}>
-                {analyticsLoading ? (
-                  <div className="ph-cell-sub">Carregando análises...</div>
-                ) : analyticsError ? (
-                  <div className="ph-cell-sub">{analyticsError}</div>
-                ) : analytics && analytics.items.filter((item) => item.totalRedemptions > 0).length ? (
-                  <div className="cpn-detail-list">
-                    {analytics.items.filter((item) => item.totalRedemptions > 0).sort((a, b) => b.totalRedemptions - a.totalRedemptions).map((item) => {
-                      const discountType = (couponsByCode[item.code] || {}).discountType;
-                      const fulfillmentChips = [
-                        item.fulfillmentBreakdown.pickupCount > 0 && { key: 'pickup', icon: 'pin', label: 'Retirada', count: item.fulfillmentBreakdown.pickupCount },
-                        item.fulfillmentBreakdown.deliveryCount > 0 && { key: 'delivery', icon: 'truck', label: 'Entrega', count: item.fulfillmentBreakdown.deliveryCount },
-                        item.fulfillmentBreakdown.shippingCount > 0 && { key: 'shipping', icon: 'truck', label: 'Transportadora', count: item.fulfillmentBreakdown.shippingCount },
-                      ].filter(Boolean);
-                      const channelChips = [
-                        item.channelBreakdown.onlineCount > 0 && { key: 'online', icon: 'cart', label: 'Online', count: item.channelBreakdown.onlineCount },
-                        item.channelBreakdown.pdvCount > 0 && { key: 'pdv', icon: 'bag', label: 'Balcão (PDV)', count: item.channelBreakdown.pdvCount },
-                      ].filter(Boolean);
-                      return (
-                        <div key={item.couponId} className="cpn-detail-card">
-                          <div className="cpn-detail-head">
-                            <span className="cpn-detail-icon"><Icon name={COUPON_DISCOUNT_TYPE_ICONS[discountType] || 'gift'} size={18} /></span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span className="cpn-code"><Icon name="tag" size={12} />{item.code}</span>
-                                <strong style={{ fontSize: 14.5 }}>{item.title}</strong>
-                              </div>
-                            </div>
-                            <div className="cpn-detail-stat">
-                              <div className="cpn-detail-stat-value">{item.totalRedemptions}</div>
-                              <div className="cpn-detail-stat-label">resgate{item.totalRedemptions === 1 ? '' : 's'}</div>
-                            </div>
-                            <div className="cpn-detail-stat cpn-detail-stat-accent">
-                              <div className="cpn-detail-stat-value">{formatCouponCurrency(item.totalDiscountGranted)}</div>
-                              <div className="cpn-detail-stat-label">concedido</div>
-                            </div>
-                          </div>
-                          <div className="cpn-detail-grid">
-                            <div className="cpn-detail-group cpn-detail-group-payment">
-                              <div className="cpn-detail-group-label"><Icon name="card" size={11} />Pagamento</div>
-                              <div className="cpn-detail-chips">
-                                {item.paymentBreakdown.map((entry) => (
-                                  <span key={entry.label} className="cpn-detail-chip"><Icon name={COUPON_PAYMENT_ICONS[entry.label] || 'card'} size={11} />{entry.label} · {entry.count}</span>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="cpn-detail-group cpn-detail-group-channel">
-                              <div className="cpn-detail-group-label"><Icon name="activity" size={11} />Canal</div>
-                              <div className="cpn-detail-chips">
-                                {channelChips.map((chip) => <span key={chip.key} className="cpn-detail-chip"><Icon name={chip.icon} size={11} />{chip.label} · {chip.count}</span>)}
-                              </div>
-                            </div>
-                            <div className="cpn-detail-group cpn-detail-group-fulfillment">
-                              <div className="cpn-detail-group-label"><Icon name="truck" size={11} />Entrega</div>
-                              <div className="cpn-detail-chips">
-                                {fulfillmentChips.map((chip) => <span key={chip.key} className="cpn-detail-chip"><Icon name={chip.icon} size={11} />{chip.label} · {chip.count}</span>)}
-                              </div>
-                            </div>
-                            <div className="cpn-detail-group cpn-detail-group-segment">
-                              <div className="cpn-detail-group-label"><Icon name="user" size={11} />Cliente</div>
-                              <div className="cpn-detail-chips">
-                                {item.segmentBreakdown.map((entry) => (
-                                  <span key={entry.segment} className="cpn-detail-chip"><Icon name="user" size={11} />{entry.segment} · {entry.count}</span>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : <div className="ph-cell-sub">Nenhum cupom foi resgatado ainda em pedidos reais.</div>}
-              </AnCard>
+                )) : <p className="page-desc" style={{ margin: 0 }}>Sem resgates registrados até o momento.</p>}
+              </div>
             </div>
-          </>
-        )}
-      </div>
-    </>
+
+            <div className="card">
+              <div className="card-head"><div><h3>Boas práticas</h3><div className="card-head-sub">Checklist rápido para publicar promoções com menor risco de margem</div></div></div>
+              <div className="card-pad" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {["Use categorias para giro controlado", "Aplique produto específico em remédios âncora", "Restrinja primeira compra quando necessário", "Revise teto e limite por cliente"].map((t) => (
+                  <Badge key={t} tone="neutral"><Icon name="check" size={10} />{t}</Badge>
+                ))}
+              </div>
+            </div>
+
+            <div className="card" style={{ gridColumn: "1 / -1" }}>
+              <div className="card-head"><div><h3>Detalhamento por cupom</h3><div className="card-head-sub">Pagamento, canal (online × PDV), entrega e perfil de cliente de cada resgate real</div></div></div>
+              <div className="card-pad">
+                {analyticsLoading ? <p className="page-desc" style={{ margin: 0 }}>Carregando análises...</p>
+                  : analyticsError ? <p className="page-desc" style={{ margin: 0 }}>{analyticsError}</p>
+                  : analytics && analytics.items.filter((item) => item.totalRedemptions > 0).length ? (
+                    <div style={{ display: "grid", gap: 12 }}>
+                      {analytics.items.filter((item) => item.totalRedemptions > 0).sort((a, b) => b.totalRedemptions - a.totalRedemptions).map((item) => {
+                        const discountType = (couponsByCode[item.code] || {}).discountType;
+                        const fulfillmentChips = [
+                          item.fulfillmentBreakdown.pickupCount > 0 && { key: "pickup", icon: "pin", label: "Retirada", count: item.fulfillmentBreakdown.pickupCount },
+                          item.fulfillmentBreakdown.deliveryCount > 0 && { key: "delivery", icon: "truck", label: "Entrega", count: item.fulfillmentBreakdown.deliveryCount },
+                          item.fulfillmentBreakdown.shippingCount > 0 && { key: "shipping", icon: "truck", label: "Transportadora", count: item.fulfillmentBreakdown.shippingCount },
+                        ].filter(Boolean);
+                        const channelChips = [
+                          item.channelBreakdown.onlineCount > 0 && { key: "online", icon: "cart", label: "Online", count: item.channelBreakdown.onlineCount },
+                          item.channelBreakdown.pdvCount > 0 && { key: "pdv", icon: "bag", label: "Balcão (PDV)", count: item.channelBreakdown.pdvCount },
+                        ].filter(Boolean);
+                        return (
+                          <div key={item.couponId} className="card card-pad">
+                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                              <span className="stat-icon" style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}><Icon name={COUPON_DISCOUNT_TYPE_ICONS[discountType] || "gift"} size={16} /></span>
+                              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span className="mono cell-strong"><Icon name="tag" size={11} />{item.code}</span>
+                                <strong style={{ fontSize: 13.5 }}>{item.title}</strong>
+                              </div>
+                              <div style={{ textAlign: "right" }}><div style={{ fontWeight: 800, fontSize: 15 }}>{item.totalRedemptions}</div><div className="cell-muted" style={{ fontSize: 10.5 }}>resgate{item.totalRedemptions === 1 ? "" : "s"}</div></div>
+                              <div style={{ textAlign: "right" }}><div style={{ fontWeight: 800, fontSize: 15, color: "var(--accent)" }}>{formatCouponCurrency(item.totalDiscountGranted)}</div><div className="cell-muted" style={{ fontSize: 10.5 }}>concedido</div></div>
+                            </div>
+                            <div className="grid g-4" style={{ marginTop: 12, gap: 10 }}>
+                              {[["Pagamento", "card", item.paymentBreakdown.map((e) => ({ icon: COUPON_PAYMENT_ICONS[e.label] || "card", label: `${e.label} · ${e.count}` }))],
+                                ["Canal", "activity", channelChips.map((c) => ({ icon: c.icon, label: `${c.label} · ${c.count}` }))],
+                                ["Entrega", "truck", fulfillmentChips.map((c) => ({ icon: c.icon, label: `${c.label} · ${c.count}` }))],
+                                ["Cliente", "user", item.segmentBreakdown.map((e) => ({ icon: "user", label: `${e.segment} · ${e.count}` }))]].map(([label, ic, chips]) => (
+                                <div key={label}>
+                                  <div className="cell-muted" style={{ fontSize: 10.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}><Icon name={ic} size={11} />{label}</div>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{chips.map((c, i) => <Badge key={i} tone="neutral"><Icon name={c.icon} size={10} />{c.label}</Badge>)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : <p className="page-desc" style={{ margin: 0 }}>Nenhum cupom foi resgatado ainda em pedidos reais.</p>}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
 /** Render the reusable create/edit coupon modal. */
 function CouponModal({ mode, coupon, inventory, healthServices, onClose, onCreate, onUpdate }) {
   const [draft, setDraft] = useState(() => createCouponDraft(coupon));
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const categoryOptions = useMemo(() => buildCouponCategoryOptions(inventory), [inventory]);
   const productOptions = useMemo(() => buildCouponProductOptions(inventory), [inventory]);
   const serviceOptions = useMemo(() => buildCouponServiceOptions(healthServices), [healthServices]);
 
-  useEffect(() => {
-    setDraft(createCouponDraft(coupon));
-    setError('');
-  }, [coupon, mode]);
+  useEffect(() => { setDraft(createCouponDraft(coupon)); setError(""); }, [coupon, mode]);
 
-  /** Update a single form field. */
-  function setField(field, value) {
-    setDraft((current) => ({ ...current, [field]: value }));
-  }
+  const setField = (field, value) => setDraft((current) => ({ ...current, [field]: value }));
 
-  /** Validate and submit the coupon payload. */
-  function handleSubmit(event) {
+  const handleSubmit = (event) => {
     event.preventDefault();
     const normalizedCode = normalizeCouponCode(draft.code);
-    const normalizedTitle = String(draft.title || '').trim();
+    const normalizedTitle = String(draft.title || "").trim();
     const discountValue = Number(draft.discountValue || 0);
     const minimumOrderValue = Number(draft.minimumOrderValue || 0);
     const startTimestamp = draft.startsAt ? new Date(draft.startsAt).getTime() : null;
     const endTimestamp = draft.endsAt ? new Date(draft.endsAt).getTime() : null;
     const normalizedPayload = buildCouponPayloadFromDraft(draft);
 
-    if (!normalizedCode || normalizedCode.length < 4) {
-      setError('Informe um código com pelo menos 4 caracteres válidos.');
-      return;
-    }
-    if (!normalizedTitle) {
-      setError('Informe um nome operacional para a campanha.');
-      return;
-    }
-    if ((draft.discountType !== 'shipping' || draft.shippingDiscountMode !== 'full') && discountValue <= 0) {
-      setError('O desconto precisa ser maior que zero.');
-      return;
-    }
-    if ((draft.discountType === 'percent' || (draft.discountType === 'shipping' && draft.shippingDiscountMode === 'percent')) && discountValue > 100) {
-      setError('O desconto percentual não pode passar de 100%.');
-      return;
-    }
-    if (minimumOrderValue < 0) {
-      setError('O pedido mínimo não pode ser negativo.');
-      return;
-    }
-    if (startTimestamp != null && endTimestamp != null && endTimestamp <= startTimestamp) {
-      setError('A data final deve ser posterior ao início da campanha.');
-      return;
-    }
-    if (normalizedPayload.scopeType === 'categories' && normalizedPayload.targetCategories.length === 0) {
-      setError('Selecione pelo menos uma categoria para o cupom específico.');
-      return;
-    }
-    if (normalizedPayload.scopeType === 'products' && normalizedPayload.targetProducts.length === 0) {
-      setError('Selecione pelo menos um remédio ou produto para o cupom específico.');
-      return;
-    }
+    if (!normalizedCode || normalizedCode.length < 4) { setError("Informe um código com pelo menos 4 caracteres válidos."); return; }
+    if (!normalizedTitle) { setError("Informe um nome operacional para a campanha."); return; }
+    if ((draft.discountType !== "shipping" || draft.shippingDiscountMode !== "full") && discountValue <= 0) { setError("O desconto precisa ser maior que zero."); return; }
+    if ((draft.discountType === "percent" || (draft.discountType === "shipping" && draft.shippingDiscountMode === "percent")) && discountValue > 100) { setError("O desconto percentual não pode passar de 100%."); return; }
+    if (minimumOrderValue < 0) { setError("O pedido mínimo não pode ser negativo."); return; }
+    if (startTimestamp != null && endTimestamp != null && endTimestamp <= startTimestamp) { setError("A data final deve ser posterior ao início da campanha."); return; }
+    if (normalizedPayload.scopeType === "categories" && normalizedPayload.targetCategories.length === 0) { setError("Selecione pelo menos uma categoria para o cupom específico."); return; }
+    if (normalizedPayload.scopeType === "products" && normalizedPayload.targetProducts.length === 0) { setError("Selecione pelo menos um remédio ou produto para o cupom específico."); return; }
 
-    const payload = {
-      ...draft,
-      ...normalizedPayload,
-      code: normalizedCode,
-      title: normalizedTitle,
-      description: String(draft.description || '').trim(),
-      notes: String(draft.notes || '').trim(),
-    };
+    const payload = { ...draft, ...normalizedPayload, code: normalizedCode, title: normalizedTitle, description: String(draft.description || "").trim(), notes: String(draft.notes || "").trim() };
+    if (mode === "edit" && coupon) onUpdate(coupon.id, payload);
+    else onCreate(payload);
+  };
 
-    if (mode === 'edit' && coupon) {
-      onUpdate(coupon.id, payload);
-      return;
-    }
-    onCreate(payload);
-  }
+  const discountLabel = draft.discountType === "shipping"
+    ? (draft.shippingDiscountMode === "percent" ? "Percentual no frete" : draft.shippingDiscountMode === "fixed" ? "Valor no frete" : "Frete grátis")
+    : draft.discountType === "fixed" ? "Desconto em R$" : "Desconto em %";
+  const discountHint = draft.discountType === "shipping"
+    ? (draft.shippingDiscountMode === "percent" ? "Percentual abatido só do valor de entrega." : draft.shippingDiscountMode === "fixed" ? "Valor fixo abatido só da taxa de entrega." : "Calculado automaticamente com base na taxa de entrega — nenhum valor manual necessário.")
+    : draft.discountType === "fixed" ? "Valor fixo abatido do pedido quando o cupom for aplicado." : "Percentual de abatimento sobre o pedido elegível.";
 
   return (
-    <ModalShell open={true} onClose={onClose} maxw={760} className="cpn-modal">
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18 }}>
-        <span className="fa-iconbox" style={{ width: 52, height: 52, flex: 'none' }}><Icon name="gift" size={24} /></span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 className="fa-h3" style={{ fontSize: 20 }}>{mode === 'edit' ? 'Editar cupom' : 'Criar cupom'}</h2>
-          <p className="fa-muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
-            Configure código, desconto, vigência, público e escopo por produto, categoria ou primeira compra.
-          </p>
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Código do cupom" tooltip="Identificador que o cliente digita no checkout. Use um código curto, fácil de lembrar e sem espaços, por exemplo BEMVINDO15." align="start" /></label>
-            <input className="fa-input" value={draft.code} onChange={(event) => setField('code', normalizeCouponCode(event.target.value))} placeholder="BEMVINDO15" />
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Campanha" tooltip="Nome interno da ação promocional. Preencha com um título claro para o time identificar o objetivo do cupom." align="end" /></label>
-            <input className="fa-input" maxLength={120} value={draft.title} onChange={(event) => setField('title', event.target.value)} placeholder="Primeira compra" />
-          </div>
+    <Modal
+      open onClose={onClose} title={mode === "edit" ? "Editar cupom" : "Criar cupom"}
+      subtitle="Configure código, desconto, vigência, público e escopo por produto, categoria ou primeira compra."
+      wide
+      footer={(
+        <>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+          <button type="submit" form="coupon-form" className="btn btn-primary"><Icon name="check" size={14} />{mode === "edit" ? "Salvar cupom" : "Criar cupom"}</button>
+        </>
+      )}
+    >
+      <form id="coupon-form" onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="grid g-2">
+          <Field label="Código do cupom" hint="Identificador que o cliente digita no checkout. Curto, sem espaços — ex.: BEMVINDO15.">
+            <input className="input" value={draft.code} onChange={(e) => setField("code", normalizeCouponCode(e.target.value))} placeholder="BEMVINDO15" />
+          </Field>
+          <Field label="Campanha" hint="Nome interno da ação promocional.">
+            <input className="input" maxLength={120} value={draft.title} onChange={(e) => setField("title", e.target.value)} placeholder="Primeira compra" />
+          </Field>
         </div>
 
-        <div className="fa-field">
-          <label><CouponFieldLabel label="Descrição operacional" tooltip="Resumo rápido do contexto da campanha. Informe em uma frase onde o cupom será usado ou qual estratégia ele atende." align="start" /></label>
-          <input className="fa-input" maxLength={500} value={draft.description} onChange={(event) => setField('description', event.target.value)} placeholder="Resumo curto para o time interno" />
-        </div>
+        <Field label="Descrição operacional" hint="Resumo rápido do contexto da campanha, para o time interno.">
+          <input className="input" maxLength={500} value={draft.description} onChange={(e) => setField("description", e.target.value)} placeholder="Resumo curto para o time interno" />
+        </Field>
 
-        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr', gap: 14 }}>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Tipo" tooltip="Define se o cupom dará desconto percentual, valor fixo em reais ou frete grátis calculado sobre a entrega do pedido." align="start" /></label>
-            <select className="fa-select" value={draft.discountType} onChange={(event) => setField('discountType', event.target.value)}>
-              <option value="percent">Percentual</option>
-              <option value="fixed">Valor fixo</option>
-              <option value="shipping">Desconto no frete</option>
+        <div className="grid g-3">
+          <Field label="Tipo" hint="Percentual, valor fixo ou frete grátis.">
+            <select className="input" value={draft.discountType} onChange={(e) => setField("discountType", e.target.value)}>
+              <option value="percent">Percentual</option><option value="fixed">Valor fixo</option><option value="shipping">Desconto no frete</option>
             </select>
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label={draft.discountType === 'shipping' ? (draft.shippingDiscountMode === 'percent' ? 'Percentual no frete' : draft.shippingDiscountMode === 'fixed' ? 'Valor no frete' : 'Frete grátis') : draft.discountType === 'fixed' ? 'Desconto em R$' : 'Desconto em %'} tooltip={draft.discountType === 'shipping' ? draft.shippingDiscountMode === 'percent' ? 'Percentual que será abatido somente do valor de entrega do pedido.' : draft.shippingDiscountMode === 'fixed' ? 'Valor fixo que será abatido somente da taxa de entrega do pedido.' : 'Para frete grátis, o desconto será calculado automaticamente com base na taxa de entrega do pedido. Nenhum valor manual é necessário.' : draft.discountType === 'fixed' ? 'Valor fixo que será abatido do pedido quando o cupom for aplicado. Preencha o total em reais.' : 'Percentual de abatimento aplicado sobre o pedido elegível. Informe apenas o número da porcentagem.'} align="center" /></label>
-            <input className="fa-input" type="number" min="0" step={draft.discountType === 'fixed' ? '0.01' : '0.1'} value={draft.discountType === 'shipping' && draft.shippingDiscountMode === 'full' ? 0 : draft.discountValue} onChange={(event) => setField('discountValue', event.target.value)} disabled={draft.discountType === 'shipping' && draft.shippingDiscountMode === 'full'} />
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Teto do desconto em R$" tooltip="Limite máximo de desconto que esse cupom pode conceder. Use para evitar descontos altos demais em pedidos com valor elevado. Só se aplica a desconto percentual — em valor fixo ou frete grátis este campo não é usado." align="end" /></label>
-            <input className="fa-input" type="number" min="0" step="0.01" value={draft.discountType === 'percent' ? draft.maxDiscountValue : ''} onChange={(event) => setField('maxDiscountValue', event.target.value)} placeholder={draft.discountType === 'percent' ? 'Ex.: 15,00' : 'Não se aplica'} disabled={draft.discountType !== 'percent'} />
-          </div>
+          </Field>
+          <Field label={discountLabel} hint={discountHint}>
+            <input
+              className="input" type="number" min="0" step={draft.discountType === "fixed" ? "0.01" : "0.1"}
+              value={draft.discountType === "shipping" && draft.shippingDiscountMode === "full" ? 0 : draft.discountValue}
+              onChange={(e) => setField("discountValue", e.target.value)}
+              disabled={draft.discountType === "shipping" && draft.shippingDiscountMode === "full"}
+            />
+          </Field>
+          <Field label="Teto do desconto em R$" hint="Só se aplica a desconto percentual.">
+            <input
+              className="input" type="number" min="0" step="0.01"
+              value={draft.discountType === "percent" ? draft.maxDiscountValue : ""}
+              onChange={(e) => setField("maxDiscountValue", e.target.value)}
+              placeholder={draft.discountType === "percent" ? "Ex.: 15,00" : "Não se aplica"}
+              disabled={draft.discountType !== "percent"}
+            />
+          </Field>
         </div>
 
-        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Pedido mínimo" tooltip="Valor mínimo que o carrinho precisa atingir para liberar o uso do cupom. Preencha o total em reais." align="start" /></label>
-            <input className="fa-input" type="number" min="0" step="0.01" value={draft.minimumOrderValue} onChange={(event) => setField('minimumOrderValue', event.target.value)} />
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Limite total" tooltip="Quantidade máxima de vezes que o cupom pode ser resgatado no marketplace. Deixe em branco se não quiser limitar." align="center" /></label>
-            <input className="fa-input" type="number" min="0" step="1" value={draft.usageLimit} onChange={(event) => setField('usageLimit', event.target.value)} placeholder="Opcional" />
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Limite por cliente" tooltip="Número máximo de usos permitidos para cada cliente. Use 1 quando o cupom deve ser resgatado só uma vez por conta." align="end" /></label>
-            <input className="fa-input" type="number" min="1" step="1" value={draft.perCustomerLimit} onChange={(event) => setField('perCustomerLimit', event.target.value)} />
-          </div>
+        <div className="grid g-3">
+          <Field label="Pedido mínimo"><input className="input" type="number" min="0" step="0.01" value={draft.minimumOrderValue} onChange={(e) => setField("minimumOrderValue", e.target.value)} /></Field>
+          <Field label="Limite total" hint="Vazio = sem limite."><input className="input" type="number" min="0" step="1" value={draft.usageLimit} onChange={(e) => setField("usageLimit", e.target.value)} placeholder="Opcional" /></Field>
+          <Field label="Limite por cliente"><input className="input" type="number" min="1" step="1" value={draft.perCustomerLimit} onChange={(e) => setField("perCustomerLimit", e.target.value)} /></Field>
         </div>
 
-        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Início" tooltip="Data e hora em que o cupom começa a valer. Deixe vazio apenas se a campanha puder iniciar imediatamente." align="start" /></label>
-            <input className="fa-input" type="datetime-local" value={draft.startsAt} onChange={(event) => setField('startsAt', event.target.value)} />
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Fim" tooltip="Data e hora limite para uso do cupom. Defina esse campo para encerrar a campanha automaticamente." align="center" /></label>
-            <input className="fa-input" type="datetime-local" value={draft.endsAt} onChange={(event) => setField('endsAt', event.target.value)} />
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Público" tooltip="Segmento de clientes que poderá usar o cupom. Escolha entre todo o marketplace, novos clientes, recorrentes ou pedidos com receita." align="end" /></label>
-            <select className="fa-select" value={draft.audience} onChange={(event) => setField('audience', event.target.value)}>
-              <option value="all">Todo o marketplace</option>
-              <option value="new_customers">Novos clientes</option>
-              <option value="recurring">Clientes recorrentes</option>
-              <option value="prescription">Pedidos com receita</option>
+        <div className="grid g-3">
+          <Field label="Início"><input className="input" type="datetime-local" value={draft.startsAt} onChange={(e) => setField("startsAt", e.target.value)} /></Field>
+          <Field label="Fim"><input className="input" type="datetime-local" value={draft.endsAt} onChange={(e) => setField("endsAt", e.target.value)} /></Field>
+          <Field label="Público">
+            <select className="input" value={draft.audience} onChange={(e) => setField("audience", e.target.value)}>
+              <option value="all">Todo o marketplace</option><option value="new_customers">Novos clientes</option>
+              <option value="recurring">Clientes recorrentes</option><option value="prescription">Pedidos com receita</option>
             </select>
-          </div>
+          </Field>
         </div>
 
-        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Canal" tooltip="Define em quais canais de venda esse cupom pode ser usado: todo o negócio, só a loja online, ou só o balcão (PDV)." align="start" /></label>
-            <select className="fa-select" value={draft.channelScope} onChange={(event) => setField('channelScope', event.target.value)}>
-              <option value="all">Todos os canais</option>
-              <option value="online">Somente loja online</option>
-              <option value="pdv">Somente balcão (PDV)</option>
+        <div className="grid g-2">
+          <Field label="Canal">
+            <select className="input" value={draft.channelScope} onChange={(e) => setField("channelScope", e.target.value)}>
+              <option value="all">Todos os canais</option><option value="online">Somente loja online</option><option value="pdv">Somente balcão (PDV)</option>
             </select>
-          </div>
-          <div className="fa-field">
-            <label><CouponFieldLabel label="Escopo do cupom" tooltip="Define onde o cupom será aplicado: em todo o catálogo, apenas em categorias específicas ou só em produtos determinados." align="end" /></label>
-            <select className="fa-select" value={draft.scopeType} onChange={(event) => setField('scopeType', event.target.value)}>
-              <option value="all">Catálogo completo</option>
-              <option value="categories">Categorias específicas</option>
-              <option value="products">Remédios e produtos específicos</option>
-              <option value="services">Serviços de saúde</option>
+          </Field>
+          <Field label="Escopo do cupom">
+            <select className="input" value={draft.scopeType} onChange={(e) => setField("scopeType", e.target.value)}>
+              <option value="all">Catálogo completo</option><option value="categories">Categorias específicas</option>
+              <option value="products">Remédios e produtos específicos</option><option value="services">Serviços de saúde</option>
             </select>
-          </div>
-          {draft.discountType === 'shipping' && (
-            <div className="fa-field">
-              <label><CouponFieldLabel label="Modo do desconto no frete" tooltip="Escolha se o cupom vai zerar o frete, abater um valor fixo da entrega ou aplicar um percentual sobre a taxa de entrega." align="start" /></label>
-              <select className="fa-select" value={draft.shippingDiscountMode || 'full'} onChange={(event) => setField('shippingDiscountMode', event.target.value)}>
-                <option value="full">Frete grátis</option>
-                <option value="fixed">Valor fixo no frete</option>
-                <option value="percent">Percentual no frete</option>
+          </Field>
+          {draft.discountType === "shipping" && (
+            <Field label="Modo do desconto no frete">
+              <select className="input" value={draft.shippingDiscountMode || "full"} onChange={(e) => setField("shippingDiscountMode", e.target.value)}>
+                <option value="full">Frete grátis</option><option value="fixed">Valor fixo no frete</option><option value="percent">Percentual no frete</option>
               </select>
-            </div>
+            </Field>
           )}
-          <div className="fa-row">
-            <div className="fa-row-main">
-              <div className="fa-row-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Apenas primeira compra<CouponInfoHint text="Ative quando o cupom só puder ser usado no primeiro pedido do cliente no marketplace. Ideal para aquisição de novos compradores." align="end" /></div>
-              <div className="fa-row-desc">Restringe o uso ao primeiro pedido do cliente no marketplace.</div>
-            </div>
-            <Toggle on={!!draft.firstPurchaseOnly} onChange={(value) => setField('firstPurchaseOnly', value)} ariaLabel="Apenas primeira compra" />
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+            <div><div style={{ fontSize: 12.5, fontWeight: 700 }}>Apenas primeira compra</div><div className="page-desc" style={{ margin: "2px 0 0" }}>Restringe ao primeiro pedido do cliente.</div></div>
+            <SwitchToggle on={!!draft.firstPurchaseOnly} onChange={(v) => setField("firstPurchaseOnly", v)} label="Apenas primeira compra" />
           </div>
         </div>
 
-        {draft.scopeType === 'categories' && (
-          <CouponTargetPicker
-            label="Categorias elegíveis"
-            tooltip="Selecione quais categorias do estoque poderão receber o desconto. Escolha uma ou mais categorias válidas para restringir a campanha."
-            align="start"
-            placeholder="Buscar categorias do estoque"
-            searchPlaceholder="Buscar categorias vinculadas ao estoque"
-            options={categoryOptions}
-            selectedValues={draft.targetCategories}
-            onChange={(value) => setField('targetCategories', value)}
-            emptyMessage="Nenhuma categoria encontrada no estoque atual."
-          />
+        {draft.scopeType === "categories" && (
+          <CouponTargetPicker label="Categorias elegíveis" tooltip="Selecione as categorias do estoque que poderão receber o desconto." placeholder="Buscar categorias do estoque" searchPlaceholder="Buscar categorias vinculadas ao estoque" options={categoryOptions} selectedValues={draft.targetCategories} onChange={(v) => setField("targetCategories", v)} emptyMessage="Nenhuma categoria encontrada no estoque atual." />
+        )}
+        {draft.scopeType === "products" && (
+          <CouponTargetPicker label="Remédios ou produtos elegíveis" tooltip="Selecione os itens específicos do estoque que poderão usar o cupom." placeholder="Buscar itens do estoque" searchPlaceholder="Buscar remédios e produtos vinculados ao estoque" options={productOptions} selectedValues={draft.targetProducts} onChange={(v) => setField("targetProducts", v)} emptyMessage="Nenhum item elegível encontrado no estoque atual." />
+        )}
+        {draft.scopeType === "services" && (
+          <CouponTargetPicker label="Serviços de saúde elegíveis" tooltip="Selecione os serviços de saúde que poderão usar este cupom." placeholder="Buscar serviços de saúde" searchPlaceholder="Buscar serviços de saúde cadastrados" options={serviceOptions} selectedValues={draft.targetServices} onChange={(v) => setField("targetServices", v)} emptyMessage="Nenhum serviço de saúde ativo cadastrado ainda." />
         )}
 
-        {draft.scopeType === 'products' && (
-          <CouponTargetPicker
-            label="Remédios ou produtos elegíveis"
-            tooltip="Selecione os itens específicos do estoque que poderão usar o cupom. A campanha ficará restrita apenas aos produtos marcados."
-            align="start"
-            placeholder="Buscar itens do estoque"
-            searchPlaceholder="Buscar remédios e produtos vinculados ao estoque"
-            options={productOptions}
-            selectedValues={draft.targetProducts}
-            onChange={(value) => setField('targetProducts', value)}
-            emptyMessage="Nenhum item elegível encontrado no estoque atual."
-          />
-        )}
-
-        {draft.scopeType === 'services' && (
-          <CouponTargetPicker
-            label="Serviços de saúde elegíveis"
-            tooltip="Selecione quais serviços de saúde (cadastrados em Catálogo → Serviços de saúde) poderão usar este cupom no agendamento."
-            align="start"
-            placeholder="Buscar serviços de saúde"
-            searchPlaceholder="Buscar serviços de saúde cadastrados"
-            options={serviceOptions}
-            selectedValues={draft.targetServices}
-            onChange={(value) => setField('targetServices', value)}
-            emptyMessage="Nenhum serviço de saúde ativo cadastrado ainda."
-          />
-        )}
-
-        <div className="ph-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div className="fa-row">
-            <div className="fa-row-main">
-              <div className="fa-row-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Cupom ativo ao salvar<CouponInfoHint text="Mantém o cupom pronto para uso assim que for salvo, respeitando agenda, escopo e demais limites configurados." align="start" /></div>
-              <div className="fa-row-desc">Permite publicação imediata conforme agenda e limites definidos.</div>
-            </div>
-            <Toggle on={!!draft.active} onChange={(value) => setField('active', value)} ariaLabel="Cupom ativo" />
+        <div className="grid g-2">
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+            <div><div style={{ fontSize: 12.5, fontWeight: 700 }}>Cupom ativo ao salvar</div><div className="page-desc" style={{ margin: "2px 0 0" }}>Publicação imediata conforme agenda e limites.</div></div>
+            <SwitchToggle on={!!draft.active} onChange={(v) => setField("active", v)} label="Cupom ativo" />
           </div>
-          <div className="fa-row">
-            <div className="fa-row-main">
-              <div className="fa-row-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Acumulável com outras campanhas<CouponInfoHint text="Permite combinar este cupom com outras promoções. Ative apenas quando a regra comercial e a margem estiverem protegidas." align="end" /></div>
-              <div className="fa-row-desc">Use apenas quando a margem já estiver protegida por pedido mínimo e teto.</div>
-            </div>
-            <Toggle on={!!draft.stackable} onChange={(value) => setField('stackable', value)} ariaLabel="Cupom acumulável" />
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+            <div><div style={{ fontSize: 12.5, fontWeight: 700 }}>Acumulável com outras campanhas</div><div className="page-desc" style={{ margin: "2px 0 0" }}>Use só com margem já protegida.</div></div>
+            <SwitchToggle on={!!draft.stackable} onChange={(v) => setField("stackable", v)} label="Cupom acumulável" />
           </div>
         </div>
 
-        <div className="fa-field">
-          <label><CouponFieldLabel label="Observações internas" tooltip="Espaço para registrar contexto operacional da campanha, como canal, região, mídia ou restrições que o time precisa lembrar." align="start" /></label>
-          <textarea className="fa-input" maxLength={1000} style={{ height: 112, paddingTop: 12, resize: 'vertical' }} value={draft.notes} onChange={(event) => setField('notes', event.target.value)} placeholder="Canal de mídia, região priorizada, restrições operacionais..." />
-        </div>
+        <Field label="Observações internas">
+          <textarea className="input" maxLength={1000} style={{ minHeight: 90 }} value={draft.notes} onChange={(e) => setField("notes", e.target.value)} placeholder="Canal de mídia, região priorizada, restrições operacionais..." />
+        </Field>
 
-        {error && <div className="fa-card" style={{ padding: '14px 16px', background: 'var(--fa-warn-soft)', color: 'var(--fa-primary)', fontWeight: 700, fontSize: 13.5 }}>{error}</div>}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
-          <button type="button" className="fa-btn fa-btn-soft" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="fa-btn fa-btn-primary">
-            <Icon name="check" size={16} />
-            {mode === 'edit' ? 'Salvar cupom' : 'Criar cupom'}
-          </button>
-        </div>
+        {error && <div className="field-error" style={{ padding: "10px 12px", background: "var(--critical-soft)", borderRadius: "var(--radius-md)" }}>{error}</div>}
       </form>
-    </ModalShell>
+    </Modal>
   );
 }
 
