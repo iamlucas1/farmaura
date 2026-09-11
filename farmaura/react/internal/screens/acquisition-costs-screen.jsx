@@ -1,25 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { ModalShell } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { Topbar } from "../core/internal-shell.jsx";
-import { InventoryEmpty, InventoryKpi, InvoiceImportModal } from "./inventory-screen.jsx";
+import { InvoiceImportModal } from "./inventory-screen.jsx";
+import { Icon, PageHead, Badge, StatCard, SearchInput, EmptyState, Modal, Field } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Custos de aquisição.
    Tela separada do Precificador/Produtos/Estoque: CRUD do custo de compra de cada produto
    (por loja), incluindo leitura de nota fiscal por IA e registro de custo de imposto e
-   ICMS-ST — dados que o Precificador usa para calcular margem e tributos. Admin-only. */
+   ICMS-ST — dados que o Precificador usa para calcular margem e tributos. Admin-only.
 
-const _prc = (n) => 'R$ ' + (Number(n) || 0).toFixed(2).replace('.', ',');
+   Nota: InvoiceImportModal continua vindo de inventory-screen.jsx (Lote G, ainda não
+   migrado) — é um modal grande e autocontido, próprio do Estoque; fica com o visual
+   legado até esse lote em vez de duplicar aqui a leitura de nota por IA. */
+
+const _prc = (n) => "R$ " + (Number(n) || 0).toFixed(2).replace(".", ",");
 
 /* select tri-state: '' = herda o padrão do CNAE, 'yes'/'no' = força este item */
 function icmsStSelectValue(value) {
-  if (value === true) return 'yes';
-  if (value === false) return 'no';
-  return '';
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "";
 }
 function icmsStFromSelectValue(value) {
-  if (value === 'yes') return true;
-  if (value === 'no') return false;
+  if (value === "yes") return true;
+  if (value === "no") return false;
   return null;
 }
 
@@ -28,83 +30,78 @@ function AcquisitionCostsScreen({ ctx }) {
     inventory, storeDirectory, inventoryLocations,
     applyInventoryItemInvoice, fetchInventoryItemInvoices, downloadInventoryInvoiceFile,
     previewInventoryInvoice, confirmInventoryInvoice,
-    notify, onLogout,
+    notify,
   } = ctx;
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState("");
   const [manualEdit, setManualEdit] = useState(null);
   const [aiImportOpen, setAiImportOpen] = useState(false);
 
   const storeNameById = Object.fromEntries((storeDirectory || []).map((store) => [store.id, store.name]));
-  const categoryOptions = [...new Set(inventory.map((item) => item.cat || 'Medicamentos'))].sort((left, right) => left.localeCompare(right, 'pt-BR'));
+  const categoryOptions = [...new Set(inventory.map((item) => item.cat || "Medicamentos"))].sort((left, right) => left.localeCompare(right, "pt-BR"));
 
   const rows = inventory
     .filter((it) => !q || (it.name + it.brand + it.ean).toLowerCase().includes(q.toLowerCase()))
     .slice()
-    .sort((left, right) => (left.name || '').localeCompare(right.name || '', 'pt-BR'));
+    .sort((left, right) => (left.name || "").localeCompare(right.name || "", "pt-BR"));
 
   const withoutCost = inventory.filter((it) => !(Number(it.cost) > 0)).length;
   const withIcmsStOverride = inventory.filter((it) => it.isSubjectToIcmsSt != null).length;
 
   return (
-    <>
-      <Topbar title="Custos de Aquisição" sub="Custo de compra, imposto e ICMS-ST por produto — usados pelo Precificador" onLogout={onLogout} ctx={ctx}>
-        <div className="ph-topsearch"><Icon name="scan" size={17} style={{ color: 'var(--fa-ink-3)' }} /><input placeholder="Buscar produto ou EAN" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-      </Topbar>
+    <div className="route-fade" data-screen-label="Custos de aquisição">
+      <PageHead
+        eyebrow="Custos" title="Custos de Aquisição" desc="Custo de compra, imposto e ICMS-ST por produto — usados pelo Precificador"
+        actions={<SearchInput value={q} onChange={setQ} placeholder="Buscar produto ou EAN" />}
+      />
 
-      <div className="ph-content ph-content-wide inv-screen" data-screen-label="Custos de aquisição">
-        <div className="inv-kpis">
-          <InventoryKpi icon="boxes" label="Produtos" value={inventory.length} />
-          <InventoryKpi icon="alert" label="Sem custo lançado" value={withoutCost} tone={withoutCost ? 'warn' : undefined} />
-          <InventoryKpi icon="receipt" label="Com ICMS-ST definido no produto" value={withIcmsStOverride} />
-        </div>
+      <div className="grid g-3" style={{ marginBottom: 16 }}>
+        <StatCard icon="boxes" label="Produtos" value={inventory.length} />
+        <StatCard icon="alert" label="Sem custo lançado" value={withoutCost} tone={withoutCost ? "warning" : "accent"} />
+        <StatCard icon="receipt" label="Com ICMS-ST definido no produto" value={withIcmsStOverride} />
+      </div>
 
-        <div className="inv-toolbar">
-          <div className="inv-toolbar-row">
-            <div className="inv-actions">
-              <button className="fa-btn fa-btn-primary fa-btn-sm" onClick={() => setAiImportOpen(true)} disabled={!inventoryLocations.length}>
-                <Icon name="scan" size={15} />Ler nota fiscal (IA)
-              </button>
-            </div>
+      <div style={{ marginBottom: 16 }}>
+        <button className="btn btn-primary btn-sm" onClick={() => setAiImportOpen(true)} disabled={!inventoryLocations.length}>
+          <Icon name="scan" size={15} />Ler nota fiscal (IA)
+        </button>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>Custos por produto</div>
+            <div className="card-head-sub">{rows.length} item(ns)</div>
           </div>
         </div>
-
-        <div className="inv-card">
-          <div className="inv-card-head">
-            <div>
-              <div className="inv-card-head-title">Custos por produto</div>
-              <div className="inv-card-head-sub">{rows.length} item(ns)</div>
-            </div>
-          </div>
-          <div className="ph-table-wrap">
-            <table className="ph-table">
-              <thead>
-                <tr><th>Produto</th><th>Loja</th><th>Custo de aquisição</th><th>ICMS-ST</th><th></th></tr>
-              </thead>
-              <tbody>
-                {rows.map((it) => (
-                  <tr key={it.id}>
-                    <td>
-                      <div className="ph-td-name">{it.name}</div>
-                      <div className="ph-cell-sub">{it.brand}{it.batch && it.batch !== '—' ? ' · lote ' + it.batch : ''}</div>
-                    </td>
-                    <td className="ph-cell-sub">{storeNameById[it.storeId] || '—'}</td>
-                    <td className="fa-mono" style={{ fontWeight: 700 }}>{_prc(it.cost)}</td>
-                    <td>
-                      {it.isSubjectToIcmsSt == null
-                        ? <span className="fa-badge fa-badge-mist">Padrão do CNAE</span>
-                        : it.isSubjectToIcmsSt
-                          ? <span className="fa-badge fa-badge-warn"><Icon name="alert" size={11} />Sujeito a ICMS-ST</span>
-                          : <span className="fa-badge fa-badge-health"><Icon name="check" size={11} />Não sujeito</span>}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setManualEdit(it)}><Icon name="edit" size={14} />Lançar custo</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {rows.length === 0 && <InventoryEmpty icon="search" label="Nenhum produto encontrado." />}
-          </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Produto</th><th>Loja</th><th>Custo de aquisição</th><th>ICMS-ST</th><th></th></tr>
+            </thead>
+            <tbody>
+              {rows.map((it) => (
+                <tr key={it.id}>
+                  <td>
+                    <div className="cell-strong">{it.name}</div>
+                    <div className="cell-muted">{it.brand}{it.batch && it.batch !== "—" ? " · lote " + it.batch : ""}</div>
+                  </td>
+                  <td className="cell-muted">{storeNameById[it.storeId] || "—"}</td>
+                  <td className="mono" style={{ fontWeight: 700 }}>{_prc(it.cost)}</td>
+                  <td>
+                    {it.isSubjectToIcmsSt == null
+                      ? <Badge tone="neutral">Padrão do CNAE</Badge>
+                      : it.isSubjectToIcmsSt
+                        ? <Badge tone="warning"><Icon name="alert" size={11} />Sujeito a ICMS-ST</Badge>
+                        : <Badge tone="good"><Icon name="check" size={11} />Não sujeito</Badge>}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setManualEdit(it)}><Icon name="edit" size={14} />Lançar custo</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length === 0 && <EmptyState icon="search" title="Nenhum produto encontrado" />}
         </div>
       </div>
 
@@ -119,7 +116,7 @@ function AcquisitionCostsScreen({ ctx }) {
               await applyInventoryItemInvoice(manualEdit.id, patch);
               setManualEdit(null);
             } catch (error) {
-              notify(error && error.message ? error.message : 'Não foi possível anexar a nota fiscal.', 'warn');
+              notify(error && error.message ? error.message : "Não foi possível anexar a nota fiscal.", "warn");
             }
           }}
         />
@@ -136,7 +133,7 @@ function AcquisitionCostsScreen({ ctx }) {
           notify={notify}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -148,14 +145,14 @@ function AcquisitionCostModal({ it, fetchInvoices, downloadInvoiceFile, onClose,
   const [invoiceTotalAmount, setInvoiceTotalAmount] = useState(Math.round(fallbackUnitCost * fallbackQuantity * 100) / 100);
   const [productTotalAmount, setProductTotalAmount] = useState(Math.round(fallbackUnitCost * fallbackQuantity * 100) / 100);
   const [quantity, setQuantity] = useState(fallbackQuantity);
-  const [taxCostAmount, setTaxCostAmount] = useState('');
+  const [taxCostAmount, setTaxCostAmount] = useState("");
   const [isSubjectToIcmsSt, setIsSubjectToIcmsSt] = useState(icmsStSelectValue(it.isSubjectToIcmsSt));
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState("");
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
-  const fileInputId = 'acquisition-invoice-file-' + String(it.id || 'item');
+  const fileInputId = "acquisition-invoice-file-" + String(it.id || "item");
   const unitPrice = quantity > 0 ? productTotalAmount / quantity : 0;
   const valid = !!file && productTotalAmount > 0 && quantity > 0 && invoiceTotalAmount >= productTotalAmount;
 
@@ -185,7 +182,7 @@ function AcquisitionCostModal({ it, fetchInvoices, downloadInvoiceFile, onClose,
     try {
       await onSave({
         invoiceTotalAmount, productTotalAmount, quantity, note, file,
-        taxCostAmount: taxCostAmount === '' ? null : Number(taxCostAmount),
+        taxCostAmount: taxCostAmount === "" ? null : Number(taxCostAmount),
         isSubjectToIcmsSt: icmsStFromSelectValue(isSubjectToIcmsSt),
       });
     } finally {
@@ -194,94 +191,84 @@ function AcquisitionCostModal({ it, fetchInvoices, downloadInvoiceFile, onClose,
   };
 
   return (
-    <ModalShell open={true} onClose={onClose} maxw={560}>
-      <span className="fa-iconbox" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="edit" size={26} /></span>
-      <h2 className="fa-h3" style={{ fontSize: 20 }}>Lançar custo de aquisição</h2>
-      <p className="fa-muted" style={{ fontSize: 13.5, marginTop: 6, marginBottom: 18 }}>
-        <b>{it.name}</b> · {it.brand} · <span className="fa-mono">{it.ean}</span><br />
+    <Modal
+      open onClose={onClose} title="Lançar custo de aquisição"
+      subtitle={<>{it.name} · {it.brand} · <span className="mono">{it.ean}</span></>}
+      footer={(
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} disabled={saving || !valid} onClick={handleSave}>
+            <Icon name="check" size={16} />{saving ? "Salvando…" : "Salvar e anexar nota"}
+          </button>
+        </>
+      )}
+    >
+      <p className="cell-muted" style={{ marginBottom: 18 }}>
         Anexe o PDF ou XML da nota, informe os valores e a quantidade recebida — o preço unitário é calculado automaticamente e passa a ser o custo do produto usado nos cálculos de margem, frete e taxas do precificador.
       </p>
 
-      <div className="fa-form2">
-        <div className="fa-field">
-          <label>Preço total da nota (R$)</label>
-          <input className="fa-input" type="number" step="0.01" min="0" value={invoiceTotalAmount} onChange={(e) => setInvoiceTotalAmount(Number(e.target.value || 0))} />
-          <div className="ph-cell-sub" style={{ marginTop: 4 }}>Valor total do documento — pode incluir outros produtos.</div>
-        </div>
-        <div className="fa-field">
-          <label>Preço total do produto nesta nota (R$)</label>
-          <input className="fa-input" type="number" step="0.01" min="0" value={productTotalAmount} onChange={(e) => setProductTotalAmount(Number(e.target.value || 0))} />
-        </div>
-        <div className="fa-field">
-          <label>Quantidade recebida</label>
-          <input className="fa-input" type="number" step="1" min="1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value || 0))} />
-        </div>
-        <div className="fa-field">
-          <label>Preço unitário (calculado)</label>
-          <div className="fa-input" style={{ display: 'flex', alignItems: 'center', minHeight: 44, fontWeight: 700, color: 'var(--fa-primary)' }}>{_prc(unitPrice)}</div>
-        </div>
-        <div className="fa-field">
-          <label>Custo de imposto (R$)</label>
-          <input className="fa-input" type="number" step="0.01" min="0" value={taxCostAmount} onChange={(e) => setTaxCostAmount(e.target.value)} placeholder="Opcional" />
-          <div className="ph-cell-sub" style={{ marginTop: 4 }}>Parcela do custo unitário que é imposto (ex.: ICMS-ST retido pelo fornecedor) — informativo.</div>
-        </div>
-        <div className="fa-field">
-          <label>ICMS-ST deste produto</label>
-          <select className="fa-select" value={isSubjectToIcmsSt} onChange={(e) => setIsSubjectToIcmsSt(e.target.value)}>
+      <div className="grid g-2">
+        <Field label="Preço total da nota (R$)" hint="Valor total do documento — pode incluir outros produtos.">
+          <input className="input" type="number" step="0.01" min="0" value={invoiceTotalAmount} onChange={(e) => setInvoiceTotalAmount(Number(e.target.value || 0))} />
+        </Field>
+        <Field label="Preço total do produto nesta nota (R$)">
+          <input className="input" type="number" step="0.01" min="0" value={productTotalAmount} onChange={(e) => setProductTotalAmount(Number(e.target.value || 0))} />
+        </Field>
+        <Field label="Quantidade recebida">
+          <input className="input" type="number" step="1" min="1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value || 0))} />
+        </Field>
+        <Field label="Preço unitário (calculado)">
+          <div className="input" style={{ display: "flex", alignItems: "center", fontWeight: 700, color: "var(--brand)" }}>{_prc(unitPrice)}</div>
+        </Field>
+        <Field label="Custo de imposto (R$)" hint="Parcela do custo unitário que é imposto (ex.: ICMS-ST retido pelo fornecedor) — informativo.">
+          <input className="input" type="number" step="0.01" min="0" value={taxCostAmount} onChange={(e) => setTaxCostAmount(e.target.value)} placeholder="Opcional" />
+        </Field>
+        <Field label="ICMS-ST deste produto" hint="Sobrepõe o padrão configurado no CNAE só para este produto, no cálculo de imposto do Precificador.">
+          <select className="input" value={isSubjectToIcmsSt} onChange={(e) => setIsSubjectToIcmsSt(e.target.value)}>
             <option value="">Herdar padrão do CNAE</option>
             <option value="yes">Sujeito a ICMS-ST</option>
             <option value="no">Não sujeito a ICMS-ST</option>
           </select>
-          <div className="ph-cell-sub" style={{ marginTop: 4 }}>Sobrepõe o padrão configurado no CNAE só para este produto, no cálculo de imposto do Precificador.</div>
-        </div>
+        </Field>
       </div>
 
-      <div className="fa-field" style={{ marginTop: 14 }}>
-        <label>Arquivo da nota (PDF ou XML) *</label>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label className="fa-btn fa-btn-soft" htmlFor={fileInputId}><Icon name="plus" size={14} />{file ? 'Trocar arquivo' : 'Selecionar arquivo'}</label>
-          <input id={fileInputId} type="file" accept=".pdf,.xml,application/pdf,text/xml,application/xml" style={{ display: 'none' }}
+      <Field label="Arquivo da nota (PDF ou XML) *">
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <label className="btn btn-secondary" htmlFor={fileInputId}><Icon name="plus" size={14} />{file ? "Trocar arquivo" : "Selecionar arquivo"}</label>
+          <input id={fileInputId} type="file" accept=".pdf,.xml,application/pdf,text/xml,application/xml" style={{ display: "none" }}
             onChange={(e) => setFile((e.target.files || [])[0] || null)} />
-          {file && <span className="ph-cell-sub">{file.name}</span>}
+          {file && <span className="cell-muted">{file.name}</span>}
         </div>
-      </div>
+      </Field>
 
-      <div className="fa-field" style={{ marginTop: 14 }}>
-        <label>Observação (opcional)</label>
-        <input className="fa-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: fornecedor, número da nota..." />
-      </div>
+      <Field label="Observação (opcional)">
+        <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: fornecedor, número da nota..." />
+      </Field>
 
       <div style={{ marginTop: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <Icon name="receipt" size={15} style={{ color: 'var(--fa-info)' }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <Icon name="receipt" size={15} style={{ color: "var(--info)" }} />
           <span style={{ fontWeight: 700, fontSize: 13.5 }}>Notas já anexadas a este produto</span>
         </div>
         {historyLoading ? (
-          <div className="ph-cell-sub">Carregando histórico…</div>
+          <div className="cell-muted">Carregando histórico…</div>
         ) : history.length ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 200, overflowY: "auto" }}>
             {history.map((record) => (
-              <div key={record.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', border: '1px solid var(--fa-mist)', borderRadius: 12, padding: '8px 10px' }}>
-                <span className="fa-mono" style={{ fontSize: 12 }}>{record.fileName}</span>
-                <span className="ph-cell-sub">{record.quantity} un · {_prc(record.unitCost)}/un{record.taxCostAmount != null ? ' · ' + _prc(record.taxCostAmount) + ' imposto' : ''}</span>
-                <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ marginLeft: 'auto' }} onClick={() => downloadInvoiceFile(record.id, record.fileName)}>
+              <div key={record.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "8px 10px" }}>
+                <span className="mono" style={{ fontSize: 12 }}>{record.fileName}</span>
+                <span className="cell-muted">{record.quantity} un · {_prc(record.unitCost)}/un{record.taxCostAmount != null ? " · " + _prc(record.taxCostAmount) + " imposto" : ""}</span>
+                <button className="btn btn-secondary btn-sm" style={{ marginLeft: "auto" }} onClick={() => downloadInvoiceFile(record.id, record.fileName)}>
                   <Icon name="download" size={13} />Baixar
                 </button>
               </div>
             ))}
           </div>
         ) : (
-          <div className="ph-cell-sub">Nenhuma nota anexada ainda para este produto.</div>
+          <div className="cell-muted">Nenhuma nota anexada ainda para este produto.</div>
         )}
       </div>
-
-      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-        <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} disabled={saving || !valid} onClick={handleSave}>
-          <Icon name="check" size={16} stroke={2.2} />{saving ? 'Salvando…' : 'Salvar e anexar nota'}
-        </button>
-      </div>
-    </ModalShell>
+    </Modal>
   );
 }
 
