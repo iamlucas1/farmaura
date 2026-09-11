@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ModalShell } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
+import { Icon, Modal } from "../core/internal-ui.jsx";
 
 const STAGE_MAX_WIDTH = 560;
 
@@ -14,7 +13,7 @@ function ImageCropModal({ open, src, targetWidth, targetHeight, title, stepLabel
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const ratio = targetWidth / targetHeight;
@@ -26,11 +25,11 @@ function ImageCropModal({ open, src, targetWidth, targetHeight, title, stepLabel
     setNatural(null);
     setZoom(1);
     setOffset({ x: 0, y: 0 });
-    setError('');
+    setError("");
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    img.crossOrigin = "anonymous";
     img.onload = () => setNatural({ width: img.naturalWidth, height: img.naturalHeight, el: img });
-    img.onerror = () => setError('Não foi possível carregar esta imagem para recorte.');
+    img.onerror = () => setError("Não foi possível carregar esta imagem para recorte.");
     img.src = src;
   }, [open, src]);
 
@@ -78,10 +77,10 @@ function ImageCropModal({ open, src, targetWidth, targetHeight, title, stepLabel
     if (!natural) return;
     setBusy(true);
     try {
-      const canvas = document.createElement('canvas');
+      const canvas = document.createElement("canvas");
       canvas.width = targetWidth;
       canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext("2d");
       const exportScale = targetWidth / stageWidth;
       const realScale = scale * exportScale;
       const realDisplayedWidth = natural.width * realScale;
@@ -91,24 +90,29 @@ function ImageCropModal({ open, src, targetWidth, targetHeight, title, stepLabel
       const drawX = targetWidth / 2 - realDisplayedWidth / 2 + realOffsetX;
       const drawY = targetHeight / 2 - realDisplayedHeight / 2 + realOffsetY;
       ctx.drawImage(natural.el, drawX, drawY, realDisplayedWidth, realDisplayedHeight);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.87);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.87);
       onApply(dataUrl);
     } catch (err) {
-      setError('Não foi possível cortar esta imagem — se ela veio de uma URL externa, baixe o arquivo e envie direto.');
+      setError("Não foi possível cortar esta imagem — se ela veio de uma URL externa, baixe o arquivo e envie direto.");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <ModalShell open={open} onClose={busy ? () => {} : onCancel} maxw={stageWidth + 80}>
-      <h2 className="fa-h3" style={{ fontSize: 20 }}>{title || 'Ajustar imagem'}</h2>
-      {stepLabel && <p className="ph-cell-sub" style={{ marginTop: 4 }}>{stepLabel}</p>}
-      <p className="ph-cell-sub" style={{ marginTop: 4 }}>
-        Saída final: {targetWidth}×{targetHeight}px — arraste para posicionar, use o zoom para aproximar.
-      </p>
-
-      {error && <div className="ph-cell-sub" style={{ color: 'var(--fa-danger, #b3261e)', marginTop: 10 }}>{error}</div>}
+    <Modal
+      open={open} onClose={busy ? () => {} : onCancel} title={title || "Ajustar imagem"}
+      subtitle={<>{stepLabel && <>{stepLabel}<br /></>}Saída final: {targetWidth}×{targetHeight}px — arraste para posicionar, use o zoom para aproximar.</>}
+      footer={(
+        <>
+          <button className="btn btn-secondary" onClick={onCancel} disabled={busy}>Cancelar</button>
+          <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={handleApply} disabled={!natural || busy}>
+            <Icon name="check" size={16} />{busy ? "Aplicando…" : "Aplicar corte"}
+          </button>
+        </>
+      )}
+    >
+      {error && <div className="cell-muted" style={{ color: "var(--critical)", marginBottom: 10 }}>{error}</div>}
 
       <div
         ref={stageRef}
@@ -117,14 +121,14 @@ function ImageCropModal({ open, src, targetWidth, targetHeight, title, stepLabel
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         style={{
-          width: stageWidth, height: stageHeight, marginTop: 14, borderRadius: 16, overflow: 'hidden',
-          background: 'var(--fa-mist-2)', position: 'relative', touchAction: 'none',
-          cursor: natural ? (dragging ? 'grabbing' : 'grab') : 'default',
-          border: '1px solid var(--fa-mist)',
+          width: stageWidth, height: stageHeight, borderRadius: "var(--radius-lg)", overflow: "hidden",
+          background: "var(--surface-2)", position: "relative", touchAction: "none",
+          cursor: natural ? (dragging ? "grabbing" : "grab") : "default",
+          border: "1px solid var(--border)",
         }}
       >
         {!natural && !error && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fa-ink-3)' }}>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
             <Icon name="camera" size={26} />
           </div>
         )}
@@ -134,18 +138,18 @@ function ImageCropModal({ open, src, targetWidth, targetHeight, title, stepLabel
             alt=""
             draggable={false}
             style={{
-              position: 'absolute',
+              position: "absolute",
               left: stageWidth / 2 - displayedWidth / 2 + offset.x,
               top: stageHeight / 2 - displayedHeight / 2 + offset.y,
               width: displayedWidth, height: displayedHeight,
-              userSelect: 'none', pointerEvents: 'none',
+              userSelect: "none", pointerEvents: "none",
             }}
           />
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
-        <Icon name="search" size={16} style={{ color: 'var(--fa-ink-3)', flex: 'none' }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
+        <Icon name="search" size={16} style={{ color: "var(--text-muted)", flex: "none" }} />
         <input
           type="range" min="1" max="3" step="0.01" value={zoom}
           onChange={(e) => handleZoomChange(Number(e.target.value))}
@@ -153,14 +157,7 @@ function ImageCropModal({ open, src, targetWidth, targetHeight, title, stepLabel
           style={{ flex: 1 }}
         />
       </div>
-
-      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-        <button className="fa-btn fa-btn-soft" style={{ flex: 1 }} onClick={onCancel} disabled={busy}>Cancelar</button>
-        <button className="fa-btn fa-btn-primary" style={{ flex: 2 }} onClick={handleApply} disabled={!natural || busy}>
-          <Icon name="check" size={16} />{busy ? 'Aplicando…' : 'Aplicar corte'}
-        </button>
-      </div>
-    </ModalShell>
+    </Modal>
   );
 }
 

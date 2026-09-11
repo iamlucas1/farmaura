@@ -8,7 +8,7 @@ import { MARKETPLACE_LOGO_MARK_URL } from "../../marketplace/core/marketplace-as
 import { TwoFactorModal } from "../../shared/two-factor-modal.jsx";
 import {
   Icon, PageHead, Modal, Tabs, Field, SwitchToggle,
-  ConfirmHost, ToastHost, Avatar,
+  ConfirmHost, ToastHost, Avatar, Badge,
 } from "./internal-ui.jsx";
 
 /* Below 860px the rail becomes an off-canvas drawer. The burger (in the breadcrumb
@@ -23,13 +23,13 @@ const MobileNavContext = React.createContext({ open: false, setOpen: () => {} })
 
 /* ---------- Metadados de status de pedido ---------- */
 const OC_STATUS = {
-  new:        { label: 'Novo', short: 'Novos', color: 'var(--fa-info)', cls: 'fa-badge-rx', icon: 'bell' },
-  separating: { label: 'Em separação', short: 'Separando', color: 'var(--fa-warn)', cls: 'fa-badge-warn', icon: 'box' },
-  ready:      { label: 'Pronto', short: 'Prontos', color: 'var(--fa-success)', cls: 'fa-badge-health', icon: 'check' },
-  dispatched: { label: 'Despachado', short: 'Despachados', color: 'var(--fa-ink-3)', cls: 'fa-badge-mist', icon: 'truck' },
-  delivered:  { label: 'Entregue', short: 'Entregues', color: 'var(--fa-success)', cls: 'fa-badge-health', icon: 'check' },
-  cancelled:  { label: 'Cancelado', short: 'Cancelados', color: 'var(--fa-error)', cls: 'fa-badge-vital', icon: 'close' },
-  unknown:    { label: 'Em análise', short: 'Em análise', color: 'var(--fa-ink-2)', cls: 'fa-badge-mist', icon: 'clock' },
+  new:        { label: 'Novo', short: 'Novos', color: 'var(--info)', bg: 'var(--info-soft)', tone: 'neutral', icon: 'bell' },
+  separating: { label: 'Em separação', short: 'Separando', color: 'var(--warning)', bg: 'var(--warning-soft)', tone: 'warning', icon: 'box' },
+  ready:      { label: 'Pronto', short: 'Prontos', color: 'var(--good)', bg: 'var(--good-soft)', tone: 'good', icon: 'check' },
+  dispatched: { label: 'Despachado', short: 'Despachados', color: 'var(--text-muted)', bg: 'var(--surface-2)', tone: 'neutral', icon: 'truck' },
+  delivered:  { label: 'Entregue', short: 'Entregues', color: 'var(--good)', bg: 'var(--good-soft)', tone: 'good', icon: 'check' },
+  cancelled:  { label: 'Cancelado', short: 'Cancelados', color: 'var(--critical)', bg: 'var(--critical-soft)', tone: 'critical', icon: 'close' },
+  unknown:    { label: 'Em análise', short: 'Em análise', color: 'var(--text-secondary)', bg: 'var(--surface-2)', tone: 'neutral', icon: 'clock' },
 };
 const OC_FLOW = ['new', 'separating', 'ready', 'dispatched'];
 
@@ -63,8 +63,8 @@ function orderStatusMeta(status) {
 
 function FulfillBadge({ f }) {
   return f === 'pickup'
-    ? <span className="fa-badge fa-badge-mist"><Icon name="store" size={12} />Retirada</span>
-    : <span className="fa-badge fa-badge-rose"><Icon name="truck" size={12} />Entrega</span>;
+    ? <Badge tone="neutral"><Icon name="store" size={12} />Retirada</Badge>
+    : <Badge tone="critical"><Icon name="truck" size={12} />Entrega</Badge>;
 }
 
 /* Status de estoque a partir de qty / min */
@@ -72,10 +72,10 @@ function stockState(it) {
   const qty = Number(it && it.qty || 0);
   const lowThreshold = Number(it && (it.lowThreshold ?? it.min) || 0);
   const attentionThreshold = Number(it && (it.attentionThreshold ?? lowThreshold) || lowThreshold);
-  if (qty <= 0) return { key: 'out', label: 'Esgotado', color: 'var(--fa-error)', bg: '#FBEAE9' };
-  if (qty <= lowThreshold) return { key: 'low', label: 'Baixo', color: 'var(--fa-warn)', bg: 'var(--fa-warn-soft)' };
-  if (qty <= attentionThreshold) return { key: 'attention', label: 'Atenção', color: 'var(--fa-info)', bg: 'var(--fa-info-soft)' };
-  return { key: 'normal', label: 'Normal', color: 'var(--fa-success)', bg: 'var(--fa-success-soft)' };
+  if (qty <= 0) return { key: 'out', label: 'Esgotado', color: 'var(--critical)', bg: 'var(--critical-soft)' };
+  if (qty <= lowThreshold) return { key: 'low', label: 'Baixo', color: 'var(--warning)', bg: 'var(--warning-soft)' };
+  if (qty <= attentionThreshold) return { key: 'attention', label: 'Atenção', color: 'var(--info)', bg: 'var(--info-soft)' };
+  return { key: 'normal', label: 'Normal', color: 'var(--good)', bg: 'var(--good-soft)' };
 }
 
 /* ---------- Tempo / SLA ---------- */
@@ -85,9 +85,9 @@ function fmtDur(min) { if (min < 60) return min + ' min'; const h = Math.floor(m
 // estado de SLA: verde / âmbar / vermelho conforme o alvo (min)
 function slaState(min, target) {
   const r = min / target;
-  if (r < 0.6) return { color: 'var(--fa-success)', bg: 'var(--fa-success-soft)', label: 'no prazo' };
-  if (r < 1) return { color: 'var(--fa-warn)', bg: 'var(--fa-warn-soft)', label: 'atenção' };
-  return { color: 'var(--fa-error)', bg: '#FBEAE9', label: 'atrasado' };
+  if (r < 0.6) return { color: 'var(--good)', bg: 'var(--good-soft)', label: 'no prazo' };
+  if (r < 1) return { color: 'var(--warning)', bg: 'var(--warning-soft)', label: 'atenção' };
+  return { color: 'var(--critical)', bg: 'var(--critical-soft)', label: 'atrasado' };
 }
 // alvo padrão por tipo (min)
 const SLA_TARGET = { delivery: 90, pickup: 45 };
@@ -98,8 +98,8 @@ function RecurringBadge({ name, small, customerByName }) {
   const c = customerOf(name, customerByName);
   if (!c) return null;
   return c.recurring
-    ? <span className="fa-badge fa-badge-health" style={small ? { fontSize: 10 } : undefined}><Icon name="repeat" size={small ? 10 : 11} />Recorrente</span>
-    : <span className="fa-badge fa-badge-mist" style={small ? { fontSize: 10 } : undefined}><Icon name="sparkle" size={small ? 10 : 11} />Novo cliente</span>;
+    ? <span style={small ? { fontSize: 10 } : undefined}><Badge tone="good"><Icon name="repeat" size={small ? 10 : 11} />Recorrente</Badge></span>
+    : <span style={small ? { fontSize: 10 } : undefined}><Badge tone="neutral"><Icon name="sparkle" size={small ? 10 : 11} />Novo cliente</Badge></span>;
 }
 
 

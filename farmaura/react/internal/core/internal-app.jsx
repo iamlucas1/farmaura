@@ -4461,15 +4461,13 @@ function PharmApp() {
 
   if (!authReady) {
     return (
-      <div id="ph-root">
-        <div className="fa-wrap fa-fadein" style={{ paddingTop: 72, paddingBottom: 96, maxWidth: 720 }}>
-          <div className="fa-card" style={{ padding: '32px clamp(22px,4vw,36px)', textAlign: 'center' }}>
-            <span className="fa-iconbox" style={{ margin: '0 auto 18px', width: 72, height: 72 }}><Icon name="lock" size={30} /></span>
-            <h1 className="fa-h2">Validando sessão interna</h1>
-            <p className="fa-lead" style={{ marginTop: 10 }}>
-              Estamos restaurando as credenciais do portal e reaplicando as permissões do seu perfil.
-            </p>
-          </div>
+      <div className="app-shell" id="ph-root" style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div className="card card-pad" style={{ maxWidth: 460, width: '100%', textAlign: 'center' }}>
+          <span className="stat-icon" style={{ margin: '0 auto 18px', width: 72, height: 72 }}><Icon name="lock" size={30} /></span>
+          <h1 style={{ fontWeight: 800, fontSize: 22, margin: 0 }}>Validando sessão interna</h1>
+          <p className="page-desc" style={{ marginTop: 10 }}>
+            Estamos restaurando as credenciais do portal e reaplicando as permissões do seu perfil.
+          </p>
         </div>
       </div>
     );

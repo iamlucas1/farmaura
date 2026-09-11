@@ -27,7 +27,7 @@ function OrderCardPH({ o, onOpen, nowLabel }) {
       <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 8 }}>{o.customer}</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
         <OrderTypeBadge fulfillment={o.fulfillment} label={o.fulfillmentLabel} />
-        <span className="badge" style={{ background: OC_STATUS[o.status].color + "22", color: OC_STATUS[o.status].color }}><Icon name={OC_STATUS[o.status].icon} size={10} />{OC_STATUS[o.status].short}</span>
+        <span className="badge" style={{ background: OC_STATUS[o.status].bg, color: OC_STATUS[o.status].color }}><Icon name={OC_STATUS[o.status].icon} size={10} />{OC_STATUS[o.status].short}</span>
         {o.priority === "express" && <Badge tone="critical"><Icon name="bolt" size={10} />Express</Badge>}
       </div>
       {o.rx && (
@@ -153,7 +153,7 @@ function OrderDrawer({ ctx }) {
         <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span className="mono" style={{ fontWeight: 800, fontSize: 16 }}>{o.id}</span>
           <OrderTypeBadge fulfillment={o.fulfillment} label={o.fulfillmentLabel} />
-          <Badge tone={st.color === "var(--fa-error)" ? "critical" : "neutral"}><Icon name={st.icon} size={11} />{st.label}</Badge>
+          <Badge tone={st.tone}><Icon name={st.icon} size={11} />{st.label}</Badge>
           {o.priority === "express" && <Badge tone="critical"><Icon name="bolt" size={11} />Express</Badge>}
         </span>
       )}

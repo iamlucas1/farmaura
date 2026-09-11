@@ -2,20 +2,18 @@
    Farmaura Console — Internal design system
    ------------------------------------------------------------
    Ported from the "Farmaura Operações" prototype (artifact
-   b75209e1). This is the target visual system for the internal
-   console; screens are migrated onto it batch by batch. Until a
-   screen is ported it keeps rendering through internal-legacy.css,
-   which only sees the recoloured palette via the alias bridge
-   below.
+   b75209e1). Every screen in react/internal/ now renders directly
+   on this system — the migration (batches A-H) is complete, the
+   legacy --fa-* alias bridge and internal-legacy.css have been
+   removed (Fase Z). See dev-obsidian/farmaura/09_Design_Visual/
+   for the migration ADR.
 
    Layer order in this file:
      1. Design tokens — light + dark, 3-state theming
-     2. Legacy --fa-* alias bridge (delete once internal-legacy.css
-        is gone — see 06_Pendencias)
-     3. Base / reset
-     4. Components — app shell, rail, topbar, cards, tables, forms,
+     2. Base / reset
+     3. Components — app shell, rail, topbar, cards, tables, forms,
         modals, drawers, command palette, toasts, confirm, charts
-     5. Motion + responsive
+     4. Motion + responsive
    ============================================================ */
 
 /* ---------------------------------------------------------------
@@ -72,49 +70,7 @@
 }
 
 /* ---------------------------------------------------------------
-   2. LEGACY --fa-* ALIAS BRIDGE
-   Repoints the tokens internal-legacy.css and un-migrated screens
-   still reference onto the palette above, so nothing looks broken
-   mid-migration. marketplace.css defines these on :root first; this
-   block loads after it (see src/internal-entry.js) and wins for the
-   internal bundle only. Delete this block in the cleanup phase.
-   --------------------------------------------------------------- */
-:root {
-  --fa-primary: var(--brand);
-  --fa-primary-ink: var(--brand-ink);
-  --fa-bg: var(--bg);
-  --fa-surface: var(--surface);
-  --fa-ink: var(--text-primary);
-  --fa-ink-2: var(--text-secondary);
-  --fa-ink-3: var(--text-muted);
-  --fa-mist: var(--border);
-  --fa-mist-2: var(--surface-2);
-  --fa-line: var(--border-strong);
-  --fa-rose: var(--border-strong);
-  --fa-rose-soft: var(--surface-2);
-  --fa-success: var(--good);
-  --fa-success-soft: var(--good-soft);
-  --fa-warn: var(--warning);
-  --fa-warn-ink: var(--warning);
-  --fa-warn-soft: var(--warning-soft);
-  --fa-error: var(--critical);
-  --fa-danger: var(--critical);
-  --fa-vital: var(--critical);
-  --fa-info: var(--info);
-  --fa-info-soft: var(--info-soft);
-  --fa-shadow-sm: var(--shadow-sm);
-  --fa-shadow-md: var(--shadow-md);
-  --fa-shadow-lg: var(--shadow-lg);
-  --fa-r-btn: var(--radius-md);
-  --fa-r-card: var(--radius-lg);
-  --fa-r-input: var(--radius-md);
-  --fa-r-pill: var(--radius-pill);
-  --fa-font: var(--font-body);
-  --fa-font-head: var(--font-display);
-}
-
-/* ---------------------------------------------------------------
-   3. BASE / RESET
+   2. BASE / RESET
    --------------------------------------------------------------- */
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -136,7 +92,7 @@ figure.chart-fig { margin: 0; }
 figure.chart-fig:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
 
 /* ---------------------------------------------------------------
-   4. COMPONENTS
+   3. COMPONENTS
    --------------------------------------------------------------- */
 
 /* ---------- app shell ---------- */
@@ -407,6 +363,16 @@ tr.clickable:hover .link-cell { text-decoration: underline; }
 @keyframes spinner-spin { to { transform: rotate(360deg); } }
 @keyframes typing-blink { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
 
+/* ---------- Leaflet marker icons (deliveries-screen.jsx route map) ---------- */
+.lf-icon { background: none; border: none; }
+.lf-hub { width: 26px; height: 26px; border-radius: 9px; background: var(--critical); border: 3px solid #fff; box-shadow: 0 3px 8px rgba(43,26,26,.4); }
+.lf-pin {
+  width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  background: var(--brand); border: 2px solid #fff; box-shadow: 0 4px 10px rgba(43,26,26,.35);
+  display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 13px;
+}
+.lf-pin > span { transform: rotate(45deg); line-height: 1; }
+
 /* ---------- destructive confirm ---------- */
 .confirm-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
 .confirm-entity {
@@ -530,7 +496,7 @@ tr.clickable:focus-visible, .pdv-rx-choice:focus-visible { outline: 2px solid va
 .input:focus-visible, .topbar-search input:focus-visible { outline: none; }
 
 /* ---------------------------------------------------------------
-   5. MOTION + RESPONSIVE
+   4. MOTION + RESPONSIVE
    --------------------------------------------------------------- */
 @keyframes printing-pulse { 0%,100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.07); opacity: 1; } }
 @keyframes printing-fill { from { width: 0%; } to { width: 100%; } }

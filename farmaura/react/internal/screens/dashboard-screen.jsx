@@ -5,8 +5,6 @@ import { Icon, PageHead, Badge, StatCard, EmptyState } from "../core/internal-ui
 
 /* FARMAURA Console — Painel: visão geral do dia. */
 
-const ORDER_STATUS_TONE = { "fa-badge-health": "good", "fa-badge-warn": "warning", "fa-badge-vital": "critical" };
-
 function Dashboard({ ctx }) {
   const { orders, prescriptions, inventory, onNav, openOrder, openCustomer, customers = [], chartSeed = {}, pharmacistProfile = {}, customerByName = {} } = ctx;
   const byHour = Array.isArray(chartSeed.byHour) ? chartSeed.byHour : Array.isArray(chartSeed.hours) ? chartSeed.hours : [];
@@ -87,7 +85,7 @@ function Dashboard({ ctx }) {
                           {order.rx && order.rxStatus === "pending" && <div className="cell-muted" style={{ color: "var(--warning)", fontWeight: 700 }}>receita pendente</div>}
                         </td>
                         <td><FulfillBadge f={order.fulfillment} /></td>
-                        <td><Badge tone={ORDER_STATUS_TONE[status.cls] || "neutral"}><Icon name={status.icon} size={11} />{status.label}</Badge></td>
+                        <td><Badge tone={status.tone}><Icon name={status.icon} size={11} />{status.label}</Badge></td>
                         <td style={{ textAlign: "right" }}><Icon name="chevR" size={16} style={{ color: "var(--text-muted)" }} /></td>
                       </tr>
                     );
