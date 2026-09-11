@@ -1,25 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import { fetchViaCepAddress, formatCep } from "../../marketplace/core/marketplace-address.js";
-import { Toggle } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
-import { Topbar } from "../core/internal-shell.jsx";
-import { AnCard } from "./analytics-screen.jsx";
-import { StatCard } from "./dashboard-screen.jsx";
+import {
+  Icon, PageHead, StatCard, Badge, PillNav, SwitchToggle, EmptyState, money, showToast,
+} from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Áreas & Frete do marketplace.
-   Define, por loja, os bairros de atendimento (validados via busca de CEP)
-   e os raios de atendimento (faixas de km) — ambos podem estar ativos ao
-   mesmo tempo, cada entrada com seu próprio preço (fixo/grátis/calculado por
-   combustível). Endereços fora de tudo isso ficam fora da entrega — o
-   checkout do marketplace passa a oferecer só retirada na loja nesse caso.
-   "Entregas & rota" continua restrita a despacho e acompanhamento. */
-
-const FUEL_LABELS = { gasoline: 'Gasolina', ethanol: 'Etanol' };
+   Define, por loja, os bairros de atendimento (validados via busca de CEP) e os raios de
+   atendimento (faixas de km) — ambos podem estar ativos ao mesmo tempo, cada entrada com seu
+   próprio preço (fixo/grátis/calculado por combustível). Endereços fora de tudo isso ficam fora
+   da entrega — o checkout passa a oferecer só retirada na loja nesse caso. */
 
 function newPriceRule() {
-  return { mode: 'fixed', fixedFee: 0, fuel: { fuelType: 'gasoline', fuelPricePerLiter: 6.0, vehicleKmPerLiter: 12, fuelMarginPercent: 0 } };
+  return { mode: "fixed", fixedFee: 0, fuel: { fuelType: "gasoline", fuelPricePerLiter: 6.0, vehicleKmPerLiter: 12, fuelMarginPercent: 0 } };
 }
-
 function fuelFeePreview(fuel, km) {
   const kml = Number(fuel.vehicleKmPerLiter) || 0;
   if (kml <= 0) return 0;
@@ -28,20 +21,17 @@ function fuelFeePreview(fuel, km) {
   const margin = 1 + (Number(fuel.fuelMarginPercent) || 0) / 100;
   return raw * margin;
 }
-
 function priceSummary(rule) {
-  if (rule.mode === 'free') return 'Grátis';
-  if (rule.mode === 'fixed') return 'R$ ' + Number(rule.fixedFee || 0).toFixed(2).replace('.', ',');
-  return 'Calculado · combustível';
+  if (rule.mode === "free") return "Grátis";
+  if (rule.mode === "fixed") return money(rule.fixedFee || 0);
+  return "Calculado · combustível";
 }
 
-/* ===================== TELA PRINCIPAL ===================== */
 function DeliveryZonesScreen({ ctx }) {
-  const { deliveryAreas, setDeliveryAreas, saveDeliveryAreas, deliveryAreasBusy, stores: allStores, onLogout, searchDeliveryAddresses } = ctx;
-  const stores = Array.isArray(allStores) && allStores.length ? allStores : [{ id: '', name: 'Loja' }];
+  const { deliveryAreas, setDeliveryAreas, saveDeliveryAreas, deliveryAreasBusy, stores: allStores, searchDeliveryAddresses } = ctx;
+  const stores = Array.isArray(allStores) && allStores.length ? allStores : [{ id: "", name: "Loja" }];
   const [manualStoreId, setManualStoreId] = useState(null);
   const storeId = manualStoreId != null && stores.some((entry) => entry.id === manualStoreId) ? manualStoreId : stores[0].id;
-  const setStoreId = setManualStoreId;
   const activeStore = stores.find((entry) => entry.id === storeId) || stores[0];
 
   const storeConfigs = Array.isArray(deliveryAreas.stores) ? deliveryAreas.stores : [];
@@ -51,9 +41,7 @@ function DeliveryZonesScreen({ ctx }) {
   const updateStoreConfig = (patch) => {
     const next = { ...storeConfig, ...patch };
     const exists = storeConfigs.some((entry) => entry.storeId === storeId);
-    const nextConfigs = exists
-      ? storeConfigs.map((entry) => (entry.storeId === storeId ? next : entry))
-      : [...storeConfigs, next];
+    const nextConfigs = exists ? storeConfigs.map((entry) => (entry.storeId === storeId ? next : entry)) : [...storeConfigs, next];
     setDeliveryAreas({ stores: nextConfigs });
   };
 
@@ -63,70 +51,94 @@ function DeliveryZonesScreen({ ctx }) {
   const activeTiers = radiusTiers.filter((entry) => entry.isActive !== false).length;
   const hasCoverage = neighborhoods.length > 0 || radiusTiers.length > 0;
 
+  const save = async () => {
+    try { await saveDeliveryAreas(); showToast({ message: "Áreas e frete salvos." }); }
+    catch (err) { showToast({ message: (err && err.message) || "Não foi possível salvar." }); }
+  };
+
   return (
-    <>
-      <Topbar title="Áreas & Frete" sub="Bairros, raios e preços de entrega — o que alimenta o checkout" onLogout={onLogout} ctx={ctx}>
-        {stores.length > 1 && (
-          <select className="fa-input" style={{ width: 220 }} value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+    <div className="route-fade">
+      <PageHead
+        eyebrow="Preço & Promoções"
+        title="Áreas & Frete"
+        desc="Bairros, raios e preços de entrega — o que alimenta o checkout."
+        actions={stores.length > 1 && (
+          <select className="input" style={{ width: "auto", minWidth: 200 }} value={storeId} onChange={(e) => setManualStoreId(e.target.value)}>
             {stores.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
           </select>
         )}
-      </Topbar>
+      />
 
-      <div className="ph-content ph-content-wide" data-screen-label="Áreas e frete do marketplace">
-        <div className="ph-stats" style={{ marginBottom: 18, gridTemplateColumns: 'repeat(3, 1fr)' }}>
-          <StatCard icon="pin" value={activeNeighborhoods} label="Bairros ativos" tint={{ bg: 'var(--fa-rose-soft)', fg: 'var(--fa-primary)' }} />
-          <StatCard icon="pin" value={activeTiers} label="Raios cadastrados" tint={{ bg: 'var(--fa-info-soft)', fg: 'var(--fa-info)' }} />
-          {!hasCoverage ? (
-            <StatCard icon="info" value="Sem restrição" label="Nenhuma área configurada ainda" tint={{ bg: 'var(--fa-mist-2)', fg: 'var(--fa-ink-2)' }} />
-          ) : (
-            <StatCard icon="shield" value="Ativo" label={'Fora dessas áreas, só retirada em ' + (activeStore.name || 'loja')} tint={{ bg: 'var(--fa-success-soft)', fg: 'var(--fa-success)' }} />
-          )}
-        </div>
-
-        <FreeShippingThreshold value={storeConfig.freeAboveSubtotal || 0} onChange={(v) => updateStoreConfig({ freeAboveSubtotal: v })} />
-
-        <div className="dz-grid">
-          <NeighborhoodSection neighborhoods={neighborhoods} setNeighborhoods={(next) => updateStoreConfig({ neighborhoods: next })} searchDeliveryAddresses={searchDeliveryAddresses} />
-          <RadiusSection radiusTiers={radiusTiers} setRadiusTiers={(next) => updateStoreConfig({ radiusTiers: next })} />
-        </div>
-
-        <VariationsEditor variations={variations} setVariations={(next) => setDeliveryAreas({ variations: next })} />
-
-        <div className="dz-savebar">
-          <span className="ph-cell-sub">Bairros, raios, frete grátis e variações são salvos juntos.</span>
-          <button className="fa-btn fa-btn-primary" onClick={saveDeliveryAreas} disabled={!!deliveryAreasBusy}>
-            <Icon name="check" size={15} />{deliveryAreasBusy ? 'Salvando…' : 'Salvar alterações'}
-          </button>
-        </div>
+      <div className="grid g-3" style={{ marginBottom: 16 }}>
+        <StatCard icon="pin" value={activeNeighborhoods} label="Bairros ativos" />
+        <StatCard icon="pin" value={activeTiers} label="Raios cadastrados" />
+        {!hasCoverage
+          ? <StatCard icon="info" value="Sem restrição" label="Nenhuma área configurada ainda" />
+          : <StatCard icon="shield" value="Ativo" label={`Fora dessas áreas, só retirada em ${activeStore.name || "loja"}`} tone="good" />}
       </div>
-    </>
+
+      <FreeShippingThreshold value={storeConfig.freeAboveSubtotal || 0} onChange={(v) => updateStoreConfig({ freeAboveSubtotal: v })} />
+
+      <div className="grid g-2" style={{ marginBottom: 16, alignItems: "start" }}>
+        <NeighborhoodSection neighborhoods={neighborhoods} setNeighborhoods={(next) => updateStoreConfig({ neighborhoods: next })} searchDeliveryAddresses={searchDeliveryAddresses} />
+        <RadiusSection radiusTiers={radiusTiers} setRadiusTiers={(next) => updateStoreConfig({ radiusTiers: next })} />
+      </div>
+
+      <VariationsEditor variations={variations} setVariations={(next) => setDeliveryAreas({ variations: next })} />
+
+      <div className="card card-pad" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <span className="page-desc" style={{ margin: 0 }}>Bairros, raios, frete grátis e variações são salvos juntos.</span>
+        <button className="btn btn-primary" onClick={save} disabled={!!deliveryAreasBusy}>
+          <Icon name="check" size={14} />{deliveryAreasBusy ? "Salvando…" : "Salvar alterações"}
+        </button>
+      </div>
+    </div>
   );
 }
 
-/* ---------- Frete grátis acima de um valor mínimo de pedido ---------- */
 function FreeShippingThreshold({ value, onChange }) {
   const enabled = Number(value) > 0;
   return (
-    <AnCard icon="gift" title="Frete grátis a partir de um valor mínimo" sub="Zera a taxa de entrega (do bairro ou do raio) quando o pedido atinge esse valor — não afeta a taxa extra da entrega expressa"
-      right={<span className="fa-badge fa-badge-mist">{enabled ? 'Ativo' : 'Desativado'}</span>} style={{ marginBottom: 18 }}>
-      <div className="dz-fee-row">
-        <span className="dz-fee-label">Pedidos a partir de</span>
-        <span className="fin-prem-pre">R$</span>
-        <input className="fa-input" type="number" min="0" step="5" style={{ width: 110 }} value={value}
-          onChange={(e) => onChange(Number(e.target.value))} />
-        <span className="ph-cell-sub" style={{ marginLeft: 8 }}>{enabled ? '' : 'Deixe em 0 para desativar.'}</span>
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-head">
+        <div><h3>Frete grátis a partir de um valor mínimo</h3><div className="card-head-sub">Zera a taxa de entrega quando o pedido atinge esse valor — não afeta a taxa extra da entrega expressa.</div></div>
+        <Badge tone={enabled ? "good" : "neutral"} dot>{enabled ? "Ativo" : "Desativado"}</Badge>
       </div>
-    </AnCard>
+      <div className="card-pad" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Pedidos a partir de</span>
+        <span className="cell-muted">R$</span>
+        <input className="input" type="number" min="0" step="5" style={{ width: 110 }} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+        {!enabled && <span className="page-desc" style={{ margin: 0 }}>Deixe em 0 para desativar.</span>}
+      </div>
+    </div>
   );
 }
 
-/* ---------- Bairros/cidades de atendimento (busca por CEP ou por nome) ---------- */
+function CollapsibleRow({ title, sub, badges, active, onToggleActive, activeLabel, open, onToggleOpen, children }) {
+  return (
+    <div className="card" style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
+        <button type="button" onClick={onToggleOpen} style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, font: "inherit", color: "inherit" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+            {sub && <div className="cell-muted" style={{ fontSize: 12 }}>{sub}</div>}
+          </span>
+          {badges}
+          {!active && <Badge tone="neutral">Inativo</Badge>}
+          <Icon name="chevD" size={13} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s", flex: "none" }} />
+        </button>
+        <SwitchToggle on={active} onChange={onToggleActive} label={activeLabel} />
+      </div>
+      {open && <div className="card-pad" style={{ borderTop: "1px solid var(--border)" }}>{children}</div>}
+    </div>
+  );
+}
+
 function NeighborhoodSection({ neighborhoods, setNeighborhoods, searchDeliveryAddresses }) {
-  const [mode, setMode] = useState('cep'); // cep | name
-  const [cepDraft, setCepDraft] = useState('');
-  const [nameDraft, setNameDraft] = useState('');
-  const [lookup, setLookup] = useState({ loading: false, error: '' });
+  const [mode, setMode] = useState("cep");
+  const [cepDraft, setCepDraft] = useState("");
+  const [nameDraft, setNameDraft] = useState("");
+  const [lookup, setLookup] = useState({ loading: false, error: "" });
   const [nameResults, setNameResults] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [openId, setOpenId] = useState(null);
@@ -134,21 +146,13 @@ function NeighborhoodSection({ neighborhoods, setNeighborhoods, searchDeliveryAd
 
   useEffect(() => {
     if (!dropdownOpen) return undefined;
-    const onClickOutside = (event) => {
-      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
+    const onClickOutside = (event) => { if (searchBoxRef.current && !searchBoxRef.current.contains(event.target)) setDropdownOpen(false); };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
   }, [dropdownOpen]);
 
   useEffect(() => {
-    /** Search automatically, with a short debounce, once at least 3 characters are typed. */
-
-    if (mode !== 'name' || typeof searchDeliveryAddresses !== 'function') {
-      return undefined;
-    }
+    if (mode !== "name" || typeof searchDeliveryAddresses !== "function") return undefined;
     const query = nameDraft.trim();
     if (query.length < 3) {
       setNameResults([]);
@@ -163,175 +167,134 @@ function NeighborhoodSection({ neighborhoods, setNeighborhoods, searchDeliveryAd
       const seen = new Set();
       const deduped = results.filter((entry) => {
         if (!entry.district && !entry.city) return false;
-        const key = (entry.district || '').trim().toLowerCase() + '|' + (entry.city || '').trim().toLowerCase();
+        const key = (entry.district || "").trim().toLowerCase() + "|" + (entry.city || "").trim().toLowerCase();
         if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
+        seen.add(key); return true;
       });
       setNameResults(deduped);
       setLookup((current) => ({ ...current, loading: false }));
     }, 400);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
+    return () => { active = false; clearTimeout(timer); };
   }, [nameDraft, mode, searchDeliveryAddresses]);
 
   const isDuplicate = (district, city) => {
-    const normDistrict = (district || '').trim().toLowerCase();
-    const normCity = (city || '').trim().toLowerCase();
-    return neighborhoods.some((entry) => (entry.district || '').trim().toLowerCase() === normDistrict && (entry.city || '').trim().toLowerCase() === normCity);
+    const normDistrict = (district || "").trim().toLowerCase();
+    const normCity = (city || "").trim().toLowerCase();
+    return neighborhoods.some((entry) => (entry.district || "").trim().toLowerCase() === normDistrict && (entry.city || "").trim().toLowerCase() === normCity);
   };
 
-  const appendNeighborhood = ({ postalCode = '', district = '', city = '', stateCode = '' }) => {
-    const entry = {
-      id: 'bairro-' + Date.now(),
-      postalCode, district, city, stateCode,
-      price: newPriceRule(),
-      isActive: true,
-    };
+  const appendNeighborhood = ({ postalCode = "", district = "", city = "", stateCode = "" }) => {
+    const entry = { id: "bairro-" + Date.now(), postalCode, district, city, stateCode, price: newPriceRule(), isActive: true };
     setNeighborhoods([...neighborhoods, entry]);
     setOpenId(entry.id);
   };
 
   const addByCep = async () => {
-    const digits = cepDraft.replace(/\D/g, '');
-    if (digits.length !== 8) {
-      setLookup({ loading: false, error: 'Digite um CEP com 8 dígitos.' });
-      return;
-    }
-    setLookup({ loading: true, error: '' });
+    const digits = cepDraft.replace(/\D/g, "");
+    if (digits.length !== 8) { setLookup({ loading: false, error: "Digite um CEP com 8 dígitos." }); return; }
+    setLookup({ loading: true, error: "" });
     try {
       const result = await fetchViaCepAddress(digits);
-      if (!result || !result.district) {
-        setLookup({ loading: false, error: 'CEP não retornou um bairro válido.' });
-        return;
-      }
-      if (isDuplicate(result.district, result.city)) {
-        setLookup({ loading: false, error: 'Esse bairro já está cadastrado.' });
-        return;
-      }
+      if (!result || !result.district) { setLookup({ loading: false, error: "CEP não retornou um bairro válido." }); return; }
+      if (isDuplicate(result.district, result.city)) { setLookup({ loading: false, error: "Esse bairro já está cadastrado." }); return; }
       appendNeighborhood({ postalCode: result.cep, district: result.district, city: result.city, stateCode: result.state });
-      setCepDraft('');
-      setLookup({ loading: false, error: '' });
+      setCepDraft(""); setLookup({ loading: false, error: "" });
     } catch (error) {
-      setLookup({ loading: false, error: error && error.message ? error.message : 'Não foi possível consultar o CEP.' });
+      setLookup({ loading: false, error: (error && error.message) || "Não foi possível consultar o CEP." });
     }
   };
 
   const handleNameChange = (value) => {
     setNameDraft(value);
     setDropdownOpen(value.trim().length > 0);
-    if (!value.trim()) {
-      setNameResults([]);
-    }
+    if (!value.trim()) setNameResults([]);
   };
 
   const pickNameResult = (result) => {
-    if (isDuplicate(result.district, result.city)) {
-      setLookup((current) => ({ ...current, error: 'Esse bairro/cidade já está cadastrado.' }));
-      return;
-    }
+    if (isDuplicate(result.district, result.city)) { setLookup((c) => ({ ...c, error: "Esse bairro/cidade já está cadastrado." })); return; }
     appendNeighborhood({ district: result.district, city: result.city, stateCode: result.stateCode });
-    setNameResults([]);
-    setNameDraft('');
-    setDropdownOpen(false);
+    setNameResults([]); setNameDraft(""); setDropdownOpen(false);
   };
 
   const updateNeighborhood = (id, patch) => setNeighborhoods(neighborhoods.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)));
   const removeNeighborhood = (id) => setNeighborhoods(neighborhoods.filter((entry) => entry.id !== id));
 
   return (
-    <AnCard icon="pin" title="Bairros/cidades de atendimento" sub="Busque por CEP ou por nome — cada bairro (ou cidade inteira) com seu próprio preço"
-      right={<span className="fa-badge fa-badge-mist">{neighborhoods.length ? neighborhoods.length + ' áreas' : 'Nenhuma'}</span>}>
-      <div className="ph-seg" style={{ marginBottom: 10 }}>
-        <button type="button" data-on={mode === 'cep' ? '1' : '0'} onClick={() => { setMode('cep'); setLookup({ loading: false, error: '' }); setDropdownOpen(false); }}>Por CEP</button>
-        <button type="button" data-on={mode === 'name' ? '1' : '0'} onClick={() => { setMode('name'); setLookup({ loading: false, error: '' }); }}>Por bairro/cidade</button>
+    <div className="card">
+      <div className="card-head">
+        <div><h3>Bairros/cidades de atendimento</h3><div className="card-head-sub">Busque por CEP ou por nome — cada área com seu próprio preço.</div></div>
+        <Badge tone="neutral">{neighborhoods.length ? neighborhoods.length + " áreas" : "Nenhuma"}</Badge>
       </div>
-
-      {mode === 'cep' ? (
-        <div className="dz-addrow">
-          <input className="fa-input" placeholder="00000-000" value={cepDraft}
-            onChange={(e) => setCepDraft(formatCep(e.target.value))}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addByCep(); } }} />
-          <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={addByCep} disabled={lookup.loading}>
-            <Icon name="search" size={14} />{lookup.loading ? 'Buscando…' : 'Buscar e adicionar'}
-          </button>
-        </div>
-      ) : (
-        <div className="dz-search-wrap" ref={searchBoxRef}>
-          <div className="dz-addrow">
-            <input className="fa-input" placeholder="Digite o nome de um bairro ou cidade…" value={nameDraft}
-              onChange={(e) => handleNameChange(e.target.value)}
-              onFocus={() => { if (nameDraft.trim()) setDropdownOpen(true); }} />
-            <span className="fa-iconbox" style={{ width: 40, height: 40, flex: 'none' }}><Icon name="search" size={16} /></span>
-          </div>
-          {dropdownOpen && (
-            <div className="dz-dropdown">
-              {lookup.loading ? (
-                <div className="dz-dropdown-empty">Buscando…</div>
-              ) : nameResults.length === 0 ? (
-                <div className="dz-dropdown-empty">{nameDraft.trim().length < 3 ? 'Digite ao menos 3 letras…' : 'Nada encontrado para essa busca.'}</div>
-              ) : (
-                nameResults.map((result, index) => (
-                  <button type="button" key={index} className="dz-dropdown-item" onClick={() => pickNameResult(result)}>
-                    <span className="dz-row-title">
-                      <span className="dz-row-name">{result.district || ('Cidade inteira: ' + (result.city || result.label))}</span>
-                      <span className="dz-row-sub">{[result.city, result.stateCode].filter(Boolean).join(' - ') || result.label}</span>
-                    </span>
-                    {!result.district && <span className="fa-badge fa-badge-mist">Cidade inteira</span>}
-                    <Icon name="plus" size={14} />
-                  </button>
-                ))
-              )}
+      <div className="card-pad">
+        <PillNav options={[{ key: "cep", label: "Por CEP" }, { key: "name", label: "Por bairro/cidade" }]} active={mode} onChange={(m) => { setMode(m); setLookup({ loading: false, error: "" }); setDropdownOpen(false); }} />
+        <div style={{ marginTop: 12 }}>
+          {mode === "cep" ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <input className="input" placeholder="00000-000" value={cepDraft} onChange={(e) => setCepDraft(formatCep(e.target.value))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addByCep(); } }} />
+              <button type="button" className="btn btn-secondary btn-sm" onClick={addByCep} disabled={lookup.loading}>
+                <Icon name="search" size={13} />{lookup.loading ? "Buscando…" : "Buscar e adicionar"}
+              </button>
             </div>
-          )}
-        </div>
-      )}
-      {lookup.error && <div className="dz-error"><Icon name="info" size={13} />{lookup.error}</div>}
-
-      <div className="dz-list">
-        {neighborhoods.map((entry) => {
-          const active = entry.isActive !== false;
-          return (
-            <div key={entry.id} className="dz-row" data-open={openId === entry.id ? '1' : '0'} data-active={active ? '1' : '0'}>
-              <div className="dz-row-head">
-                <button type="button" className="dz-row-head-btn" onClick={() => setOpenId(openId === entry.id ? null : entry.id)}>
-                  <span className="dz-row-title">
-                    <span className="dz-row-name">{entry.district || ('Cidade inteira: ' + (entry.city || '—'))}</span>
-                    <span className="dz-row-sub">{[entry.city, entry.stateCode].filter(Boolean).join(' - ')}</span>
-                  </span>
-                  {entry.postalCode && <span className="fa-badge fa-badge-mist dz-row-cep">{entry.postalCode}</span>}
-                  <span className="fa-badge fa-badge-mist">{priceSummary(entry.price)}</span>
-                  {!active && <span className="fa-badge fa-badge-mist">Inativo</span>}
-                  <Icon name="chevD" size={14} style={{ transform: openId === entry.id ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
-                </button>
-                <Toggle on={active} onChange={(v) => updateNeighborhood(entry.id, { isActive: v })} ariaLabel={active ? 'Desativar bairro' : 'Ativar bairro'} />
-              </div>
-              {openId === entry.id && (
-                <div className="dz-row-body">
-                  <PriceRuleEditor rule={entry.price} onChange={(patch) => updateNeighborhood(entry.id, { price: { ...entry.price, ...patch } })} />
-                  <button type="button" className="fa-btn fa-btn-ghost fa-btn-sm" onClick={() => removeNeighborhood(entry.id)}>
-                    <Icon name="trash" size={14} />Remover
-                  </button>
+          ) : (
+            <div ref={searchBoxRef} style={{ position: "relative" }}>
+              <input className="input" placeholder="Digite o nome de um bairro ou cidade…" value={nameDraft} onChange={(e) => handleNameChange(e.target.value)} onFocus={() => { if (nameDraft.trim()) setDropdownOpen(true); }} />
+              {dropdownOpen && (
+                <div className="card" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 5, maxHeight: 220, overflowY: "auto", boxShadow: "var(--shadow-lg)" }}>
+                  {lookup.loading ? (
+                    <div className="page-desc" style={{ padding: 12 }}>Buscando…</div>
+                  ) : nameResults.length === 0 ? (
+                    <div className="page-desc" style={{ padding: 12 }}>{nameDraft.trim().length < 3 ? "Digite ao menos 3 letras…" : "Nada encontrado para essa busca."}</div>
+                  ) : nameResults.map((result, index) => (
+                    <button type="button" key={index} onClick={() => pickNameResult(result)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 12px", border: "none", borderBottom: "1px solid var(--border)", background: "none", cursor: "pointer", textAlign: "left", font: "inherit", color: "inherit" }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{result.district || ("Cidade inteira: " + (result.city || result.label))}</div>
+                        <div className="cell-muted" style={{ fontSize: 11.5 }}>{[result.city, result.stateCode].filter(Boolean).join(" - ") || result.label}</div>
+                      </span>
+                      {!result.district && <Badge tone="neutral">Cidade inteira</Badge>}
+                      <Icon name="plus" size={13} />
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
-          );
-        })}
-        {neighborhoods.length === 0 && <div className="fa-muted dz-empty">Nenhum bairro cadastrado ainda.</div>}
+          )}
+          {lookup.error && <div className="field-error" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="info" size={12} />{lookup.error}</div>}
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          {neighborhoods.map((entry) => {
+            const active = entry.isActive !== false;
+            return (
+              <CollapsibleRow
+                key={entry.id}
+                title={entry.district || ("Cidade inteira: " + (entry.city || "—"))}
+                sub={[entry.city, entry.stateCode].filter(Boolean).join(" - ")}
+                badges={<>{entry.postalCode && <Badge tone="neutral">{entry.postalCode}</Badge>}<Badge tone="neutral">{priceSummary(entry.price)}</Badge></>}
+                active={active}
+                activeLabel={active ? "Desativar bairro" : "Ativar bairro"}
+                onToggleActive={(v) => updateNeighborhood(entry.id, { isActive: v })}
+                open={openId === entry.id}
+                onToggleOpen={() => setOpenId(openId === entry.id ? null : entry.id)}
+              >
+                <PriceRuleEditor rule={entry.price} onChange={(patch) => updateNeighborhood(entry.id, { price: { ...entry.price, ...patch } })} />
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeNeighborhood(entry.id)} style={{ marginTop: 10 }}>
+                  <Icon name="trash" size={13} />Remover
+                </button>
+              </CollapsibleRow>
+            );
+          })}
+          {neighborhoods.length === 0 && <EmptyState icon="pin" title="Nenhum bairro cadastrado ainda" />}
+        </div>
       </div>
-    </AnCard>
+    </div>
   );
 }
 
-/* ---------- Raios de atendimento (faixas de km) ---------- */
 function RadiusSection({ radiusTiers, setRadiusTiers }) {
   const [openId, setOpenId] = useState(null);
-
   const addTier = () => {
     const lastKm = radiusTiers.length ? Number(radiusTiers[radiusTiers.length - 1].upToKm || 0) : 0;
-    const entry = { id: 'raio-' + Date.now(), upToKm: lastKm ? lastKm + 3 : 5, price: newPriceRule(), isActive: true };
+    const entry = { id: "raio-" + Date.now(), upToKm: lastKm ? lastKm + 3 : 5, price: newPriceRule(), isActive: true };
     setRadiusTiers([...radiusTiers, entry]);
     setOpenId(entry.id);
   };
@@ -340,127 +303,116 @@ function RadiusSection({ radiusTiers, setRadiusTiers }) {
   const sorted = [...radiusTiers].sort((a, b) => Number(a.upToKm || 0) - Number(b.upToKm || 0));
 
   return (
-    <AnCard icon="truck" title="Raios de atendimento" sub="Faixas de km a partir da loja — cada faixa com seu próprio preço"
-      right={<span className="fa-badge fa-badge-mist">{radiusTiers.length ? radiusTiers.length + ' raios' : 'Nenhum'}</span>}>
-      <div className="dz-list">
+    <div className="card">
+      <div className="card-head">
+        <div><h3>Raios de atendimento</h3><div className="card-head-sub">Faixas de km a partir da loja — cada faixa com seu próprio preço.</div></div>
+        <Badge tone="neutral">{radiusTiers.length ? radiusTiers.length + " raios" : "Nenhum"}</Badge>
+      </div>
+      <div className="card-pad">
         {sorted.map((entry) => {
           const active = entry.isActive !== false;
           return (
-            <div key={entry.id} className="dz-row" data-open={openId === entry.id ? '1' : '0'} data-active={active ? '1' : '0'}>
-              <div className="dz-row-head">
-                <button type="button" className="dz-row-head-btn" onClick={() => setOpenId(openId === entry.id ? null : entry.id)}>
-                  <span className="dz-row-title">
-                    <span className="dz-row-name">Até {entry.upToKm} km</span>
-                    <span className="dz-row-sub">a partir da loja</span>
-                  </span>
-                  <span className="fa-badge fa-badge-mist">{priceSummary(entry.price)}</span>
-                  {!active && <span className="fa-badge fa-badge-mist">Inativo</span>}
-                  <Icon name="chevD" size={14} style={{ transform: openId === entry.id ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
-                </button>
-                <Toggle on={active} onChange={(v) => updateTier(entry.id, { isActive: v })} ariaLabel={active ? 'Desativar raio' : 'Ativar raio'} />
+            <CollapsibleRow
+              key={entry.id}
+              title={`Até ${entry.upToKm} km`}
+              sub="a partir da loja"
+              badges={<Badge tone="neutral">{priceSummary(entry.price)}</Badge>}
+              active={active}
+              activeLabel={active ? "Desativar raio" : "Ativar raio"}
+              onToggleActive={(v) => updateTier(entry.id, { isActive: v })}
+              open={openId === entry.id}
+              onToggleOpen={() => setOpenId(openId === entry.id ? null : entry.id)}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600 }}>Até quantos km</span>
+                <input className="input" type="number" min="0.5" step="0.5" style={{ width: 90 }} value={entry.upToKm} onChange={(e) => updateTier(entry.id, { upToKm: Number(e.target.value) })} />
+                <span className="cell-muted">km</span>
               </div>
-              {openId === entry.id && (
-                <div className="dz-row-body">
-                  <div className="dz-fee-row">
-                    <span className="dz-fee-label">Até quantos km</span>
-                    <input className="fa-input" type="number" min="0.5" step="0.5" style={{ width: 90 }} value={entry.upToKm}
-                      onChange={(e) => updateTier(entry.id, { upToKm: Number(e.target.value) })} />
-                    <span className="fin-prem-pre">km</span>
-                  </div>
-                  <PriceRuleEditor rule={entry.price} onChange={(patch) => updateTier(entry.id, { price: { ...entry.price, ...patch } })} />
-                  <button type="button" className="fa-btn fa-btn-ghost fa-btn-sm" onClick={() => removeTier(entry.id)}>
-                    <Icon name="trash" size={14} />Remover raio
-                  </button>
-                </div>
-              )}
-            </div>
+              <PriceRuleEditor rule={entry.price} onChange={(patch) => updateTier(entry.id, { price: { ...entry.price, ...patch } })} />
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeTier(entry.id)} style={{ marginTop: 10 }}>
+                <Icon name="trash" size={13} />Remover raio
+              </button>
+            </CollapsibleRow>
           );
         })}
-        {radiusTiers.length === 0 && <div className="fa-muted dz-empty">Nenhum raio cadastrado ainda.</div>}
+        {radiusTiers.length === 0 && <EmptyState icon="truck" title="Nenhum raio cadastrado ainda" />}
+        <button type="button" className="btn btn-secondary btn-sm" onClick={addTier}><Icon name="plus" size={13} />Adicionar raio</button>
       </div>
-      <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={addTier}><Icon name="plus" size={14} />Adicionar raio</button>
-    </AnCard>
+    </div>
   );
 }
 
-/* ---------- Regra de preço compartilhada (fixo / grátis / calculado por combustível) ---------- */
 function PriceRuleEditor({ rule, onChange }) {
   const previewKm = 5;
-  const preview = rule.mode === 'calculated' ? fuelFeePreview(rule.fuel, previewKm) : null;
+  const preview = rule.mode === "calculated" ? fuelFeePreview(rule.fuel, previewKm) : null;
   return (
-    <div className="dz-price-rule">
-      <div className="ph-seg">
-        <button type="button" data-on={rule.mode === 'fixed' ? '1' : '0'} onClick={() => onChange({ mode: 'fixed' })}>Preço fixo</button>
-        <button type="button" data-on={rule.mode === 'free' ? '1' : '0'} onClick={() => onChange({ mode: 'free' })}>Grátis</button>
-        <button type="button" data-on={rule.mode === 'calculated' ? '1' : '0'} onClick={() => onChange({ mode: 'calculated' })}>Calculado</button>
-      </div>
+    <div>
+      <PillNav options={[{ key: "fixed", label: "Preço fixo" }, { key: "free", label: "Grátis" }, { key: "calculated", label: "Calculado" }]} active={rule.mode} onChange={(mode) => onChange({ mode })} />
 
-      {rule.mode === 'fixed' && (
-        <div className="dz-fee-row">
-          <span className="dz-fee-label">Taxa de entrega</span>
-          <span className="fin-prem-pre">R$</span>
-          <input className="fa-input" type="number" min="0" step="0.5" style={{ width: 90 }} value={rule.fixedFee}
-            onChange={(e) => onChange({ fixedFee: Number(e.target.value) })} />
+      {rule.mode === "fixed" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Taxa de entrega</span>
+          <span className="cell-muted">R$</span>
+          <input className="input" type="number" min="0" step="0.5" style={{ width: 90 }} value={rule.fixedFee} onChange={(e) => onChange({ fixedFee: Number(e.target.value) })} />
         </div>
       )}
 
-      {rule.mode === 'calculated' && (
-        <div className="dz-fuel-grid">
-          <div className="dz-fee-row">
-            <span className="dz-fee-label">Combustível</span>
-            <select className="fa-input" style={{ width: 130 }} value={rule.fuel.fuelType} onChange={(e) => onChange({ fuel: { ...rule.fuel, fuelType: e.target.value } })}>
+      {rule.mode === "calculated" && (
+        <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 120 }}>Combustível</span>
+            <select className="input" style={{ width: 130 }} value={rule.fuel.fuelType} onChange={(e) => onChange({ fuel: { ...rule.fuel, fuelType: e.target.value } })}>
               <option value="gasoline">Gasolina</option>
               <option value="ethanol">Etanol</option>
             </select>
           </div>
-          <div className="dz-fee-row">
-            <span className="dz-fee-label">Preço do litro</span>
-            <span className="fin-prem-pre">R$</span>
-            <input className="fa-input" type="number" min="0" step="0.05" style={{ width: 90 }} value={rule.fuel.fuelPricePerLiter}
-              onChange={(e) => onChange({ fuel: { ...rule.fuel, fuelPricePerLiter: Number(e.target.value) } })} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 120 }}>Preço do litro</span>
+            <span className="cell-muted">R$</span>
+            <input className="input" type="number" min="0" step="0.05" style={{ width: 90 }} value={rule.fuel.fuelPricePerLiter} onChange={(e) => onChange({ fuel: { ...rule.fuel, fuelPricePerLiter: Number(e.target.value) } })} />
           </div>
-          <div className="dz-fee-row">
-            <span className="dz-fee-label">Consumo médio</span>
-            <input className="fa-input" type="number" min="0.1" step="0.5" style={{ width: 90 }} value={rule.fuel.vehicleKmPerLiter}
-              onChange={(e) => onChange({ fuel: { ...rule.fuel, vehicleKmPerLiter: Number(e.target.value) } })} />
-            <span className="fin-prem-pre">km/l</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 120 }}>Consumo médio</span>
+            <input className="input" type="number" min="0.1" step="0.5" style={{ width: 90 }} value={rule.fuel.vehicleKmPerLiter} onChange={(e) => onChange({ fuel: { ...rule.fuel, vehicleKmPerLiter: Number(e.target.value) } })} />
+            <span className="cell-muted">km/l</span>
           </div>
-          <div className="dz-fee-row">
-            <span className="dz-fee-label">Margem sobre custo</span>
-            <input className="fa-input" type="number" min="0" step="1" style={{ width: 90 }} value={rule.fuel.fuelMarginPercent}
-              onChange={(e) => onChange({ fuel: { ...rule.fuel, fuelMarginPercent: Number(e.target.value) } })} />
-            <span className="fin-prem-pre">%</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 120 }}>Margem sobre custo</span>
+            <input className="input" type="number" min="0" step="1" style={{ width: 90 }} value={rule.fuel.fuelMarginPercent} onChange={(e) => onChange({ fuel: { ...rule.fuel, fuelMarginPercent: Number(e.target.value) } })} />
+            <span className="cell-muted">%</span>
           </div>
-          <div className="ph-cell-sub dz-fuel-hint">
-            <Icon name="info" size={13} style={{ flex: 'none' }} />Para {previewKm} km, a taxa estimada fica em {'R$ ' + preview.toFixed(2).replace('.', ',')}.
-          </div>
+          <p className="page-desc" style={{ margin: 0, display: "flex", alignItems: "flex-start", gap: 6 }}>
+            <Icon name="info" size={12} style={{ flex: "none", marginTop: 2 }} />Para {previewKm} km, a taxa estimada fica em {money(preview)}.
+          </p>
         </div>
       )}
     </div>
   );
 }
 
-/* ---------- Variações de entrega (normal/expressa) ---------- */
 function VariationsEditor({ variations, setVariations }) {
   const updateVariation = (id, patch) => setVariations(variations.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)));
   return (
-    <AnCard icon="bolt" title="Variações de entrega" sub="Taxa extra e prazo de cada modalidade, somados à taxa do bairro/raio que atender o endereço"
-      right={<span className="fa-badge fa-badge-mist">{variations.length} modalidades</span>} style={{ marginBottom: 18 }}>
-      <div className="dz-variations">
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-head">
+        <div><h3>Variações de entrega</h3><div className="card-head-sub">Taxa extra e prazo de cada modalidade, somados à taxa do bairro/raio.</div></div>
+        <Badge tone="neutral">{variations.length} modalidades</Badge>
+      </div>
+      <div className="card-pad" style={{ display: "grid", gap: 10 }}>
         {variations.map((entry) => (
-          <div className="dz-fee-row" key={entry.id}>
-            <span className="dz-fee-label"><Icon name={entry.id === 'express' ? 'bolt' : 'clock'} size={14} />{entry.label || entry.id}</span>
-            <span className="fin-prem-pre">+R$</span>
-            <input className="fa-input" type="number" min="0" step="0.5" style={{ width: 80 }} value={entry.extraFee}
-              onChange={(e) => updateVariation(entry.id, { extraFee: Number(e.target.value) })} />
-            <span className="fin-prem-pre">·</span>
-            <input className="fa-input" type="number" min="1" step="5" style={{ width: 70 }} value={entry.etaMinutes}
-              onChange={(e) => updateVariation(entry.id, { etaMinutes: Number(e.target.value) })} />
-            <span className="fin-prem-pre">min</span>
+          <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 140, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon name={entry.id === "express" ? "bolt" : "clock"} size={13} />{entry.label || entry.id}
+            </span>
+            <span className="cell-muted">+R$</span>
+            <input className="input" type="number" min="0" step="0.5" style={{ width: 80 }} value={entry.extraFee} onChange={(e) => updateVariation(entry.id, { extraFee: Number(e.target.value) })} />
+            <span className="cell-muted">·</span>
+            <input className="input" type="number" min="1" step="5" style={{ width: 70 }} value={entry.etaMinutes} onChange={(e) => updateVariation(entry.id, { etaMinutes: Number(e.target.value) })} />
+            <span className="cell-muted">min</span>
           </div>
         ))}
       </div>
-    </AnCard>
+    </div>
   );
 }
 
