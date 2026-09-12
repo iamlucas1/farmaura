@@ -3,7 +3,7 @@ import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { fetchViaCepAddress, formatCep } from "../../marketplace/core/marketplace-address.js";
 import { resolveMarketplaceCoupon } from "../../marketplace/screens/cart-screen.jsx";
 import { RecurringBadge } from "../core/internal-shell.jsx";
-import { Icon, PageHead, Badge, PillNav, EmptyState, Field, Modal, QtyStepper, KV, SwitchToggle } from "../core/internal-ui.jsx";
+import { Icon, PageHead, Badge, PillNav, EmptyState, Field, Modal, QtyStepper, KV, SwitchToggle, Avatar, SearchInput } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Balcão / PDV: venda no momento + emissão de nota fiscal (NFC-e).
    Visão compartilhada entre farmacêutico e caixa. */
@@ -146,22 +146,20 @@ function ChoiceCard({ on, onClick, icon, title, sub, radio, style, children }) {
 function PdvUpsell({ customer, insights, inventory, cart, onAdd }) {
   const sugg = pdvSuggestions(insights, inventory, cart);
   return (
-    <div className="card card-pad">
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <span className="stat-icon" style={{ width: 32, height: 32 }}><Icon name="sparkle" size={16} /></span>
-        <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{customer ? "O cliente costuma comprar" : "Para oferecer"}</span>
+    <div className="card card-pad" style={{ marginBottom: 14, background: "var(--accent-soft)", border: "none" }}>
+      <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--accent)", marginBottom: 8 }}>
+        <Icon name="sparkle" size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+        {customer ? "O cliente costuma comprar" : "Para oferecer"}
       </div>
-      <div className="cell-muted" style={{ marginBottom: 12 }}>{customer ? "Sugira na hora — itens recorrentes de " + customer.name.split(" ")[0] : "Identifique o cliente para sugestões personalizadas · mais vendidos da loja"}</div>
       {sugg.length === 0 ? (
-        <div className="cell-muted">Sem sugestões no momento.</div>
+        <div className="cell-muted" style={{ fontSize: 12 }}>Sem sugestões no momento.</div>
       ) : sugg.map((s, i) => (
-        <div key={s.it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: i ? "1px solid var(--border)" : "none" }}>
-          <span className="stat-icon" style={{ width: 36, height: 36, flex: "none" }}><Icon name="pill" size={16} /></span>
+        <div key={s.it.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "10px 0", borderTop: i ? "1px dashed var(--border)" : "none" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.it.name}</div>
-            <div className="cell-muted">{brl(s.it.price)}{s.q ? " · comprou " + s.q + "×" : " · mais vendido"}</div>
+            <div style={{ fontWeight: 700, fontSize: 12 }}>{s.it.name}</div>
+            <div className="cell-muted" style={{ fontSize: 11, marginTop: 2 }}>{brl(s.it.price)}{s.q ? " · comprou " + s.q + "×" : " · mais vendido"}</div>
           </div>
-          <button className="btn btn-secondary btn-sm" style={{ flex: "none" }} onClick={() => onAdd(s.it.id)}><Icon name="plus" size={14} />Oferecer</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => onAdd(s.it.id)}>Oferecer</button>
         </div>
       ))}
     </div>
@@ -255,9 +253,13 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
   return (
     <div className="card card-pad">
       <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Retirada ou entrega</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: type === "delivery" ? 12 : 0 }}>
-        <ChoiceCard on={type === "pickup"} icon="bag" title="Retirar na loja" onClick={() => setDelivery({ ...delivery, fulfillmentType: "pickup" })} style={{ flexDirection: "column", textAlign: "center", justifyContent: "center" }} />
-        <ChoiceCard on={type === "delivery"} icon="truck" title="Entregar" onClick={() => setDelivery({ ...delivery, fulfillmentType: "delivery" })} style={{ flexDirection: "column", textAlign: "center", justifyContent: "center" }} />
+      <div style={{ display: "flex", gap: 6, marginBottom: type === "delivery" ? 12 : 0 }}>
+        <button type="button" className="btn btn-sm" style={{ flex: 1, background: type === "pickup" ? "var(--accent)" : "var(--surface-2)", color: type === "pickup" ? "var(--accent-contrast)" : "var(--text-secondary)" }} onClick={() => setDelivery({ ...delivery, fulfillmentType: "pickup" })}>
+          <Icon name="store" size={13} />Retirar na loja
+        </button>
+        <button type="button" className="btn btn-sm" style={{ flex: 1, background: type === "delivery" ? "var(--accent)" : "var(--surface-2)", color: type === "delivery" ? "var(--accent-contrast)" : "var(--text-secondary)" }} onClick={() => setDelivery({ ...delivery, fulfillmentType: "delivery" })}>
+          <Icon name="truck" size={13} />Entregar em casa
+        </button>
       </div>
 
       {type === "delivery" && mode === "pick" && (
@@ -327,42 +329,91 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
 function PdvRecurrenceSuggestions({ candidates, onConfigure }) {
   if (!candidates || candidates.length === 0) return null;
   return (
-    <div className="card card-pad">
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <span className="stat-icon" style={{ width: 32, height: 32 }}><Icon name="repeat" size={16} /></span>
-        <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>Sugestão de recorrência</span>
+    <div className="card card-pad" style={{ marginBottom: 14, background: "var(--accent-soft)", border: "none" }}>
+      <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--accent)", marginBottom: 8 }}>
+        <Icon name="repeat" size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+        Recorrência de compra
       </div>
-      <div className="cell-muted" style={{ marginBottom: 12 }}>O cliente comprou nos últimos meses seguidos — ofereça recorrência com desconto.</div>
       {candidates.map((c, i) => (
-        <div key={c.productKey} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: i ? "1px solid var(--border)" : "none" }}>
-          <span className="stat-icon" style={{ width: 36, height: 36, flex: "none" }}><Icon name="repeat" size={16} /></span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
-            <div className="cell-muted">{c.consecutiveMonths} meses seguidos · {brl(c.lastUnitPrice)} · {c.suggestedDiscountPercent}% de desconto</div>
+        <div key={c.productKey} style={{ padding: "10px 0", borderTop: i ? "1px dashed var(--border)" : "none" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 12 }}>{c.name}</div>
+              <div style={{ fontSize: 11, marginTop: 2 }}>
+                <span className="cell-muted" style={{ textDecoration: "line-through" }}>{brl(c.lastUnitPrice)}</span>
+                <span style={{ color: "var(--good)", fontWeight: 700, marginLeft: 6 }}>{c.suggestedDiscountPercent}% off</span>
+              </div>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => onConfigure && onConfigure(c)}>Configurar</button>
           </div>
-          <button className="btn btn-secondary btn-sm" style={{ flex: "none" }} onClick={() => onConfigure && onConfigure(c)}><Icon name="repeat" size={14} />Configurar</button>
+          <div className="cell-muted" style={{ fontSize: 11, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="calendar" size={12} />{c.consecutiveMonths} meses seguidos
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-/* Tela de seleção de paciente — gate compartilhado: o farmacêutico usa para INICIAR o
-   atendimento e o caixa para abrir a venda. Mesma tela nos dois papéis. */
-function PdvCaixaGate({ operator, onIdentify, onConsumer }) {
-  const isPharm = operator === "pharm";
+/* Identificar paciente — busca inline (sem modal), igual ao IdentifyClient do artifact:
+   card centrado com busca ao vivo por nome/CPF/telefone e "continuar sem identificar". */
+function PdvIdentifyClient({ customers, onPick, onSkip, onCreate, title, desc }) {
+  const [q, setQ] = useState("");
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const term = q.trim().toLowerCase();
+  const results = term ? (customers || []).filter((c) => c.name.toLowerCase().includes(term) || (c.doc || "").includes(term) || (c.phone || "").includes(term)).slice(0, 8) : [];
   return (
-    <div className="card" style={{ padding: "56px 24px", textAlign: "center" }}>
-      <span className="stat-icon" style={{ width: 76, height: 76, margin: "0 auto 18px" }}><Icon name="user" size={36} /></span>
-      <h2 style={{ fontWeight: 800, fontSize: 24, margin: 0 }}>Selecione o paciente</h2>
-      <p className="page-desc" style={{ marginTop: 8, maxWidth: 420, marginInline: "auto" }}>{isPharm
-        ? "Para iniciar o atendimento, identifique primeiro o paciente. O contador do atendimento começa assim que ele é identificado."
-        : "Para abrir a venda no caixa, identifique primeiro o paciente. Depois você adiciona os produtos e finaliza com a nota fiscal."}</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 320, margin: "24px auto 0" }}>
-        <button className="btn btn-primary btn-lg" style={{ justifyContent: "center" }} onClick={onIdentify}><Icon name="user" size={18} />Identificar paciente</button>
-        <button className="btn btn-ghost" style={{ whiteSpace: "normal", lineHeight: 1.3, textAlign: "center", height: "auto", padding: "12px 0", justifyContent: "center" }} onClick={onConsumer}>Continuar como consumidor não identificado</button>
+    <div className="card" style={{ maxWidth: 560, margin: "0 auto" }}>
+      <div className="card-pad" style={{ textAlign: "center", paddingBottom: 6 }}>
+        <span className="stat-icon" style={{ width: 52, height: 52, borderRadius: 16, margin: "0 auto 14px" }}><Icon name="user" size={24} /></span>
+        <h3 style={{ fontSize: 17 }}>{title || "Identificar paciente"}</h3>
+        <div className="cell-muted" style={{ fontSize: 12.5, marginTop: 6, maxWidth: "40ch", marginInline: "auto", lineHeight: 1.5 }}>
+          {desc || "Para iniciar o atendimento, identifique primeiro o paciente. O contador do atendimento começa assim que ele é identificado."}
+        </div>
       </div>
-      <div className="cell-muted" style={{ marginTop: 18, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icon name="shield" size={13} />A identificação garante o histórico e o CPF correto na nota.</div>
+      <div className="card-pad" style={{ paddingTop: 14 }}>
+        <div className="identify-search">
+          <Icon name="search" size={16} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome, CPF ou telefone..." autoFocus />
+        </div>
+        {results.length > 0 && (
+          <div className="scrollbar-thin" style={{ marginTop: 12, maxHeight: 280, overflow: "hidden", overflowY: "auto", border: "1px solid var(--border)", borderRadius: 12 }}>
+            {results.map((c) => (
+              <button type="button" key={c.id || c.name} className="identify-result" onClick={() => onPick(c)}>
+                <Avatar initials={c.avatar || c.name.split(" ").map((p) => p[0]).slice(0, 2).join("")} size={32} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{c.name}</div>
+                  <div className="cell-muted" style={{ fontSize: 11 }}>{c.phone ? maskPhone(c.phone) : (c.doc || "sem CPF")} · {c.orders || 0} pedidos</div>
+                </div>
+                {c.tier && <Badge tone={tierTone(c.tier)}>{c.tier}</Badge>}
+              </button>
+            ))}
+          </div>
+        )}
+        {term && results.length === 0 && <div className="cell-muted" style={{ fontSize: 12, padding: "16px 0", textAlign: "center" }}>Nenhum cliente encontrado com "{q}".</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "18px 0" }}>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          <span className="cell-muted" style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}>ou</span>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button className="btn btn-secondary" style={{ width: "100%", justifyContent: "center", padding: "12px 14px" }} onClick={onSkip}>
+            <Icon name="chevR" size={14} />Continuar sem identificar
+          </button>
+          {onCreate && (
+            <button className="btn btn-ghost btn-sm" style={{ width: "100%", justifyContent: "center" }} onClick={() => setRegisterOpen(true)}>
+              <Icon name="plusCircle" size={14} />Cadastrar novo cliente
+            </button>
+          )}
+        </div>
+      </div>
+      {registerOpen && (
+        <RegisterCustomerModal
+          onClose={() => setRegisterOpen(false)}
+          onCreate={onCreate}
+          onCreated={(created) => { setRegisterOpen(false); onPick(created); }}
+        />
+      )}
     </div>
   );
 }
@@ -755,7 +806,11 @@ function PdvScreen({ ctx }) {
           : (
             <>
               <PdvDraftRecoveryList drafts={drafts} onRecover={recoverDraft} onDiscard={setDiscardTarget} />
-              <PdvCaixaGate operator={operator} onIdentify={() => setIdOpen(true)} onConsumer={() => setCaixaReady(true)} />
+              <PdvIdentifyClient
+                customers={customers} onCreate={createPdvCustomer}
+                onPick={(c) => { setPdvCustomer(c); setCaixaReady(true); }}
+                onSkip={() => setCaixaReady(true)}
+              />
             </>
           )
       ) : (
@@ -774,92 +829,91 @@ function PdvScreen({ ctx }) {
         <div className="pdv-shell">
         {/* Coluna: cliente + sugestões + busca (rola independente do carrinho) */}
         <div className="scrollbar-thin" style={{ overflowY: "auto", minWidth: 0 }}>
-          {/* Cliente */}
-          <div className="card card-pad" style={{ marginBottom: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>Cliente</span>
-              <button className="btn btn-secondary btn-sm" onClick={() => operator === "caixa" ? resetAtendimento() : setIdOpen(true)}>{operator === "caixa" ? "Trocar pedido" : (pdvCustomer ? "Trocar" : "Identificar")}</button>
+          {/* Cliente — trocar/identificar abre a mesma busca inline usada no gate, sem modal */}
+          {idOpen ? (
+            <div style={{ marginBottom: 14 }}>
+              <PdvIdentifyClient
+                customers={customers} onCreate={createPdvCustomer}
+                title="Trocar cliente" desc="Busque outro cliente para vincular a esta venda, ou continue sem identificar."
+                onPick={(c) => { setPdvCustomer(c); setIdOpen(false); }}
+                onSkip={() => { setPdvCustomer(null); setIdOpen(false); }}
+              />
             </div>
-            {pdvCustomer ? (
-              <>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
-                  <span className="avatar">{pdvCustomer.avatar || (pdvCustomer.name[0] || "?")}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{pdvCustomer.name}</span>
+          ) : pdvCustomer ? (
+            <div className="card card-pad" style={{ marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <Avatar initials={pdvCustomer.avatar || pdvCustomer.name.split(" ").map((p) => p[0]).slice(0, 2).join("")} size={38} />
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>{pdvCustomer.name}</div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 3, alignItems: "center", flexWrap: "wrap" }}>
                       {pdvCustomer.tier && <Badge tone={tierTone(pdvCustomer.tier)}>{pdvCustomer.tier}</Badge>}
+                      {pdvCustomer.recurring && <RecurringBadge name={pdvCustomer.name} small customerByName={customerByName} />}
+                      <span className="cell-muted" style={{ fontSize: 11 }}>{pdvCustomer.phone ? maskPhone(pdvCustomer.phone) : (pdvCustomer.doc || "sem CPF")}</span>
                     </div>
-                    <div className="cell-muted mono">{pdvCustomer.doc || "CPF não informado"}</div>
                   </div>
-                  {pdvCustomer.recurring && <RecurringBadge name={pdvCustomer.name} small customerByName={customerByName} />}
                 </div>
-
-                <div className="cell-muted" style={{ marginTop: 10 }}>
-                  {fmtBirthday(pdvCustomer.birthDate) ? "🎂 " + fmtBirthday(pdvCustomer.birthDate) + "  ·  " : ""}
-                  Cliente desde {pdvCustomer.since || "—"}{pdvCustomer.tenureMonths > 0 ? " (" + pdvCustomer.tenureMonths + " meses)" : ""}
-                </div>
-
-                {(pdvCustomer.phone || pdvCustomer.email) && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
-                    {pdvCustomer.phone && <div className="cell-muted" style={{ display: "flex", alignItems: "center", gap: 6 }}><Icon name="phone" size={12} />{maskPhone(pdvCustomer.phone)}</div>}
-                    {pdvCustomer.email && <div className="cell-muted" style={{ display: "flex", alignItems: "center", gap: 6 }}><Icon name="mail" size={12} />{pdvCustomer.email}</div>}
-                  </div>
-                )}
-                {(pdvCustomer.district || pdvCustomer.city) && (
-                  <div className="cell-muted" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
-                    <Icon name="pin" size={12} />{[pdvCustomer.district, pdvCustomer.city].filter(Boolean).join(", ")}
-                  </div>
-                )}
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginTop: 12 }}>
-                  <PdvCustomerStat label="Pedidos" value={pdvCustomer.orders || 0} />
-                  <PdvCustomerStat label="Total gasto" value={brl(pdvCustomer.totalSpent || 0)} />
-                  <PdvCustomerStat label="Ticket médio" value={brl(pdvCustomer.avgTicket || 0)} />
-                </div>
-
-                {(pdvCustomer.lastDays != null || pdvCustomer.freqDays) && (
-                  <div className="cell-muted" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                    <Icon name="clock" size={12} />
-                    {[recencyLabel(pdvCustomer.lastDays), pdvCustomer.freqDays ? `costuma comprar a cada ~${pdvCustomer.freqDays} dias` : ""].filter(Boolean).join(" · ")}
-                  </div>
-                )}
-
-                {Array.isArray(pdvCustomer.interests) && pdvCustomer.interests.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 10 }}>
-                    {pdvCustomer.interests.map((tag) => <Badge key={tag} tone="neutral">{tag}</Badge>)}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                <span className="stat-icon" style={{ width: 40, height: 40 }}><Icon name="user" size={19} /></span>
-                <div><div style={{ fontWeight: 700, fontSize: 14 }}>Consumidor não identificado</div><div className="cell-muted">Venda sem cadastro</div></div>
+                <button className="btn btn-ghost btn-sm" onClick={() => setIdOpen(true)}><Icon name="user" size={13} />Trocar cliente</button>
               </div>
-            )}
-            {pdvCustomer && pdvCustomer.cashback > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "9px 12px", background: "var(--accent-soft)", borderRadius: "var(--radius-md)", fontSize: 12.5, fontWeight: 600, color: "var(--brand)" }}>
-                <Icon name="gift" size={15} />{brl(pdvCustomer.cashback)} de cashback disponível
+              <div className="grid g-4" style={{ marginTop: 14, gap: 10 }}>
+                <div>
+                  <div className="cell-muted" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em" }}>Aniversário</div>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{fmtBirthday(pdvCustomer.birthDate) || "—"}</div>
+                </div>
+                <div>
+                  <div className="cell-muted" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em" }}>Cliente desde</div>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{pdvCustomer.since || "—"}</div>
+                </div>
+                <div>
+                  <div className="cell-muted" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em" }}>Última compra</div>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{recencyLabel(pdvCustomer.lastDays) || "—"}</div>
+                </div>
+                <div>
+                  <div className="cell-muted" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em" }}>Frequência</div>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{pdvCustomer.freqDays ? `a cada ${pdvCustomer.freqDays} dias` : "—"}</div>
+                </div>
               </div>
-            )}
-          </div>
+              {Array.isArray(pdvCustomer.subscriptions) && pdvCustomer.subscriptions.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="cell-muted" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Costuma comprar</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {pdvCustomer.subscriptions.map((label) => <Badge key={label} tone="neutral">{label}</Badge>)}
+                  </div>
+                </div>
+              )}
+              {pdvCustomer.cashback > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "9px 12px", background: "var(--accent-soft)", borderRadius: "var(--radius-md)", fontSize: 12.5, fontWeight: 600, color: "var(--brand)" }}>
+                  <Icon name="gift" size={15} />{brl(pdvCustomer.cashback)} de cashback disponível
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="card card-pad" style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700 }}>{operator === "caixa" ? "Consumidor não identificado" : "Cliente não identificado"}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => operator === "caixa" ? resetAtendimento() : setIdOpen(true)}>{operator === "caixa" ? "Trocar pedido" : "Identificar agora"}</button>
+            </div>
+          )}
 
           {/* ===== Visão do FARMACÊUTICO: sugestões do que o cliente mais compra + recorrência ===== */}
-          {operator === "pharm" && <div style={{ marginBottom: 14 }}><PdvUpsell customer={pdvCustomer} insights={insights} inventory={inventory} cart={pdvCart} onAdd={pdvAdd} /></div>}
-          {operator === "pharm" && pdvCustomer && <div style={{ marginBottom: 14 }}><PdvRecurrenceSuggestions candidates={insights.recurrenceCandidates} onConfigure={setRecurrenceCandidate} /></div>}
+          {operator === "pharm" && <PdvUpsell customer={pdvCustomer} insights={insights} inventory={inventory} cart={pdvCart} onAdd={pdvAdd} />}
+          {operator === "pharm" && pdvCustomer && <PdvRecurrenceSuggestions candidates={insights.recurrenceCandidates} onConfigure={setRecurrenceCandidate} />}
 
           {/* Retirada na loja ou entrega (visão do farmacêutico, com cliente identificado) */}
           {operator === "pharm" && pdvCustomer && (
             <div style={{ marginBottom: 14 }}><PdvFulfillmentPicker delivery={delivery} setDelivery={setDelivery} checkPdvDeliveryCoverage={checkPdvDeliveryCoverage} savedAddresses={savedAddresses} onSaveAddress={saveCustomerAddress} /></div>
           )}
 
-          <div style={{ position: "relative" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--surface)", border: "2px solid var(--accent)", borderRadius: "var(--radius-lg)", padding: "0 14px", height: 60, boxShadow: "0 0 0 4px var(--accent-soft)" }}>
-              <Icon name="scan" size={20} style={{ color: "var(--brand)" }} />
-              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar produto, marca ou EAN — ou bipar o código de barras" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, fontWeight: 600, color: "var(--text-primary)", minWidth: 0 }} />
-              {q && <button className="icon-btn" style={{ border: "none", background: "transparent" }} onClick={() => setQ("")}><Icon name="close" size={16} /></button>}
+          {/* Catálogo de produtos — cartão persistente com a lista abaixo da busca, igual ao artifact */}
+          <div className="card" style={{ overflow: "hidden" }}>
+            <div style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
+              <SearchInput value={q} onChange={setQ} placeholder="Buscar produto, marca ou EAN — ou bipar o código de barras" />
             </div>
-            {results.length > 0 && (
-              <div className="card scrollbar-thin" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 60, padding: 6, display: "flex", flexDirection: "column", gap: 2, maxHeight: 420, overflowY: "auto", boxShadow: "var(--shadow-lg)" }}>
+            {q.trim() === "" ? (
+              <div className="cell-muted" style={{ padding: "22px 14px", fontSize: 12.5, textAlign: "center" }}>Digite para buscar um produto no estoque.</div>
+            ) : results.length === 0 ? (
+              <div className="cell-muted" style={{ padding: "22px 14px", fontSize: 12.5, textAlign: "center" }}>Nenhum produto encontrado.</div>
+            ) : (
+              <div>
                 {results.map((it) => {
                   const own = it.ownStoreComponent;
                   const availableHere = !!(own && own.qty > 0);
@@ -870,40 +924,33 @@ function PdvScreen({ ctx }) {
                   return (
                     <div key={it.id}>
                       <button
-                        style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", textAlign: "left", border: "none", background: "transparent", padding: 10, borderRadius: "var(--radius-md)", cursor: (outOfStock || (!availableHere && !canReserveElsewhere)) ? "not-allowed" : "pointer", opacity: (outOfStock || (!availableHere && !canReserveElsewhere)) ? 0.5 : 1 }}
+                        type="button" className="identify-result"
+                        style={{ cursor: (outOfStock || (!availableHere && !canReserveElsewhere)) ? "not-allowed" : "pointer", opacity: (outOfStock || (!availableHere && !canReserveElsewhere)) ? 0.5 : 1 }}
                         onClick={() => {
                           if (availableHere) { addComponent(own); return; }
                           if (canReserveElsewhere) setExpandedResultId((prev) => (prev === it.id ? null : it.id));
                         }}
                         disabled={outOfStock || (!availableHere && !canReserveElsewhere)}
                       >
-                        <span className="stat-icon" style={{ width: 38, height: 38, flex: "none" }}><Icon name="pill" size={18} /></span>
+                        <div className="prod-row-icon"><Icon name={it.controlled ? "lock" : "box"} size={16} /></div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>{it.name}{it.controlled && <Badge tone="critical">Tarja</Badge>}</div>
-                          <div className="cell-muted">
-                            {it.brand} · <span className="mono">{it.ean}</span>
-                            {availableHere ? " · " + own.loc : canReserveElsewhere ? " · não disponível nesta loja — toque para ver em outras lojas" : ""}
+                          <div style={{ fontWeight: 700, fontSize: 12.5 }}>{it.name}</div>
+                          <div className="cell-muted mono" style={{ fontSize: 10.5 }}>
+                            {it.ean}
+                            {availableHere ? " · " + own.loc : canReserveElsewhere ? " · em outra loja" : outOfStock ? " · esgotado" : ""}
                           </div>
                         </div>
-                        <div style={{ textAlign: "right", flex: "none" }}>
-                          <div style={{ fontWeight: 800, fontSize: 14 }}>{brl(availableHere ? own.price : (otherComponents[0] ? otherComponents[0].price : 0))}</div>
-                          <div style={{ fontSize: 12, color: availableHere ? "var(--good)" : (canReserveElsewhere ? "var(--warning)" : "var(--critical)") }}>
-                            {availableHere ? own.qty + " em estoque" : canReserveElsewhere ? "em outra loja" : "esgotado"}
-                          </div>
-                        </div>
-                        <Icon name={availableHere ? "plusCircle" : (canReserveElsewhere ? "chevD" : "close")} size={22} style={{ color: outOfStock ? "var(--text-muted)" : "var(--brand)", flex: "none", transform: !availableHere && canReserveElsewhere && expanded ? "rotate(180deg)" : "none" }} />
+                        {it.controlled && <Badge tone="warning">Controlado</Badge>}
+                        <span style={{ fontWeight: 800, fontFamily: "var(--font-display)", fontSize: 13 }}>{brl(availableHere ? own.price : (otherComponents[0] ? otherComponents[0].price : 0))}</span>
+                        <Icon name={availableHere ? "plus" : (canReserveElsewhere ? "chevD" : "x")} size={14} style={{ color: "var(--text-muted)", flex: "none", transform: !availableHere && canReserveElsewhere && expanded ? "rotate(180deg)" : "none" }} />
                       </button>
                       {!availableHere && canReserveElsewhere && expanded && (
                         <div style={{ padding: "4px 10px 8px 56px", display: "flex", flexDirection: "column", gap: 4 }}>
                           {otherComponents.map((component) => (
-                            <button key={component.id} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", textAlign: "left", border: "none", background: "transparent", padding: "8px 10px", borderRadius: "var(--radius-md)", cursor: "pointer" }} onClick={() => openReservation(component)}>
+                            <button key={component.id} type="button" className="identify-result" style={{ border: "1px solid var(--border)", borderRadius: 10 }} onClick={() => openReservation(component)}>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: 13 }}>{component.storeName || "Loja"}</div>
-                                <div className="cell-muted">{component.loc}</div>
-                              </div>
-                              <div style={{ textAlign: "right", flex: "none" }}>
-                                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{brl(component.price)}</div>
-                                <div style={{ fontSize: 12, color: "var(--good)" }}>{component.qty} em estoque</div>
+                                <div style={{ fontWeight: 700, fontSize: 12.5 }}>{component.storeName || "Loja"}</div>
+                                <div className="cell-muted" style={{ fontSize: 11 }}>{component.loc} · {brl(component.price)}</div>
                               </div>
                               <Badge tone="neutral">Reservar</Badge>
                             </button>
@@ -987,10 +1034,14 @@ function PdvScreen({ ctx }) {
             {/* ===== Visão do CAIXA: pagamento + CPF na nota ===== */}
             {operator === "caixa" && (
               <>
-                <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10 }}>Forma de pagamento</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                   {PAY_METHODS.map((m) => (
-                    <ChoiceCard key={m.id} on={pay === m.id} icon={m.icon} title={m.label} onClick={() => setPay(m.id)} style={{ flexDirection: "column", textAlign: "center", justifyContent: "center" }} />
+                    <button
+                      key={m.id} type="button" className="btn btn-sm" style={{ flex: "1 1 70px", background: pay === m.id ? "var(--accent)" : "var(--surface-2)", color: pay === m.id ? "var(--accent-contrast)" : "var(--text-secondary)" }}
+                      onClick={() => setPay(m.id)}
+                    >
+                      {m.label}
+                    </button>
                   ))}
                 </div>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginBottom: 14 }} onClick={() => setCpfNota(!cpfNota)}>
@@ -1565,4 +1616,4 @@ function SendNotaModal({ nota, onClose, onSend }) {
   );
 }
 
-export { IdentifyModal, NotaFiscalModal, PAY_METHODS, PdvCaixaGate, PdvCaixaQueue, PdvScreen, PdvUpsell, QrPlaceholder, RegisterCustomerModal, SendNotaModal, creditCashback, fmtAtendimento, maskCPF, pdvSuggestions };
+export { IdentifyModal, NotaFiscalModal, PAY_METHODS, PdvCaixaQueue, PdvIdentifyClient, PdvScreen, PdvUpsell, QrPlaceholder, RegisterCustomerModal, SendNotaModal, creditCashback, fmtAtendimento, maskCPF, pdvSuggestions };
