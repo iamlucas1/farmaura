@@ -41,6 +41,7 @@ from app.schemas.crm import (
     CrmTopProductInsightResponse,
     CrmTopProductResponse,
 )
+from app.services.customer_access_service import provision_first_access
 from app.services.purchase_history_service import PurchaseHistoryService
 
 
@@ -165,30 +166,41 @@ class CrmService:
         )
 
     async def create_customer(self, payload: CrmCustomerCreateRequest) -> CrmCustomerResponse:
-        """Register one walk-in customer captured at the point of sale."""
+        """Register one walk-in customer captured at the point of sale.
+
+        E-mail is mandatory (see CrmCustomerCreateRequest) — every registration here also
+        provisions (or renews, if still pending) marketplace login access for that e-mail and
+        sends the first-access e-mail, via the same shared helper the public self-service
+        "esqueci minha senha"/first-access request uses (`provision_first_access`). That helper
+        is itself a safe no-op for an e-mail whose account already completed its first access, so
+        it's called unconditionally below — including the two "customer already exists" early
+        returns — with no risk of spamming an already-activated account.
+        """
 
         full_name = payload.full_name.strip()
         doc_digits = normalize_cpf(payload.doc)
         if not full_name and len(doc_digits) != 11:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe o nome ou um CPF válido do cliente.")
         email = payload.email.strip().lower()
-        if email and not is_valid_email(email):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="E-mail inválido.")
+        if not email or not is_valid_email(email):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe um e-mail válido do cliente.")
+        tenant_id = str(self.subject.tenant_id)
         cpf: str | None = None
         if doc_digits:
             if not is_valid_cpf(doc_digits):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CPF inválido.")
-            existing = await self.repository.get_by_cpf(tenant_id=str(self.subject.tenant_id), cpf=doc_digits)
+            existing = await self.repository.get_by_cpf(tenant_id=tenant_id, cpf=doc_digits)
             if existing is not None:
+                await provision_first_access(self.session, tenant_id=tenant_id, email=email, full_name=existing.full_name)
                 return self._serialize_customer(existing)
             cpf = doc_digits
-        if email:
-            existing = await self.repository.get_by_email(tenant_id=str(self.subject.tenant_id), email=email)
-            if existing is not None:
-                return self._serialize_customer(existing)
+        existing = await self.repository.get_by_email(tenant_id=tenant_id, email=email)
+        if existing is not None:
+            await provision_first_access(self.session, tenant_id=tenant_id, email=email, full_name=existing.full_name)
+            return self._serialize_customer(existing)
         customer = Customer(
             id=str(uuid4()),
-            tenant_id=str(self.subject.tenant_id),
+            tenant_id=tenant_id,
             external_code="pdv-" + uuid4().hex[:8],
             full_name=full_name or ("Cliente " + doc_digits),
             email=email,
@@ -198,6 +210,7 @@ class CrmService:
             loyalty_tier="Novo",
         )
         customer = await self.repository.add(customer)
+        await provision_first_access(self.session, tenant_id=tenant_id, email=email, full_name=customer.full_name)
         return self._serialize_customer(customer)
 
     def _serialize_customer(self, customer: object) -> CrmCustomerResponse:

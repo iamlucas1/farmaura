@@ -30,7 +30,7 @@ from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.core.device_detection import detect_device_type
-from app.core.password_hashing import generate_temporary_password, hash_password
+from app.core.password_hashing import hash_password
 from app.core.tenant_context import apply_first_access_context, apply_public_marketplace_context, apply_tenant_context
 from app.domain.enums import AccessScope, OrderStatus, UserRole
 from app.domain.validators import is_valid_email
@@ -40,10 +40,10 @@ from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.store_repository import StoreRepository
 from app.repositories.user_repository import UserRepository
 from app.services.coupon_service import CouponCartLine, CouponService
+from app.services.customer_access_service import provision_first_access
 from app.services.deal_suggestion_service import DealSuggestionService
 from app.services.geocoding_client import GeocodingClient
 from app.services.marketplace_projection import resolve_marketplace_category_id
-from app.services.notification_service import NotificationService
 
 from app.models.chat_thread import ChatThread
 from app.models.coupon_campaign import CouponCampaign
@@ -250,7 +250,13 @@ class PortalService:
         )
 
     async def request_marketplace_first_access(self, payload: PortalFirstAccessRequest) -> PortalFirstAccessResponse:
-        """Provision or renew first-access credentials for a PDV-registered customer."""
+        """Provision or renew first-access credentials for a PDV-registered customer.
+
+        Always returns the same generic response regardless of outcome (unknown e-mail, already
+        registered, already activated) — never reveals whether an e-mail exists in the system.
+        User-provisioning + e-mail-sending itself is shared with `CrmService.create_customer`
+        (PDV registration) via `customer_access_service.provision_first_access`.
+        """
 
         generic_response = PortalFirstAccessResponse(
             detail="Se o e-mail informado estiver cadastrado, enviaremos uma senha temporária para acesso.",
@@ -262,33 +268,7 @@ class PortalService:
         if customer is None:
             return generic_response
 
-        user_repository = UserRepository(self.session)
-        user = await user_repository.get_by_email(email)
-        temporary_password = generate_temporary_password()
-        if user is None:
-            user = User(
-                id=str(uuid4()),
-                tenant_id=customer.tenant_id,
-                email=email,
-                password_hash=hash_password(temporary_password),
-                full_name=customer.full_name,
-                role=UserRole.CUSTOMER.value,
-                access_scope=AccessScope.MARKETPLACE.value,
-                must_change_password=True,
-            )
-            await user_repository.add(user)
-        elif user.must_change_password:
-            user.password_hash = hash_password(temporary_password)
-            await user_repository.save(user)
-        else:
-            await self.session.commit()
-            return generic_response
-
-        NotificationService().send_first_access_email(
-            email=email,
-            full_name=customer.full_name,
-            temporary_password=temporary_password,
-        )
+        await provision_first_access(self.session, tenant_id=customer.tenant_id, email=email, full_name=customer.full_name)
         await self.session.commit()
         return generic_response
 

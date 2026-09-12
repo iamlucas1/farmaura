@@ -1126,7 +1126,6 @@ function PdvScreen({ ctx }) {
       </>
       )}
 
-      {idOpen && <IdentifyModal current={pdvCustomer} customers={customers} onCreate={createPdvCustomer} onPick={(c) => { setPdvCustomer(c); setCaixaReady(true); setIdOpen(false); }} onClose={() => setIdOpen(false)} />}
       {nota && <NotaFiscalModal nota={nota} storeFiscal={storeFiscal} pharmacistProfile={pharmacistProfile} onSendEmail={sendFiscalDocumentEmail} onClose={() => setNota(null)} onDone={() => { setNota(null); resetAtendimento(); finalizeSale && finalizeSale(); }} />}
       {recurrenceCandidate && pdvCustomer && (
         <RecurrenceConfirmModal
@@ -1300,47 +1299,6 @@ function PdvPrescriptionModal({ line, customer, createPdvPrescription, onClose, 
 }
 
 /* ---------- Modal: identificar cliente ---------- */
-function IdentifyModal({ current, onPick, onClose, customers, onCreate }) {
-  const CUSTOMERS = Array.isArray(customers) ? customers : [];
-  const [q, setQ] = useState("");
-  const [registerOpen, setRegisterOpen] = useState(false);
-  const list = CUSTOMERS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()) || (c.doc || "").includes(q));
-  return (
-    <Modal open onClose={onClose} title="Identificar cliente" subtitle="Vincule a venda a um cliente ou siga como consumidor não identificado.">
-      <div style={{ marginBottom: 12 }}>
-        <input className="input" autoFocus placeholder="Buscar por nome ou CPF" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      <div className="scrollbar-thin" style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, marginBottom: 14 }}>
-        {list.map((c) => (
-          <button key={c.name} onClick={() => onPick(c)} style={{ display: "flex", alignItems: "center", gap: 10, padding: 10, border: "none", background: "transparent", cursor: "pointer", borderRadius: "var(--radius-md)", textAlign: "left" }}>
-            <span className="avatar" style={{ width: 38, height: 38 }}>{c.avatar}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 13.5 }}>{c.name}</div>
-              <div className="cell-muted mono">{c.doc}</div>
-            </div>
-            {c.cashback > 0 && <Badge tone="neutral"><Icon name="gift" size={10} />{brl(c.cashback)}</Badge>}
-            {c.recurring && <Icon name="repeat" size={14} style={{ color: "var(--good)" }} />}
-          </button>
-        ))}
-        {list.length === 0 && <div className="cell-muted" style={{ textAlign: "center", padding: 12 }}>Nenhum cliente encontrado.</div>}
-      </div>
-
-      <button className="btn btn-secondary" style={{ width: "100%", justifyContent: "center", borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 2 }} onClick={() => setRegisterOpen(true)}>
-        <Icon name="plusCircle" size={16} />Cadastrar cliente
-      </button>
-      <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 10 }} onClick={() => onPick(null)}>Consumidor não identificado</button>
-
-      {registerOpen && (
-        <RegisterCustomerModal
-          onClose={() => setRegisterOpen(false)}
-          onCreate={onCreate}
-          onCreated={(created) => { setRegisterOpen(false); onPick(created); }}
-        />
-      )}
-    </Modal>
-  );
-}
-
 /* ---------- Modal: cadastrar cliente (nome, e-mail, CPF e telefone) ---------- */
 function RegisterCustomerModal({ onClose, onCreate, onCreated }) {
   const [cpf, setCpf] = useState("");
@@ -1350,7 +1308,7 @@ function RegisterCustomerModal({ onClose, onCreate, onCreated }) {
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState("");
   const cpfDigits = cpf.replace(/\D/g, "").length;
-  const emailValid = !email.trim() || EMAIL_PATTERN.test(email.trim());
+  const emailValid = EMAIL_PATTERN.test(email.trim());
   const handleCreate = async () => {
     try {
       setCreateError("");
@@ -1366,20 +1324,20 @@ function RegisterCustomerModal({ onClose, onCreate, onCreated }) {
   return (
     <Modal
       open onClose={onClose} title="Cadastrar cliente"
-      subtitle="Nome e/ou CPF são obrigatórios — e-mail e telefone são opcionais. O e-mail habilita o primeiro acesso ao marketplace."
+      subtitle="Nome e/ou CPF são obrigatórios. O e-mail também é obrigatório: assim que o cadastro é concluído, enviamos automaticamente uma senha temporária para o cliente acessar a própria conta no marketplace."
     >
       <div style={{ marginBottom: 10 }}><Field label={"Nome " + (cpfDigits === 11 ? "(opcional)" : "")}><input autoFocus className="input" placeholder="Nome do cliente" value={nome} onChange={(e) => setNome(e.target.value)} /></Field></div>
       <div style={{ marginBottom: 10 }}>
-        <Field label="E-mail (opcional)">
+        <Field label="E-mail" hint="Obrigatório — usado para enviar o acesso à conta do cliente">
           <input className="input" type="email" placeholder="cliente@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
-        {!emailValid && <div style={{ marginTop: 4, color: "var(--critical)", fontSize: 12 }}>E-mail inválido.</div>}
+        {email.trim() && !emailValid && <div style={{ marginTop: 4, color: "var(--critical)", fontSize: 12 }}>E-mail inválido.</div>}
       </div>
       <div style={{ marginBottom: 10 }}><Field label={"CPF " + (nome.trim() ? "(opcional)" : "")}><input className="input mono" inputMode="numeric" maxLength={14} placeholder="000.000.000-00" value={cpf} onChange={(e) => setCpf(maskCPF(e.target.value))} /></Field></div>
       <div style={{ marginBottom: 12 }}><Field label="Telefone (opcional)"><input className="input mono" inputMode="numeric" maxLength={19} placeholder="+55 (00) 00000-0000" value={telefone} onChange={(e) => setTelefone(maskPhone(e.target.value))} /></Field></div>
       {createError ? <div style={{ marginBottom: 10, color: "var(--critical)", fontSize: 12.5 }}>{createError}</div> : null}
       <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={saving || !emailValid || !(nome.trim() || cpfDigits === 11)} onClick={handleCreate}>
-        <Icon name="user" size={16} />{saving ? "Cadastrando..." : "Cadastrar e usar"}
+        <Icon name="user" size={16} />{saving ? "Cadastrando..." : "Cadastrar e enviar acesso"}
       </button>
     </Modal>
   );
@@ -1625,4 +1583,4 @@ function SendNotaModal({ nota, onClose, onSend }) {
   );
 }
 
-export { IdentifyModal, NotaFiscalModal, PAY_METHODS, PdvCaixaQueue, PdvIdentifyClient, PdvScreen, PdvUpsell, QrPlaceholder, RegisterCustomerModal, SendNotaModal, creditCashback, fmtAtendimento, maskCPF, pdvSuggestions };
+export { NotaFiscalModal, PAY_METHODS, PdvCaixaQueue, PdvIdentifyClient, PdvScreen, PdvUpsell, QrPlaceholder, RegisterCustomerModal, SendNotaModal, creditCashback, fmtAtendimento, maskCPF, pdvSuggestions };

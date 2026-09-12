@@ -26,12 +26,17 @@ from app.schemas.common import StrictModel
 
 
 class CrmCustomerCreateRequest(StrictModel):
-    """Validate a walk-in customer registration payload from the internal console."""
+    """Validate a walk-in customer registration payload from the internal console (PDV).
+
+    `email` is mandatory — every customer registered here gets marketplace login access
+    provisioned automatically (see CrmService.create_customer), so an e-mail to deliver the
+    first-access credentials to is a hard requirement, not just a nice-to-have field.
+    """
 
     full_name: str = Field(default="", max_length=255)
     doc: str = Field(default="", max_length=14)
     phone: str = Field(default="", max_length=32)
-    email: str = Field(default="", max_length=320)
+    email: str = Field(min_length=5, max_length=320)
 
 
 # ============================================================================
