@@ -3,7 +3,7 @@ import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { fetchViaCepAddress, formatCep } from "../../marketplace/core/marketplace-address.js";
 import { resolveMarketplaceCoupon } from "../../marketplace/screens/cart-screen.jsx";
 import { RecurringBadge } from "../core/internal-shell.jsx";
-import { Icon, PageHead, Badge, PillNav, EmptyState, Field, Modal, QtyStepper } from "../core/internal-ui.jsx";
+import { Icon, PageHead, Badge, PillNav, EmptyState, Field, Modal, QtyStepper, KV, SwitchToggle } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Balcão / PDV: venda no momento + emissão de nota fiscal (NFC-e).
    Visão compartilhada entre farmacêutico e caixa. */
@@ -746,31 +746,8 @@ function PdvScreen({ ctx }) {
       <PageHead
         eyebrow="Atendimento" title="Balcão · Venda no momento"
         desc={operator === "pharm" ? "Visão do farmacêutico — monte o pedido e oriente o cliente" : "Visão do caixa — receba o pagamento e emita a nota"}
-        actions={<PillNav options={[{ key: "pharm", label: "Farmacêutico" }, { key: "caixa", label: "Caixa" }]} active={operator} onChange={switchOperator} />}
+        actions={<PillNav options={[{ key: "pharm", label: "Tela do farmacêutico" }, { key: "caixa", label: "Tela do caixa" }]} active={operator} onChange={switchOperator} />}
       />
-
-      {/* Aviso do papel atual */}
-      <div style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 16px", borderRadius: "var(--radius-lg)", marginBottom: 18, color: "#fff", background: operator === "pharm" ? "var(--brand)" : "var(--text-primary)" }}>
-        <span style={{ width: 38, height: 38, borderRadius: "var(--radius-md)", background: "rgba(255,255,255,.18)", display: "grid", placeItems: "center", flex: "none" }}><Icon name={operator === "pharm" ? "rx" : "cash"} size={19} /></span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 14.5 }}>{operator === "pharm" ? "Você está como Farmacêutico" : "Você está como Caixa"}</div>
-          <div style={{ fontSize: 12.5, opacity: 0.9 }}>{operator === "pharm" ? "Identifique o cliente, insira os medicamentos e ofereça o que ele costuma comprar." : "Selecione um pedido enviado pelo farmacêutico, confira os itens e emita a nota fiscal."}</div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
-          {operator === "pharm" && pdvCustomer && (
-            <button className="btn btn-sm" style={{ background: "rgba(255,255,255,.18)", color: "#fff", border: "none" }} onClick={pauseAtendimento}>
-              <Icon name="chevL" size={14} />Voltar para seleção
-            </button>
-          )}
-          {startedAt && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: "var(--radius-pill)", background: nota ? "rgba(255,255,255,.32)" : "rgba(255,255,255,.22)", fontWeight: 800, fontSize: 14 }} title="Tempo de atendimento">
-              <Icon name="clock" size={14} />
-              <span className="mono">{fmtAtendimento(elapsed)}</span>
-            </span>
-          )}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: "var(--radius-pill)", background: "rgba(255,255,255,.2)", fontSize: 11, fontWeight: 700 }}><Icon name="repeat" size={11} />Pedido compartilhado</span>
-        </div>
-      </div>
 
       {(operator === "caixa" ? !caixaReady : (!pdvCustomer && !caixaReady)) ? (
         operator === "caixa"
@@ -782,146 +759,23 @@ function PdvScreen({ ctx }) {
             </>
           )
       ) : (
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 18, alignItems: "start" }}>
-        {/* Coluna: busca + itens */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-          <div style={{ position: "relative" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--surface)", border: "2px solid var(--accent)", borderRadius: "var(--radius-lg)", padding: "0 14px", height: 60, boxShadow: "0 0 0 4px var(--accent-soft)" }}>
-              <Icon name="scan" size={20} style={{ color: "var(--brand)" }} />
-              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar produto, marca ou EAN — ou bipar o código de barras" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, fontWeight: 600, color: "var(--text-primary)", minWidth: 0 }} />
-              {q && <button className="icon-btn" style={{ border: "none", background: "transparent" }} onClick={() => setQ("")}><Icon name="close" size={16} /></button>}
-            </div>
-            {results.length > 0 && (
-              <div className="card scrollbar-thin" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 60, padding: 6, display: "flex", flexDirection: "column", gap: 2, maxHeight: 420, overflowY: "auto", boxShadow: "var(--shadow-lg)" }}>
-                {results.map((it) => {
-                  const own = it.ownStoreComponent;
-                  const availableHere = !!(own && own.qty > 0);
-                  const otherComponents = it.components.filter((c) => c.qty > 0 && (!own || c.storeId !== own.storeId));
-                  const canReserveElsewhere = operator === "pharm" && otherComponents.length > 0;
-                  const outOfStock = it.totalStock <= 0;
-                  const expanded = expandedResultId === it.id;
-                  return (
-                    <div key={it.id}>
-                      <button
-                        style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", textAlign: "left", border: "none", background: "transparent", padding: 10, borderRadius: "var(--radius-md)", cursor: (outOfStock || (!availableHere && !canReserveElsewhere)) ? "not-allowed" : "pointer", opacity: (outOfStock || (!availableHere && !canReserveElsewhere)) ? 0.5 : 1 }}
-                        onClick={() => {
-                          if (availableHere) { addComponent(own); return; }
-                          if (canReserveElsewhere) setExpandedResultId((prev) => (prev === it.id ? null : it.id));
-                        }}
-                        disabled={outOfStock || (!availableHere && !canReserveElsewhere)}
-                      >
-                        <span className="stat-icon" style={{ width: 38, height: 38, flex: "none" }}><Icon name="pill" size={18} /></span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>{it.name}{it.controlled && <Badge tone="critical">Tarja</Badge>}</div>
-                          <div className="cell-muted">
-                            {it.brand} · <span className="mono">{it.ean}</span>
-                            {availableHere ? " · " + own.loc : canReserveElsewhere ? " · não disponível nesta loja — toque para ver em outras lojas" : ""}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "right", flex: "none" }}>
-                          <div style={{ fontWeight: 800, fontSize: 14 }}>{brl(availableHere ? own.price : (otherComponents[0] ? otherComponents[0].price : 0))}</div>
-                          <div style={{ fontSize: 12, color: availableHere ? "var(--good)" : (canReserveElsewhere ? "var(--warning)" : "var(--critical)") }}>
-                            {availableHere ? own.qty + " em estoque" : canReserveElsewhere ? "em outra loja" : "esgotado"}
-                          </div>
-                        </div>
-                        <Icon name={availableHere ? "plusCircle" : (canReserveElsewhere ? "chevD" : "close")} size={22} style={{ color: outOfStock ? "var(--text-muted)" : "var(--brand)", flex: "none", transform: !availableHere && canReserveElsewhere && expanded ? "rotate(180deg)" : "none" }} />
-                      </button>
-                      {!availableHere && canReserveElsewhere && expanded && (
-                        <div style={{ padding: "4px 10px 8px 56px", display: "flex", flexDirection: "column", gap: 4 }}>
-                          {otherComponents.map((component) => (
-                            <button key={component.id} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", textAlign: "left", border: "none", background: "transparent", padding: "8px 10px", borderRadius: "var(--radius-md)", cursor: "pointer" }} onClick={() => openReservation(component)}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: 13 }}>{component.storeName || "Loja"}</div>
-                                <div className="cell-muted">{component.loc}</div>
-                              </div>
-                              <div style={{ textAlign: "right", flex: "none" }}>
-                                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{brl(component.price)}</div>
-                                <div style={{ fontSize: 12, color: "var(--good)" }}>{component.qty} em estoque</div>
-                              </div>
-                              <Badge tone="neutral">Reservar</Badge>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Lista de itens */}
-          <div className="card">
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ fontWeight: 800, fontSize: 15 }}>Itens da venda</span>
-              <Badge tone="neutral">{count}</Badge>
-              {lines.length > 0 && <button className="btn btn-secondary btn-sm" style={{ marginLeft: "auto", color: "var(--critical)" }} onClick={pdvClear}><Icon name="trash" size={14} />Limpar</button>}
-            </div>
-            {lines.length === 0 ? (
-              <EmptyState icon="scan" title="Comece a registrar a venda" desc="Busque ou bipe um produto para adicioná-lo." />
-            ) : lines.map((l, i) => {
-              const rx = l.controlled ? (prescriptionStatus[l.id] || { status: "missing" }) : null;
-              const rxMeta = rx ? (PRESCRIPTION_STATUS_META[rx.status] || PRESCRIPTION_STATUS_META.missing) : null;
-              return (
-              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px", borderTop: i ? "1px solid var(--border)" : "none" }}>
-                <span className="stat-icon" style={{ width: 42, height: 42, flex: "none" }}><Icon name="pill" size={19} /></span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                    {l.name}
-                    {l.controlled && <Badge tone="critical"><Icon name="lock" size={10} />Tarja</Badge>}
-                    {rx && (
-                      <button
-                        style={{ border: "none", cursor: "pointer", padding: 0, background: "transparent" }}
-                        onClick={() => setPrescriptionTarget(l)}
-                      >
-                        <Badge tone={rxMeta.tone}><Icon name={rxMeta.icon} size={10} />{rxMeta.label}</Badge>
-                      </button>
-                    )}
-                  </div>
-                  <div className="cell-muted" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span>{l.brand}{l.storeName ? " · " + l.storeName : ""} · {brl(l.price)} un</span>
-                    {(itemLocations[l.id] || []).length > 0 ? (
-                      <select
-                        className="input"
-                        style={{ width: "auto", minWidth: 150, height: 26, padding: "0 8px", fontSize: 12 }}
-                        value={l.locationId || ""}
-                        onChange={(e) => {
-                          const picked = (itemLocations[l.id] || []).find((entry) => entry.locationId === e.target.value);
-                          pdvSetLocation(l.id, e.target.value, picked ? picked.locationCode : "");
-                        }}
-                      >
-                        <option value="" disabled>Escolha o local de retirada</option>
-                        {(itemLocations[l.id] || []).map((entry) => (
-                          <option key={entry.locationId} value={entry.locationId}>
-                            {entry.locationCode} · {entry.locationName} ({entry.qty} un)
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span>· {l.loc || "sem local cadastrado"}</span>
-                    )}
-                  </div>
-                </div>
-                <QtyStepper value={l.qty} onChange={(v) => pdvSetQty(l.id, v)} />
-                <div style={{ width: 84, textAlign: "right", fontWeight: 800, fontSize: 15, flex: "none" }}>{brl(l.price * l.qty)}</div>
-                <button className="icon-btn" aria-label="remover" onClick={() => pdvRemove(l.id)}><Icon name="trash" size={15} /></button>
-              </div>
-              );
-            })}
-          </div>
-
-          {hasControlled && (
-            <div style={{ display: "flex", gap: 12, padding: 14, background: "var(--info-soft)", borderRadius: "var(--radius-md)", alignItems: "flex-start" }}>
-              <Icon name="rx" size={20} style={{ color: "var(--info)", flex: "none", marginTop: 1 }} />
-              <div style={{ fontSize: 13, color: "var(--info)", lineHeight: 1.5 }}>Há item <b>controlado (tarja)</b> na venda — toque no selo de receita do item para validar antes de enviar ao caixa.</div>
-            </div>
+      <>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          {lines.length > 0 && (
+            <button className="btn btn-ghost btn-sm" style={{ color: "var(--critical)" }} onClick={pdvClear}><Icon name="trash" size={13} />Limpar carrinho</button>
+          )}
+          {operator === "pharm" && pdvCustomer && (
+            <button className="btn btn-ghost btn-sm" onClick={pauseAtendimento}><Icon name="chevL" size={14} />Voltar para seleção</button>
+          )}
+          {startedAt && (
+            <span className="badge badge-neutral mono"><Icon name="clock" size={11} />{fmtAtendimento(elapsed)} de atendimento</span>
           )}
         </div>
-
-        {/* Coluna: cliente + pagamento + total */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="pdv-shell">
+        {/* Coluna: cliente + sugestões + busca (rola independente do carrinho) */}
+        <div className="scrollbar-thin" style={{ overflowY: "auto", minWidth: 0 }}>
           {/* Cliente */}
-          <div className="card card-pad">
+          <div className="card card-pad" style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>Cliente</span>
               <button className="btn btn-secondary btn-sm" onClick={() => operator === "caixa" ? resetAtendimento() : setIdOpen(true)}>{operator === "caixa" ? "Trocar pedido" : (pdvCustomer ? "Trocar" : "Identificar")}</button>
@@ -989,62 +843,190 @@ function PdvScreen({ ctx }) {
             )}
           </div>
 
-          {/* ===== Visão do FARMACÊUTICO: sugestões do que o cliente mais compra ===== */}
-          {operator === "pharm" && <PdvUpsell customer={pdvCustomer} insights={insights} inventory={inventory} cart={pdvCart} onAdd={pdvAdd} />}
-          {operator === "pharm" && pdvCustomer && <PdvRecurrenceSuggestions candidates={insights.recurrenceCandidates} onConfigure={setRecurrenceCandidate} />}
-
-          {/* ===== Visão do CAIXA: pagamento + CPF na nota ===== */}
-          {operator === "caixa" && (
-            <div className="card card-pad">
-              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12 }}>Forma de pagamento</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {PAY_METHODS.map((m) => (
-                  <ChoiceCard key={m.id} on={pay === m.id} icon={m.icon} title={m.label} onClick={() => setPay(m.id)} style={{ flexDirection: "column", textAlign: "center", justifyContent: "center" }} />
-                ))}
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginTop: 12 }} onClick={() => setCpfNota(!cpfNota)}>
-                <span style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", background: cpfNota ? "var(--accent)" : "transparent", borderColor: cpfNota ? "var(--accent)" : "var(--border-strong)", color: "#fff" }}>{cpfNota && <Icon name="check" size={12} />}</span>
-                Incluir CPF na nota fiscal
-              </label>
-            </div>
-          )}
-
-          {/* Cashback do cliente (visão do caixa) — aplicar saldo além do desconto */}
-          {operator === "caixa" && pdvCustomer && cashAvailable > 0 && (
-            <div className="card card-pad">
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <span className="stat-icon" style={{ width: 32, height: 32 }}><Icon name="gift" size={16} /></span>
-                <div style={{ flex: 1 }}><div style={{ fontWeight: 800, fontSize: 14 }}>Cashback do cliente</div><div className="cell-muted">Disponível: <b style={{ color: "var(--brand)" }}>{brl(cashAvailable)}</b></div></div>
-              </div>
-              <Field label="Quanto aplicar (R$)">
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input className="input" type="number" min="0" step="0.01" max={Math.min(cashAvailable, afterDisc)} value={cashWanted} onChange={(e) => setCashWanted(Math.max(0, +e.target.value || 0))} placeholder="0,00" style={{ flex: 1 }} />
-                  <button className="btn btn-secondary" onClick={() => setCashWanted(Math.min(cashAvailable, afterDisc))}>Usar tudo</button>
-                </div>
-              </Field>
-              {cashApplied > 0 && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, padding: "9px 12px", background: "var(--accent-soft)", borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 700, color: "var(--brand)" }}>
-                  <span><Icon name="check" size={14} /> Aplicando {brl(cashApplied)}</span>
-                  <button className="btn btn-sm" style={{ background: "transparent", color: "var(--brand)", padding: "2px 6px" }} onClick={() => setCashWanted(0)}>remover</button>
-                </div>
-              )}
-            </div>
-          )}
+          {/* ===== Visão do FARMACÊUTICO: sugestões do que o cliente mais compra + recorrência ===== */}
+          {operator === "pharm" && <div style={{ marginBottom: 14 }}><PdvUpsell customer={pdvCustomer} insights={insights} inventory={inventory} cart={pdvCart} onAdd={pdvAdd} /></div>}
+          {operator === "pharm" && pdvCustomer && <div style={{ marginBottom: 14 }}><PdvRecurrenceSuggestions candidates={insights.recurrenceCandidates} onConfigure={setRecurrenceCandidate} /></div>}
 
           {/* Retirada na loja ou entrega (visão do farmacêutico, com cliente identificado) */}
           {operator === "pharm" && pdvCustomer && (
-            <PdvFulfillmentPicker delivery={delivery} setDelivery={setDelivery} checkPdvDeliveryCoverage={checkPdvDeliveryCoverage} savedAddresses={savedAddresses} onSaveAddress={saveCustomerAddress} />
+            <div style={{ marginBottom: 14 }}><PdvFulfillmentPicker delivery={delivery} setDelivery={setDelivery} checkPdvDeliveryCoverage={checkPdvDeliveryCoverage} savedAddresses={savedAddresses} onSaveAddress={saveCustomerAddress} /></div>
           )}
 
-          {/* Totais — bruto + com desconto (ambas as visões) */}
-          <div className="card card-pad">
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--text-secondary)", padding: "3px 0" }}><span>Valor bruto</span><span>{brl(subtotal)}</span></div>
-            <div style={{ margin: "8px 0" }}>
-              <Field label="Desconto (%)" hint={discountLimit < 100 ? `Desconto máximo permitido: ${discountLimit}% — limite de margem do produto${cashAvailable > 0 ? " e cashback do cliente" : ""}` : undefined}>
-                <input className="input" type="number" min="0" max={discountLimit} value={discount} disabled={!!appliedCoupon} onChange={(e) => setDiscount(Math.max(0, Math.min(discountLimit, +e.target.value)))} />
-              </Field>
+          <div style={{ position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--surface)", border: "2px solid var(--accent)", borderRadius: "var(--radius-lg)", padding: "0 14px", height: 60, boxShadow: "0 0 0 4px var(--accent-soft)" }}>
+              <Icon name="scan" size={20} style={{ color: "var(--brand)" }} />
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar produto, marca ou EAN — ou bipar o código de barras" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, fontWeight: 600, color: "var(--text-primary)", minWidth: 0 }} />
+              {q && <button className="icon-btn" style={{ border: "none", background: "transparent" }} onClick={() => setQ("")}><Icon name="close" size={16} /></button>}
             </div>
-            <div style={{ margin: "8px 0" }}>
+            {results.length > 0 && (
+              <div className="card scrollbar-thin" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 60, padding: 6, display: "flex", flexDirection: "column", gap: 2, maxHeight: 420, overflowY: "auto", boxShadow: "var(--shadow-lg)" }}>
+                {results.map((it) => {
+                  const own = it.ownStoreComponent;
+                  const availableHere = !!(own && own.qty > 0);
+                  const otherComponents = it.components.filter((c) => c.qty > 0 && (!own || c.storeId !== own.storeId));
+                  const canReserveElsewhere = operator === "pharm" && otherComponents.length > 0;
+                  const outOfStock = it.totalStock <= 0;
+                  const expanded = expandedResultId === it.id;
+                  return (
+                    <div key={it.id}>
+                      <button
+                        style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", textAlign: "left", border: "none", background: "transparent", padding: 10, borderRadius: "var(--radius-md)", cursor: (outOfStock || (!availableHere && !canReserveElsewhere)) ? "not-allowed" : "pointer", opacity: (outOfStock || (!availableHere && !canReserveElsewhere)) ? 0.5 : 1 }}
+                        onClick={() => {
+                          if (availableHere) { addComponent(own); return; }
+                          if (canReserveElsewhere) setExpandedResultId((prev) => (prev === it.id ? null : it.id));
+                        }}
+                        disabled={outOfStock || (!availableHere && !canReserveElsewhere)}
+                      >
+                        <span className="stat-icon" style={{ width: 38, height: 38, flex: "none" }}><Icon name="pill" size={18} /></span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>{it.name}{it.controlled && <Badge tone="critical">Tarja</Badge>}</div>
+                          <div className="cell-muted">
+                            {it.brand} · <span className="mono">{it.ean}</span>
+                            {availableHere ? " · " + own.loc : canReserveElsewhere ? " · não disponível nesta loja — toque para ver em outras lojas" : ""}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right", flex: "none" }}>
+                          <div style={{ fontWeight: 800, fontSize: 14 }}>{brl(availableHere ? own.price : (otherComponents[0] ? otherComponents[0].price : 0))}</div>
+                          <div style={{ fontSize: 12, color: availableHere ? "var(--good)" : (canReserveElsewhere ? "var(--warning)" : "var(--critical)") }}>
+                            {availableHere ? own.qty + " em estoque" : canReserveElsewhere ? "em outra loja" : "esgotado"}
+                          </div>
+                        </div>
+                        <Icon name={availableHere ? "plusCircle" : (canReserveElsewhere ? "chevD" : "close")} size={22} style={{ color: outOfStock ? "var(--text-muted)" : "var(--brand)", flex: "none", transform: !availableHere && canReserveElsewhere && expanded ? "rotate(180deg)" : "none" }} />
+                      </button>
+                      {!availableHere && canReserveElsewhere && expanded && (
+                        <div style={{ padding: "4px 10px 8px 56px", display: "flex", flexDirection: "column", gap: 4 }}>
+                          {otherComponents.map((component) => (
+                            <button key={component.id} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", textAlign: "left", border: "none", background: "transparent", padding: "8px 10px", borderRadius: "var(--radius-md)", cursor: "pointer" }} onClick={() => openReservation(component)}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, fontSize: 13 }}>{component.storeName || "Loja"}</div>
+                                <div className="cell-muted">{component.loc}</div>
+                              </div>
+                              <div style={{ textAlign: "right", flex: "none" }}>
+                                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{brl(component.price)}</div>
+                                <div style={{ fontSize: 12, color: "var(--good)" }}>{component.qty} em estoque</div>
+                              </div>
+                              <Badge tone="neutral">Reservar</Badge>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+        </div>
+
+        {/* Coluna: carrinho + pagamento + total — painel fixo, só a lista de itens rola */}
+        <div className="pdv-cart">
+          <div className="pdv-cart-items scrollbar-thin" style={lines.length > 6 ? { maxHeight: 340 } : undefined}>
+            {lines.length === 0 ? (
+              <EmptyState icon="scan" title="Comece a registrar a venda" desc="Busque ou bipe um produto para adicioná-lo." />
+            ) : lines.map((l) => {
+              const rx = l.controlled ? (prescriptionStatus[l.id] || { status: "missing" }) : null;
+              const rxMeta = rx ? (PRESCRIPTION_STATUS_META[rx.status] || PRESCRIPTION_STATUS_META.missing) : null;
+              return (
+              <div key={l.id} className="pdv-cart-line">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                    {l.name}
+                    {l.controlled && <Badge tone="critical"><Icon name="lock" size={10} />Tarja</Badge>}
+                    {rx && (
+                      <button
+                        style={{ border: "none", cursor: "pointer", padding: 0, background: "transparent" }}
+                        onClick={() => setPrescriptionTarget(l)}
+                      >
+                        <Badge tone={rxMeta.tone}><Icon name={rxMeta.icon} size={10} />{rxMeta.label}</Badge>
+                      </button>
+                    )}
+                  </div>
+                  <div className="cell-muted" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span>{brl(l.price)} un · {l.brand}{l.storeName ? " · " + l.storeName : ""}</span>
+                    {(itemLocations[l.id] || []).length > 0 ? (
+                      <select
+                        className="input"
+                        style={{ width: "auto", minWidth: 140, height: 24, padding: "0 6px", fontSize: 11 }}
+                        value={l.locationId || ""}
+                        onChange={(e) => {
+                          const picked = (itemLocations[l.id] || []).find((entry) => entry.locationId === e.target.value);
+                          pdvSetLocation(l.id, e.target.value, picked ? picked.locationCode : "");
+                        }}
+                      >
+                        <option value="" disabled>Escolha o local de retirada</option>
+                        {(itemLocations[l.id] || []).map((entry) => (
+                          <option key={entry.locationId} value={entry.locationId}>
+                            {entry.locationCode} · {entry.locationName} ({entry.qty} un)
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span>· {l.loc || "sem local cadastrado"}</span>
+                    )}
+                  </div>
+                </div>
+                <button className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => pdvSetQty(l.id, l.qty - 1)}><Icon name="minus" size={11} /></button>
+                <span className="mono" style={{ width: 18, textAlign: "center", fontSize: 12 }}>{l.qty}</span>
+                <button className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => pdvSetQty(l.id, l.qty + 1)}><Icon name="plus" size={11} /></button>
+                <span className="tnum" style={{ width: 64, textAlign: "right", fontWeight: 700, fontSize: 12 }}>{brl(l.price * l.qty)}</span>
+                <button className="icon-btn" style={{ width: 26, height: 26 }} aria-label="remover" onClick={() => pdvRemove(l.id)}><Icon name="x" size={11} /></button>
+              </div>
+              );
+            })}
+          </div>
+
+          {hasControlled && (
+            <div className="pdv-rx-blocked-note">
+              <Icon name="lock" size={12} />
+              Há item <b>controlado (tarja)</b> na venda — toque no selo de receita do item para validar antes de {operator === "pharm" ? "enviar ao caixa" : "finalizar"}.
+            </div>
+          )}
+
+          <div style={{ padding: 14, borderTop: "1px solid var(--border)" }}>
+            {/* ===== Visão do CAIXA: pagamento + CPF na nota ===== */}
+            {operator === "caixa" && (
+              <>
+                <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10 }}>Forma de pagamento</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  {PAY_METHODS.map((m) => (
+                    <ChoiceCard key={m.id} on={pay === m.id} icon={m.icon} title={m.label} onClick={() => setPay(m.id)} style={{ flexDirection: "column", textAlign: "center", justifyContent: "center" }} />
+                  ))}
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginBottom: 14 }} onClick={() => setCpfNota(!cpfNota)}>
+                  <span style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", background: cpfNota ? "var(--accent)" : "transparent", borderColor: cpfNota ? "var(--accent)" : "var(--border-strong)", color: "#fff" }}>{cpfNota && <Icon name="check" size={12} />}</span>
+                  Incluir CPF na nota fiscal
+                </label>
+              </>
+            )}
+
+            {/* Cashback do cliente (visão do caixa) — aplicar saldo além do desconto */}
+            {operator === "caixa" && pdvCustomer && cashAvailable > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 12 }}>
+                  <span>Usar cashback disponível ({brl(cashAvailable)})</span>
+                  <SwitchToggle on={cashWanted > 0} onChange={(on) => setCashWanted(on ? Math.min(cashAvailable, afterDisc) : 0)} />
+                </div>
+                {cashWanted > 0 && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input className="input" type="number" min="0" step="0.01" max={Math.min(cashAvailable, afterDisc)} value={cashWanted} onChange={(e) => setCashWanted(Math.max(0, +e.target.value || 0))} placeholder="0,00" style={{ flex: 1, fontSize: 11.5 }} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Retirada/entrega (visão do farmacêutico) — resumo; a escolha em si fica na coluna da esquerda */}
+            {operator === "pharm" && pdvCustomer && (
+              <div className="cell-muted" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name={delivery.fulfillmentType === "delivery" ? "truck" : "bag"} size={12} />
+                {delivery.fulfillmentType === "delivery" ? "Entrega" + (delivery.addressLine ? " · " + delivery.addressLine : "") : "Retirada na loja"}
+              </div>
+            )}
+
+            <Field label="Desconto adicional (%)" hint={discountLimit < 100 ? `Máximo permitido: ${discountLimit}% — limite de margem do produto${cashAvailable > 0 ? " e cashback do cliente" : ""}` : undefined}>
+              <input className="input" type="number" min="0" max={discountLimit} value={discount} disabled={!!appliedCoupon} onChange={(e) => setDiscount(Math.max(0, Math.min(discountLimit, +e.target.value)))} />
+            </Field>
+            <div style={{ margin: "10px 0" }}>
               <Field label="Cupom">
                 {appliedCoupon ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "8px 12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)" }}>
@@ -1061,34 +1043,27 @@ function PdvScreen({ ctx }) {
               {discount > 0 && <div className="cell-muted" style={{ marginTop: 4 }}>Zere o desconto manual para aplicar um cupom.</div>}
               {couponError && <div className="cell-muted" style={{ marginTop: 4, color: "var(--critical)" }}>{couponError}</div>}
             </div>
-            {discVal > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--good)", padding: "3px 0" }}><span>{appliedCoupon ? "Cupom aplicado" : "Desconto aplicado"}</span><span>− {brl(discVal)}</span></div>}
-            {cashApplied > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--brand)", padding: "3px 0" }}><span>Cashback aplicado</span><span>− {brl(cashApplied)}</span></div>}
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--text-secondary)", padding: "3px 0" }}><span>Itens</span><span>{count}</span></div>
-            <div style={{ height: 1, background: "var(--border)", margin: "12px 0" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontWeight: 800, fontSize: 16 }}>{discVal > 0 || cashApplied > 0 ? "Total a pagar" : "Total"}</span>
-              <span style={{ fontWeight: 800, fontSize: 28, letterSpacing: "-.02em" }}>{brl(total)}</span>
-            </div>
-            {pdvCustomer && lines.length > 0 && <div className="cell-muted" style={{ textAlign: "right", marginTop: 4 }}>O cashback ganho é calculado ao emitir a nota</div>}
+
+            <KV label="Subtotal" value={brl(subtotal)} />
+            {discVal > 0 && <KV label={appliedCoupon ? "Cupom aplicado" : "Desconto aplicado"} value={"− " + brl(discVal)} />}
+            {cashApplied > 0 && <KV label="Cashback aplicado" value={"− " + brl(cashApplied)} />}
+            <KV label="Itens" value={count} />
+            <KV label="Total" value={<span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16 }}>{brl(total)}</span>} />
+            {pdvCustomer && lines.length > 0 && <div className="cell-muted" style={{ textAlign: "right", marginTop: 2, marginBottom: 8 }}>O cashback ganho é calculado ao emitir a nota</div>}
 
             {operator === "pharm" ? (
-              <>
-                <button className="btn btn-primary btn-lg" style={{ marginTop: 16, width: "100%", justifyContent: "center" }} disabled={lines.length === 0} onClick={async () => { const ok = await pdvSendToCashier({ customer: pdvCustomer, items: pdvCart, discount, couponCode: appliedCoupon ? appliedCoupon.code : "", delivery, draftId }); if (ok) { setDraftId(null); finalizeSale && finalizeSale("Pedido enviado ao caixa"); setSentModal(true); } }}>
-                  <Icon name="arrowR" size={18} />Enviar para o caixa
-                </button>
-                <div className="cell-muted" style={{ textAlign: "center", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icon name="cash" size={13} />O caixa recebe o pagamento e emite a nota</div>
-              </>
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }} disabled={lines.length === 0} onClick={async () => { const ok = await pdvSendToCashier({ customer: pdvCustomer, items: pdvCart, discount, couponCode: appliedCoupon ? appliedCoupon.code : "", delivery, draftId }); if (ok) { setDraftId(null); finalizeSale && finalizeSale("Pedido enviado ao caixa"); setSentModal(true); } }}>
+                <Icon name="send" size={15} />Enviar para o caixa
+              </button>
             ) : (
-              <>
-                <button className="btn btn-primary btn-lg" style={{ marginTop: 16, width: "100%", justifyContent: "center" }} disabled={lines.length === 0} onClick={emit}>
-                  <Icon name="receipt" size={18} />Finalizar e emitir nota
-                </button>
-                <div className="cell-muted" style={{ textAlign: "center", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icon name="shield" size={13} />NFC-e · {storeFiscal.cnpj}</div>
-              </>
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }} disabled={lines.length === 0} onClick={emit}>
+                <Icon name="receipt" size={15} />Gerar nota fiscal
+              </button>
             )}
           </div>
         </div>
-      </div>
+        </div>
+      </>
       )}
 
       {idOpen && <IdentifyModal current={pdvCustomer} customers={customers} onCreate={createPdvCustomer} onPick={(c) => { setPdvCustomer(c); setCaixaReady(true); setIdOpen(false); }} onClose={() => setIdOpen(false)} />}
