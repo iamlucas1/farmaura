@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { ModalShell, QtyStepper, brl } from "../../marketplace/core/marketplace-components.jsx";
+import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { fetchViaCepAddress, formatCep } from "../../marketplace/core/marketplace-address.js";
 import { resolveMarketplaceCoupon } from "../../marketplace/screens/cart-screen.jsx";
 import { RecurringBadge } from "../core/internal-shell.jsx";
-import { Icon, PageHead, Badge, PillNav, EmptyState, Field } from "../core/internal-ui.jsx";
+import { Icon, PageHead, Badge, PillNav, EmptyState, Field, Modal, QtyStepper } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Balcão / PDV: venda no momento + emissão de nota fiscal (NFC-e).
    Visão compartilhada entre farmacêutico e caixa. */
@@ -1112,23 +1112,21 @@ function PdvScreen({ ctx }) {
 
       {/* Confirmação: pedido enviado ao caixa (visão do farmacêutico) */}
       {sentModal && (
-        <ModalShell open={true} onClose={() => setSentModal(false)} maxw={400}>
+        <Modal open onClose={() => setSentModal(false)} title="Enviado para o caixa">
           <div style={{ textAlign: "center" }}>
             <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 14px", background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={28} /></span>
-            <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Enviado para o caixa</h2>
-            <p className="page-desc" style={{ marginTop: 8, lineHeight: 1.55 }}>O pedido foi salvo e enviado para o caixa{pdvCustomer ? " no nome de " + pdvCustomer.name : ""}. O caixa vê os mesmos itens e finaliza com o pagamento e a nota fiscal.</p>
+            <p className="page-desc" style={{ lineHeight: 1.55 }}>O pedido foi salvo e enviado para o caixa{pdvCustomer ? " no nome de " + pdvCustomer.name : ""}. O caixa vê os mesmos itens e finaliza com o pagamento e a nota fiscal.</p>
             <button className="btn btn-primary btn-lg" style={{ marginTop: 18, width: "100%", justifyContent: "center" }} onClick={() => { setSentModal(false); resetAtendimento(); }}>Atender próximo paciente</button>
           </div>
-        </ModalShell>
+        </Modal>
       )}
 
       {/* Confirmação: descartar um atendimento em andamento */}
       {discardTarget && (
-        <ModalShell open={true} onClose={() => setDiscardTarget(null)} maxw={400}>
+        <Modal open onClose={() => setDiscardTarget(null)} title="Descartar atendimento?">
           <div style={{ textAlign: "center" }}>
             <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 14px", background: "var(--critical-soft)", color: "var(--critical)" }}><Icon name="trash" size={26} /></span>
-            <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Descartar atendimento?</h2>
-            <p className="page-desc" style={{ marginTop: 8, lineHeight: 1.55 }}>
+            <p className="page-desc" style={{ lineHeight: 1.55 }}>
               O atendimento de {discardTarget.customer ? discardTarget.customer.name : "consumidor não identificado"} será excluído e não poderá ser recuperado.
             </p>
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
@@ -1136,16 +1134,15 @@ function PdvScreen({ ctx }) {
               <button className="btn btn-danger-solid" style={{ flex: 1, justifyContent: "center" }} onClick={confirmDiscardDraft}><Icon name="trash" size={15} />Descartar</button>
             </div>
           </div>
-        </ModalShell>
+        </Modal>
       )}
 
       {/* Reservar produto disponível em outra loja, para o cliente retirar lá */}
       {reservationTarget && (
-        <ModalShell open={true} onClose={() => setReservationTarget(null)} maxw={420}>
+        <Modal open onClose={() => setReservationTarget(null)} title={"Reservar em " + (reservationTarget.storeName || "outra loja")}>
           <div style={{ textAlign: "center" }}>
             <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 14px", background: "var(--warning-soft)", color: "var(--warning)" }}><Icon name="pin" size={26} /></span>
-            <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Reservar em {reservationTarget.storeName || "outra loja"}</h2>
-            <p className="page-desc" style={{ marginTop: 8, lineHeight: 1.55 }}>
+            <p className="page-desc" style={{ lineHeight: 1.55 }}>
               {reservationTarget.name} · {reservationTarget.loc}. O estoque fica travado por 48h para
               {pdvCustomer ? " " + pdvCustomer.name : " o cliente"} retirar diretamente nessa loja.
             </p>
@@ -1159,22 +1156,21 @@ function PdvScreen({ ctx }) {
               </button>
             </div>
           </div>
-        </ModalShell>
+        </Modal>
       )}
 
       {/* Confirmação: reserva concluída com sucesso */}
       {reservationConfirmed && (
-        <ModalShell open={true} onClose={() => setReservationConfirmed(null)} maxw={400}>
+        <Modal open onClose={() => setReservationConfirmed(null)} title="Reserva confirmada">
           <div style={{ textAlign: "center" }}>
             <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 14px", background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={28} /></span>
-            <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Reserva confirmada</h2>
-            <p className="page-desc" style={{ marginTop: 8, lineHeight: 1.55 }}>
+            <p className="page-desc" style={{ lineHeight: 1.55 }}>
               {reservationConfirmed.productName} reservado na loja {reservationConfirmed.storeName}, válido até {reservationConfirmed.expiresAtLabel}.
               Oriente o cliente a retirar diretamente lá.
             </p>
             <button className="btn btn-primary btn-lg" style={{ marginTop: 18, width: "100%", justifyContent: "center" }} onClick={() => setReservationConfirmed(null)}>Entendi</button>
           </div>
-        </ModalShell>
+        </Modal>
       )}
 
       {/* Validar receita (física ou digital) de um item controlado do carrinho */}
@@ -1224,13 +1220,10 @@ function PdvPrescriptionModal({ line, customer, createPdvPrescription, onClose, 
   };
 
   return (
-    <ModalShell open={true} onClose={onClose} maxw={440}>
-      <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="rx" size={26} /></span>
-      <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Validar receita — {line.name}</h2>
-      <p className="page-desc" style={{ marginTop: 6, marginBottom: 16 }}>
-        Este item exige receita. Confira o documento físico apresentado pelo cliente, ou envie o link
-        da receita digital para validação — a venda só pode ser enviada ao caixa depois de validada.
-      </p>
+    <Modal
+      open onClose={onClose} title={"Validar receita — " + line.name}
+      subtitle="Este item exige receita. Confira o documento físico apresentado pelo cliente, ou envie o link da receita digital para validação — a venda só pode ser enviada ao caixa depois de validada."
+    >
       <PillNav options={[{ key: "physical", label: "Receita física" }, { key: "digital", label: "Receita digital" }]} active={method} onChange={setMethod} />
       <div style={{ height: 16 }} />
       {method === "physical" ? (
@@ -1267,7 +1260,7 @@ function PdvPrescriptionModal({ line, customer, createPdvPrescription, onClose, 
           </button>
         </>
       )}
-    </ModalShell>
+    </Modal>
   );
 }
 
@@ -1278,10 +1271,7 @@ function IdentifyModal({ current, onPick, onClose, customers, onCreate }) {
   const [registerOpen, setRegisterOpen] = useState(false);
   const list = CUSTOMERS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()) || (c.doc || "").includes(q));
   return (
-    <ModalShell open={true} onClose={onClose} maxw={460}>
-      <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="user" size={26} /></span>
-      <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Identificar cliente</h2>
-      <p className="page-desc" style={{ marginTop: 6, marginBottom: 16 }}>Vincule a venda a um cliente ou siga como consumidor não identificado.</p>
+    <Modal open onClose={onClose} title="Identificar cliente" subtitle="Vincule a venda a um cliente ou siga como consumidor não identificado.">
       <div style={{ marginBottom: 12 }}>
         <input className="input" autoFocus placeholder="Buscar por nome ou CPF" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
@@ -1312,7 +1302,7 @@ function IdentifyModal({ current, onPick, onClose, customers, onCreate }) {
           onCreated={(created) => { setRegisterOpen(false); onPick(created); }}
         />
       )}
-    </ModalShell>
+    </Modal>
   );
 }
 
@@ -1339,10 +1329,10 @@ function RegisterCustomerModal({ onClose, onCreate, onCreated }) {
     }
   };
   return (
-    <ModalShell open={true} onClose={onClose} maxw={420}>
-      <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="plusCircle" size={26} /></span>
-      <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Cadastrar cliente</h2>
-      <p className="page-desc" style={{ marginTop: 6, marginBottom: 16 }}>Nome e/ou CPF são obrigatórios — e-mail e telefone são opcionais. O e-mail habilita o primeiro acesso ao marketplace.</p>
+    <Modal
+      open onClose={onClose} title="Cadastrar cliente"
+      subtitle="Nome e/ou CPF são obrigatórios — e-mail e telefone são opcionais. O e-mail habilita o primeiro acesso ao marketplace."
+    >
       <div style={{ marginBottom: 10 }}><Field label={"Nome " + (cpfDigits === 11 ? "(opcional)" : "")}><input autoFocus className="input" placeholder="Nome do cliente" value={nome} onChange={(e) => setNome(e.target.value)} /></Field></div>
       <div style={{ marginBottom: 10 }}>
         <Field label="E-mail (opcional)">
@@ -1356,7 +1346,7 @@ function RegisterCustomerModal({ onClose, onCreate, onCreated }) {
       <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={saving || !emailValid || !(nome.trim() || cpfDigits === 11)} onClick={handleCreate}>
         <Icon name="user" size={16} />{saving ? "Cadastrando..." : "Cadastrar e usar"}
       </button>
-    </ModalShell>
+    </Modal>
   );
 }
 
@@ -1413,20 +1403,19 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
 
   if (result) {
     return (
-      <ModalShell open={true} onClose={() => onConfirmed(result)} maxw={420}>
+      <Modal open onClose={() => onConfirmed(result)} title="Recorrência confirmada">
         <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14, background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={26} /></span>
-        <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Recorrência confirmada</h2>
-        <p className="page-desc" style={{ marginTop: 6, marginBottom: 16 }}>Cobrança de {brl(result.totalCharged)} realizada no cartão salvo, com {result.discountPercent}% de desconto aplicado.</p>
+        <p className="page-desc" style={{ marginBottom: 16 }}>Cobrança de {brl(result.totalCharged)} realizada no cartão salvo, com {result.discountPercent}% de desconto aplicado.</p>
         <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => onConfirmed(result)}>Fechar</button>
-      </ModalShell>
+      </Modal>
     );
   }
 
   return (
-    <ModalShell open={true} onClose={onClose} maxw={440}>
-      <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="repeat" size={26} /></span>
-      <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Configurar recorrência</h2>
-      <p className="page-desc" style={{ marginTop: 6, marginBottom: 16 }}>{candidate.name} · comprado em {candidate.consecutiveMonths} meses seguidos. Cobrança imediata no cartão salvo, com 15% de desconto.</p>
+    <Modal
+      open onClose={onClose} title="Configurar recorrência"
+      subtitle={candidate.name + " · comprado em " + candidate.consecutiveMonths + " meses seguidos. Cobrança imediata no cartão salvo, com 15% de desconto."}
+    >
       {loading ? (
         <div className="cell-muted" style={{ padding: "12px 0" }}>Carregando estoque e cartões salvos...</div>
       ) : !resolvedItem ? (
@@ -1460,7 +1449,7 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
           </button>
         </>
       )}
-    </ModalShell>
+    </Modal>
   );
 }
 
@@ -1473,13 +1462,7 @@ function NotaFiscalModal({ nota, storeFiscal, pharmacistProfile, onSendEmail, on
   const tributos = Math.round(nota.total * 0.12 * 100) / 100;
   const chaveFmt = (nota.chave || "").replace(/(\d{4})(?=\d)/g, "$1 ");
   return (
-    <ModalShell open={true} onClose={onClose} maxw={460}>
-      <div style={{ textAlign: "center", marginBottom: 16 }}>
-        <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 12px", background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={28} /></span>
-        <h2 style={{ fontWeight: 800, fontSize: 21, margin: 0 }}>Venda concluída</h2>
-        <p className="page-desc" style={{ marginTop: 4 }}>Nota fiscal autorizada com sucesso.</p>
-      </div>
-
+    <Modal open onClose={onClose} title="Venda concluída" subtitle="Nota fiscal autorizada com sucesso.">
       {/* Cupom */}
       <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 16, background: "var(--bg)" }}>
         <div style={{ textAlign: "center", borderBottom: "1px dashed var(--border)", paddingBottom: 10, marginBottom: 10 }}>
@@ -1522,7 +1505,7 @@ function NotaFiscalModal({ nota, storeFiscal, pharmacistProfile, onSendEmail, on
       </div>
 
       {sendOpen && <SendNotaModal nota={nota} onSend={onSendEmail} onClose={() => setSendOpen(false)} />}
-    </ModalShell>
+    </Modal>
   );
 }
 
@@ -1561,20 +1544,19 @@ function SendNotaModal({ nota, onClose, onSend }) {
   };
 
   return (
-    <ModalShell open={true} onClose={onClose} maxw={420}>
+    <Modal
+      open onClose={onClose}
+      title={sent ? "Nota enviada!" : "Enviar nota por e-mail"}
+      subtitle={sent ? undefined : "Envie a NFC-e nº " + nota.numero + " (" + brl(nota.total) + ") para o cliente."}
+    >
       {sent ? (
         <div style={{ textAlign: "center" }}>
           <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 14px", background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={28} /></span>
-          <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Nota enviada!</h2>
-          <p className="page-desc" style={{ marginTop: 8, lineHeight: 1.55 }}>A NFC-e nº {nota.numero} foi enviada para <b>{target}</b>{alsoWa ? " e por WhatsApp" : ""}.</p>
+          <p className="page-desc" style={{ lineHeight: 1.55 }}>A NFC-e nº {nota.numero} foi enviada para <b>{target}</b>{alsoWa ? " e por WhatsApp" : ""}.</p>
           <button className="btn btn-primary btn-lg" style={{ marginTop: 18, width: "100%", justifyContent: "center" }} onClick={onClose}>Concluir</button>
         </div>
       ) : (
         <>
-          <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14 }}><Icon name="mail" size={26} /></span>
-          <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Enviar nota por e-mail</h2>
-          <p className="page-desc" style={{ marginTop: 6, marginBottom: 16 }}>Envie a NFC-e nº {nota.numero} ({brl(nota.total)}) para o cliente.</p>
-
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {registered && (
               <ChoiceCard on={mode === "registered"} radio icon="user" title="E-mail cadastrado" sub={registered} onClick={() => setMode("registered")} />
@@ -1604,7 +1586,7 @@ function SendNotaModal({ nota, onClose, onSend }) {
           </div>
         </>
       )}
-    </ModalShell>
+    </Modal>
   );
 }
 

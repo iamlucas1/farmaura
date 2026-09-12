@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { InfoTip } from "../../marketplace/core/marketplace-components.jsx";
 import {
   Icon, PageHead, Tabs, SwitchToggle, StatCard, DataTable, Badge, RowIconBtn,
-  EmptyState, money, showToast,
+  EmptyState, money, showToast, InfoTip,
 } from "../core/internal-ui.jsx";
 
 const MAX_PRODUCTS = 30;

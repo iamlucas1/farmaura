@@ -263,6 +263,34 @@ function SwitchToggle({ on, onChange, label }) {
     </button>
   );
 }
+function QtyStepper({ value, onChange, min = 1, max = 99 }) {
+  return (
+    <div className="qty-stepper" onClick={(e) => e.stopPropagation()}>
+      <button type="button" onClick={() => onChange(Math.max(min, value - 1))} aria-label="menos"><Icon name="minus" size={16} /></button>
+      <span aria-live="polite">{value}</span>
+      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} aria-label="mais"><Icon name="plus" size={16} /></button>
+    </div>
+  );
+}
+function InfoTip({ text, icon = "info", side = "top" }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      className="info-tip"
+      tabIndex={0}
+      role="button"
+      aria-label={text}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Icon name={icon} size={14} />
+      {open && <span className={`info-tip-bubble info-tip-${side}`} role="tooltip">{text}</span>}
+    </span>
+  );
+}
 function Tabs({ tabs, active, onChange }) {
   return (
     <div className="tabs" role="tablist">
@@ -830,7 +858,7 @@ export {
   Icon, ICON_LABELS, SERIES, money, numfmt, statusTone,
   confirmAction, showToast, ConfirmHost, ToastHost,
   Badge, StatusBadge, TierBadge, Avatar, StatCard,
-  SearchInput, EmptyState, KV, SwitchToggle, Tabs, PillNav,
+  SearchInput, EmptyState, KV, SwitchToggle, QtyStepper, InfoTip, Tabs, PillNav,
   Modal, Drawer, Field, FormGrid, IconPicker, DataTable,
   PageHead, RowIconBtn, CrudPage, KpiChip, RecoverModal,
   ChartData, ChartTooltip, VBars, AreaTrend, HBarList, Heatmap,

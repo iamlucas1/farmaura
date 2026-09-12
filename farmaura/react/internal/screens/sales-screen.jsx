@@ -1,9 +1,8 @@
 import React, { useState } from "react";
-import { ModalShell, brl } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon as MpIcon } from "../../marketplace/core/marketplace-icons.jsx";
+import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { OC_STATUS, customerOf } from "../core/internal-shell.jsx";
 import { QrPlaceholder, SendNotaModal } from "./point-of-sale-screen.jsx";
-import { Icon, PageHead, Badge, StatCard, SearchInput, EmptyState, PillNav, SwitchToggle } from "../core/internal-ui.jsx";
+import { Icon, PageHead, Badge, StatCard, SearchInput, EmptyState, PillNav, SwitchToggle, Modal } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Vendas & Notas: registro unificado das vendas PAGAS
    (online + balcão/PDV) com emissão e consulta da nota fiscal (NFC-e).
@@ -11,9 +10,9 @@ import { Icon, PageHead, Badge, StatCard, SearchInput, EmptyState, PillNav, Swit
    - Online: aparece quando o pagamento foi confirmado, mesmo sem entrega ainda.
 
    Nota: o "Ver nota" abre SaleNotaModal (migrado abaixo), que ainda reaproveita
-   QrPlaceholder e SendNotaModal de point-of-sale-screen.jsx (Lote G, não migrado
-   ainda) — são widgets pequenos (um SVG geométrico e um modal de envio por e-mail)
-   sem outro dono natural nesta fase; ficam com o visual legado até o Balcão migrar. */
+   QrPlaceholder e SendNotaModal de point-of-sale-screen.jsx — são widgets pequenos
+   (um SVG geométrico e um modal de envio por e-mail) sem outro dono natural, mas
+   já rodam 100% sobre o kit novo desde a migração do Balcão. */
 
 const PAY_LABELS = { cash: "Dinheiro", pix: "Pix", debit: "Débito", credit: "Crédito" };
 const PAY_ICONS = { cash: "cash", pix: "pix", debit: "card", credit: "card" };
@@ -179,11 +178,9 @@ function SaleNotaModal({ sale, storeFiscal, pharmacistProfile, onSendEmail, onCl
   const sendNota = { id: n.id, numero: n.numero, total: sale.total, customer: sale.customerObj };
 
   return (
-    <ModalShell open={true} onClose={onClose} maxw={460}>
+    <Modal open onClose={onClose} title="Nota fiscal" subtitle={"NFC-e nº " + n.numero + " · autorizada"}>
       <div style={{ textAlign: "center", marginBottom: 16 }}>
-        <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 12px", background: "var(--good-soft)", color: "var(--good)" }}><MpIcon name="receipt" size={27} /></span>
-        <h2 style={{ fontWeight: 800, fontSize: 21, margin: 0 }}>Nota fiscal</h2>
-        <p className="cell-muted" style={{ marginTop: 4 }}>NFC-e nº {n.numero} · autorizada</p>
+        <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 12px", background: "var(--good-soft)", color: "var(--good)" }}><Icon name="receipt" size={27} /></span>
       </div>
 
       <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 16, background: "var(--bg)" }}>
@@ -228,7 +225,7 @@ function SaleNotaModal({ sale, storeFiscal, pharmacistProfile, onSendEmail, onCl
       </div>
 
       {sendOpen && <SendNotaModal nota={sendNota} onSend={onSendEmail} onClose={() => setSendOpen(false)} />}
-    </ModalShell>
+    </Modal>
   );
 }
 
