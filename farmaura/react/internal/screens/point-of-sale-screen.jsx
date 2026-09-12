@@ -451,7 +451,7 @@ function PdvDraftRecoveryList({ drafts, onRecover, onDiscard }) {
 
 /* Tela do CAIXA — fila de pedidos enviados pelo farmacêutico.
    No caixa, só aparecem os clientes que têm um pedido enviado para cá. */
-function PdvCaixaQueue({ queue, onClaim, onPharm, customerByName }) {
+function PdvCaixaQueue({ queue, onClaim, customerByName }) {
   const enrich = (entry) => {
     const lines = entry.items || [];
     const count = lines.reduce((s, l) => s + l.qty, 0);
@@ -470,12 +470,7 @@ function PdvCaixaQueue({ queue, onClaim, onPharm, customerByName }) {
         <Badge tone="neutral">{queue.length} na fila</Badge>
       </div>
 
-      {queue.length === 0 ? (
-        <div style={{ padding: "52px 24px" }}>
-          <EmptyState icon="cash" title="Nenhum pedido na fila do caixa" desc="O caixa só atende clientes com um pedido enviado pelo farmacêutico. Monte um pedido na visão do farmacêutico e toque em “Enviar para o caixa”." />
-          <div style={{ textAlign: "center" }}><button className="btn btn-secondary btn-sm" onClick={onPharm}><Icon name="rx" size={14} />Ir para a visão do farmacêutico</button></div>
-        </div>
-      ) : queue.map((entry, i) => {
+      {queue.map((entry, i) => {
         const e = enrich(entry);
         const cust = entry.customer;
         return (
@@ -802,7 +797,21 @@ function PdvScreen({ ctx }) {
 
       {(operator === "caixa" ? !caixaReady : (!pdvCustomer && !caixaReady)) ? (
         operator === "caixa"
-          ? <PdvCaixaQueue queue={pdvQueue} onClaim={(entry) => { pdvClaimFromQueue(entry.id); setDiscount(entry.discount || 0); setCaixaReady(true); }} onPharm={() => switchOperator("pharm")} customerByName={customerByName} />
+          ? (
+            <>
+              {pdvQueue.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <PdvCaixaQueue queue={pdvQueue} onClaim={(entry) => { pdvClaimFromQueue(entry.id); setDiscount(entry.discount || 0); setCaixaReady(true); }} customerByName={customerByName} />
+                </div>
+              )}
+              <PdvIdentifyClient
+                customers={customers} onCreate={createPdvCustomer}
+                title="Identificar cliente" desc="Identifique o cliente para abrir a venda no caixa, ou continue sem identificar."
+                onPick={(c) => { setPdvCustomer(c); setCaixaReady(true); }}
+                onSkip={() => setCaixaReady(true)}
+              />
+            </>
+          )
           : (
             <>
               <PdvDraftRecoveryList drafts={drafts} onRecover={recoverDraft} onDiscard={setDiscardTarget} />
