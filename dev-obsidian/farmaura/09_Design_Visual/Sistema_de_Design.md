@@ -2,9 +2,17 @@
 
 Documentação viva do sistema visual real (não planejado) que já está implementado em `farmaura/react/marketplace/` e `farmaura/react/internal/`, extraída diretamente do CSS de produção. A especificação machine-readable canônica (frontmatter YAML + tokens) vive em `farmaura/DESIGN.md`, com o sidecar `farmaura/.impeccable/design.json` (ramps tonais, componentes HTML/CSS prontos, narrativa) — gerados via `/impeccable document`. Esta nota é a versão de leitura humana, em português, cruzada com o resto do cofre.
 
-## Escopo: uma linguagem visual, duas superfícies
+## Escopo: uma linguagem visual, duas superfícies (com dois sistemas de token desde 2026-09)
 
-`marketplace` (cliente final) e `internal` (farmacêutico/operações) **não são dois sistemas de design** — são duas aplicações de um só. `internal.css` importa depois de `marketplace.css` e reaproveita suas custom properties (`--fa-*`) sem redefini-las; isso já estava confirmado em [[design-system-frontend-tokens-compartilhados]] (nota movida para esta pasta, ver abaixo). Qualquer mudança na camada de tokens compartilhada precisa funcionar nas duas superfícies.
+`marketplace` (cliente final) e `internal` (farmacêutico/operações) eram, até setembro de 2026, **uma linguagem visual só**: `internal.css` importava depois de `marketplace.css` e reaproveitava suas custom properties (`--fa-*`) sem redefini-las (ver histórico em [[design-system-frontend-tokens-compartilhados]]).
+
+Isso mudou com a migração visual completa do console interno para o design "Farmaura Operações" (protótipo Claude Artifact do usuário), fasada em lotes A→H + Fase Z de limpeza — ver [[../00_Decisoes/2026-09-11-migracao-visual-console-interno-para-farmaura-operacoes|ADR da migração]]. Hoje **cada superfície tem seu próprio conjunto de tokens**:
+
+- `marketplace.css` continua com a paleta "Warm Apothecary" original e os tokens `--fa-*` descritos abaixo — inalterado.
+- `internal.css` passou a ter tokens semânticos próprios (`--bg`, `--surface`, `--surface-2`, `--text-primary/secondary/muted`, `--border/-strong`, `--brand/-ink`, `--accent(+variantes)`, `--good/-warning/-critical/-info/-serious(+soft)`, `--radius-sm/md/lg/pill`, `--shadow-sm/md/lg`), com suporte nativo a tema claro/escuro de 3 estados (`:root`, `@media(prefers-color-scheme:dark)`, `:root[data-theme="dark"]`) e densidade ajustável em runtime (`data-density="compact|regular|comfy"`). A ponte de compatibilidade `--fa-*` que existiu durante a migração (mapeando os tokens legados para os novos) e o arquivo `internal-legacy.css` foram removidos por completo na Fase Z — não existe mais nenhuma referência a `--fa-*` dentro de `react/internal/`.
+- O kit de componentes reutilizável do console interno também mudou de lugar: em vez de consumir `marketplace-components.jsx`, o console interno agora tem seu próprio kit em `farmaura/react/internal/core/internal-ui.jsx` (`Icon`, `Badge`, `StatCard`, `KpiChip`, `PillNav`, `Modal`, `Drawer`, `Field`, `FormGrid`, `EmptyState`, `SearchInput`, `SwitchToggle`, `RecoverModal`, `confirmAction`, `showToast`). Isso resolve a pendência [[../06_Pendencias/relocar-ui-kit-compartilhado|relocar-ui-kit-compartilhado]] **para o console interno especificamente** — o marketplace ainda usa `marketplace-components.jsx` normalmente, então a pendência permanece aberta para essa superfície.
+
+Qualquer mudança na paleta do marketplace não afeta mais o console interno, e vice-versa — as duas camadas de token são independentes a partir desta migração.
 
 ## North Star: "Warm Apothecary"
 
@@ -52,7 +60,7 @@ Raios generosos e nunca cantos vivos: `10px` input, `12px` botão, `16px` card, 
 
 Botões (primary/vital/ghost/soft), chips e badges (com o badge de "superpromoção" como única animação pulsante deliberada — `faSuperPulse`, respeita `prefers-reduced-motion`), cards de produto (3 variantes: padrão, image-led, lista horizontal), inputs com glow rosé no foco, navegação (header do marketplace vs. sidebar sólida vinho do console interno). Especificação completa com HTML/CSS prontos para reutilização está no sidecar `farmaura/.impeccable/design.json`.
 
-Kit de UI reutilizável de fato (`Modal`, `ModalShell`, `Toggle`, `QtyStepper`, `ProductCard`, `brl`) vive em `farmaura/react/marketplace/core/marketplace-components.jsx` e é consumido por 17 arquivos do console interno — não em `react/shared/`, apesar do nome. Ver [[relocar-ui-kit-compartilhado]].
+Kit de UI reutilizável do marketplace (`Modal`, `ModalShell`, `Toggle`, `QtyStepper`, `ProductCard`, `brl`) vive em `farmaura/react/marketplace/core/marketplace-components.jsx` — não em `react/shared/`, apesar do nome. Ver [[relocar-ui-kit-compartilhado]] (pendência ainda válida para o marketplace). O console interno **não consome mais este kit**: desde a migração de 2026-09, tem o próprio kit em `farmaura/react/internal/core/internal-ui.jsx` (ver seção acima).
 
 ## O que já existia documentado antes desta pasta
 
@@ -75,4 +83,5 @@ Nenhuma outra documentação de sistema visual foi encontrada no cofre para Farm
 
 ## Atualizações
 
+- 2026-09-11: migração visual completa do console interno para o design "Farmaura Operações" concluída (lotes A→H + Fase Z) — `internal.css` deixou de compartilhar tokens `--fa-*` com o marketplace e ganhou seu próprio conjunto semântico (com tema escuro e densidade nativos); ponte de compatibilidade e `internal-legacy.css` removidas; kit de UI do console interno migrou para `internal-ui.jsx` próprio, deixando de depender de `marketplace-components.jsx`. Ver [[../00_Decisoes/2026-09-11-migracao-visual-console-interno-para-farmaura-operacoes|ADR]].
 - 2026-08-22: nota criada a partir de `/impeccable document` — extração dos tokens reais de `marketplace.css`/`internal.css`, confirmação de linguagem descritiva com o usuário (North Star "Warm Apothecary", regra de anti-referência de paleta, sensação "confiante e acolhedor"), e consolidação da documentação de design pré-existente nesta pasta.
