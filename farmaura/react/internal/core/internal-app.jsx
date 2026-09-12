@@ -1750,6 +1750,7 @@ function PharmApp() {
   const [pharmacistProfile, setPharmacistProfile] = useState({});
   const [storeFiscal, setStoreFiscal] = useState({});
   const [chartSeed, setChartSeed] = useState({});
+  const [todaySummary, setTodaySummary] = useState({});
   const [hub, setHub] = useState(null);
   const [deliveryRoute, setDeliveryRoute] = useState(null);
   const [driverLivePosition, setDriverLivePosition] = useState(null);
@@ -3178,6 +3179,17 @@ function PharmApp() {
           setDeliveryAreasState(normalizeDeliveryAreasResponse(deliveryAreasPayload));
         }
         setChartSeed(bootstrap.chart_seed || bootstrap.chartSeed || {});
+        {
+          const summaryPayload = bootstrap.today_summary || bootstrap.todaySummary || {};
+          setTodaySummary({
+            revenueToday: Number(summaryPayload.revenue_today || 0),
+            revenueYesterday: Number(summaryPayload.revenue_yesterday || 0),
+            ordersToday: Number(summaryPayload.orders_today || 0),
+            ordersYesterday: Number(summaryPayload.orders_yesterday || 0),
+            rxPendingToday: Number(summaryPayload.rx_pending_today || 0),
+            rxPendingYesterday: Number(summaryPayload.rx_pending_yesterday || 0),
+          });
+        }
         setCoupons((Array.isArray(bootstrap.coupon_campaigns) ? bootstrap.coupon_campaigns : []).map(normalizeCouponCampaign));
         setPromotions((Array.isArray(bootstrap.pricing_promotions) ? bootstrap.pricing_promotions : []).map(normalizePricingPromotion));
         setFinancialSettingsState(bootstrap.financial_settings || bootstrap.financialSettings || { months: {} });
@@ -4578,7 +4590,7 @@ function PharmApp() {
     promotions, promotionModalState, openPromotionCreate, openPromotionEdit, closePromotionModal, createPromotion, updatePromotion, togglePromotionState, removePromotion, duplicatePromotion, estimatePromotionAudience,
     customers, customerByName, createPdvCustomer,
     nowLabel, todayIso, todayLabel,
-    pharmacistProfile, storeFiscal, chartSeed,
+    pharmacistProfile, storeFiscal, chartSeed, todaySummary,
     hub, deliveryRoute, driverLivePosition, assignRouteDriver,
     myDeliveryRoutes, deliverRouteStop, locationSharing, toggleLocationSharing,
     financialMonths: financialSettings ? financialSettings.months || {} : null,

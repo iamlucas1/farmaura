@@ -35,6 +35,10 @@ const ICON_ALIAS = {
   chevrondown: "chevD",
   barchart: "chart",
   alerttriangle: "alert",
+  dollar: "money",
+  checkcircle: "check",
+  users: "user",
+  pdv: "receipt",
   up: "arrowupright",
   down: "trenddown",
 };
@@ -699,16 +703,23 @@ function CrudPage({
 
 /* ---------- charts ---------- */
 function ChartData({ caption, cols, rows }) {
+  /* `<table>` ignores a 1px width/height from `.sr-only` (auto table layout refuses to shrink
+     below its content's intrinsic size), so the table renders at full height while still being
+     visually clipped — leaving a large invisible gap below every chart. Wrapping it in a plain
+     `.sr-only` div (which *does* respect the 1x1px clip) fixes the layout without touching the
+     table's own markup/semantics for screen readers. */
   return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead><tr>{cols.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr></thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={i}>{r.map((cell, j) => (j === 0 ? <th key={j} scope="row">{cell}</th> : <td key={j}>{cell}</td>))}</tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="sr-only">
+      <table>
+        <caption>{caption}</caption>
+        <thead><tr>{cols.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>{r.map((cell, j) => (j === 0 ? <th key={j} scope="row">{cell}</th> : <td key={j}>{cell}</td>))}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 function ChartTooltip({ x, y, children }) {

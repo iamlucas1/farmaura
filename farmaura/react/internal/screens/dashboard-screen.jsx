@@ -8,12 +8,14 @@ import { Icon, PageHead, Badge, StatCard, PillNav, DataTable, Avatar, VBars, mon
    caixa), replicando a estrutura da tela "Painel" do protótipo Farmaura Operações (cada papel via
    um recorte diferente do mesmo dia operacional, não uma única visão genérica).
 
-   Toda variante consome só dado real já disponível em ctx — nada é inventado. Onde o protótipo
-   pedia algo que o backend não expõe hoje, a variante usa o sinal real mais próximo (nunca um
-   número fixo) ou omite o cartão:
-   - "Vendas hoje"/"Faturamento hoje" em R$: não há agregado confiável de receita do dia no ctx
-     (chartSeed só soma CONTAGEM de pedidos+vendas, não valor) — os StatCards usam essa contagem
-     real em vez de inventar uma soma em R$.
+   Toda variante consome só dado real já disponível em ctx — nada é inventado. "Venda hoje" e os
+   deltas "vs. ontem" (Pedidos, Receitas) vêm de `ctx.todaySummary`, um resumo calculado no backend
+   (`PortalService._build_today_summary`, ver app/services/portal_service.py) que soma o valor real
+   de pedidos+vendas do dia (mesmo filtro de elegibilidade de receita já usado em
+   `_resolve_construction_costs`) — não uma contagem convertida em R$ nem um número fixo.
+
+   Onde o protótipo pedia algo que o backend ainda não expõe, a variante usa o sinal real mais
+   próximo ou omite o cartão:
    - "Equipe hoje" (gerente, com status "atendendo"/"disponível" ao vivo): omitido — o endpoint
      de equipe é admin-only no backend (ver app/api/v1/team.py) e não existe status de atividade
      ao vivo por pessoa; o espaço vai para o gráfico de vendas em largura cheia.
@@ -32,6 +34,16 @@ function firstName(name) {
 function storeNameOf(stores, storeId) {
   const found = (stores || []).find((s) => s.id === storeId);
   return found ? found.name : "";
+}
+/* Compara um valor de hoje com o de ontem (ambos vindos de ctx.todaySummary, real, calculado no
+   backend) e devolve o par {delta, deltaTone} que StatCard espera. `format` converte o número da
+   diferença em texto (money() para R$, identidade para contagem). */
+function compareToYesterday(today, yesterday, format = (n) => String(n)) {
+  const diff = Number(today || 0) - Number(yesterday || 0);
+  if (diff === 0) return { delta: "Igual a ontem", deltaTone: "flat" };
+  const tone = diff > 0 ? "up" : "down";
+  const sign = diff > 0 ? "+" : "−";
+  return { delta: `${sign}${format(Math.abs(diff))} vs. ontem`, deltaTone: tone };
 }
 
 /* ---------- cartões compartilhados entre variantes de papel ---------- */
@@ -156,10 +168,13 @@ function StockAlertsCard({ items, onNav, title, desc, style }) {
 /* ---------- variante: administrador (visão consolidada da rede) ---------- */
 
 function AdminDashboard({ ctx, active, pendingRx, stockAlerts, byHour, week }) {
-  const { onNav, inventory } = ctx;
+  const { onNav, todaySummary = {} } = ctx;
   const readyPickup = active.filter((o) => o.fulfillment === "pickup" && o.status === "ready");
   const toDispatch = active.filter((o) => o.fulfillment === "delivery" && o.status === "ready");
-  const todayCount = byHour.reduce((sum, entry) => sum + (Number(entry && entry.v) || 0), 0);
+
+  const revenueDelta = compareToYesterday(todaySummary.revenueToday, todaySummary.revenueYesterday, money);
+  const ordersDelta = compareToYesterday(todaySummary.ordersToday, todaySummary.ordersYesterday);
+  const rxDelta = compareToYesterday(todaySummary.rxPendingToday, todaySummary.rxPendingYesterday);
 
   return (
     <>
@@ -169,9 +184,9 @@ function AdminDashboard({ ctx, active, pendingRx, stockAlerts, byHour, week }) {
       </div>
 
       <div className="grid g-3" style={{ marginBottom: 16 }}>
-        <StatCard icon="chart" label="Pedidos e vendas hoje" value={todayCount} tone="good" />
-        <StatCard icon="bag" label="Pedidos em aberto" value={active.length} tone="warning" />
-        <StatCard icon="rx" label="Receitas para validar" value={pendingRx.length} tone={pendingRx.length ? "warning" : "accent"} />
+        <StatCard icon="dollar" label="Venda hoje" value={money(todaySummary.revenueToday)} tone="good" delta={revenueDelta.delta} deltaTone={revenueDelta.deltaTone} />
+        <StatCard icon="bag" label="Pedidos em aberto" value={active.length} tone="warning" delta={ordersDelta.delta} deltaTone={ordersDelta.deltaTone} />
+        <StatCard icon="rx" label="Receitas para validar" value={pendingRx.length} tone={pendingRx.length ? "warning" : "accent"} delta={rxDelta.delta} deltaTone={rxDelta.deltaTone} />
       </div>
 
       <div className="grid g-12" style={{ marginBottom: 16 }}>
@@ -364,7 +379,7 @@ function CashierDashboard({ ctx, active }) {
 /* ---------- ponto de entrada ---------- */
 
 function Dashboard({ ctx }) {
-  const { orders, prescriptions, inventory, user = {}, stores = [], chartSeed = {} } = ctx;
+  const { orders, prescriptions, inventory, user = {}, stores = [], chartSeed = {}, nowLabel } = ctx;
   const byHour = Array.isArray(chartSeed.byHour) ? chartSeed.byHour : [];
   const week = Array.isArray(chartSeed.week) ? chartSeed.week : [];
   const active = orders.filter((order) => order.status !== "dispatched" && order.status !== "delivered" && order.status !== "cancelled");
@@ -386,7 +401,10 @@ function Dashboard({ ctx }) {
 
   return (
     <div className="route-fade">
-      <PageHead eyebrow={head.eyebrow} title={head.title} desc={head.desc} />
+      <PageHead
+        eyebrow={head.eyebrow} title={head.title} desc={head.desc}
+        actions={nowLabel && <span className="cell-muted" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}><Icon name="refresh" size={13} />Atualizado às {nowLabel}</span>}
+      />
       {role === "admin" && <AdminDashboard ctx={ctx} active={active} pendingRx={pendingRx} stockAlerts={stockAlerts} byHour={byHour} week={week} />}
       {role === "manager" && <ManagerDashboard ctx={ctx} active={active} week={week} />}
       {role === "pharmacist" && <PharmacistDashboard ctx={ctx} pendingRx={pendingRx} />}
