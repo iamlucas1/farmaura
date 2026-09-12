@@ -799,17 +799,17 @@ function PdvScreen({ ctx }) {
         operator === "caixa"
           ? (
             <>
+              <div style={{ marginBottom: pdvQueue.length > 0 ? 16 : 0 }}>
+                <PdvIdentifyClient
+                  customers={customers} onCreate={createPdvCustomer}
+                  title="Identificar cliente" desc="Identifique o cliente para abrir a venda no caixa, ou continue sem identificar."
+                  onPick={(c) => { setPdvCustomer(c); setCaixaReady(true); }}
+                  onSkip={() => setCaixaReady(true)}
+                />
+              </div>
               {pdvQueue.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <PdvCaixaQueue queue={pdvQueue} onClaim={(entry) => { pdvClaimFromQueue(entry.id); setDiscount(entry.discount || 0); setCaixaReady(true); }} customerByName={customerByName} />
-                </div>
+                <PdvCaixaQueue queue={pdvQueue} onClaim={(entry) => { pdvClaimFromQueue(entry.id); setDiscount(entry.discount || 0); setCaixaReady(true); }} customerByName={customerByName} />
               )}
-              <PdvIdentifyClient
-                customers={customers} onCreate={createPdvCustomer}
-                title="Identificar cliente" desc="Identifique o cliente para abrir a venda no caixa, ou continue sem identificar."
-                onPick={(c) => { setPdvCustomer(c); setCaixaReady(true); }}
-                onSkip={() => setCaixaReady(true)}
-              />
             </>
           )
           : (
