@@ -112,7 +112,16 @@ SECOND_STORE_LATITUDE = Decimal("-15.8378500")
 SECOND_STORE_LONGITUDE = Decimal("-48.0261600")
 DEFAULT_PASSWORD = "Farmaura@123"
 MFA_SECRET = "JBSWY3DPEHPK3PXP"
-SEED_NOW = datetime(2026, 6, 11, 9, 30, tzinfo=UTC)
+
+# Anchors the whole "day of operations" (orders, PDV sales, stock movements, delivery routes,
+# etc.) to real today at a fixed time-of-day — not a hardcoded past date. `_build_chart_seed`
+# (app/services/portal_service.py) queries orders/sales by real wall-clock day boundaries, so a
+# frozen SEED_NOW silently goes stale the moment real time moves past it: every "hoje"/"últimos 7
+# dias" chart on the internal Painel would show zero forever. Same reasoning already applied to
+# `build_coupon_campaigns` and `build_deal_of_the_day_settings` for their own schedule-sensitive
+# fields — this just extends it to the operational day itself. Every existing `SEED_NOW -
+# timedelta(days=N)` call site keeps working unchanged, since they're all relative to this anchor.
+SEED_NOW = datetime.now(UTC).replace(hour=9, minute=30, second=0, microsecond=0)
 
 # CNAEs (atividades) registrados para a farmácia. O ICMS de cada CNAE fica em
 # 0.00% no seed de propósito — é uma alíquota efetiva que a contabilidade da

@@ -739,6 +739,19 @@ class PortalDeliveryRouteResponse(StrictModel):
     stops: list[PortalDeliveryRouteStopResponse] = Field(default_factory=list)
 
 
+class PortalTodaySummaryResponse(StrictModel):
+    """Real revenue/orders/prescription counts for today vs. yesterday, for the internal Painel's
+    "hoje vs. ontem" comparisons — a companion to `chart_seed`'s byHour/week series (which only
+    count events, never sum money)."""
+
+    revenue_today: Decimal = Decimal("0.00")
+    revenue_yesterday: Decimal = Decimal("0.00")
+    orders_today: int = 0
+    orders_yesterday: int = 0
+    rx_pending_today: int = 0
+    rx_pending_yesterday: int = 0
+
+
 class PortalInternalBootstrapResponse(StrictModel):
     """Represent the internal console bootstrap payload."""
 
@@ -754,6 +767,7 @@ class PortalInternalBootstrapResponse(StrictModel):
     store: PortalStoreResponse
     stores: list[PortalStoreResponse] = Field(default_factory=list)
     chart_seed: dict[str, list[dict[str, int | str]]] = Field(default_factory=dict)
+    today_summary: PortalTodaySummaryResponse = Field(default_factory=PortalTodaySummaryResponse)
     coupon_campaigns: list[PortalCouponResponse] = Field(default_factory=list)
     pricing_promotions: list[PortalPricingPromotionResponse] = Field(default_factory=list)
     financial_settings: PortalFinancialSettingsResponse = Field(default_factory=PortalFinancialSettingsResponse)

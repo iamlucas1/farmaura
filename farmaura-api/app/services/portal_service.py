@@ -58,6 +58,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.pdv_sale import PdvSale
 from app.models.portal_setting import PortalSetting
+from app.models.prescription import Prescription
 from app.models.pricing_promotion import PricingPromotion
 from app.models.product_review import ProductReview
 from app.models.saved_product import SavedProduct
@@ -130,6 +131,7 @@ from app.schemas.portal import (
     PortalSubscriptionCreateRequest,
     PortalSubscriptionResponse,
     PortalSubscriptionUpdateRequest,
+    PortalTodaySummaryResponse,
 )
 
 
@@ -394,6 +396,7 @@ class PortalService:
             store=store,
             stores=stores,
             chart_seed=await self._build_chart_seed(tenant_id=tenant_id),
+            today_summary=await self._build_today_summary(tenant_id=tenant_id),
             coupon_campaigns=await self._list_coupon_campaigns(tenant_id=tenant_id, active_only=False),
             pricing_promotions=await self._list_pricing_promotions(tenant_id=tenant_id),
             financial_settings=await self._resolve_financial_settings(tenant_id=tenant_id),
@@ -1688,6 +1691,66 @@ class PortalService:
             'byHour': [{'h': f'{hour:02d}h', 'v': by_hour_counts[hour]} for hour in range(8, 21)],
             'week': [{'d': WEEKDAY_LABELS[item.weekday()], 'v': week_counts[item]} for item in week_dates],
         }
+
+    async def _build_today_summary(self, *, tenant_id: str) -> PortalTodaySummaryResponse:
+        """Return real revenue/order/prescription counts for today vs. yesterday, for the
+        internal Painel's "hoje vs. ontem" StatCard deltas. Same day-boundary convention as
+        `_build_chart_seed` (UTC-midnight of today, not Brasília-midnight) so the two stay
+        consistent with each other; same revenue-eligibility filter already used by
+        `_resolve_construction_costs` (NON_REVENUE_ORDER_STATUSES / sale_status == 'completed')."""
+
+        now = datetime.now(tz=UTC)
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday_start = day_start - timedelta(days=1)
+
+        orders_statement = select(Order.total_amount, Order.created_at).where(
+            Order.tenant_id == tenant_id, Order.created_at >= yesterday_start, Order.status.notin_(NON_REVENUE_ORDER_STATUSES),
+        )
+        sales_statement = select(PdvSale.total_amount, PdvSale.created_at).where(
+            PdvSale.tenant_id == tenant_id, PdvSale.created_at >= yesterday_start, PdvSale.sale_status == 'completed',
+        )
+        all_orders_statement = select(Order.created_at).where(Order.tenant_id == tenant_id, Order.created_at >= yesterday_start)
+        rx_statement = select(Prescription.created_at).where(Prescription.tenant_id == tenant_id, Prescription.created_at >= yesterday_start)
+
+        revenue_rows = [*(await self.session.execute(orders_statement)).all(), *(await self.session.execute(sales_statement)).all()]
+        order_timestamps = list((await self.session.execute(all_orders_statement)).scalars().all())
+        rx_timestamps = list((await self.session.execute(rx_statement)).scalars().all())
+
+        revenue_today = Decimal('0.00')
+        revenue_yesterday = Decimal('0.00')
+        for amount, created_at in revenue_rows:
+            if created_at is None:
+                continue
+            local_time = created_at.astimezone()
+            if local_time >= day_start.astimezone():
+                revenue_today += amount
+            elif local_time >= yesterday_start.astimezone():
+                revenue_yesterday += amount
+
+        def _bucket_counts(timestamps: list[datetime]) -> tuple[int, int]:
+            today_count = 0
+            yesterday_count = 0
+            for timestamp in timestamps:
+                if timestamp is None:
+                    continue
+                local_time = timestamp.astimezone()
+                if local_time >= day_start.astimezone():
+                    today_count += 1
+                elif local_time >= yesterday_start.astimezone():
+                    yesterday_count += 1
+            return today_count, yesterday_count
+
+        orders_today, orders_yesterday = _bucket_counts(order_timestamps)
+        rx_pending_today, rx_pending_yesterday = _bucket_counts(rx_timestamps)
+
+        return PortalTodaySummaryResponse(
+            revenue_today=revenue_today,
+            revenue_yesterday=revenue_yesterday,
+            orders_today=orders_today,
+            orders_yesterday=orders_yesterday,
+            rx_pending_today=rx_pending_today,
+            rx_pending_yesterday=rx_pending_yesterday,
+        )
 
     async def _resolve_delivery_route(self, *, tenant_id: str, store: PortalStoreResponse) -> PortalDeliveryRouteResponse:
         """Return the active internal delivery route, or an empty hub-only snapshot."""
