@@ -25,11 +25,14 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import get_logger
 from app.core.password_hashing import generate_temporary_password, hash_password
 from app.domain.enums import AccessScope, UserRole
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.notification_service import NotificationService
+
+logger = get_logger("customer_access")
 
 
 async def provision_first_access(session: AsyncSession, *, tenant_id: str, email: str, full_name: str) -> None:
@@ -64,8 +67,10 @@ async def provision_first_access(session: AsyncSession, *, tenant_id: str, email
     else:
         return
 
-    NotificationService().send_first_access_email(
+    sent, detail = NotificationService().send_first_access_email(
         email=normalized_email,
         full_name=full_name,
         temporary_password=temporary_password,
     )
+    log = logger.info if sent else logger.warning
+    log("first_access.email_dispatch", email=normalized_email, sent=sent, detail=detail)
