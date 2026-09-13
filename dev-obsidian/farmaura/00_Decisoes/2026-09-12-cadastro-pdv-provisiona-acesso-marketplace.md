@@ -91,4 +91,6 @@ e a política de senha forte:
 - [[2026-07-20-politica-de-senha-forte]]
 - [[../04_Seguranca_Riscos/rate-limiting-nao-aplicado|rate-limiting-nao-aplicado]]
 - [[../06_Pendencias/rate-limit-ausente-cadastro-pdv-com-envio-de-email|rate-limit-ausente-cadastro-pdv-com-envio-de-email]]
+- [[2026-09-13-rls-bloqueava-2fa-e-conclusao-do-primeiro-acesso]] — bug crítico encontrado ao testar este mesmo fluxo ponta a ponta: a conclusão do primeiro acesso (e, do mesmo jeito, o login com 2FA) sempre falhava com "Invalid credentials" por um problema de ordem de aplicação de contexto de RLS, não relacionado ao e-mail/senha em si.
+- [[../05_Integracoes_Infra/SMTP|SMTP]] — template HTML compartilhado (logo via CID, modo escuro) usado pelo e-mail de primeiro acesso disparado aqui.
 - `_Compartilhado/Padroes_Politicas/padrao-ataques-defesas-e-limites-de-teste.md`

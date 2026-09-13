@@ -27,9 +27,11 @@ Fonte de verdade de todo o domínio de negócio Farmaura, com isolamento multi-t
 - [[resetar-e-re-semear-dados-locais]] — POP que reaplica RLS a cada bootstrap.
 - [[excecao-fiscal-scheduler-sessao-propria]] — exceção nomeada de contexto cross-tenant (job de sistema) sobre esta RLS.
 - [[../07_POPs_Processos/aplicar-migration-alembic-producao|aplicar-migration-alembic-producao]] — POP de deploy de migration.
+- [[../04_Seguranca_Riscos/rls-bloqueava-2fa-login-e-primeiro-acesso|rls-bloqueava-2fa-login-e-primeiro-acesso]] — achado de 2026-09-13: dois fluxos de auth (`verify_two_factor`, `complete_password_reset`) buscavam o usuário por id *antes* de aplicar `apply_authenticated_context`, então a RLS de `users` sempre devolvia zero linhas — lição: o contexto tem que ser aplicado antes da query que ele protege, nunca depois.
 
 ## Atualizações
 
+- 2026-09-13: achado (e corrigido localmente) um caso de contexto de RLS aplicado tarde demais — `apply_authenticated_context` era chamado só depois da consulta que ele deveria proteger, em dois fluxos de autenticação (2FA e conclusão de primeiro acesso). Ver [[../04_Seguranca_Riscos/rls-bloqueava-2fa-login-e-primeiro-acesso|risco]] e [[../00_Decisoes/2026-09-13-rls-bloqueava-2fa-e-conclusao-do-primeiro-acesso|ADR]].
 - 2026-08-02: seis migrations aplicadas em produção (`20260729_01_coupon_checkout_integrity` até
   `20260731_01_service_scope_and_booking_discount`) no mesmo deploy que levou cupom/promoção
   server-side, banner/marcas configuráveis e o modo de lançamento para produção — ver
