@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import smtplib
 from email.message import EmailMessage
+from functools import lru_cache
+from pathlib import Path
 
 from app.core.config import get_settings
 from app.models.fiscal_document import FiscalDocument
@@ -38,13 +40,28 @@ from app.models.fiscal_document import FiscalDocument
 _INK = "#2B1A1A"          # Grafite Quente — primary text
 _INK_MUTED = "#6B5757"    # Grafite Quente — secondary text
 _INK_FAINT = "#9A8A8A"    # Grafite Quente — faint/footer text
-_PRIMARY = "#7A0D16"      # Vinho Aura — brand primary
+_PRIMARY = "#7A0D16"      # Vinho Aura — brand primary, trust/default
+_PRIMARY_DARK = "#5C0910" # Vinho Aura, ink — text/border on soft rose
+_VITAL = "#C81D28"        # Vermelho Vital — urgency/security accent (never swapped with Vinho Aura)
 _BORDER = "#F1EBE9"       # Cinza Névoa — hairlines
 _BG = "#FAF7F5"           # Off-white Clínico — page background
+_BEGE = "#F6F1E8"         # Bege Atalho — soft neutral panel
 _ROSE_SOFT = "#FFEDEE"    # Rosé Cuidado — soft highlight background
-_GOOD = "#2E7D5B"
-_WARNING = "#B36A00"
 _FONT_STACK = "'Nunito Sans', Arial, Helvetica, sans-serif"
+_MONO_STACK = "'Courier New', Courier, monospace"
+
+# The logo ships as a CID-embedded attachment (not a hosted URL) so it always renders,
+# regardless of whether the frontend's static build has been deployed anywhere reachable —
+# most mail clients block/delay remote images by default, but never inline ones.
+_LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "email" / "logo.png"
+_LOGO_CID = "farmaura-email-logo"
+
+
+@lru_cache(maxsize=1)
+def _load_logo_bytes() -> bytes:
+    """Read the e-mail logo once and cache it for the life of the process."""
+
+    return _LOGO_PATH.read_bytes()
 
 
 # ============================================================================
@@ -66,11 +83,11 @@ class NotificationService:
         total_amount = f"{float(document.gross_total_amount or 0):.2f}".replace(".", ",")
         content = "".join(
             [
+                self._eyebrow("Nota fiscal"),
                 self._heading("Sua NFC-e já foi emitida"),
                 self._paragraph(f"Documento <strong>{document.document_number}</strong> · Série <strong>{document.series_code}</strong>"),
                 self._paragraph(f"Emitida em {document.issue_datetime_label} · Total <strong>R$ {total_amount}</strong>"),
-                self._paragraph("Chave de acesso:", muted=True),
-                self._code_block(document.access_key),
+                self._code_block(document.access_key, label="Chave de acesso"),
                 self._button("Abrir versão para impressão", printable_html_url),
             ]
         )
@@ -87,10 +104,10 @@ class NotificationService:
 
         content = "".join(
             [
+                self._eyebrow("Primeiro acesso"),
                 self._heading(self._greeting(full_name)),
                 self._paragraph("Recebemos uma solicitação de primeiro acesso à sua conta Farmaura."),
-                self._paragraph("Sua senha temporária de acesso é:", muted=True),
-                self._code_block(temporary_password),
+                self._code_block(temporary_password, label="Senha temporária"),
                 self._paragraph("Use essa senha para entrar no marketplace — você será solicitado a criar uma nova senha em seguida."),
                 self._paragraph("Se você não fez essa solicitação, ignore este e-mail.", faint=True),
             ]
@@ -108,6 +125,7 @@ class NotificationService:
 
         content = "".join(
             [
+                self._eyebrow("Segurança da conta", tone="urgent"),
                 self._heading(self._greeting(full_name)),
                 self._paragraph(
                     "Detectamos várias tentativas seguidas de login com senha incorreta na sua conta Farmaura "
@@ -134,6 +152,7 @@ class NotificationService:
 
         content = "".join(
             [
+                self._eyebrow("Disponível de novo"),
                 self._heading(self._greeting(full_name)),
                 self._paragraph(f"O produto <strong>{product_name}</strong> que você pediu para ser avisado já está disponível no marketplace Farmaura."),
                 self._paragraph("Corra antes que acabe de novo!"),
@@ -209,6 +228,11 @@ class NotificationService:
         message["To"] = email
         message.set_content(text_body)
         message.add_alternative(html_body, subtype="html")
+        html_part = message.get_payload()[1]
+        try:
+            html_part.add_related(_load_logo_bytes(), maintype="image", subtype="png", cid=f"<{_LOGO_CID}>")
+        except OSError:
+            pass  # logo asset missing on disk — send without it rather than fail the whole e-mail
         try:
             with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=20) as client:
                 if self.settings.smtp_use_tls:
@@ -225,10 +249,10 @@ class NotificationService:
 
         Table-based layout, everything inlined — the one part of the codebase that
         deliberately ignores the "no inline styles" instinct, because e-mail clients
-        require it.
+        require it. Logo is referenced by CID (embedded attachment, see `_dispatch`),
+        never by URL — so it always renders, with no dependency on any deploy.
         """
 
-        logo_url = f"{self.settings.marketplace_base_url.rstrip('/')}/email-logo.png"
         return f"""<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -241,28 +265,31 @@ class NotificationService:
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:{_BG};">&#8203;</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{_BG};">
     <tr>
-      <td align="center" style="padding:32px 16px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(43,26,26,.08);font-family:{_FONT_STACK};">
+      <td align="center" style="padding:40px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 16px 40px rgba(43,26,26,.10);font-family:{_FONT_STACK};">
           <tr>
-            <td align="center" style="padding:36px 32px 18px;">
-              <img src="{logo_url}" width="52" height="51" alt="Farmaura" style="display:block;margin:0 auto 10px;border:0;" />
-              <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:{_PRIMARY};">Farmaura</div>
+            <td style="height:5px;line-height:5px;font-size:0;background-color:{_PRIMARY};background-image:linear-gradient(90deg,{_PRIMARY},{_VITAL});">&nbsp;</td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:34px 32px 20px;background-color:{_BEGE};">
+              <img src="cid:{_LOGO_CID}" width="50" height="49" alt="Farmaura" style="display:block;margin:0 auto 12px;border:0;" />
+              <div style="font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:{_PRIMARY_DARK};">Farmaura</div>
             </td>
           </tr>
           <tr>
-            <td style="padding:0 32px;">
-              <div style="height:1px;line-height:1px;background-color:{_BORDER};font-size:0;">&nbsp;</div>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:26px 32px 6px;color:{_INK};font-size:15px;line-height:1.6;">
+            <td style="padding:28px 32px 4px;color:{_INK};font-size:15px;line-height:1.6;">
               {content_html}
             </td>
           </tr>
           <tr>
-            <td style="padding:22px 32px 30px;background-color:{_BG};">
-              <div style="font-size:12px;color:{_INK_FAINT};line-height:1.6;text-align:center;">
-                Farmaura · Sua farmácia de bairro, pertinho de você.<br />
+            <td style="padding:8px 32px 0;">
+              <div style="height:1px;line-height:1px;background-color:{_BORDER};font-size:0;">&nbsp;</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 32px 30px;background-color:{_BG};">
+              <div style="font-size:12px;color:{_INK_FAINT};line-height:1.65;text-align:center;">
+                <strong style="color:{_INK_MUTED};">Farmaura</strong> · Sua farmácia de bairro, pertinho de você.<br />
                 Este é um e-mail automático — a Farmaura nunca liga ou manda mensagem pedindo sua senha, código de acesso ou dados de cartão completos.
               </div>
             </td>
@@ -279,10 +306,20 @@ class NotificationService:
 
         return f"Olá, {full_name}!" if full_name else "Olá!"
 
+    def _eyebrow(self, text: str, *, tone: str = "brand") -> str:
+        """Render the small-caps label above the heading — mirrors the app's own PageHead
+
+        eyebrow convention. `tone="urgent"` switches to Vermelho Vital for security/lockout
+        moments; the brand's "dois vermelhos" rule never lets the two swap roles.
+        """
+
+        color = _VITAL if tone == "urgent" else _PRIMARY
+        return f'<div style="margin:0 0 8px;font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:{color};">{text}</div>'
+
     def _heading(self, text: str) -> str:
         """Render the shared e-mail-body heading style."""
 
-        return f'<h2 style="margin:0 0 14px;font-size:19px;font-weight:800;color:{_INK};">{text}</h2>'
+        return f'<h2 style="margin:0 0 14px;font-size:20px;font-weight:800;color:{_INK};letter-spacing:-.01em;">{text}</h2>'
 
     def _paragraph(self, html: str, *, muted: bool = False, faint: bool = False) -> str:
         """Render one shared-style paragraph — muted/faint pick a lighter ink tone."""
@@ -291,26 +328,38 @@ class NotificationService:
         size = "12.5px" if faint else "14.5px"
         return f'<p style="margin:0 0 14px;color:{color};font-size:{size};line-height:1.6;">{html}</p>'
 
-    def _code_block(self, value: str) -> str:
-        """Render one highlighted monospace value — temporary passwords, access keys."""
+    def _code_block(self, value: str, *, label: str = "") -> str:
+        """Render one highlighted monospace value — temporary passwords, access keys.
 
+        Optional `label` sits as a small caps caption above the value (e.g. "Senha
+        temporária" / "Chave de acesso") so the block reads on its own if skimmed.
+        """
+
+        caption = (
+            f'<div style="margin:0 0 8px;font-size:10.5px;font-weight:800;letter-spacing:.08em;'
+            f'text-transform:uppercase;color:{_PRIMARY_DARK};opacity:.75;">{label}</div>'
+            if label
+            else ""
+        )
         return (
-            '<div style="margin:0 0 18px;text-align:center;">'
-            f'<span style="display:inline-block;padding:12px 20px;border-radius:10px;background-color:{_ROSE_SOFT};'
-            f'color:{_PRIMARY};font-family:\'Courier New\',monospace;font-size:16px;font-weight:800;letter-spacing:.03em;'
-            'word-break:break-all;">'
-            f"{value}</span></div>"
+            '<div style="margin:4px 0 20px;text-align:center;">'
+            f'<div style="display:inline-block;padding:16px 24px;border-radius:12px;background-color:{_ROSE_SOFT};'
+            f'border:1.5px dashed {_PRIMARY};">'
+            f"{caption}"
+            f'<span style="display:block;color:{_PRIMARY_DARK};font-family:{_MONO_STACK};font-size:19px;'
+            'font-weight:800;letter-spacing:.05em;word-break:break-all;">'
+            f"{value}</span></div></div>"
         )
 
     def _button(self, label: str, url: str) -> str:
         """Render one primary call-to-action button (table-based for Outlook safety)."""
 
         return (
-            '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 18px;">'
+            '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px;">'
             "<tr><td "
-            f'style="border-radius:10px;background-color:{_PRIMARY};">'
-            f'<a href="{url}" style="display:inline-block;padding:13px 22px;font-size:14.5px;font-weight:700;'
-            f'color:#ffffff;text-decoration:none;border-radius:10px;">{label}</a>'
+            f'style="border-radius:11px;background-color:{_PRIMARY};box-shadow:0 4px 14px rgba(122,13,22,.28);">'
+            f'<a href="{url}" style="display:inline-block;padding:14px 26px;font-size:14.5px;font-weight:700;'
+            f'color:#ffffff;text-decoration:none;border-radius:11px;">{label}</a>'
             "</td></tr></table>"
         )
 
