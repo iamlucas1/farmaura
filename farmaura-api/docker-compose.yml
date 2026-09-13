@@ -35,7 +35,7 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 8080
       APP_BASE_URL: https://api.farmaura.local
-      APP_MARKETPLACE_BASE_URL: https://farmaura.local
+      APP_MARKETPLACE_BASE_URL: https://drogariafarmaura.com.br
       APP_API_V1_PREFIX: /api/v1
       APP_DEBUG: "false"
       APP_ALLOWED_ORIGINS: http://127.0.0.1:3000,http://localhost:3000,https://farmaura.local,https://farmacia.local

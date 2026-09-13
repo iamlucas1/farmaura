@@ -6,12 +6,19 @@ Notification delivery service for Farmaura.
 Responsibilities:
 - send fiscal document e-mails through SMTP when configured;
 - send first-access temporary-password e-mails through SMTP when configured;
+- send account-lockout and back-in-stock e-mails through SMTP when configured;
+- build one shared branded HTML shell (logo, colors, typography) that every e-mail body
+  renders inside, so all transactional e-mails look like the same product;
 - build deterministic HTML summaries for operational receipts and NFC-e data;
 - keep delivery failures isolated from the core order and PDV flows.
 
 Observations:
 - SMTP delivery is best-effort and must not block the issuance lifecycle;
-- printable HTML is generated locally to support browser printing without fake data.
+- the HTML shell uses a table-based layout with inline styles on purpose — e-mail clients
+  (Outlook desktop especially) don't reliably support modern CSS, flexbox/grid, or external
+  stylesheets, so every visual rule that must render is inlined on the element itself;
+- printable HTML (`render_fiscal_document_html`) is a full standalone page for the browser,
+  not an e-mail body — it keeps its own <style> block, unrelated to the e-mail shell below.
 """
 
 from __future__ import annotations
@@ -21,6 +28,23 @@ from email.message import EmailMessage
 
 from app.core.config import get_settings
 from app.models.fiscal_document import FiscalDocument
+
+
+# ============================================================================
+# BRAND TOKENS (e-mail-safe subset of the "Warm Apothecary" design system —
+# hardcoded here because e-mail HTML can't reach the app's CSS custom properties)
+# ============================================================================
+
+_INK = "#2B1A1A"          # Grafite Quente — primary text
+_INK_MUTED = "#6B5757"    # Grafite Quente — secondary text
+_INK_FAINT = "#9A8A8A"    # Grafite Quente — faint/footer text
+_PRIMARY = "#7A0D16"      # Vinho Aura — brand primary
+_BORDER = "#F1EBE9"       # Cinza Névoa — hairlines
+_BG = "#FAF7F5"           # Off-white Clínico — page background
+_ROSE_SOFT = "#FFEDEE"    # Rosé Cuidado — soft highlight background
+_GOOD = "#2E7D5B"
+_WARNING = "#B36A00"
+_FONT_STACK = "'Nunito Sans', Arial, Helvetica, sans-serif"
 
 
 # ============================================================================
@@ -39,97 +63,89 @@ class NotificationService:
     def send_fiscal_document_email(self, *, document: FiscalDocument, email: str, printable_html_url: str) -> tuple[bool, str]:
         """Send one fiscal document summary by e-mail when SMTP is configured."""
 
-        if not self.settings.smtp_enabled:
-            return False, "SMTP não configurado para envio automático."
-        message = EmailMessage()
-        message["Subject"] = f"Farmaura · NFC-e {document.document_number}"
-        message["From"] = self._format_from_header()
-        message["To"] = email
-        message.set_content(self._build_text_body(document=document, printable_html_url=printable_html_url))
-        message.add_alternative(self._build_html_body(document=document, printable_html_url=printable_html_url), subtype="html")
-        try:
-            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=20) as client:
-                if self.settings.smtp_use_tls:
-                    client.starttls()
-                if self.settings.smtp_username:
-                    client.login(self.settings.smtp_username, self.settings.smtp_password)
-                client.send_message(message)
-        except Exception as exc:
-            return False, f"Falha ao enviar e-mail fiscal: {exc}"
-        return True, "Documento fiscal enviado por e-mail com sucesso."
+        total_amount = f"{float(document.gross_total_amount or 0):.2f}".replace(".", ",")
+        content = "".join(
+            [
+                self._heading("Sua NFC-e já foi emitida"),
+                self._paragraph(f"Documento <strong>{document.document_number}</strong> · Série <strong>{document.series_code}</strong>"),
+                self._paragraph(f"Emitida em {document.issue_datetime_label} · Total <strong>R$ {total_amount}</strong>"),
+                self._paragraph("Chave de acesso:", muted=True),
+                self._code_block(document.access_key),
+                self._button("Abrir versão para impressão", printable_html_url),
+            ]
+        )
+        return self._dispatch(
+            email=email,
+            subject=f"Farmaura · NFC-e {document.document_number}",
+            preheader=f"Sua NFC-e {document.document_number} foi emitida — total R$ {total_amount}.",
+            text_body=self._build_text_body(document=document, printable_html_url=printable_html_url),
+            html_body=self._wrap_email_html(content),
+        )
 
     def send_first_access_email(self, *, email: str, full_name: str, temporary_password: str) -> tuple[bool, str]:
         """Send one temporary password by e-mail for a marketplace first-access flow."""
 
-        if not self.settings.smtp_enabled:
-            return False, "SMTP não configurado para envio automático."
-        message = EmailMessage()
-        message["Subject"] = "Farmaura · Sua senha de primeiro acesso"
-        message["From"] = self._format_from_header()
-        message["To"] = email
-        message.set_content(self._build_first_access_text_body(full_name=full_name, temporary_password=temporary_password))
-        message.add_alternative(self._build_first_access_html_body(full_name=full_name, temporary_password=temporary_password), subtype="html")
-        try:
-            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=20) as client:
-                if self.settings.smtp_use_tls:
-                    client.starttls()
-                if self.settings.smtp_username:
-                    client.login(self.settings.smtp_username, self.settings.smtp_password)
-                client.send_message(message)
-        except Exception as exc:
-            return False, f"Falha ao enviar e-mail de primeiro acesso: {exc}"
-        return True, "E-mail de primeiro acesso enviado com sucesso."
+        content = "".join(
+            [
+                self._heading(self._greeting(full_name)),
+                self._paragraph("Recebemos uma solicitação de primeiro acesso à sua conta Farmaura."),
+                self._paragraph("Sua senha temporária de acesso é:", muted=True),
+                self._code_block(temporary_password),
+                self._paragraph("Use essa senha para entrar no marketplace — você será solicitado a criar uma nova senha em seguida."),
+                self._paragraph("Se você não fez essa solicitação, ignore este e-mail.", faint=True),
+            ]
+        )
+        return self._dispatch(
+            email=email,
+            subject="Farmaura · Sua senha de primeiro acesso",
+            preheader="Sua senha temporária de acesso ao marketplace Farmaura chegou.",
+            text_body=self._build_first_access_text_body(full_name=full_name, temporary_password=temporary_password),
+            html_body=self._wrap_email_html(content),
+        )
 
     def send_account_locked_email(self, *, email: str, full_name: str, unlock_url: str, lockout_minutes: int) -> tuple[bool, str]:
         """Send one account-lockout notification e-mail with a self-service unlock link."""
 
-        if not self.settings.smtp_enabled:
-            return False, "SMTP não configurado para envio automático."
-        message = EmailMessage()
-        message["Subject"] = "Farmaura · Sua conta foi bloqueada temporariamente"
-        message["From"] = self._format_from_header()
-        message["To"] = email
-        message.set_content(
-            self._build_account_locked_text_body(full_name=full_name, unlock_url=unlock_url, lockout_minutes=lockout_minutes)
+        content = "".join(
+            [
+                self._heading(self._greeting(full_name)),
+                self._paragraph(
+                    "Detectamos várias tentativas seguidas de login com senha incorreta na sua conta Farmaura "
+                    "e bloqueamos o acesso temporariamente por segurança."
+                ),
+                self._paragraph(
+                    f"O bloqueio expira sozinho em cerca de <strong>{lockout_minutes} minuto(s)</strong>, mas se foi você "
+                    "quem errou a senha, pode desbloquear agora mesmo:"
+                ),
+                self._button("Desbloquear minha conta", unlock_url),
+                self._paragraph("Se você não reconhece essas tentativas, recomendamos trocar sua senha assim que possível.", faint=True),
+            ]
         )
-        message.add_alternative(
-            self._build_account_locked_html_body(full_name=full_name, unlock_url=unlock_url, lockout_minutes=lockout_minutes),
-            subtype="html",
+        return self._dispatch(
+            email=email,
+            subject="Farmaura · Sua conta foi bloqueada temporariamente",
+            preheader=f"Bloqueio temporário de {lockout_minutes} minuto(s) por tentativas de login incorretas.",
+            text_body=self._build_account_locked_text_body(full_name=full_name, unlock_url=unlock_url, lockout_minutes=lockout_minutes),
+            html_body=self._wrap_email_html(content),
         )
-        try:
-            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=20) as client:
-                if self.settings.smtp_use_tls:
-                    client.starttls()
-                if self.settings.smtp_username:
-                    client.login(self.settings.smtp_username, self.settings.smtp_password)
-                client.send_message(message)
-        except Exception as exc:
-            return False, f"Falha ao enviar e-mail de bloqueio de conta: {exc}"
-        return True, "E-mail de bloqueio de conta enviado com sucesso."
 
     def send_product_available_email(self, *, email: str, full_name: str, product_name: str) -> tuple[bool, str]:
         """Send one back-in-stock notification e-mail when SMTP is configured."""
 
-        if not self.settings.smtp_enabled:
-            return False, "SMTP não configurado para envio automático."
-        message = EmailMessage()
-        message["Subject"] = f"Farmaura · {product_name} já está disponível"
-        message["From"] = self._format_from_header()
-        message["To"] = email
-        message.set_content(self._build_product_available_text_body(full_name=full_name, product_name=product_name))
-        message.add_alternative(
-            self._build_product_available_html_body(full_name=full_name, product_name=product_name), subtype="html"
+        content = "".join(
+            [
+                self._heading(self._greeting(full_name)),
+                self._paragraph(f"O produto <strong>{product_name}</strong> que você pediu para ser avisado já está disponível no marketplace Farmaura."),
+                self._paragraph("Corra antes que acabe de novo!"),
+            ]
         )
-        try:
-            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=20) as client:
-                if self.settings.smtp_use_tls:
-                    client.starttls()
-                if self.settings.smtp_username:
-                    client.login(self.settings.smtp_username, self.settings.smtp_password)
-                client.send_message(message)
-        except Exception as exc:
-            return False, f"Falha ao enviar e-mail de disponibilidade: {exc}"
-        return True, "E-mail de disponibilidade enviado com sucesso."
+        return self._dispatch(
+            email=email,
+            subject=f"Farmaura · {product_name} já está disponível",
+            preheader=f"{product_name} voltou ao estoque.",
+            text_body=self._build_product_available_text_body(full_name=full_name, product_name=product_name),
+            html_body=self._wrap_email_html(content),
+        )
 
     def render_fiscal_document_html(self, *, document: FiscalDocument) -> str:
         """Return one standalone printable HTML view for a fiscal document."""
@@ -178,62 +194,125 @@ class NotificationService:
 </body>
 </html>"""
 
-    def _build_account_locked_text_body(self, *, full_name: str, unlock_url: str, lockout_minutes: int) -> str:
-        """Build the plain-text body for one account-lockout e-mail."""
+    # ------------------------------------------------------------------
+    # shared HTML e-mail shell + content fragment helpers
+    # ------------------------------------------------------------------
 
-        return "\n".join(
-            [
-                f"Olá, {full_name}!" if full_name else "Olá!",
-                "",
-                "Detectamos várias tentativas seguidas de login com senha incorreta na sua conta Farmaura",
-                "e bloqueamos o acesso temporariamente por segurança.",
-                "",
-                f"O bloqueio expira sozinho em cerca de {lockout_minutes} minuto(s), mas se foi você quem errou",
-                "a senha, pode desbloquear agora mesmo pelo link abaixo:",
-                "",
-                unlock_url,
-                "",
-                "Se você não reconhece essas tentativas, recomendamos trocar sua senha assim que possível.",
-            ]
-        )
+    def _dispatch(self, *, email: str, subject: str, preheader: str, text_body: str, html_body: str) -> tuple[bool, str]:
+        """Build and send one e-mail through SMTP; returns (sent, detail) — never raises."""
 
-    def _build_account_locked_html_body(self, *, full_name: str, unlock_url: str, lockout_minutes: int) -> str:
-        """Build the HTML body for one account-lockout e-mail."""
+        if not self.settings.smtp_enabled:
+            return False, "SMTP não configurado para envio automático."
+        message = EmailMessage()
+        message["Subject"] = subject
+        message["From"] = self._format_from_header()
+        message["To"] = email
+        message.set_content(text_body)
+        message.add_alternative(html_body, subtype="html")
+        try:
+            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=20) as client:
+                if self.settings.smtp_use_tls:
+                    client.starttls()
+                if self.settings.smtp_username:
+                    client.login(self.settings.smtp_username, self.settings.smtp_password)
+                client.send_message(message)
+        except Exception as exc:
+            return False, f"Falha ao enviar e-mail ({subject}): {exc}"
+        return True, "E-mail enviado com sucesso."
 
-        greeting = f"Olá, {full_name}!" if full_name else "Olá!"
-        return f"""
-        <div style=\"font-family:Arial,sans-serif;color:#111;line-height:1.5\">
-          <h2 style=\"margin:0 0 12px;color:#7A0D16\">{greeting}</h2>
-          <p style=\"margin:0 0 12px\">Detectamos várias tentativas seguidas de login com senha incorreta na sua conta Farmaura e bloqueamos o acesso temporariamente por segurança.</p>
-          <p style=\"margin:0 0 12px\">O bloqueio expira sozinho em cerca de <strong>{lockout_minutes} minuto(s)</strong>, mas se foi você quem errou a senha, pode desbloquear agora mesmo:</p>
-          <p style=\"margin:18px 0\"><a href=\"{unlock_url}\" style=\"display:inline-block;padding:12px 16px;border-radius:12px;background:#7A0D16;color:#fff;text-decoration:none;font-weight:700\">Desbloquear minha conta</a></p>
-          <p style=\"margin:18px 0 0;color:#666;font-size:13px\">Se você não reconhece essas tentativas, recomendamos trocar sua senha assim que possível.</p>
-        </div>
+    def _wrap_email_html(self, content_html: str) -> str:
+        """Wrap inner content HTML in the shared Farmaura-branded e-mail shell.
+
+        Table-based layout, everything inlined — the one part of the codebase that
+        deliberately ignores the "no inline styles" instinct, because e-mail clients
+        require it.
         """
 
-    def _build_product_available_text_body(self, *, full_name: str, product_name: str) -> str:
-        """Build the plain-text body for one back-in-stock e-mail."""
+        logo_url = f"{self.settings.marketplace_base_url.rstrip('/')}/email-logo.png"
+        return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light" />
+<title>Farmaura</title>
+</head>
+<body style="margin:0;padding:0;background-color:{_BG};">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:{_BG};">&#8203;</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{_BG};">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(43,26,26,.08);font-family:{_FONT_STACK};">
+          <tr>
+            <td align="center" style="padding:36px 32px 18px;">
+              <img src="{logo_url}" width="52" height="51" alt="Farmaura" style="display:block;margin:0 auto 10px;border:0;" />
+              <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:{_PRIMARY};">Farmaura</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px;">
+              <div style="height:1px;line-height:1px;background-color:{_BORDER};font-size:0;">&nbsp;</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:26px 32px 6px;color:{_INK};font-size:15px;line-height:1.6;">
+              {content_html}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 32px 30px;background-color:{_BG};">
+              <div style="font-size:12px;color:{_INK_FAINT};line-height:1.6;text-align:center;">
+                Farmaura · Sua farmácia de bairro, pertinho de você.<br />
+                Este é um e-mail automático — a Farmaura nunca liga ou manda mensagem pedindo sua senha, código de acesso ou dados de cartão completos.
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
 
-        return "\n".join(
-            [
-                f"Olá, {full_name}!" if full_name else "Olá!",
-                "",
-                f"O produto {product_name} que você pediu para ser avisado já está disponível no marketplace Farmaura.",
-                "Corra antes que acabe de novo!",
-            ]
+    def _greeting(self, full_name: str) -> str:
+        """Build the "Olá, Nome!" heading text, with a name-less fallback."""
+
+        return f"Olá, {full_name}!" if full_name else "Olá!"
+
+    def _heading(self, text: str) -> str:
+        """Render the shared e-mail-body heading style."""
+
+        return f'<h2 style="margin:0 0 14px;font-size:19px;font-weight:800;color:{_INK};">{text}</h2>'
+
+    def _paragraph(self, html: str, *, muted: bool = False, faint: bool = False) -> str:
+        """Render one shared-style paragraph — muted/faint pick a lighter ink tone."""
+
+        color = _INK_FAINT if faint else (_INK_MUTED if muted else _INK)
+        size = "12.5px" if faint else "14.5px"
+        return f'<p style="margin:0 0 14px;color:{color};font-size:{size};line-height:1.6;">{html}</p>'
+
+    def _code_block(self, value: str) -> str:
+        """Render one highlighted monospace value — temporary passwords, access keys."""
+
+        return (
+            '<div style="margin:0 0 18px;text-align:center;">'
+            f'<span style="display:inline-block;padding:12px 20px;border-radius:10px;background-color:{_ROSE_SOFT};'
+            f'color:{_PRIMARY};font-family:\'Courier New\',monospace;font-size:16px;font-weight:800;letter-spacing:.03em;'
+            'word-break:break-all;">'
+            f"{value}</span></div>"
         )
 
-    def _build_product_available_html_body(self, *, full_name: str, product_name: str) -> str:
-        """Build the HTML body for one back-in-stock e-mail."""
+    def _button(self, label: str, url: str) -> str:
+        """Render one primary call-to-action button (table-based for Outlook safety)."""
 
-        greeting = f"Olá, {full_name}!" if full_name else "Olá!"
-        return f"""
-        <div style=\"font-family:Arial,sans-serif;color:#111;line-height:1.5\">
-          <h2 style=\"margin:0 0 12px;color:#7A0D16\">{greeting}</h2>
-          <p style=\"margin:0 0 12px\">O produto <strong>{product_name}</strong> que você pediu para ser avisado já está disponível no marketplace Farmaura.</p>
-          <p style=\"margin:0 0 12px\">Corra antes que acabe de novo!</p>
-        </div>
-        """
+        return (
+            '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 18px;">'
+            "<tr><td "
+            f'style="border-radius:10px;background-color:{_PRIMARY};">'
+            f'<a href="{url}" style="display:inline-block;padding:13px 22px;font-size:14.5px;font-weight:700;'
+            f'color:#ffffff;text-decoration:none;border-radius:10px;">{label}</a>'
+            "</td></tr></table>"
+        )
 
     def _format_from_header(self) -> str:
         """Return the SMTP From header value."""
@@ -259,19 +338,6 @@ class NotificationService:
             ]
         )
 
-    def _build_html_body(self, *, document: FiscalDocument, printable_html_url: str) -> str:
-        """Build the HTML body for one fiscal e-mail."""
-
-        return f"""
-        <div style=\"font-family:Arial,sans-serif;color:#111;line-height:1.5\">
-          <h2 style=\"margin:0 0 12px;color:#7A0D16\">Sua NFC-e já foi emitida</h2>
-          <p style=\"margin:0 0 12px\">Documento <strong>{document.document_number}</strong> · Série <strong>{document.series_code}</strong></p>
-          <p style=\"margin:0 0 12px\">Emitida em {document.issue_datetime_label}</p>
-          <p style=\"margin:0 0 12px\">Chave de acesso:<br /><span style=\"font-family:'Courier New',monospace\">{document.access_key}</span></p>
-          <p style=\"margin:18px 0 0\"><a href=\"{printable_html_url}\" style=\"display:inline-block;padding:12px 16px;border-radius:12px;background:#7A0D16;color:#fff;text-decoration:none;font-weight:700\">Abrir versão para impressão</a></p>
-        </div>
-        """
-
     def _build_first_access_text_body(self, *, full_name: str, temporary_password: str) -> str:
         """Build the plain-text body for one first-access e-mail."""
 
@@ -287,17 +353,33 @@ class NotificationService:
             ]
         )
 
-    def _build_first_access_html_body(self, *, full_name: str, temporary_password: str) -> str:
-        """Build the HTML body for one first-access e-mail."""
+    def _build_account_locked_text_body(self, *, full_name: str, unlock_url: str, lockout_minutes: int) -> str:
+        """Build the plain-text body for one account-lockout e-mail."""
 
-        greeting = f"Olá, {full_name}!" if full_name else "Olá!"
-        return f"""
-        <div style=\"font-family:Arial,sans-serif;color:#111;line-height:1.5\">
-          <h2 style=\"margin:0 0 12px;color:#7A0D16\">{greeting}</h2>
-          <p style=\"margin:0 0 12px\">Recebemos uma solicitação de primeiro acesso à sua conta Farmaura.</p>
-          <p style=\"margin:0 0 12px\">Sua senha temporária de acesso é:</p>
-          <p style=\"margin:0 0 18px\"><span style=\"display:inline-block;padding:10px 16px;border-radius:10px;background:#F4E7E8;color:#7A0D16;font-family:'Courier New',monospace;font-size:18px;font-weight:700\">{temporary_password}</span></p>
-          <p style=\"margin:0 0 12px\">Use essa senha para entrar no marketplace — você será solicitado a criar uma nova senha em seguida.</p>
-          <p style=\"margin:18px 0 0;color:#666;font-size:13px\">Se você não fez essa solicitação, ignore este e-mail.</p>
-        </div>
-        """
+        return "\n".join(
+            [
+                f"Olá, {full_name}!" if full_name else "Olá!",
+                "",
+                "Detectamos várias tentativas seguidas de login com senha incorreta na sua conta Farmaura",
+                "e bloqueamos o acesso temporariamente por segurança.",
+                "",
+                f"O bloqueio expira sozinho em cerca de {lockout_minutes} minuto(s), mas se foi você quem errou",
+                "a senha, pode desbloquear agora mesmo pelo link abaixo:",
+                "",
+                unlock_url,
+                "",
+                "Se você não reconhece essas tentativas, recomendamos trocar sua senha assim que possível.",
+            ]
+        )
+
+    def _build_product_available_text_body(self, *, full_name: str, product_name: str) -> str:
+        """Build the plain-text body for one back-in-stock e-mail."""
+
+        return "\n".join(
+            [
+                f"Olá, {full_name}!" if full_name else "Olá!",
+                "",
+                f"O produto {product_name} que você pediu para ser avisado já está disponível no marketplace Farmaura.",
+                "Corra antes que acabe de novo!",
+            ]
+        )
