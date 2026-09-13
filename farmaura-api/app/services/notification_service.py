@@ -50,6 +50,24 @@ _ROSE_SOFT = "#FFEDEE"    # Rosé Cuidado — soft highlight background
 _FONT_STACK = "'Nunito Sans', Arial, Helvetica, sans-serif"
 _MONO_STACK = "'Courier New', Courier, monospace"
 
+# Dark-mode counterparts — applied via a `prefers-color-scheme: dark` <style> block using
+# !important classes, since inline styles (the light-mode baseline, needed for clients with
+# no dark-mode support at all) can't be overridden by a media query on their own. The e-mail
+# also declares `content="light dark"` in its <meta color-scheme>/<meta supported-color-schemes>
+# tags so Gmail/Outlook.com apply *this* palette instead of running their own automatic
+# (and much cruder) dark-mode color inversion — that blanket inversion is what was turning the
+# logo's transparent PNG background into a visible, wrong-colored box.
+_DARK_BG = "#17100F"
+_DARK_CARD = "#241716"
+_DARK_BORDER = "#3A2624"
+_DARK_INK = "#F5EDE9"
+_DARK_INK_MUTED = "#CBB8B5"
+_DARK_INK_FAINT = "#9C8683"
+_DARK_PRIMARY = "#E2565F"    # brighter Vinho Aura for contrast against a near-black background
+_DARK_VITAL = "#FF6B74"      # brighter Vermelho Vital, same reasoning
+_DARK_ROSE = "#3A1F22"
+_DARK_CODE_TEXT = "#FFD9DC"
+
 # The logo ships as a CID-embedded attachment (not a hosted URL) so it always renders,
 # regardless of whether the frontend's static build has been deployed anywhere reachable —
 # most mail clients block/delay remote images by default, but never inline ones.
@@ -258,19 +276,37 @@ class NotificationService:
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="color-scheme" content="light" />
+<meta name="color-scheme" content="light dark" />
+<meta name="supported-color-schemes" content="light dark" />
 <title>Farmaura</title>
+<style>
+  @media (prefers-color-scheme: dark) {{
+    .fa-bg {{ background-color: {_DARK_BG} !important; }}
+    .fa-card {{ background-color: {_DARK_CARD} !important; }}
+    .fa-divider {{ background-color: {_DARK_BORDER} !important; }}
+    .fa-ink {{ color: {_DARK_INK} !important; }}
+    .fa-ink-muted {{ color: {_DARK_INK_MUTED} !important; }}
+    .fa-ink-faint {{ color: {_DARK_INK_FAINT} !important; }}
+    .fa-primary-text {{ color: {_DARK_PRIMARY} !important; }}
+    .fa-vital-text {{ color: {_DARK_VITAL} !important; }}
+    .fa-code-box {{ background-color: {_DARK_ROSE} !important; border-color: {_DARK_PRIMARY} !important; }}
+    .fa-code-value {{ color: {_DARK_CODE_TEXT} !important; }}
+  }}
+</style>
 </head>
-<body style="margin:0;padding:0;background-color:{_BG};">
+<body class="fa-bg" style="margin:0;padding:0;background-color:{_BG};">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:{_BG};">&#8203;</div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{_BG};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="fa-bg" style="background-color:{_BG};">
     <tr>
       <td align="center" style="padding:40px 16px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 16px 40px rgba(43,26,26,.10);font-family:{_FONT_STACK};">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="fa-card" style="max-width:480px;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 16px 40px rgba(43,26,26,.10);font-family:{_FONT_STACK};">
           <tr>
             <td style="height:5px;line-height:5px;font-size:0;background-color:{_PRIMARY};background-image:linear-gradient(90deg,{_PRIMARY},{_VITAL});">&nbsp;</td>
           </tr>
           <tr>
+            <!-- Header keeps a fixed light background in every color scheme on purpose — the logo
+                 PNG has a transparent background, and letting this cell go dark is what made mail
+                 clients' automatic dark-mode image inversion turn it into a wrong-colored box. -->
             <td align="center" style="padding:34px 32px 20px;background-color:{_BEGE};">
               <img src="cid:{_LOGO_CID}" width="50" height="49" alt="Farmaura" style="display:block;margin:0 auto 12px;border:0;" />
               <div style="font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:{_PRIMARY_DARK};">Farmaura</div>
@@ -283,13 +319,13 @@ class NotificationService:
           </tr>
           <tr>
             <td style="padding:8px 32px 0;">
-              <div style="height:1px;line-height:1px;background-color:{_BORDER};font-size:0;">&nbsp;</div>
+              <div class="fa-divider" style="height:1px;line-height:1px;background-color:{_BORDER};font-size:0;">&nbsp;</div>
             </td>
           </tr>
           <tr>
-            <td style="padding:20px 32px 30px;background-color:{_BG};">
-              <div style="font-size:12px;color:{_INK_FAINT};line-height:1.65;text-align:center;">
-                <strong style="color:{_INK_MUTED};">Farmaura</strong> · Sua farmácia de bairro, pertinho de você.<br />
+            <td class="fa-bg" style="padding:20px 32px 30px;background-color:{_BG};">
+              <div class="fa-ink-faint" style="font-size:12px;color:{_INK_FAINT};line-height:1.65;text-align:center;">
+                <strong class="fa-ink-muted" style="color:{_INK_MUTED};">Farmaura</strong> · Sua farmácia de bairro, pertinho de você.<br />
                 Este é um e-mail automático — a Farmaura nunca liga ou manda mensagem pedindo sua senha, código de acesso ou dados de cartão completos.
               </div>
             </td>
@@ -313,20 +349,22 @@ class NotificationService:
         moments; the brand's "dois vermelhos" rule never lets the two swap roles.
         """
 
+        color_class = "fa-vital-text" if tone == "urgent" else "fa-primary-text"
         color = _VITAL if tone == "urgent" else _PRIMARY
-        return f'<div style="margin:0 0 8px;font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:{color};">{text}</div>'
+        return f'<div class="{color_class}" style="margin:0 0 8px;font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:{color};">{text}</div>'
 
     def _heading(self, text: str) -> str:
         """Render the shared e-mail-body heading style."""
 
-        return f'<h2 style="margin:0 0 14px;font-size:20px;font-weight:800;color:{_INK};letter-spacing:-.01em;">{text}</h2>'
+        return f'<h2 class="fa-ink" style="margin:0 0 14px;font-size:20px;font-weight:800;color:{_INK};letter-spacing:-.01em;">{text}</h2>'
 
     def _paragraph(self, html: str, *, muted: bool = False, faint: bool = False) -> str:
         """Render one shared-style paragraph — muted/faint pick a lighter ink tone."""
 
+        css_class = "fa-ink-faint" if faint else ("fa-ink-muted" if muted else "fa-ink")
         color = _INK_FAINT if faint else (_INK_MUTED if muted else _INK)
         size = "12.5px" if faint else "14.5px"
-        return f'<p style="margin:0 0 14px;color:{color};font-size:{size};line-height:1.6;">{html}</p>'
+        return f'<p class="{css_class}" style="margin:0 0 14px;color:{color};font-size:{size};line-height:1.6;">{html}</p>'
 
     def _code_block(self, value: str, *, label: str = "") -> str:
         """Render one highlighted monospace value — temporary passwords, access keys.
@@ -336,17 +374,17 @@ class NotificationService:
         """
 
         caption = (
-            f'<div style="margin:0 0 8px;font-size:10.5px;font-weight:800;letter-spacing:.08em;'
+            f'<div class="fa-primary-text" style="margin:0 0 8px;font-size:10.5px;font-weight:800;letter-spacing:.08em;'
             f'text-transform:uppercase;color:{_PRIMARY_DARK};opacity:.75;">{label}</div>'
             if label
             else ""
         )
         return (
             '<div style="margin:4px 0 20px;text-align:center;">'
-            f'<div style="display:inline-block;padding:16px 24px;border-radius:12px;background-color:{_ROSE_SOFT};'
+            f'<div class="fa-code-box" style="display:inline-block;padding:16px 24px;border-radius:12px;background-color:{_ROSE_SOFT};'
             f'border:1.5px dashed {_PRIMARY};">'
             f"{caption}"
-            f'<span style="display:block;color:{_PRIMARY_DARK};font-family:{_MONO_STACK};font-size:19px;'
+            f'<span class="fa-code-value" style="display:block;color:{_PRIMARY_DARK};font-family:{_MONO_STACK};font-size:19px;'
             'font-weight:800;letter-spacing:.05em;word-break:break-all;">'
             f"{value}</span></div></div>"
         )
