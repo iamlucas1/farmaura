@@ -173,6 +173,7 @@ class AuthService:
         """Validate a second-factor code and issue session tokens."""
 
         challenge_payload = decode_mfa_challenge_token(token=payload.challenge_token, settings=self.settings)
+        await apply_authenticated_context(self.session, tenant_id=str(challenge_payload["tenant_id"]), user_id=str(challenge_payload["sub"]))
         user = await self.user_repository.get_by_id(str(challenge_payload["sub"]))
         if user is None:
             raise AuthenticationError()
@@ -210,6 +211,7 @@ class AuthService:
         """Set a new password for a mandatory first-access reset and issue session tokens."""
 
         challenge_payload = decode_password_reset_challenge_token(token=payload.challenge_token, settings=self.settings)
+        await apply_authenticated_context(self.session, tenant_id=str(challenge_payload["tenant_id"]), user_id=str(challenge_payload["sub"]))
         user = await self.user_repository.get_by_id(str(challenge_payload["sub"]))
         if user is None:
             raise AuthenticationError()
@@ -222,7 +224,6 @@ class AuthService:
             access_scope=AccessScope(user.access_scope),
             portal=PortalName(str(challenge_payload["portal"])),
         )
-        await apply_authenticated_context(self.session, tenant_id=user.tenant_id, user_id=user.id)
         user.password_hash = hash_password(payload.new_password)
         user.must_change_password = False
         await self.user_repository.save(user)
