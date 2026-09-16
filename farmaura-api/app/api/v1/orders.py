@@ -14,6 +14,7 @@ Observations:
 """
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, get_subject_session, require_internal_subject, require_marketplace_subject
@@ -122,6 +123,19 @@ async def get_marketplace_order_changes(
 
     service = OrderService(session=session, subject=subject)
     return await service.get_marketplace_order_changes(since=since)
+
+
+@router.get('/{order_id}/fiscal-document/printable', response_class=HTMLResponse)
+async def get_marketplace_order_fiscal_document_printable(
+    order_id: str,
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> HTMLResponse:
+    """Return the printable fiscal document HTML for one of the authenticated customer's own orders."""
+
+    service = OrderService(session=session, subject=subject)
+    html = await service.get_customer_order_fiscal_document_html(order_id=order_id)
+    return HTMLResponse(content=html, headers={'Content-Disposition': f'inline; filename="nota-fiscal-{order_id}.html"'})
 
 
 @router.get('/internal-board', response_model=InternalOrderBoardResponse)

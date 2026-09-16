@@ -8,6 +8,14 @@ apresentação a investidor/cliente. Reaproveita `farmaura-api/scripts/populate_
 que fala só HTTP com a API já rodando (não mexe em banco direto) — ver
 [[../00_Decisoes/2026-08-05-populate-demo-content-via-api-e-reset-v2-com-farmaura|ADR de design]].
 
+Desde 2026-08-29, o seed determinístico local (`scripts/seed.py`) já grava as três coisas
+sozinho — banner, marcas em destaque (mesmos 6 logos placeholder) e ofertas do dia (ver
+[[resetar-e-re-semear-dados-locais|resetar-e-re-semear-dados-locais]] e
+[[../00_Decisoes/2026-08-29-seed-banner-home-hero-e-limite-do-sanitizador|ADR do banner de
+seed]]) — rodar este script continua valendo a pena quando o objetivo é especificamente a
+variante promocional de demo/investidor (copy diferente, "Até 30% OFF...") ou quando não há
+acesso direto ao banco (`lumos-dev`).
+
 ## Passos
 
 1. Ter a API alvo já no ar (local: `docker compose up`; `lumos-dev`: stack já publicada — ver
@@ -62,6 +70,13 @@ sobrescrevíveis de novo pelo console interno ou por uma nova rodada do script).
 
 ## Atualizações
 
+- 2026-08-29 (2): `scripts/seed.py` passou a gravar "Marcas em destaque" também — as três seções
+  agora nascem prontas do seed de base; este script deixou de ser obrigatório pra qualquer uma
+  delas, só continua útil pra variante promocional/investidor ou ambiente sem banco direto.
+- 2026-08-29: `scripts/seed.py` passou a gravar um banner/ofertas do dia básicos sozinho — este
+  script deixou de ser obrigatório pra a home ter hero, continua sendo o caminho pra marcas em
+  destaque e pra variante promocional/investidor do banner. Ver ADR linkado acima.
+- 2026-08-27: rodado pela primeira vez contra o ambiente local (`docker compose`) nesta máquina — até então só tinha sido usado em `lumos-dev`. Confirmado via `GET /portal/marketplace/public-bootstrap`: banner real, 6 marcas fictícias, ofertas do dia agendadas (7 dias). Sem esse passo, a home local ficava sem hero/banner e sem a faixa "Marcas em destaque" — real gap encontrado numa verificação de fidelidade visual/funcional completa do marketplace.
 - 2026-08-22: adicionadas as flags `--deal-mode scheduled`/`--scheduled-days N`, para seedar o
   modo agendado (calendário) de "ofertas do dia" com uma entrada por dia e testar manualmente
   sem esperar a virada de data real.

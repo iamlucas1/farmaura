@@ -21,7 +21,9 @@ Observations:
   writes must go through brand_id/category_id/therapeutic_class_id instead.
 """
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, String, Text, text
+from decimal import Decimal
+
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampedModel, UuidModel
@@ -68,6 +70,14 @@ class InventoryProduct(Base, UuidModel, TimestampedModel):
     cnae_code: Mapped[str] = mapped_column(String(20), default="", nullable=False)
     marketplace_image_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
     marketplace_gallery_urls: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    short_description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    bula_markdown: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    marketing_highlights: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    variant_group_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    variant_label: Mapped[str] = mapped_column(String(60), default="", nullable=False)
+    # Marketplace cashback rate for this product. NULL means "use the tenant-wide default"
+    # (PortalMarketplaceMetaResponse.cashback_default_percent); 0 means "no cashback".
+    cashback_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_discarded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

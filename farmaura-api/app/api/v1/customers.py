@@ -25,10 +25,15 @@ from app.schemas.customers import (
     CartItemUpsertRequest,
     CustomerAddressResponse,
     CustomerAddressUpsertRequest,
+    CustomerAnniversaryClaimRequest,
+    CustomerAnniversaryOfferResponse,
+    CustomerAnniversaryOffersResponse,
     CustomerAvatarUpdateRequest,
+    CustomerCashbackSummaryResponse,
     CustomerPaymentMethodCreateRequest,
     CustomerPaymentMethodResponse,
     CustomerPaymentMethodUpdateRequest,
+    CustomerPrescriptionStatusResponse,
     CustomerProfileResponse,
     CustomerProfileUpdateRequest,
     ProductAvailabilityAlertCreateRequest,
@@ -54,6 +59,51 @@ async def get_customer_profile(
 
     service = CustomerService(session)
     return await service.get_profile(subject)
+
+
+@router.get("/me/prescription-status", response_model=CustomerPrescriptionStatusResponse)
+async def get_customer_prescription_status(
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> CustomerPrescriptionStatusResponse:
+    """Return the authenticated customer's most recent pre-order prescription submission."""
+
+    service = CustomerService(session)
+    return await service.get_prescription_status(subject)
+
+
+@router.get("/me/cashback", response_model=CustomerCashbackSummaryResponse)
+async def get_customer_cashback(
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> CustomerCashbackSummaryResponse:
+    """Return the authenticated customer's cashback wallet balances, ledger, and redeem ceiling."""
+
+    service = CustomerService(session)
+    return await service.get_cashback_summary(subject)
+
+
+@router.get("/me/anniversary-offers", response_model=CustomerAnniversaryOffersResponse)
+async def get_customer_anniversary_offers(
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> CustomerAnniversaryOffersResponse:
+    """Return the birthday/customer-anniversary discount coupons currently offered to the customer."""
+
+    service = CustomerService(session)
+    return await service.get_anniversary_offers(subject)
+
+
+@router.post("/me/anniversary-offers/claim", response_model=CustomerAnniversaryOfferResponse)
+async def claim_customer_anniversary_offer(
+    payload: CustomerAnniversaryClaimRequest,
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> CustomerAnniversaryOfferResponse:
+    """Claim one anniversary discount coupon, re-validated against eligibility server-side."""
+
+    service = CustomerService(session)
+    return await service.claim_anniversary_offer(subject, payload)
 
 
 @router.put("/me/avatar", response_model=CustomerProfileResponse)

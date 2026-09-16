@@ -64,6 +64,8 @@ function createEmptyAddress() {
     district: "",
     city: "",
     state: "",
+    recipientName: "",
+    recipientPhone: "",
   };
 }
 
@@ -84,6 +86,8 @@ function normalizeAddress(value) {
     district: String(value && value.district || ""),
     city: String(value && (value.city && !value.state ? cityState.city : value.city) || ""),
     state: String(value && value.state || cityState.state || "").slice(0, 2).toUpperCase(),
+    recipientName: String(value && value.recipientName || ""),
+    recipientPhone: String(value && value.recipientPhone || ""),
   };
 }
 
@@ -133,11 +137,24 @@ async function fetchViaCepAddress(cep) {
   };
 }
 
+async function fetchDeliveryCoverage(authClient, address) {
+  /** Return a best-effort delivery-coverage preview for one resolved address. */
+
+  const params = new URLSearchParams({
+    district: address.district || "",
+    city: address.city || "",
+    state_code: address.state || "",
+    postal_code: address.cep || "",
+  });
+  return authClient.publicRequest(`/orders/delivery-coverage/public?${params.toString()}`, { method: "GET" });
+}
+
 export {
   buildAddressLine,
   buildAddressSecondaryLine,
   createEmptyAddress,
   digitsOnly,
+  fetchDeliveryCoverage,
   fetchViaCepAddress,
   formatCep,
   normalizeAddress,

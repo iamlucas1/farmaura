@@ -20,38 +20,45 @@ Observations:
 
 
 class DomainError(Exception):
-    """Base exception for expected domain failures."""
+    """Base exception for expected domain failures.
 
-    def __init__(self, message: str, status_code: int) -> None:
+    `message` must always be a safe, human-readable, Portuguese string — it is sent
+    to the client as-is (see `app/core/exceptions.py`). Never interpolate raw
+    exception text, SQL, file paths, or any other internal detail into it; log
+    that separately, server-side only.
+    """
+
+    def __init__(self, message: str, status_code: int, category: str = "servidor") -> None:
         """Store the domain error payload."""
 
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        self.category = category
 
 
 class AuthenticationError(DomainError):
     """Raised when authentication fails."""
 
-    def __init__(self, message: str = "Invalid credentials.") -> None:
+    def __init__(self, message: str = "Credenciais inválidas.") -> None:
         """Initialize the authentication error."""
 
-        super().__init__(message=message, status_code=401)
+        super().__init__(message=message, status_code=401, category="autenticacao")
 
 
 class AuthorizationError(DomainError):
     """Raised when authorization fails."""
 
-    def __init__(self, message: str = "Forbidden.") -> None:
+    def __init__(self, message: str = "Você não tem permissão para fazer isso.") -> None:
         """Initialize the authorization error."""
 
-        super().__init__(message=message, status_code=403)
+        super().__init__(message=message, status_code=403, category="permissao")
 
 
 class NotFoundError(DomainError):
     """Raised when a resource is not found."""
 
-    def __init__(self, message: str = "Resource not found.") -> None:
+    def __init__(self, message: str = "Recurso não encontrado.") -> None:
         """Initialize the not-found error."""
 
-        super().__init__(message=message, status_code=404)
+        super().__init__(message=message, status_code=404, category="nao_encontrado")

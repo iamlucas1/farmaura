@@ -12,10 +12,11 @@ Observations:
 - brands are never hard-deleted, only deactivated via the status endpoint;
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_subject_session, require_internal_subject
+from app.api.deps import get_session, get_subject_session, require_internal_subject
+from app.core.rate_limit import PUBLIC_RATE_LIMIT, rate_limit
 from app.domain.enums import UserRole
 from app.schemas.auth import TokenSubject
 from app.schemas.brand import (
@@ -25,6 +26,7 @@ from app.schemas.brand import (
     BrandResponse,
     BrandStatusUpdateRequest,
     BrandUpdateRequest,
+    PublicBrandResponse,
 )
 from app.services.brand_service import BrandService
 
@@ -35,6 +37,24 @@ from app.services.brand_service import BrandService
 
 
 router = APIRouter()
+
+
+@router.get(
+    "/public/{brand_name}",
+    response_model=PublicBrandResponse,
+    dependencies=[Depends(rate_limit(PUBLIC_RATE_LIMIT))],
+)
+async def get_public_brand(
+    brand_name: str,
+    session: AsyncSession = Depends(get_session),
+) -> PublicBrandResponse:
+    """Return the public-safe subset of one brand, for the marketplace brand page."""
+
+    service = BrandService(session=session)
+    brand = await service.get_public_brand(name=brand_name)
+    if brand is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Brand not found.")
+    return brand
 
 
 @router.get("", response_model=BrandListResponse)

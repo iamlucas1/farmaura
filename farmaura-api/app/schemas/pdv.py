@@ -15,7 +15,7 @@ Observations:
 
 from decimal import Decimal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.common import StrictModel
 from app.schemas.fiscal import FiscalDocumentResponse
@@ -308,6 +308,80 @@ class PdvReservationResponse(StrictModel):
     store_name: str
     expires_at_label: str
     customer: PdvCustomerLiteResponse | None = None
+
+
+# ============================================================================
+# PDV PRODUCT DEMAND LOG SCHEMAS
+# ============================================================================
+
+
+class PdvDemandLogRequest(StrictModel):
+    """Validate a request to log a product a customer wanted that wasn't available at the balcão.
+
+    Covers both cases the pharmacist can hit while searching: the product
+    exists in the catalog but has no stock at any store right now, or the
+    customer described something that doesn't match any registered product
+    (free-text query, kept as-is for later review).
+    """
+
+    query: str = Field(min_length=1, max_length=255)
+    matched_item_id: str | None = None
+    customer: PdvCustomerLiteRequest | None = None
+
+
+class PdvDemandLogResponse(StrictModel):
+    """Acknowledge a logged product demand."""
+
+    logged: bool = True
+
+
+# ============================================================================
+# PDV UPSELL SUGGESTION SCHEMAS
+# ============================================================================
+
+
+class PdvCartLineLiteRequest(StrictModel):
+    """Identify one cart line by its product name/brand snapshot, for upsell matching."""
+
+    name: str = Field(min_length=1, max_length=255)
+    brand: str = Field(default="", max_length=255)
+
+
+class PdvUpsellSuggestionRequest(StrictModel):
+    """Validate a request for real, in-stock cross-sell suggestions.
+
+    cart_items may be empty as long as customer_id is set — an identified customer with
+    an empty cart still gets suggestions from their own purchase history (top products,
+    recurrence), just none of the cart-based co-purchase signals. An anonymous customer
+    with an empty cart has nothing to base a suggestion on, so that combination is rejected.
+    """
+
+    cart_items: list[PdvCartLineLiteRequest] = Field(default_factory=list, max_length=100)
+    customer_id: str | None = None
+
+    @model_validator(mode="after")
+    def _require_cart_or_customer(self) -> "PdvUpsellSuggestionRequest":
+        """Reject a request with neither a cart nor an identified customer to analyze."""
+
+        if not self.cart_items and not (self.customer_id and self.customer_id.strip()):
+            raise ValueError("Either cart_items or customer_id must be provided.")
+        return self
+
+
+class PdvUpsellSuggestionItemResponse(StrictModel):
+    """Represent one suggested product, already resolved to real current-store stock."""
+
+    inventory_item_id: str
+    name: str
+    brand: str
+    category: str
+    price: Decimal
+
+
+class PdvUpsellSuggestionResponse(StrictModel):
+    """Represent the ranked list of cross-sell suggestions for the current cart."""
+
+    items: list[PdvUpsellSuggestionItemResponse]
 
 
 # ============================================================================

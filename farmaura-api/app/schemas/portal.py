@@ -15,6 +15,7 @@ Observations:
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import Field, field_validator
@@ -63,6 +64,22 @@ class PortalPharmacistResponse(StrictModel):
     avatar_initials: str = ""
 
 
+class InstallmentOverrideRule(StrictModel):
+    """Represent one installment-count override, scoped to a product or a minimum order value.
+
+    Takes precedence over the tenant-wide max_installments/interest_free_installments for a
+    price/cart context matching its scope — see resolvePaymentBreakdown (payment-pricing.js),
+    the single shared function that applies this precedence identically in the admin preview
+    and the real storefront.
+    """
+
+    scope_type: Literal["product", "min_value"]
+    product_ref: str = Field(default="", max_length=160)
+    min_value: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
+    max_installments: int = Field(default=1, ge=1, le=12)
+    interest_free_installments: int = Field(default=1, ge=1, le=12)
+
+
 class PortalMarketplaceMetaResponse(StrictModel):
     """Represent marketplace institutional and fee metadata."""
 
@@ -79,6 +96,19 @@ class PortalMarketplaceMetaResponse(StrictModel):
     max_installments: int = 1
     interest_free_installments: int = 1
     installment_interest_percent: Decimal = Decimal("0.00")
+    installment_overrides: list[InstallmentOverrideRule] = Field(default_factory=list)
+    # Marketplace cashback: the fallback earn rate for products without their own
+    # inventory_products.cashback_percent, and the ceiling (as a % of the order total) a
+    # customer may cover with wallet balance at checkout.
+    cashback_default_percent: Decimal = Decimal("0.00")
+    cashback_redeem_max_percent: Decimal = Decimal("25.00")
+    # Loyalty coupons the customer claims (not auto-applied) during the whole calendar month of
+    # their birthday, or of their real signup anniversary (Customer.created_at, not the
+    # member_since_label display string) — see CustomerService.get_anniversary_offers.
+    birthday_discount_enabled: bool = False
+    birthday_discount_percent: Decimal = Decimal("10.00")
+    customer_anniversary_discount_enabled: bool = False
+    customer_anniversary_discount_percent: Decimal = Decimal("10.00")
 
 
 class PortalMarketplaceMetaUpdateRequest(StrictModel):
@@ -99,6 +129,14 @@ class PortalMarketplaceMetaUpdateRequest(StrictModel):
     max_installments: int = Field(default=1, ge=1, le=12)
     interest_free_installments: int = Field(default=1, ge=1, le=12)
     installment_interest_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("20.00"))
+    # Per-product / per-minimum-value overrides — see InstallmentOverrideRule.
+    installment_overrides: list[InstallmentOverrideRule] = Field(default_factory=list, max_length=50)
+    cashback_default_percent: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
+    cashback_redeem_max_percent: Decimal = Field(default=Decimal("25.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
+    birthday_discount_enabled: bool = False
+    birthday_discount_percent: Decimal = Field(default=Decimal("10.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
+    customer_anniversary_discount_enabled: bool = False
+    customer_anniversary_discount_percent: Decimal = Field(default=Decimal("10.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
 
 
 class PortalHomeBannerSlide(StrictModel):
@@ -191,6 +229,25 @@ class PortalHomeBrandsUpdateRequest(PortalHomeBrandsResponse):
     """Validate a marketplace home brand-circles update payload."""
 
 
+class PortalHomeTrendsResponse(StrictModel):
+    """Represent the tenant's marketplace home "tendências" curated product strip.
+
+    Deliberately simpler than `PortalDealOfTheDayResponse` — no auto/scheduled mode, no
+    countdown, no title/subtitle override — this section always reads "Tendências" and just
+    shows an admin-curated, ordered list of products, same on/off + list shape as
+    `PortalHomeBrandsResponse`. `product_refs` follows the same `"inv-<InventoryItem.id>"`
+    convention already used by `PortalDealOfTheDayResponse.product_refs`, resolved client-side
+    against `CatalogItem.aliases`.
+    """
+
+    mode: str = Field(default="off", pattern="^(off|on)$")
+    product_refs: list[str] = Field(default_factory=list, max_length=30)
+
+
+class PortalHomeTrendsUpdateRequest(PortalHomeTrendsResponse):
+    """Validate a marketplace home "tendências" update payload."""
+
+
 class DealOfTheDayAutoParams(StrictModel):
     """Configure the randomized "ofertas do dia" generator used by `mode="auto"`.
 
@@ -213,8 +270,36 @@ class DealOfTheDayAutoParams(StrictModel):
     count_random: int = Field(default=0, ge=0, le=30)
 
 
+class DealScheduleEntry(StrictModel):
+    """One calendar entry of "ofertas do dia": either a one-off date or a weekday-recurrence rule.
+
+    List order (in `PortalDealOfTheDayResponse.schedule_entries`) doubles as both the admin-facing
+    display order AND the tie-break priority when more than one entry matches the same day — same
+    "order field also is priority" convention this schema already uses for `product_refs`. Matched
+    by `PortalService`'s `_match_deal_schedule_entry`: exact-date match wins over weekday
+    recurrence; `start_date`/`end_date` bound the recurrence only (a `specific_dates` entry is
+    self-bounding by definition).
+
+    `end_time`, when set, is a *daily* cutoff for the weekly-recurrence tier — it applies every day
+    the recurrence is otherwise valid (independent of whether `start_date`/`end_date` are set at
+    all), not just the recurrence's final day. E.g. "every Sunday until 20:00" needs no `end_date`:
+    the entry matches every Sunday up to that hour, then again from the next valid day's midnight.
+    All times are Brasília wall-clock (`PortalService._BRASILIA_TZ`), never the server's own OS tz.
+    """
+
+    id: str
+    title: str = ""
+    subtitle: str = ""
+    product_refs: list[str] = Field(default_factory=list, max_length=30)
+    specific_dates: list[str] = Field(default_factory=list, max_length=31)  # "YYYY-MM-DD"
+    weekdays: list[int] = Field(default_factory=list, max_length=7)  # 0=Mon..6=Sun (date.weekday())
+    start_date: str | None = None
+    end_date: str | None = None
+    end_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
 class PortalDealOfTheDayResponse(StrictModel):
-    """Represent the tenant's "ofertas do dia" home section — manual or auto-cycled.
+    """Represent the tenant's "ofertas do dia" home section — manual, auto-cycled, or scheduled.
 
     `product_refs` stores stable references in the same "inv-<InventoryItem.id>" /
     "listing-<MarketplaceListing.id>" format already used by favorites/subscriptions (see
@@ -228,14 +313,33 @@ class PortalDealOfTheDayResponse(StrictModel):
     once per day at `reset_time` (see `PortalService._resolve_deal_of_the_day`/
     `_deal_cycle_elapsed`), following `auto_params` — the admin never has to open the console for it
     to keep rotating. `last_generated_at` records when `product_refs` was last (re)computed under
-    `mode="auto"` (unused in `mode="manual"`).
+    `mode="auto"` (unused in `mode="manual"`/`mode="scheduled"`).
+
+    `mode="scheduled"` instead picks one `schedule_entries` entry for "today" (per
+    `PortalService._current_cycle_date`/`_match_deal_schedule_entry`) and overwrites `product_refs`/
+    `title`/`subtitle`/`reset_time` on the returned response with that entry's values (`reset_time`
+    only when the entry has its own `end_time`, else the stored `reset_time` is kept) — those
+    top-level fields are write-through/unused in the persisted JSON for this mode, purely a
+    resolve-time projection, mirroring how `mode="auto"` already overwrites `product_refs`/
+    `last_generated_at`. The frontend's countdown widget always counts down to whatever `reset_time`
+    a response carries, regardless of mode — this is what makes a scheduled entry's own `end_time`
+    actually drive the countdown customers see, instead of always the tenant-wide cycle boundary.
+    `title`/`subtitle` are otherwise unused (`mode="manual"`/`"auto"` always show the frontend's
+    fixed default copy).
+
+    `show_countdown` toggles only the ticking countdown widget (home strip + `/offers`) — it never
+    hides the section itself or its products, and applies across every mode, not just `scheduled`.
     """
 
-    mode: str = Field(default="off", pattern="^(off|manual|auto)$")
+    mode: str = Field(default="off", pattern="^(off|manual|auto|scheduled)$")
     product_refs: list[str] = Field(default_factory=list, max_length=30)
     reset_time: str = Field(default="00:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     auto_params: DealOfTheDayAutoParams = Field(default_factory=DealOfTheDayAutoParams)
     last_generated_at: datetime | None = None
+    title: str = ""
+    subtitle: str = ""
+    schedule_entries: list[DealScheduleEntry] = Field(default_factory=list, max_length=60)
+    show_countdown: bool = True
 
 
 class PortalDealOfTheDayUpdateRequest(PortalDealOfTheDayResponse):
@@ -268,6 +372,19 @@ class DealSuggestionListResponse(StrictModel):
     """Represent one page of "ofertas do dia" candidate suggestions from a single source."""
 
     items: list[DealSuggestionItem] = Field(default_factory=list)
+
+
+class DealSuggestionActivePromotionRefsResponse(StrictModel):
+    """List every inventory item ref currently covered by an active `PricingPromotion`.
+
+    Cheap ref-only membership check (no name/price/etc.) the console cross-references against
+    whatever product it's already rendering — suggestion rows, manual search results, or the
+    already-curated list — regardless of which "ofertas do dia" source that product came from.
+    Covers both `PricingPromotion` kinds (`campaign` and `product_discount`); coupons are a
+    separate concept (`CouponCampaign`, requires a code) and not included here.
+    """
+
+    refs: list[str] = Field(default_factory=list)
 
 
 class PortalPdvDiscountSettingsResponse(StrictModel):
@@ -762,6 +879,7 @@ class PortalInternalBootstrapResponse(StrictModel):
     marketplace: PortalMarketplaceMetaResponse
     home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
     home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    home_trends: PortalHomeTrendsResponse = Field(default_factory=PortalHomeTrendsResponse)
     deal_of_the_day: PortalDealOfTheDayResponse = Field(default_factory=PortalDealOfTheDayResponse)
     launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     store: PortalStoreResponse
@@ -896,6 +1014,7 @@ class PortalMarketplaceBootstrapResponse(StrictModel):
     marketplace: PortalMarketplaceMetaResponse
     home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
     home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    home_trends: PortalHomeTrendsResponse = Field(default_factory=PortalHomeTrendsResponse)
     deal_of_the_day: PortalDealOfTheDayResponse = Field(default_factory=PortalDealOfTheDayResponse)
     launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     health_services: list[PortalHealthServiceResponse]
@@ -915,6 +1034,7 @@ class PortalMarketplacePublicBootstrapResponse(StrictModel):
     marketplace: PortalMarketplaceMetaResponse
     home_banner: PortalHomeBannerResponse = Field(default_factory=PortalHomeBannerResponse)
     home_brands: PortalHomeBrandsResponse = Field(default_factory=PortalHomeBrandsResponse)
+    home_trends: PortalHomeTrendsResponse = Field(default_factory=PortalHomeTrendsResponse)
     deal_of_the_day: PortalDealOfTheDayResponse = Field(default_factory=PortalDealOfTheDayResponse)
     launch_mode: PortalLaunchModeResponse = Field(default_factory=PortalLaunchModeResponse)
     health_services: list[PortalHealthServiceResponse]

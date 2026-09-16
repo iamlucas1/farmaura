@@ -157,6 +157,20 @@ class FiscalService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fiscal document not found.")
         return document
 
+    async def get_document_html_by_order_id(self, *, order_id: str) -> str:
+        """Return the printable HTML for the fiscal document linked to one order.
+
+        Caller is responsible for confirming the order belongs to whoever is asking —
+        this method only resolves `FiscalDocument.order_id`, it never accepts a bare
+        document id (fiscal_documents RLS has no per-customer ownership predicate, only
+        orders does — see `OrderService.get_customer_order_fiscal_document_html`).
+        """
+
+        document = await self._get_by_order_id(order_id)
+        if document is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fiscal document not found for this order.")
+        return self.notification_service.render_fiscal_document_html(document=document)
+
     async def send_document_email(self, *, document_id: str, email: str, also_whatsapp: bool) -> FiscalDocumentEmailResponse:
         """Send one fiscal document by e-mail."""
 

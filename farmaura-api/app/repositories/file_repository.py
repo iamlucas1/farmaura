@@ -13,6 +13,7 @@ Observations:
 - scanning state transitions can build on this module;
 """
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.file_asset import FileAsset
@@ -37,3 +38,10 @@ class FileRepository:
         self.session.add(file_asset)
         await self.session.flush()
         return file_asset
+
+    async def get_by_id(self, *, tenant_id: str, file_id: str) -> FileAsset | None:
+        """Return one tenant-scoped file asset by identifier, for protected downloads."""
+
+        statement = select(FileAsset).where(FileAsset.id == file_id, FileAsset.tenant_id == tenant_id)
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()

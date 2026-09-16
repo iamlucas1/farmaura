@@ -14,6 +14,8 @@ Emissão de nota fiscal (NFC-e, hoje o único `document_type` suportado) para ve
 
 `GET /fiscal-documents/{id}`, `GET /fiscal-documents/{id}/printable` (HTML pronto para impressão), `POST /fiscal-documents/{id}/send-email` — todos `ADMIN, PHARMACIST, CASHIER`. **Não há endpoint de emissão manual** — a emissão acontece só dentro de `order_service`/`pdv_service`.
 
+Desde 2026-08-26, o próprio cliente também tem acesso de leitura: `GET /orders/{order_id}/fiscal-document/printable` (`orders.py`, `require_marketplace_subject(CUSTOMER)`). Não é uma variante da rota interna — resolve o documento sempre a partir de um `Order` já confirmado como do próprio cliente (nunca aceita `document_id` direto), ver [[../00_Decisoes/2026-08-26-nota-fiscal-acesso-do-cliente-por-pedido|ADR]] para o racional de segurança (a RLS de `fiscal_documents` não tem predicado de dono, só a de `orders` tem).
+
 ## Regras de negócio não óbvias
 
 - **Idempotência por venda**: emitir para um pedido/venda que já tem documento retorna o existente em vez de duplicar.
@@ -25,7 +27,7 @@ Emissão de nota fiscal (NFC-e, hoje o único `document_type` suportado) para ve
 
 ## Frontend
 
-Não há tela própria "Documentos Fiscais" — embutido em `sales-screen.jsx` ("Vendas & Notas", coluna de nota fiscal + `SaleNotaModal` para reenvio) e em `point-of-sale-screen.jsx` (`NotaFiscalModal` exibido ao finalizar venda no balcão, com reenvio por e-mail/link de impressão). No marketplace, `checkout-screen.jsx` só avisa o cliente para completar o CPF em "Minha Conta" — o cliente não consulta o documento fiscal em si.
+Não há tela própria "Documentos Fiscais" — embutido em `sales-screen.jsx` ("Vendas & Notas", coluna de nota fiscal + `SaleNotaModal` para reenvio) e em `point-of-sale-screen.jsx` (`NotaFiscalModal` exibido ao finalizar venda no balcão, com reenvio por e-mail/link de impressão). No marketplace, `checkout-screen.jsx` só avisa o cliente para completar o CPF em "Minha Conta". Desde 2026-08-26, o cliente consegue baixar a própria nota: botão "Baixar nota fiscal" em `OrderCard`/`OrderSupportDrawer` (`account-shared.jsx`/`account-health-screen.jsx`, aba Meus pedidos), visível só quando `order.fiscalDocument` está presente — ou seja, some sozinho para pedidos ainda dentro da janela de diferimento de 7 dias, sem lógica de data extra no client.
 
 ## Decisões de arquitetura dignas de nota
 
@@ -43,4 +45,5 @@ Não há tela própria "Documentos Fiscais" — embutido em `sales-screen.jsx` (
 
 ## Atualizações
 
+- 2026-08-26: cliente ganhou acesso de leitura à própria nota fiscal — `GET /orders/{order_id}/fiscal-document/printable`, escopado por pedido (nunca por `document_id` direto), e botão "Baixar nota fiscal" em Meus pedidos. `fiscal_documents_access_policy` (RLS) não mudou — ownership é checado no service. Ver [[../00_Decisoes/2026-08-26-nota-fiscal-acesso-do-cliente-por-pedido|ADR]].
 - 2026-07-25: nota criada — documentação do estado atual do módulo.

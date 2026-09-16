@@ -45,10 +45,18 @@ class CrmCustomerCreateRequest(StrictModel):
 
 
 class CrmTopProductResponse(StrictModel):
-    """Represent one top product entry."""
+    """Represent one top product entry.
+
+    category and continuous_use let the console show a rounded picture of what the customer
+    buys (spread across Medicamentos/Bem-estar/Perfumaria/Fitoterápicos/etc. and whether it's a
+    recurring, continuous-use item) instead of just the raw purchase-count ranking, which tends
+    to over-represent whichever single product the customer happens to buy most often.
+    """
 
     name: str
     quantity: int
+    category: str = ""
+    continuous_use: bool = False
 
 
 class CrmCategoryMixResponse(StrictModel):
@@ -56,6 +64,15 @@ class CrmCategoryMixResponse(StrictModel):
 
     name: str
     value: int
+
+
+class CrmChildResponse(StrictModel):
+    """Represent one child recorded on a customer's profile (marketplace account form)."""
+
+    name: str
+    # Derived at read time from the stored birth year (current_year - birth_year), same
+    # principle as the marketplace's own childAgeFromBirthYear — never a frozen number.
+    age: int | None = None
 
 
 class CrmCustomerResponse(StrictModel):
@@ -86,6 +103,7 @@ class CrmCustomerResponse(StrictModel):
     interests: list[str]
     category_mix: list[CrmCategoryMixResponse]
     monthly: list[int]
+    children: list[CrmChildResponse]
 
 
 class CrmCustomerListResponse(StrictModel):
@@ -110,16 +128,24 @@ class CrmTopProductInsightResponse(StrictModel):
 
 
 class CrmRecurrenceCandidateResponse(StrictModel):
-    """Represent one product bought in several consecutive months."""
+    """Represent one product worth suggesting as a recurring subscription.
+
+    frequency_days is the customer's own detected purchase cadence (interval_detected
+    True), or a clinical default for a continuous-use medication with too little
+    purchase history yet (interval_detected False) — never a fixed calendar bucket.
+    """
 
     product_key: str
     name: str
     brand: str
-    consecutive_months: int
-    last_purchased_month: str
+    frequency_days: int
+    occurrences: int
+    interval_detected: bool
+    continuous_use: bool
     avg_quantity: int
     last_unit_price: Decimal
     suggested_discount_percent: Decimal
+    savings_amount: Decimal
 
 
 class CrmPurchaseInsightsResponse(StrictModel):

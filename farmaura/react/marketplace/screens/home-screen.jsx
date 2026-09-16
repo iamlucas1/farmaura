@@ -1,48 +1,83 @@
 import React, { useEffect, useRef, useState } from "react";
-import { DealCountdown, ProductCard, resolveDealOfTheDayProducts } from "../core/marketplace-components.jsx";
+import { DealCountdown, ProductCard, resolveDealOfTheDayProducts, resolveHomeTrendsProducts, resolveMostSearchedProducts } from "../core/marketplace-components.jsx";
+import { FullBleedBand } from "../core/marketplace-bands.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 
 /* FARMAURA — Home / painel principal. */
 
-function SectionHead({ eyebrow, title, action, onAction }) {
+// CTA de rodapé de faixa, matching o demo's `.band-cta`/`.slide-btn`: um rótulo estático que troca
+// pra um segundo rótulo (ação/urgência) ao passar o mouse, via as duas "faces" empilhadas
+// deslizando verticalmente — puramente decorativo (nenhuma info nova), então plain hover é o único
+// gatilho real; toque em mobile só usa o primeiro rótulo, que já é suficiente sozinho.
+function BandCta({ label, hoverLabel, onClick }) {
   return (
-    <div className="fa-section-head">
-      <div>
-        {eyebrow && <p className="fa-eyebrow" style={{ marginBottom: 6 }}>{eyebrow}</p>}
-        <h2 className="fa-h2">{title}</h2>
-      </div>
-      {action && <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={onAction}>{action}<Icon name="arrowR" size={16} /></button>}
+    <div className="fa-band-cta">
+      <button className="fa-slide-btn" type="button" onClick={onClick}>
+        <span className="fa-slide-btn-inner">
+          <span className="fa-slide-btn-face">{label}<Icon name="arrowR" size={15} stroke={2.4} /></span>
+          <span className="fa-slide-btn-face">{hoverLabel}<Icon name="arrowR" size={15} stroke={2.4} /></span>
+        </span>
+      </button>
     </div>
   );
 }
 
+// Glyph + accent per real category, matched by name to the demo's own `.catjar` icons/colors —
+// the backend has no Category.glyph/color field (categories are plain name/description rows
+// managed in Catálogo → Categorias), so there's nothing to read a glyph from; this is the closest
+// real equivalent, keyed by the same category names the demo itself uses. A category the tenant
+// hasn't set up yet (the demo also has "Vitaminas e Suplementos"/"Higiene e Cuidados", not in this
+// catalog — see dev-obsidian pendência) just falls through to the generic pill glyph below.
+const CATEGORY_GLYPH_BY_LABEL = {
+  'Medicamentos': { glyph: 'medsCapsule', acc: 'var(--fa-primary)' },
+  'Vitaminas e Suplementos': { glyph: 'vitaminSun', acc: 'var(--fa-success)' },
+  'Higiene': { glyph: 'hygieneBottle', acc: 'var(--fa-info)' },
+  'Infantil': { glyph: 'babyFace', acc: 'var(--fa-warn-ink)' },
+  'Perfumaria': { glyph: 'perfumeDrop', acc: 'var(--fa-vital)' },
+  'Bem-estar': { glyph: 'wellbeingHeart', acc: 'var(--fa-primary-ink)' },
+};
+// Same relative order as the demo's category shelf (whose "Higiene e Cuidados" is this tenant's
+// "Higiene") — a category this tenant doesn't have yet is simply absent, not invented; a category
+// the demo doesn't recognize sorts after every known one.
+const CATEGORY_ORDER = ['Medicamentos', 'Vitaminas e Suplementos', 'Higiene', 'Infantil', 'Perfumaria', 'Bem-estar'];
+
 function QuickCategories({ cats, onNav }) {
-  // One single row: four real, backend-driven shortcuts first, then the real category
-  // catalog managed in the internal console (Categorias) — not a mix of decorative
-  // atalhos, every tile here navigates somewhere backed by real data:
-  // - "Mais buscados" ranks by real sales volume (online + PDV), see catalog_service.list_most_searched_products.
-  // - "Produtos salvos" is the customer's real favorites list.
+  // One single row: real, backend-driven shortcuts first, then the tenant's real category catalog
+  // (managed in Catálogo → Categorias), then "Serviços de saúde" last — same position it holds in
+  // the demo's own category shelf. Every tile here navigates somewhere backed by real data:
   // - "Ofertas" is products with an active PricingPromotion/product_discount applied.
+  // - "Mais buscados" ranks by real sales volume (online + PDV), see catalog_service.list_most_searched_products.
   // - "Serviços de saúde" is the real procedure catalog managed in Catálogo → Serviços de saúde.
-  // - the rest are the tenant's real product categories.
-  const shortcuts = [
-    { id: 'sc-buscados', label: 'Mais buscados', glyph: 'search', go: { name: 'discover' } },
-    { id: 'sc-salvos', label: 'Produtos salvos', glyph: 'heart', go: { name: 'saved' } },
-    { id: 'sc-ofertas', label: 'Ofertas', glyph: 'percent', go: { name: 'offers' } },
-    { id: 'sc-servicos', label: 'Serviços de saúde', glyph: 'activity', go: { name: 'services' } },
+  // "Produtos salvos" moved out of this row into the account dropdown (AccountMenu) — still the
+  // customer's real favorites list, just one less tile here, per explicit request.
+  const leadingShortcuts = [
+    { id: 'sc-ofertas', label: 'Ofertas', glyph: 'percent', acc: 'var(--fa-vital)', go: { name: 'offers' } },
+    { id: 'sc-buscados', label: 'Mais buscados', glyph: 'search', acc: 'var(--fa-info)', go: { name: 'discover' } },
   ];
-  const categoryItems = (cats || []).map((cat) => ({
-    id: 'qc-cat-' + cat.id,
-    label: cat.label,
-    glyph: cat.glyph || 'pill',
-    go: { name: 'category', cat: cat.id },
-  }));
-  const items = [...shortcuts, ...categoryItems];
+  const orderedCats = [...(cats || [])].sort((a, b) => {
+    const rankA = CATEGORY_ORDER.indexOf(a.label);
+    const rankB = CATEGORY_ORDER.indexOf(b.label);
+    return (rankA === -1 ? CATEGORY_ORDER.length : rankA) - (rankB === -1 ? CATEGORY_ORDER.length : rankB);
+  });
+  const categoryItems = orderedCats.map((cat) => {
+    const known = CATEGORY_GLYPH_BY_LABEL[cat.label];
+    return {
+      id: 'qc-cat-' + cat.id,
+      label: cat.label,
+      glyph: (known && known.glyph) || 'pill',
+      acc: (known && known.acc) || 'var(--fa-primary)',
+      go: { name: 'category', cat: cat.id },
+    };
+  });
+  const trailingShortcuts = [
+    { id: 'sc-servicos', label: 'Serviços de saúde', glyph: 'activity', acc: 'var(--fa-ink-2)', go: { name: 'services' } },
+  ];
+  const items = [...leadingShortcuts, ...categoryItems, ...trailingShortcuts];
   return (
     <nav className="fa-quickcats" aria-label="Atalhos e categorias">
       {items.map((c) => (
         <button key={c.id} className="fa-quickcat" onClick={() => onNav(c.go)}>
-          <span className="fa-quickcat-tile"><Icon name={c.glyph} size={26} stroke={2} /></span>
+          <span className="fa-quickcat-tile" style={{ '--acc': c.acc }}><Icon name={c.glyph} size={25} stroke={1.8} /></span>
           <span className="fa-quickcat-label">{c.label}</span>
         </button>
       ))}
@@ -92,7 +127,7 @@ function BannerSlider({ banner, onNav, onPrescription }) {
         {slides.map((slide) => {
           if (slide.kind === 'html') {
             return (
-              <div key={slide.id} className="fa-slide-item">
+              <div key={slide.id} className="fa-slide-item fa-slide-item--html">
                 <div className="fa-slide-item-html" dangerouslySetInnerHTML={{ __html: slide.html }} />
               </div>
             );
@@ -133,35 +168,6 @@ function HomeBanner({ banner, onNav, onPrescription }) {
     return <BannerSlider banner={banner} onNav={onNav} onPrescription={onPrescription} />;
   }
   return null;
-}
-
-function Differentials({ ctx }) {
-  const { onNav, requireAuth, openPrescription } = ctx;
-  const items = [
-    { icon: 'truck', t: 'Entrega em até 1 hora', d: 'Receba seu pedido em casa no mesmo dia.', cta: 'Ver ofertas', acc: 'var(--fa-success)', action: () => onNav({ name: 'offers' }) },
-    { icon: 'gift', t: 'Cashback nas suas compras', d: 'Acumule e use em compras futuras.', cta: 'Meu saldo', acc: 'var(--fa-warn)', action: () => requireAuth(() => onNav({ name: 'cashback' })) },
-    { icon: 'pin', t: 'Retire na farmácia em 15 min', d: 'Compre online e busque na loja mais perto.', cta: 'Ver medicamentos', acc: 'var(--fa-info)', action: () => onNav({ name: 'category', cat: 'medicamentos' }) },
-    { icon: 'rx', t: 'Receita digital', d: 'Envie sua receita e compre com facilidade.', cta: 'Enviar receita', acc: 'var(--fa-primary)', action: () => openPrescription() },
-    { icon: 'card', t: 'Parcele em até 3x sem juros', d: 'Divida o valor da sua compra sem taxas extras.', cta: 'Ver carrinho', acc: 'var(--fa-vital)', action: () => onNav({ name: 'cart' }) },
-  ];
-  return (
-    <div className="fa-diff-grid">
-      {items.map((item) => (
-        <button key={item.t} className="fa-diff" style={{ '--acc': item.acc }} onClick={item.action}>
-          <Icon name={item.icon} size={108} stroke={1} className="fa-diff-glyph" />
-          <Icon name={item.icon} size={28} stroke={1.6} className="fa-diff-icon" />
-          <div className="fa-diff-t">{item.t}</div>
-          <p className="fa-diff-d">{item.d}</p>
-          <span className="fa-diff-link">
-            {item.cta}
-            <span className="fa-diff-arrow" aria-hidden="true">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </span>
-          </span>
-        </button>
-      ))}
-    </div>
-  );
 }
 
 // Marcas em destaque: tira de círculos configurada no console interno (Marketplace → Marcas em
@@ -218,74 +224,170 @@ function DealOfTheDayStrip({ deals, title, subtitle, resetTime, showCountdown, c
   }
   return (
     <section className="fa-feed-sec fa-feed-tight">
-      <div className="fa-deal-head">
-        <div className="fa-deal-head-left">
-          <span className="fa-deal-flame" aria-hidden="true">🔥</span>
-          <div>
-            <h2 className="fa-deal-title">{title || 'Ofertas do dia'}</h2>
-            <p className="fa-deal-sub">{subtitle || `Preços válidos só até às ${resetTime || '00:00'}`}</p>
+      <div className="fa-deal-band">
+        <span className="fa-deal-arc b1" aria-hidden="true" />
+        <span className="fa-deal-arc b2" aria-hidden="true" />
+        <div className="fa-deal-head">
+          <div className="fa-deal-head-left">
+            <span className="fa-deal-flame" aria-hidden="true">🔥</span>
+            <div>
+              <h2 className="fa-deal-title">{title || 'Ofertas do dia'}</h2>
+              <p className="fa-deal-sub">{subtitle || `Preços válidos só até às ${resetTime || '00:00'}`}</p>
+            </div>
           </div>
+          {showCountdown !== false && <DealCountdown resetTime={resetTime} />}
         </div>
-        {showCountdown !== false && <DealCountdown resetTime={resetTime} />}
+        <div className="fa-grid-5 fa-deal-grid fa-deal-grid-limited">
+          {deals.map((product) => (
+            <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />
+          ))}
+        </div>
+        <button className="fa-deal-more" onClick={() => onNav({ name: 'offers' })}>
+          Ver todas as ofertas<Icon name="arrowR" size={16} />
+        </button>
       </div>
-      <div className="fa-grid-5 fa-deal-grid fa-deal-grid-limited">
-        {deals.map((product) => (
-          <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />
-        ))}
-      </div>
-      <button className="fa-btn fa-btn-soft fa-deal-more" onClick={() => onNav({ name: 'offers' })}>
-        Ver todas as ofertas<Icon name="arrowR" size={16} />
-      </button>
     </section>
   );
 }
 
-function HomeScreen({ ctx }) {
-  const { products, cats, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, recent, homeBanner, homeBrands, dealOfTheDay } = ctx;
-  const deals = resolveDealOfTheDayProducts(dealOfTheDay, products);
-  const bestsellers = products.filter((product) => product.tags.includes('mais-vendido'));
-  const featuredFill = products.filter((product) => product.rating >= 4.7 && !bestsellers.includes(product));
-  const featured = [...bestsellers, ...featuredFill].slice(0, 10);
-  const recentProducts = (recent || []).map((id) => products.find((product) => product.id === id)).filter(Boolean);
-  const fallback = products.filter((product) => product.reviews > 200 && !recentProducts.includes(product));
-  const seen = [...recentProducts, ...fallback].filter((product, index, list) => list.indexOf(product) === index).slice(0, 10);
-  const personal = products.filter((product) => product.cat && product.cat !== 'medicamentos').slice(0, 10);
-  const cardProps = { variant: cardVariant, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onFav: toggleFav, onNotify: subscribeAvailabilityAlert };
-  const grid = (list) => <div className="fa-grid-5">{list.map((product) => <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />)}</div>;
-
+// Pré-lançamento com catálogo vazio é um estado real do produto (ver PRODUCT.md, Princípio 5),
+// não um placeholder — mostra uma única reassurance em vez de cabeçalhos de seção sobre grades
+// em branco quando não há nada em nenhuma das quatro fontes da home.
+function HomeFeedComingSoon() {
   return (
-    <div className="fa-wrap fa-fadein" style={{ paddingTop: 28, paddingBottom: 20, display: 'flex', flexDirection: 'column', gap: 44 }}>
-      <QuickCategories cats={cats} onNav={onNav} />
-      <HomeBanner banner={homeBanner} onNav={onNav} onPrescription={openPrescription} />
-      <Differentials ctx={ctx} />
-      <BrandCircles brands={homeBrands} onNav={onNav} />
-      <div className="fa-feed">
-        <DealOfTheDayStrip
-          deals={deals}
-          title={dealOfTheDay && dealOfTheDay.title}
-          subtitle={dealOfTheDay && dealOfTheDay.subtitle}
-          resetTime={dealOfTheDay && dealOfTheDay.resetTime}
-          showCountdown={dealOfTheDay && dealOfTheDay.showCountdown}
-          cardProps={cardProps}
-          fav={fav}
-          availabilityAlerts={availabilityAlerts}
-          onNav={onNav}
-        />
-        <section className="fa-feed-sec">
-          <SectionHead eyebrow="Hoje" title="Destaque do dia" action="Ver mais" onAction={() => onNav({ name: 'category', cat: 'medicamentos' })} />
-          {grid(featured)}
-        </section>
-        <section className="fa-feed-sec">
-          <SectionHead eyebrow="Continue de onde parou" title="Vistos recentemente" />
-          {grid(seen)}
-        </section>
-        <section className="fa-feed-sec">
-          <SectionHead eyebrow="Tendência" title="Cuidados pessoais" action="Ver tudo" onAction={() => onNav({ name: 'category', cat: 'perfumaria' })} />
-          {grid(personal)}
-        </section>
-      </div>
+    <div className="fa-card fa-feed-sec" style={{ padding: '48px 24px', textAlign: 'center' }}>
+      <span className="fa-iconbox" style={{ margin: '0 auto 14px', width: 56, height: 56 }}><Icon name="sparkle" size={26} /></span>
+      <div className="fa-h3">Catálogo chegando em breve</div>
+      <p className="fa-muted" style={{ marginTop: 6, maxWidth: 420, marginInline: 'auto' }}>
+        Estamos finalizando o estoque da loja. Assim que os produtos entrarem no ar, esta área vai mostrar destaques, itens vistos recentemente e sugestões pra você.
+      </p>
     </div>
   );
 }
 
-export { BannerSlider, BrandCircles, DealOfTheDayStrip, Differentials, HomeBanner, HomeScreen, QuickCategories, SectionHead };
+function HomeScreen({ ctx }) {
+  const { products, cats, onNav, openPrescription, cardVariant, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, recent, homeBanner, homeBrands, homeTrends, dealOfTheDay, mostSearchedProductIds } = ctx;
+  const deals = resolveDealOfTheDayProducts(dealOfTheDay, products);
+  const trends = resolveHomeTrendsProducts(homeTrends, products);
+  // Real demand ranking (online + PDV sales volume, GET /catalog/most-searched) — no product
+  // tag ever gets set to a "mais-vendido" value anywhere in the backend, so filtering by that tag
+  // was silently dead code; this is the same real signal QuickCategories' "Mais buscados" shortcut
+  // and ShopScreen's mode="mostsearched" already point to.
+  const featured = resolveMostSearchedProducts(mostSearchedProductIds, products, 10);
+  const recentProducts = (recent || []).map((id) => products.find((product) => product.id === id)).filter(Boolean);
+  const fallback = products.filter((product) => product.reviews > 200 && !recentProducts.includes(product));
+  const seen = [...recentProducts, ...fallback].filter((product, index, list) => list.indexOf(product) === index).slice(0, 10);
+  const personal = products.filter((product) => product.cat && product.cat !== 'medicamentos').slice(0, 10);
+  const family = products.filter((product) => product.cat === 'infantil' || product.cat === 'higiene').slice(0, 10);
+  const cardProps = { variant: cardVariant, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onBuyNow: (product) => { addToCart(product); onNav({ name: 'cart' }); }, onFav: toggleFav, onNotify: subscribeAvailabilityAlert };
+  const grid = (list) => <div className="fa-grid-5">{list.map((product) => <ProductCard key={product.id} product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />)}</div>;
+  const feedIsEmpty = deals.length === 0 && featured.length === 0 && seen.length === 0 && personal.length === 0 && trends.length === 0 && family.length === 0;
+
+  // Composição visual "padrão farmácia": cada seção real da home vira sua própria faixa
+  // full-bleed, uma por seção — copiado 1:1 da ordem/cor/rótulo do demo de referência ("Categorias"
+  // rose-soft → "Marcas em destaque" rose → "Visto recentemente" beige/flip → "Mais procurados" bg
+  // → "Sugestões para você" info-soft/flip → "Tendências" success-soft → "Cuidados e Infantil"
+  // warn-soft/flip). O índice de cor de cada banda é fixo por chave, não posicional, então uma
+  // banda opcional ausente (sem marcas em destaque, sem tendências configuradas) nunca desloca a
+  // cor das bandas seguintes. "Tendências" é curada manualmente pelo admin (Marketplace →
+  // Tendências, console interno — home-trends-screen.jsx) em vez de um sinal automático, pelo
+  // mesmo motivo que "Ofertas do dia"/"Marcas em destaque" já são curadas: sem um sinal real de
+  // "alta" (crescimento período-a-período) no catálogo hoje, curadoria manual é o caminho honesto,
+  // não um sinal fabricado — ver dev-obsidian/farmaura/06_Pendencias (nota original, agora resolvida).
+  // "Ofertas do dia" (DealOfTheDayStrip) fica FORA da rotação de cor de propósito: no demo é uma
+  // faixa sólida separada (`.deal-band`, vermelho), não uma das 7 bandas em rotação.
+  const hasBanner = !!(homeBanner && homeBanner.mode === 'image' && (homeBanner.slides || []).length);
+  const hasBrands = !!(homeBrands && homeBrands.mode === 'on' && (homeBrands.circles || []).length);
+  const bandDefs = [
+    {
+      key: 'categories',
+      index: 0,
+      headTitle: 'Categorias',
+      headSubtitle: 'Encontre rápido pelo que você precisa hoje.',
+      content: <QuickCategories cats={cats} onNav={onNav} />,
+    },
+    hasBrands && {
+      key: 'brands',
+      index: 1,
+      headTitle: 'Marcas em destaque',
+      headSubtitle: 'As marcas em que a nossa região mais confia.',
+      content: <BrandCircles brands={homeBrands} onNav={onNav} />,
+    },
+    seen.length > 0 && {
+      key: 'recent',
+      index: 2,
+      headTitle: 'Visto recentemente',
+      headSubtitle: 'Continue de onde parou.',
+      content: <>{grid(seen)}<BandCta label="Ver histórico" hoverLabel="Continuar vendo" onClick={() => onNav({ name: 'shop' })} /></>,
+    },
+    featured.length > 0 && {
+      key: 'bestsellers',
+      index: 3,
+      headTitle: 'Mais procurados',
+      headSubtitle: 'O que os clientes da sua região mais compram.',
+      content: <>{grid(featured)}<BandCta label="Ver catálogo" hoverLabel="Aproveitar agora" onClick={() => onNav({ name: 'discover' })} /></>,
+    },
+    personal.length > 0 && {
+      key: 'personal',
+      index: 4,
+      headTitle: 'Sugestões para você',
+      headSubtitle: 'Selecionado com base no que você já comprou.',
+      content: <>{grid(personal)}<BandCta label="Ver sugestões" hoverLabel="Adicionar ao carrinho" onClick={() => onNav({ name: 'shop' })} /></>,
+    },
+    trends.length > 0 && {
+      key: 'trends',
+      index: 5,
+      headTitle: 'Tendências',
+      headSubtitle: 'O que está em alta na sua região agora.',
+      content: <>{grid(trends)}<BandCta label="Ver tendências" hoverLabel="Aproveitar agora" onClick={() => onNav({ name: 'trends' })} /></>,
+    },
+    family.length > 0 && {
+      key: 'family',
+      index: 6,
+      headTitle: 'Cuidados e Infantil',
+      headSubtitle: 'Tudo para a família, num só lugar.',
+      // Real Category.id is a generated UUID, not the literal filter key this band groups by
+      // (product.cat === 'infantil' — see `family` above) — resolve the actual category by name
+      // to link correctly; fall back to the full catalog on the odd chance it's missing.
+      content: <>{grid(family)}<BandCta label="Ver categoria" hoverLabel="Cuidar da família" onClick={() => {
+        const infantilCat = cats.find((cat) => cat.label === 'Infantil');
+        onNav(infantilCat ? { name: 'category', cat: infantilCat.id } : { name: 'shop' });
+      }} /></>,
+    },
+  ].filter(Boolean);
+
+  return (
+    <div className="fa-fadein">
+      <h1 className="fa-sr-only">Farmaura — farmácia de bairro com entrega rápida, retirada em loja e cashback</h1>
+      {hasBanner && (
+        <div className="fa-wrap" style={{ paddingTop: 20 }}>
+          <HomeBanner banner={homeBanner} onNav={onNav} onPrescription={openPrescription} />
+        </div>
+      )}
+      {feedIsEmpty ? (
+        <div className="fa-wrap" style={{ paddingTop: 20, paddingBottom: 90 }}><HomeFeedComingSoon /></div>
+      ) : deals.length > 0 && (
+        <div className="fa-wrap" style={{ paddingTop: 20, paddingBottom: 90 }}>
+          <DealOfTheDayStrip
+            deals={deals}
+            title={dealOfTheDay && dealOfTheDay.title}
+            subtitle={dealOfTheDay && dealOfTheDay.subtitle}
+            resetTime={dealOfTheDay && dealOfTheDay.resetTime}
+            showCountdown={dealOfTheDay && dealOfTheDay.showCountdown}
+            cardProps={cardProps}
+            fav={fav}
+            availabilityAlerts={availabilityAlerts}
+            onNav={onNav}
+          />
+        </div>
+      )}
+      {bandDefs.map((band) => (
+        <FullBleedBand key={band.key} index={band.index} headTitle={band.headTitle} headSubtitle={band.headSubtitle}>
+          {band.content}
+        </FullBleedBand>
+      ))}
+    </div>
+  );
+}
+
+export { BannerSlider, BrandCircles, DealOfTheDayStrip, HomeBanner, HomeScreen, QuickCategories };

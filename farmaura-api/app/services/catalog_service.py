@@ -32,6 +32,8 @@ from app.models.user import User
 from app.repositories.inventory_repository import InventoryRepository
 from app.schemas.auth import TokenSubject
 from app.schemas.catalog import (
+    AlsoBoughtProductResponse,
+    AlsoBoughtProductsResponse,
     CatalogItem,
     CatalogListResponse,
     CatalogReviewSummary,
@@ -115,6 +117,12 @@ class CatalogService:
                 is_available=bool(item['is_available']),
                 tags=list(item['tags']),
                 info=str(item['info']),
+                short_description=str(item.get('short_description', '')),
+                bula_markdown=str(item.get('bula_markdown', '')),
+                marketing_highlights=list(item.get('marketing_highlights', [])),
+                variant_group_id=str(item.get('variant_group_id', '')),
+                variant_label=str(item.get('variant_label', '')),
+                variants=list(item.get('variants', [])),
                 aliases=list(item['aliases']),
                 inventory_ids=list(item['inventory_ids']),
                 promotion_highlight=str(item.get('promotion_highlight', '')),
@@ -158,6 +166,12 @@ class CatalogService:
                 stock=int(item['stock']),
                 tags=list(item['tags']),
                 info=str(item['info']),
+                short_description=str(item.get('short_description', '')),
+                bula_markdown=str(item.get('bula_markdown', '')),
+                marketing_highlights=list(item.get('marketing_highlights', [])),
+                variant_group_id=str(item.get('variant_group_id', '')),
+                variant_label=str(item.get('variant_label', '')),
+                variants=list(item.get('variants', [])),
                 aliases=list(item.get('aliases', [])),
                 inventory_ids=list(item.get('inventory_ids', [])),
                 promotion_highlight=str(item.get('promotion_highlight', '')),
@@ -367,6 +381,31 @@ class CatalogService:
             items=[
                 MostSearchedProductResponse(product_id=product_id, rank=index + 1, xyz_class=xyz_class)
                 for index, (product_id, _total_quantity, xyz_class) in enumerate(ranked[:limit])
+            ]
+        )
+
+    async def list_also_bought_products(self, *, product_id: str, limit: int = 10) -> AlsoBoughtProductsResponse:
+        """Return other products that appeared in the same paid order / PDV sale as `product_id`.
+
+        Real co-purchase ranking, not a fabricated "customers who bought this also bought" claim —
+        see app_private.public_also_bought_products (row_level_security.py) for the underlying
+        query. Same SECURITY DEFINER bypass shape as list_most_searched_products: a plain
+        'customer'-role session may only read its own orders under RLS, so this goes through the
+        narrow aggregate function instead, which never returns a customer_id/order_id.
+        """
+
+        tenant_id = await self._resolve_public_tenant_id()
+        if not tenant_id or not product_id:
+            return AlsoBoughtProductsResponse(items=[])
+        limit = max(1, min(limit, 20))
+        result = await self.session.execute(
+            text("SELECT product_id, order_count FROM app_private.public_also_bought_products(:tenant_id, :product_id, :limit)"),
+            {"tenant_id": tenant_id, "product_id": product_id, "limit": limit},
+        )
+        return AlsoBoughtProductsResponse(
+            items=[
+                AlsoBoughtProductResponse(product_id=str(row.product_id), order_count=int(row.order_count))
+                for row in result.all()
             ]
         )
 

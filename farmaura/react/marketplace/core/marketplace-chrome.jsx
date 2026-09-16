@@ -1,20 +1,25 @@
 import React, { useState as _useStateChrome } from "react";
+import { createPortal } from "react-dom";
 
-import { fetchViaCepAddress, formatCep } from "./marketplace-address.js";
+import { fetchDeliveryCoverage, fetchViaCepAddress, formatCep } from "./marketplace-address.js";
 import { MARKETPLACE_LOGO_MARK_URL, MARKETPLACE_LOGO_FULL_URL, MARKETPLACE_LOGO_FULL_WHITE_TAGLINE_URL } from "./marketplace-assets.js";
-import { useModalStack } from "./marketplace-components.jsx";
+import { brl, useModalStack } from "./marketplace-components.jsx";
 import { Icon } from "./marketplace-icons.jsx";
 
 /* FARMAURA — chrome: Header, Footer, MobileDrawer. */
 
-function ProfileAvatar({ user, className = '', fallbackIconSize = 18 }) {
+// Gradient-ring avatar (outer ring + inner disc), matching the demo's `.profile-avatar` /
+// `.profile-avatar-inner` two-layer structure.
+function ProfileAvatar({ user, className = '', innerClassName = '', fallbackIconSize = 18 }) {
   return (
     <span className={className}>
-      {user && user.photo
-        ? <img src={user.photo} alt="" />
-        : user
-          ? user.name.split(' ').map((s) => s[0]).slice(0, 2).join('')
-          : <Icon name="user" size={fallbackIconSize} />}
+      <span className={innerClassName}>
+        {user && user.photo
+          ? <img src={user.photo} alt="" />
+          : user
+            ? user.name.split(' ').map((s) => s[0]).slice(0, 2).join('')
+            : <Icon name="user" size={fallbackIconSize} />}
+      </span>
     </span>
   );
 }
@@ -26,7 +31,7 @@ function resolveStoreMeta(portalData) {
     topbarLabel: store && (store.district || store.postalCode)
       ? [store.district, store.postalCode].filter(Boolean).join(' · ')
       : (store && store.postalCode ? store.postalCode : 'Consulte a disponibilidade'),
-    address: store && store.address ? store.address : '',
+    address: store && store.addr ? store.addr : '',
   };
 }
 
@@ -38,16 +43,6 @@ function readDeliveryLocation() {
 
 function writeDeliveryLocation(location) {
   window.FA_PORTAL_CACHE.writeLocal('marketplace', null, DELIVERY_LOCATION_STORAGE_KEY, location);
-}
-
-async function fetchDeliveryCoverage(authClient, address) {
-  const params = new URLSearchParams({
-    district: address.district || '',
-    city: address.city || '',
-    state_code: address.state || '',
-    postal_code: address.cep || '',
-  });
-  return authClient.publicRequest(`/orders/delivery-coverage/public?${params.toString()}`, { method: 'GET' });
 }
 
 function DeliveryCoverageNote({ coverage }) {
@@ -128,8 +123,8 @@ function DeliveryLocationMenu({ fallbackLabel, authClient }) {
   const label = location && location.label ? location.label : fallbackLabel;
 
   return (
-    <div style={{ position: 'relative' }} ref={ref}>
-      <a onClick={() => setOpen((o) => !o)} role="button"><Icon name="pin" size={15} /> Entregar em <b style={{ marginLeft: 2 }}>{label}</b> <Icon name="chevD" size={13} /></a>
+    <div className="fa-topbar-item" ref={ref}>
+      <a onClick={() => setOpen((o) => !o)} role="button" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><Icon name="pin" size={15} /> Entregar em <b style={{ marginLeft: 2 }}>{label}</b> <Icon name="chevD" size={13} /></a>
       {open && (
         <div className="fa-delivery-pop" role="dialog" aria-label="Consultar CEP de entrega">
           <div style={{ fontWeight: 800, fontSize: 14 }}>Consultar CEP de entrega</div>
@@ -160,13 +155,20 @@ function resolveMarketplaceMeta(portalData) {
     marketplaceName: meta.name || 'Marketplace Farmaura',
     legalName: meta.legalName || meta.legal_name || '',
     cnpj: meta.cnpj || '',
+    stateRegistration: meta.stateRegistration || meta.state_registration || '',
     footerNote: meta.footerNote || meta.footer_note || '',
     pharmacistName: pharmacist.name || 'Equipe farmacêutica Farmaura',
     pharmacistRegistrationCode: pharmacist.registrationCode || pharmacist.registration_code || '',
   };
 }
 
-function AccountMenu({ user, onNav, onPrescription, className = '' }) {
+// Matches the demo's `.profile`/`.profile-panel`: bare avatar+chevron trigger (no pill/label), a
+// name+email header, a flat icon+label(+chip) item list, and a distinct "Sair" button at the
+// bottom — instead of the earlier bordered-pill trigger and icon+description item rows. Real
+// destinations only (no fabricated chip values): "Meus pedidos" gets a real order-count chip when
+// there's at least one order; "Cashback"/"Assinaturas" have no cheap real balance to show here, so
+// they render without a chip rather than a made-up one.
+function AccountMenu({ user, onNav, onPrescription, logout, ordersCount, className = '' }) {
   const [open, setOpen] = _useStateChrome(false);
   const ref = React.useRef(null);
   React.useEffect(() => {
@@ -179,15 +181,15 @@ function AccountMenu({ user, onNav, onPrescription, className = '' }) {
   }, [open]);
 
   const items = [
-    { ic: 'user', l: 'Minha conta', d: 'Pedidos, perfil e cartões', act: () => onNav({ name: 'account', tab: 'summary' }) },
-    { ic: 'gift', l: 'Cashback', d: 'Saldo e histórico de volta', act: () => onNav({ name: 'cashback' }) },
-    { ic: 'repeat', l: 'Compras recorrentes', d: 'Gerencie suas assinaturas', act: () => onNav({ name: 'subscriptions' }) },
-    { ic: 'heart', l: 'Produtos salvos', d: 'Seus favoritos guardados', act: () => onNav({ name: 'saved' }) },
-    { ic: 'activity', l: 'Serviços de saúde', d: 'Exames, aplicações e aferições', act: () => onNav({ name: 'services' }) },
-    { ic: 'rx', l: 'Receita digital', d: 'Envie e organize receitas', act: () => onPrescription && onPrescription() },
+    { ic: 'user', l: 'Perfil', act: () => onNav({ name: 'account', tab: 'profile' }) },
+    { ic: 'bag', l: 'Meus pedidos', chip: ordersCount > 0 ? String(ordersCount) : null, act: () => onNav({ name: 'account', tab: 'orders' }) },
+    { ic: 'chat', l: 'Falar com farmacêutico', act: () => onNav({ name: 'chats' }) },
+    { ic: 'heart', l: 'Produtos salvos', act: () => onNav({ name: 'saved' }) },
+    { ic: 'gift', l: 'Cashback', act: () => onNav({ name: 'cashback' }) },
+    { ic: 'repeat', l: 'Assinaturas', act: () => onNav({ name: 'subscriptions' }) },
+    { ic: 'cog', l: 'Configurações', act: () => onNav({ name: 'account', tab: 'settings' }) },
   ];
   const run = (act) => { setOpen(false); act(); };
-  const firstName = user ? user.name.split(' ')[0] : '';
 
   return (
     <div className={'fa-accmenu ' + className} ref={ref} style={{ position: 'relative' }}>
@@ -200,35 +202,38 @@ function AccountMenu({ user, onNav, onPrescription, className = '' }) {
         aria-expanded={open ? 'true' : 'false'}
         onClick={() => setOpen((o) => !o)}
       >
-        {user
-          ? <ProfileAvatar user={user} className="fa-am-avatar" fallbackIconSize={15} />
-          : <Icon name="user" size={17} />}
-        <span className="fa-am-label">{user ? firstName : 'Entrar / Criar conta'}</span>
-        <Icon name="chevD" size={14} style={{ transition: 'transform .18s', transform: open ? 'rotate(180deg)' : 'none', flex: 'none' }} />
+        <ProfileAvatar user={user} className="fa-am-avatar" innerClassName="fa-am-avatar-inner" fallbackIconSize={14} />
+        {!user && <span className="fa-am-label">Entrar / Criar conta</span>}
+        <Icon name="chevD" size={13} className="fa-am-chevron" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>
       {open && (
         <div className="fa-caremenu-pop" role="menu">
           <div className="fa-caremenu-head">
-            <ProfileAvatar user={user} className="fa-cm-avatar" fallbackIconSize={18} />
+            <ProfileAvatar user={user} className="fa-cm-avatar" innerClassName="fa-cm-avatar-inner" fallbackIconSize={18} />
             <div style={{ minWidth: 0, flex: 1 }}>
               {user
-                ? <><div className="fa-cm-l" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div><div className="fa-cm-d">Bem-vinda de volta</div></>
-                : <><div className="fa-cm-l">Sua conta Farmaura</div><div className="fa-cm-d">Entre para usar todos os recursos</div></>}
+                ? <><div className="fa-cm-l" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div><div className="fa-cm-email">{user.email}</div></>
+                : <><div className="fa-cm-l">Sua conta Farmaura</div><div className="fa-cm-email">Entre para usar todos os recursos</div></>}
             </div>
           </div>
           {!user && (
             <button className="fa-btn fa-btn-primary fa-btn-block fa-btn-sm" style={{ margin: '6px 6px 4px', width: 'calc(100% - 12px)' }} onClick={() => run(() => onNav({ name: 'login' }))}>Entrar / Criar conta</button>
           )}
-          {items.map((it) => (
+          {user && items.map((it) => (
             <button key={it.l} className="fa-caremenu-item" role="menuitem" onClick={() => run(it.act)}>
-              <span className="fa-cm-ic"><Icon name={it.ic} size={19} /></span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span className="fa-cm-l" style={{ display: 'block' }}>{it.l}</span>
-                <span className="fa-cm-d" style={{ display: 'block' }}>{it.d}</span>
-              </span>
-              <Icon name="chevR" size={15} style={{ color: 'var(--fa-ink-3)', flex: 'none' }} />
+              <Icon name={it.ic} size={19} />
+              <span className="fa-cm-l">{it.l}</span>
+              {it.chip && <span className="fa-cm-chip">{it.chip}</span>}
             </button>
           ))}
+          {user && (
+            <>
+              <div className="fa-caremenu-sep" />
+              <button type="button" className="fa-caremenu-signout" onClick={() => run(() => logout && logout())}>
+                <Icon name="logout" size={19} />Sair
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -247,101 +252,193 @@ function Logo({ onClick }) {
   );
 }
 
-function Header({ cats, route, cartCount, query, user, portalData, onNav, onSearch, onChat, onPrescription, authClient }) {
+// Real-time product suggestions as the visitor types — matched client-side against the already
+// loaded catalog (name/brand/category), no extra request. Shared between the header search and
+// the mobile drawer's own search field so both offer the same behavior.
+function matchSearchSuggestions(products, query, limit = 7) {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return [];
+  return (products || [])
+    .filter((product) => (product.name + ' ' + product.brand + ' ' + product.cat).toLowerCase().includes(q))
+    .slice(0, limit);
+}
+
+function SearchSuggestions({ query, products, onPick }) {
+  const matches = React.useMemo(() => matchSearchSuggestions(products, query), [query, products]);
+  if (!matches.length) return null;
+  return (
+    <div className="fa-search-suggest" role="listbox">
+      {matches.map((product) => (
+        <button key={product.id} type="button" className="fa-search-suggest-item" role="option" onClick={() => onPick(product)}>
+          <span className="fa-search-suggest-thumb">
+            {product.imageUrl ? <img src={product.imageUrl} alt="" /> : <Icon name="pill" size={18} />}
+          </span>
+          <span className="fa-search-suggest-info">
+            <span className="fa-search-suggest-name">{product.name}</span>
+            <span className="fa-search-suggest-meta">{product.brand}</span>
+          </span>
+          <span className="fa-search-suggest-price">{brl(product.price)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Header({ cats, route, cartCount, query, user, portalData, onNav, onSearch, onChat, onPrescription, authClient, logout, ordersCount, products }) {
   const [q, setQ] = _useStateChrome(query || '');
   const [drawer, setDrawer] = _useStateChrome(false);
-  const activeCat = route.name === 'category' ? route.cat : null;
+  const [suggestOpen, setSuggestOpen] = _useStateChrome(false);
+  const searchRef = React.useRef(null);
   const storeMeta = resolveStoreMeta(portalData);
 
   React.useEffect(() => { setQ(query || ''); }, [query]);
 
-  const submit = (e) => { e.preventDefault(); onSearch(q.trim()); };
+  React.useEffect(() => {
+    if (!suggestOpen) return;
+    const onDocClick = (event) => { if (searchRef.current && !searchRef.current.contains(event.target)) setSuggestOpen(false); };
+    const onKey = (event) => { if (event.key === 'Escape') setSuggestOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDocClick); document.removeEventListener('keydown', onKey); };
+  }, [suggestOpen]);
+
+  const submit = (e) => { e.preventDefault(); setSuggestOpen(false); onSearch(q.trim()); };
+  const pickSuggestion = (product) => { setSuggestOpen(false); setQ(product.name); onNav({ name: 'product', id: product.id }); };
 
   return (
-    <header className="fa-header">
+    // Topbar and the sticky nav are now separate siblings (not nested inside one shared
+    // `<header>`) — position:sticky keeps an element pinned only within its own containing
+    // block's height, and a wrapper hugging just these two rows gave the sticky nav almost no
+    // room to actually stay stuck once you scrolled past it. Both need to be direct children of
+    // `#fa-root` (which spans the full page height) for the nav to stay pinned for the whole
+    // scroll while the topbar itself scrolls away normally.
+    <>
       <div className="fa-topbar">
+        <DeliveryLocationMenu fallbackLabel={storeMeta.topbarLabel} authClient={authClient} />
+        <a className="fa-topbar-item" onClick={() => onChat && onChat()} role="button"><Icon name="chat" size={15} />Falar com farmacêutico</a>
+        <span className="fa-topbar-item"><Icon name="truck" size={15} />Entrega em até 1 hora</span>
+        <a className="fa-topbar-item" onClick={() => onNav({ name: 'cashback' })} role="button"><Icon name="gift" size={15} />Cashback nas compras</a>
+        <span className="fa-topbar-item"><Icon name="pin" size={15} />Retirada em 15 min</span>
+        <a className="fa-topbar-item" onClick={() => onPrescription && onPrescription()} role="button"><Icon name="rx" size={15} />Receita digital</a>
+        <span className="fa-topbar-item"><Icon name="card" size={15} />Parcele em até 3x</span>
+      </div>
+
+      <header className="fa-header-sticky">
         <div className="fa-wrap">
-          <DeliveryLocationMenu fallbackLabel={storeMeta.topbarLabel} authClient={authClient} />
-          <div style={{ display: 'flex', gap: 20 }}>
-            <a onClick={() => onNav({ name: user ? 'account' : 'login', tab: 'orders' })} role="button"><Icon name="bag" size={15} /> {user ? 'Meus pedidos' : 'Entrar'}</a>
-            <a onClick={() => onChat && onChat()} role="button"><Icon name="chat" size={15} /> Falar com farmacêutico</a>
-            <a role="button"><Icon name="truck" size={15} /> Entrega conforme disponibilidade</a>
+          <div className="fa-header-main">
+            <div className="fa-header-start">
+              <button className="fa-iconbtn fa-burger" onClick={() => setDrawer(true)} aria-label="menu"><Icon name="menu" /></button>
+              <Logo onClick={() => onNav({ name: 'home' })} />
+            </div>
+            <form className="fa-search" ref={searchRef} onSubmit={submit}>
+              <Icon name="search" size={18} style={{ color: 'var(--fa-ink-3)' }} />
+              <input
+                value={q}
+                onChange={(e) => { setQ(e.target.value); setSuggestOpen(true); }}
+                onFocus={() => setSuggestOpen(true)}
+                placeholder="Busque por remédios, marcas, sintomas..."
+                autoComplete="off"
+                role="combobox"
+                aria-expanded={suggestOpen}
+              />
+              {suggestOpen && <SearchSuggestions query={q} products={products} onPick={pickSuggestion} />}
+            </form>
+            <div style={{ display: 'flex', gap: 8, flex: 'none', alignItems: 'center' }}>
+              <AccountMenu user={user} onNav={onNav} onPrescription={onPrescription} logout={logout} ordersCount={ordersCount} />
+              <button className="fa-hact" onClick={() => onNav({ name: 'cart' })} aria-label="carrinho">
+                <span className="fa-hact-icon-wrap">
+                  <Icon name="cart" size={21} />
+                  {cartCount > 0 && <span className="fa-cart-count">{cartCount}</span>}
+                </span>
+                <span className="fa-hact-label">Carrinho</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="fa-wrap">
-        <div className="fa-header-main">
-          <button className="fa-iconbtn fa-burger" onClick={() => setDrawer(true)} aria-label="menu"><Icon name="menu" /></button>
-          <Logo onClick={() => onNav({ name: 'home' })} />
-          <form className="fa-search" onSubmit={submit}>
-            <Icon name="search" size={20} style={{ color: 'var(--fa-ink-3)' }} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Busque por remédios, marcas, sintomas..." />
-            <button type="submit" className="fa-btn fa-btn-primary fa-btn-sm" style={{ borderRadius: 'var(--fa-r-pill)' }}>Buscar</button>
-          </form>
-          <div style={{ display: 'flex', gap: 8, flex: 'none', alignItems: 'center' }}>
-            <AccountMenu user={user} onNav={onNav} onPrescription={onPrescription} />
-            <button className="fa-iconbtn" onClick={() => onNav({ name: 'cart' })} aria-label="carrinho">
-              <Icon name="cart" />
-              {cartCount > 0 && <span className="fa-cart-count">{cartCount}</span>}
-            </button>
-          </div>
-        </div>
-
-        {route.name !== 'home' && (
-          <nav className="fa-navrow">
-            {cats.map((c) => (
-              <a key={c.id} className="fa-navlink" data-active={activeCat === c.id ? '1' : '0'} onClick={() => onNav({ name: 'category', cat: c.id })}>{c.label}</a>
-            ))}
-            <a className="fa-navlink" data-active={route.name === 'offers' ? '1' : '0'} onClick={() => onNav({ name: 'offers' })} style={{ color: 'var(--fa-vital)' }}>
-              <Icon name="percent" size={16} stroke={2.2} />Ofertas
-            </a>
-            <a className="fa-navlink" data-active={route.name === 'services' ? '1' : '0'} onClick={() => onNav({ name: 'services' })}><Icon name="activity" size={16} />Serviços de saúde</a>
-            <a className="fa-navlink" onClick={() => onPrescription && onPrescription()} style={{ marginLeft: 'auto' }}><Icon name="rx" size={16} />Receita digital</a>
-          </nav>
-        )}
-      </div>
-
-      {drawer && <MobileDrawer cats={cats} user={user} onNav={(r) => { setDrawer(false); onNav(r); }} onClose={() => setDrawer(false)} onChat={() => { setDrawer(false); onChat && onChat(); }} onPrescription={() => { setDrawer(false); onPrescription && onPrescription(); }} />}
-    </header>
+        {drawer && <MobileDrawer cats={cats} user={user} products={products} onNav={(r) => { setDrawer(false); onNav(r); }} onClose={() => setDrawer(false)} onChat={() => { setDrawer(false); onChat && onChat(); }} onPrescription={() => { setDrawer(false); onPrescription && onPrescription(); }} onSearch={(term) => { setDrawer(false); onSearch(term); }} />}
+      </header>
+    </>
   );
 }
 
-function MobileDrawer({ cats, user, onNav, onClose, onChat, onPrescription }) {
+// Same 7-color rotation the demo hand-assigns per category (--fa-primary, --fa-success,
+// --fa-info, --fa-warn-ink, --fa-vital, --fa-primary-ink, --fa-ink-2) — the real category list
+// has no stored per-category color, so it cycles through the same set by position.
+const DRAWER_CAT_COLORS = [
+  'var(--fa-primary)', 'var(--fa-success)', 'var(--fa-info)', 'var(--fa-warn-ink)',
+  'var(--fa-vital)', 'var(--fa-primary-ink)', 'var(--fa-ink-2)',
+];
+
+function MobileDrawer({ cats, user, onNav, onClose, onChat, onPrescription, onSearch, products }) {
+  const [drawerQuery, setDrawerQuery] = _useStateChrome('');
+  const submitDrawerSearch = (e) => { e.preventDefault(); onSearch(drawerQuery.trim()); };
+  const pickDrawerSuggestion = (product) => onNav({ name: 'product', id: product.id });
   useModalStack(true, onClose);
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 100 }}>
+  // Portaled to <body>: MobileDrawer renders inside <header className="fa-header-sticky">, whose
+  // backdrop-filter creates a new containing block for position:fixed descendants — without the
+  // portal, "inset:0" resolves against the header's own (short) box instead of the viewport, so
+  // the panel's content overflows past its real bottom edge with no background under it, and the
+  // home page bleeds through. Same escape hatch ModalShell already uses for the same reason.
+  const node = (
+    // z-index above .fa-header-sticky's 400 — now that this is portaled to <body> it shares
+    // the header's stacking context, and would otherwise render its own top row (logo + close)
+    // underneath the real page header instead of above it.
+    <div style={{ position: 'fixed', inset: 0, zIndex: 500 }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(43,26,26,.4)', backdropFilter: 'blur(2px)' }} />
-      <div className="fa-fadein" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 'min(320px, 84vw)', background: 'var(--fa-bg)', padding: 20, display: 'flex', flexDirection: 'column', gap: 6, boxShadow: 'var(--fa-shadow-lg)', animationDuration: '.25s' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div className="fa-fadein fa-drawer-panel" style={{ animationDuration: '.25s' }}>
+        <div className="fa-drawer-head">
           <Logo onClick={() => onNav({ name: 'home' })} />
           <button className="fa-iconbtn" onClick={onClose} aria-label="fechar"><Icon name="close" /></button>
         </div>
-        {cats.map((c) => (
-          <a key={c.id} className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onNav({ name: 'category', cat: c.id })}>{c.label}<Icon name="chevR" size={16} style={{ marginLeft: 'auto' }} /></a>
-        ))}
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px', color: 'var(--fa-vital)' }} onClick={() => onNav({ name: 'offers' })}><Icon name="percent" size={18} stroke={2.2} />Ofertas</a>
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onNav({ name: 'services' })}><Icon name="activity" size={18} />Serviços de saúde</a>
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onNav({ name: 'cashback' })}><Icon name="gift" size={18} />Cashback</a>
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onNav({ name: 'subscriptions' })}><Icon name="repeat" size={18} />Compras recorrentes</a>
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onNav({ name: 'saved' })}><Icon name="heart" size={18} />Produtos salvos</a>
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onPrescription && onPrescription()}><Icon name="rx" size={18} />Receita digital</a>
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onChat && onChat()}><Icon name="chat" size={18} />Falar com farmacêutico</a>
-        <a className="fa-navlink" style={{ fontSize: 16, padding: '12px 14px' }} onClick={() => onNav({ name: user ? 'account' : 'login', tab: 'orders' })}><Icon name="bag" size={18} />{user ? 'Meus pedidos' : 'Entrar / Criar conta'}</a>
-        <div style={{ marginTop: 'auto', padding: 14, background: 'var(--fa-rose-soft)', borderRadius: 'var(--fa-r-card)' }}>
+        <form className="fa-search" style={{ margin: '0 16px 10px' }} onSubmit={submitDrawerSearch}>
+          <Icon name="search" size={20} style={{ color: 'var(--fa-ink-3)' }} />
+          <input value={drawerQuery} onChange={(e) => setDrawerQuery(e.target.value)} placeholder="Busque por remédios, marcas, sintomas..." autoComplete="off" />
+          <SearchSuggestions query={drawerQuery} products={products} onPick={pickDrawerSuggestion} />
+        </form>
+        <div className="fa-drawer-section-title">Categorias</div>
+        <nav className="fa-drawer-cats">
+          {cats.map((c, index) => (
+            <button key={c.id} type="button" className="fa-drawer-cat" onClick={() => onNav({ name: 'category', cat: c.id })}>
+              <span className="fa-drawer-cat-icon" style={{ background: DRAWER_CAT_COLORS[index % DRAWER_CAT_COLORS.length] }}>
+                <Icon name={c.glyph || 'pill'} size={17} stroke={1.8} />
+              </span>
+              {c.label}
+            </button>
+          ))}
+        </nav>
+        <div className="fa-drawer-section-title">Mais</div>
+        <nav className="fa-drawer-cats" style={{ paddingBottom: 20 }}>
+          <a className="fa-drawer-cat" style={{ color: 'var(--fa-vital)' }} onClick={() => onNav({ name: 'offers' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-vital)' }}><Icon name="percent" size={17} stroke={2.2} /></span>Ofertas</a>
+          <a className="fa-drawer-cat" onClick={() => onNav({ name: 'services' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-info)' }}><Icon name="activity" size={17} /></span>Serviços de saúde</a>
+          {user && <a className="fa-drawer-cat" onClick={() => onNav({ name: 'cashback' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-warn-ink)' }}><Icon name="gift" size={17} /></span>Cashback</a>}
+          {user && <a className="fa-drawer-cat" onClick={() => onNav({ name: 'subscriptions' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-primary-ink)' }}><Icon name="repeat" size={17} /></span>Compras recorrentes</a>}
+          {user && <a className="fa-drawer-cat" onClick={() => onNav({ name: 'saved' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-ink-2)' }}><Icon name="heart" size={17} /></span>Produtos salvos</a>}
+          <a className="fa-drawer-cat" onClick={() => onPrescription && onPrescription()}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-primary)' }}><Icon name="rx" size={17} /></span>Receita digital</a>
+          <a className="fa-drawer-cat" onClick={() => onChat && onChat()}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-success)' }}><Icon name="chat" size={17} /></span>Falar com farmacêutico</a>
+          <a className="fa-drawer-cat" onClick={() => onNav({ name: user ? 'account' : 'login', tab: 'orders' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-vital)' }}><Icon name="bag" size={17} /></span>{user ? 'Meus pedidos' : 'Entrar / Criar conta'}</a>
+        </nav>
+        <div style={{ margin: '0 16px 20px', padding: 14, background: 'var(--fa-rose-soft)', borderRadius: 'var(--fa-r-card)', flex: 'none' }}>
           <div style={{ fontWeight: 800, marginBottom: 4, color: 'var(--fa-primary)' }}>Cuidado que acompanha você</div>
           <div className="fa-muted" style={{ fontSize: 13 }}>Atendimento farmacêutico com dados sincronizados do portal.</div>
         </div>
       </div>
     </div>
   );
+  return createPortal(node, document.body);
 }
 
-function Footer({ cats, portalData, onNav }) {
+function Footer({ cats, portalData, onNav, onPrescription }) {
+  // Only "Assinatura Farmaura" and "Receita digital" have a real destination today (a route and
+  // the existing prescription-upload flow, respectively) — the rest were rendered as clickable
+  // <a role="button"> links that silently did nothing on click. Wiring the two real ones and
+  // rendering the others as plain (non-interactive) text is honest about what actually exists;
+  // inventing "Sobre nós"/"Trabalhe conosco"/etc. destinations would fabricate content that isn't
+  // there yet.
   const cols = [
     { h: 'Categorias', items: cats.map((c) => ({ l: c.label, r: { name: 'category', cat: c.id } })) },
-    { h: 'Farmaura', items: [{ l: 'Sobre nós' }, { l: 'Assinatura Farmaura' }, { l: 'Programa de cuidado' }, { l: 'Trabalhe conosco' }] },
-    { h: 'Ajuda', items: [{ l: 'Central de atendimento' }, { l: 'Receita digital' }, { l: 'Trocas e devoluções' }, { l: 'Política de privacidade' }] },
+    { h: 'Farmaura', items: [{ l: 'Sobre nós' }, { l: 'Assinatura Farmaura', r: { name: 'subscriptions' } }, { l: 'Programa de cuidado' }, { l: 'Trabalhe conosco' }] },
+    { h: 'Ajuda', items: [{ l: 'Central de atendimento' }, { l: 'Receita digital', act: onPrescription }, { l: 'Trocas e devoluções' }, { l: 'Termos de uso', r: { name: 'terms' } }, { l: 'Política de privacidade', r: { name: 'privacy' } }, { l: 'Exclusão e retenção de dados', r: { name: 'data-retention' } }] },
   ];
   const meta = resolveMarketplaceMeta(portalData);
   const storeMeta = resolveStoreMeta(portalData);
@@ -367,7 +464,12 @@ function Footer({ cats, portalData, onNav }) {
             <div key={col.h}>
               <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 14 }}>{col.h}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-                {col.items.map((it, i) => <a key={i} role="button" onClick={() => it.r && onNav(it.r)}>{it.l}</a>)}
+                {col.items.map((it, i) => {
+                  const onClick = it.act || (it.r && (() => onNav(it.r)));
+                  return onClick
+                    ? <a key={i} role="button" onClick={onClick}>{it.l}</a>
+                    : <span key={i} style={{ cursor: 'default', opacity: .68 }}>{it.l}</span>;
+                })}
               </div>
             </div>
           ))}
@@ -382,4 +484,4 @@ function Footer({ cats, portalData, onNav }) {
   );
 }
 
-export { AccountMenu, Footer, Header, Logo, MobileDrawer };
+export { AccountMenu, DeliveryCoverageNote, Footer, Header, Logo, MobileDrawer, resolveMarketplaceMeta, resolveStoreMeta };

@@ -51,6 +51,7 @@ Tabela única `portal_settings` (`UniqueConstraint(tenant_id, portal_name, setti
 
 ## Atualizações
 
+- 2026-08-26: `POST /products/reviews`/`GET /products/{ref}/reviews` passaram a ser usados de verdade pelo marketplace (antes existiam no backend mas nenhuma tela chamava — reviews só apareciam via `review_summary` embutido no bootstrap de catálogo). Corrigido junto um bug real em `_resolve_review_purchase_match`/`_split_product_ref`: refs de produto reais do frontend (`mkt-<nome>-<marca>`) nunca são prefixados `inv-`/`listing-`, e o código antigo gravava a string crua numa coluna `uuid`, quebrando com erro de tipo em qualquer avaliação enviada com o id real. A mesma função é reaproveitada por `create_favorite`/`create_subscription` e provavelmente tem o mesmo problema ali — não corrigido nesta leva, ver [[../06_Pendencias/product-ref-nao-normalizado-quebra-favoritos-assinaturas|pendência]].
 - 2026-08-15: `deal_of_the_day` ganhou um quarto modo, `scheduled` — calendário de entradas
   (`DealScheduleEntry`: título/subtítulo próprios, lista de produtos própria, data(s) específica(s)
   e/ou recorrência semanal com vigência opcional). Resolvido em `_resolve_deal_of_the_day` por

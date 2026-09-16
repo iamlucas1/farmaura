@@ -2,9 +2,9 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { PharmacistChatInbox } from "../core/marketplace-care-actions.jsx";
-import { Modal, ProductCard, brl, useModalStack } from "../core/marketplace-components.jsx";
+import { Modal, ProductCard, ProductVisual, StarPicker, brl, useModalStack } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
-import { OrderCard, OrderTracker, resolveOrderLineProduct, resolveOrderLineTotal, resolveOrderStatusMeta } from "./account-shared.jsx";
+import { OrderCard, OrderTracker, ProductReviewModal, resolveOrderLineProduct, resolveOrderLineTotal, resolveOrderPillClass, resolveOrderStatusMeta } from "./account-shared.jsx";
 
 
 /* ============== SERVIÇOS DE SAÚDE ============== */
@@ -96,18 +96,18 @@ function HealthServices({ ctx }) {
             <div className="fa-block-head"><Icon name="calendar" size={19} style={{ color: 'var(--fa-primary)' }} /><div style={{ flex: 1 }}><div className="fa-block-title">Realizar marcação</div><div className="fa-block-sub">Escolha serviço, loja e horário.</div></div></div>
             <div className="fa-block-body">
               <div className="fa-form2">
-                <div className="fa-field fa-span2"><label>Serviço</label>
-                  <select className="fa-select" value={picked.id} onChange={(e) => setPicked(healthServices.find((s) => s.id === e.target.value))}>
+                <div className="fa-field fa-span2"><label htmlFor="hs-service">Serviço</label>
+                  <select id="hs-service" className="fa-select" value={picked.id} onChange={(e) => setPicked(healthServices.find((s) => s.id === e.target.value))}>
                     {healthServices.map((s) => <option key={s.id} value={s.id}>{s.name} — {hsPrice(s.price)}</option>)}
                   </select>
                 </div>
-                <div className="fa-field"><label>Loja</label>
-                  <select className="fa-select" value={booking.store} onChange={(e) => setBooking((b) => ({ ...b, store: e.target.value }))}>
+                <div className="fa-field"><label htmlFor="hs-store">Loja</label>
+                  <select id="hs-store" className="fa-select" value={booking.store} onChange={(e) => setBooking((b) => ({ ...b, store: e.target.value }))}>
                     {stores.map((s) => <option key={s.id}>{s.name}</option>)}
                   </select>
                 </div>
-                <div className="fa-field"><label>Data</label><input className="fa-input" type="date" value={booking.date} onChange={(e) => setBooking((b) => ({ ...b, date: e.target.value }))} /></div>
-                <div className="fa-field"><label>Cupom (opcional)</label><input className="fa-input" value={booking.couponCode} onChange={(e) => setBooking((b) => ({ ...b, couponCode: e.target.value.toUpperCase() }))} placeholder="Ex.: VACINA10" /></div>
+                <div className="fa-field"><label htmlFor="hs-date">Data</label><input id="hs-date" className="fa-input" type="date" value={booking.date} onChange={(e) => setBooking((b) => ({ ...b, date: e.target.value }))} /></div>
+                <div className="fa-field"><label htmlFor="hs-coupon">Cupom (opcional)</label><input id="hs-coupon" className="fa-input" value={booking.couponCode} onChange={(e) => setBooking((b) => ({ ...b, couponCode: e.target.value.toUpperCase() }))} placeholder="Ex.: VACINA10" /></div>
               </div>
               <div className="fa-field" style={{ marginTop: 16 }}><label>Horário</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
@@ -193,7 +193,8 @@ function SavedProducts({ ctx }) {
           {saved.map((p) => (
             <ProductCard key={p.id} product={p} variant="standard"
               onOpen={(pr) => onNav({ name: 'product', id: pr.id })}
-              onAdd={(pr) => addToCart(pr)} fav={true} onFav={toggleFav}
+              onAdd={(pr) => addToCart(pr)} onBuyNow={(pr) => { addToCart(pr); onNav({ name: 'cart' }); }}
+              fav={true} onFav={toggleFav}
               notified={availabilityAlerts.includes(p.id)} onNotify={subscribeAvailabilityAlert} />
           ))}
         </div>
@@ -203,7 +204,7 @@ function SavedProducts({ ctx }) {
 }
 
 /* ============== MEUS PEDIDOS ============== */
-function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct, onOpenSupport }) {
+function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct, onOpenSupport, onReviewItem, onDownloadFiscalDocument }) {
   useModalStack(!!order, onClose);
   if (!order) {
     return null;
@@ -227,12 +228,12 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
     : 'Use este código como referência da entrega no atendimento e na conferência do pedido.';
 
   const drawerNode = (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end', width: '100vw', height: '100vh', background: 'rgba(18, 22, 29, 0.28)' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end', width: '100vw', height: '100vh', background: 'rgba(43, 26, 26, 0.28)' }}>
       <aside className="fa-fadein" style={{ width: 'min(560px, 100vw)', maxWidth: '100vw', height: '100vh', background: 'var(--fa-surface)', boxShadow: 'var(--fa-shadow-lg)', display: 'flex', flexDirection: 'column', borderRadius: 0 }}>
         <div style={{ padding: '22px 22px 18px', borderBottom: '1px solid var(--fa-mist)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-              <span className={'fa-badge ' + statusMeta.cls}><Icon name={statusMeta.icon} size={12} stroke={2.2} />{statusMeta.label}</span>
+              <span className={'order-status ' + resolveOrderPillClass(order.status)}>{statusMeta.label}</span>
               <span className="fa-badge fa-badge-outline"><Icon name={pickup ? 'bag' : shipping ? 'nav' : 'truck'} size={12} />{pickup ? 'Retirada na loja' : shipping ? 'Envio por transportadora' : 'Entrega em domicílio'}</span>
             </div>
             <h2 className="fa-h3" style={{ fontSize: 20 }}>Pedido <span className="fa-mono">#{order.id}</span></h2>
@@ -284,6 +285,9 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 13.5, lineHeight: 1.35 }}>{product.name}</div>
                       <div className="fa-faint" style={{ fontSize: 12.5 }}>{item.qty}x · {product.brand}{item.sub ? ' · assinatura' : ''}</div>
+                      {order.status === 'delivered' && onReviewItem && (
+                        <button className="fa-btn fa-btn-ghost fa-btn-sm" style={{ marginTop: 6 }} onClick={() => onReviewItem(item, order)}><Icon name="star" size={13} />Avaliar produto</button>
+                      )}
                     </div>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>{brl(lineTotal)}</div>
                   </div>
@@ -296,6 +300,9 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
             <div style={{ fontWeight: 800, fontSize: 15 }}>Precisa de ajuda com este pedido?</div>
             <div className="fa-muted" style={{ fontSize: 13.5, lineHeight: 1.5 }}>Abra a conversa do pedido para falar com o farmacêutico, validar dúvidas sobre entrega ou retirada e receber orientação do atendimento.</div>
             <button className="fa-btn fa-btn-primary" onClick={() => onOpenSupport && onOpenSupport(order)}><Icon name="chat" size={16} />Ir para a conversa com o farmacêutico</button>
+            {order.fiscalDocument && onDownloadFiscalDocument && (
+              <button className="fa-btn fa-btn-soft" onClick={() => onDownloadFiscalDocument(order)}><Icon name="receipt" size={16} />Baixar nota fiscal</button>
+            )}
           </div>
         </div>
       </aside>
@@ -310,24 +317,51 @@ function OrderSupportDrawer({ order, products, statusMap, onClose, onOpenProduct
 }
 
 function ConversationsInbox({ ctx }) {
-  const { chatThreads, activeChatThreadId, selectChatThread, sendChatMessage, openChat } = ctx;
+  const { chatThreads, activeChatThreadId, activateChatThread, sendChatMessage, sendPrescriptionAttachment, sendChatUnblockRequest, openChat, orders, authClient } = ctx;
   const threads = Array.isArray(chatThreads) ? chatThreads : [];
+  const [orderPickerOpen, setOrderPickerOpen] = useState(false);
+  const eligibleOrders = (Array.isArray(orders) ? orders : []).filter((order) => order.status !== 'delivered' && order.status !== 'cancelled');
 
   useEffect(() => {
     if (!threads.length || activeChatThreadId) {
       return;
     }
-    selectChatThread(threads[0].id);
-  }, [threads, activeChatThreadId, selectChatThread]);
+    activateChatThread(threads[0].id);
+  }, [threads, activeChatThreadId, activateChatThread]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="fa-acct-head" style={{ marginBottom: 0 }}>
+      <div className="orders-head" style={{ position: 'relative' }}>
         <div style={{ flex: 1 }}>
-          <h1 className="fa-h2">Minhas conversas</h1>
-          <p className="fa-muted" style={{ fontSize: 14, marginTop: 4 }}>Acompanhe todas as conversas abertas no marketplace e fale direto com o farmacêutico.</p>
+          <h1 className="cart-title" style={{ margin: 0 }}>Mensagens</h1>
+          <span className="orders-count">Acompanhe todas as conversas abertas no marketplace e fale direto com o farmacêutico.</span>
         </div>
-        <button className="fa-btn fa-btn-primary" onClick={() => openChat()}><Icon name="chat" size={16} />Novo atendimento</button>
+        <div style={{ position: 'relative' }}>
+          <button className="fa-btn fa-btn-primary" onClick={() => setOrderPickerOpen((prev) => !prev)}><Icon name="chat" size={16} />Novo atendimento<Icon name="chevD" size={13} /></button>
+          {orderPickerOpen && (
+            <div className="fa-card" style={{ position: 'absolute', right: 0, top: '110%', width: 280, padding: 8, zIndex: 20, boxShadow: '0 12px 32px rgba(0,0,0,.14)' }}>
+              <button
+                type="button"
+                className="fa-btn fa-btn-ghost fa-btn-sm"
+                style={{ width: '100%', justifyContent: 'flex-start', marginBottom: eligibleOrders.length ? 4 : 0 }}
+                onClick={() => { setOrderPickerOpen(false); openChat(); }}
+              >
+                Dúvida geral
+              </button>
+              {eligibleOrders.map((order) => (
+                <button
+                  key={order.recordId}
+                  type="button"
+                  className="fa-btn fa-btn-ghost fa-btn-sm"
+                  style={{ width: '100%', justifyContent: 'flex-start' }}
+                  onClick={() => { setOrderPickerOpen(false); openChat({ order }); }}
+                >
+                  Sobre o pedido {order.code}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {threads.length ? (
@@ -335,8 +369,11 @@ function ConversationsInbox({ ctx }) {
           <PharmacistChatInbox
             threads={threads}
             activeThreadId={activeChatThreadId}
-            onSelectThread={selectChatThread}
+            onSelectThread={activateChatThread}
             onSendMessage={sendChatMessage}
+            onSendAttachment={sendPrescriptionAttachment}
+            onRequestUnblock={sendChatUnblockRequest}
+            authClient={authClient}
             onOpenAccountConversations={() => {}}
           />
         </div>
@@ -352,78 +389,127 @@ function ConversationsInbox({ ctx }) {
   );
 }
 
+const ORDERS_PER_PAGE = 7;
+
+// "Meus pedidos" — ported from the "Padrão farmácia" demo (data-cat="orders"): benefit strip
+// (real cashback + recorrência), a review-prompt for recently delivered items, and the order
+// list itself as collapsible order-card entries (see account-shared.jsx). The previous "Por
+// produto / Por pedido" toggle is gone — this is order-list only now, by design decision.
 function MyOrders({ ctx }) {
-  const { orders, products, statusMap, onNav, reorder, route, openChat } = ctx;
-  const [view, setView] = useState('pedidos');
-  const [filter, setFilter] = useState('all');
-  const [confirmP, setConfirmP] = useState(null);
+  const { orders, products, statusMap, onNav, reorder, route, openChat, authClient, submitProductReview, showToast, cashbackWallet } = ctx;
   const [trackingOrderId, setTrackingOrderId] = useState(route.trackOrderId || '');
+  const [reviewTarget, setReviewTarget] = useState(null);
+  const [page, setPage] = useState(1);
   useEffect(() => { setTrackingOrderId(route.trackOrderId || ''); }, [route.trackOrderId]);
 
-  const allItems = orders.flatMap((o) => o.items.map((it) => ({ ...it, order: o })));
-  const filtered = filter === 'all' ? allItems : allItems.filter((x) => x.order.fulfillment === filter);
-  const trackedOrder = orders.find((order) => order.id === trackingOrderId) || null;
+  const downloadOrderFiscalDocument = async (order) => {
+    try {
+      const result = await authClient.download('/orders/' + order.recordId + '/fiscal-document/printable', { method: 'GET' });
+      const blobUrl = URL.createObjectURL(result.blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = 'nota-fiscal-' + order.code + '.html';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      showToast((error && error.message) || 'Não foi possível baixar a nota fiscal.');
+    }
+  };
 
-  const filters = [['all', 'Todos'], ['delivery', 'Entregue em casa'], ['pickup', 'Retirado na loja']];
+  const trackedOrder = orders.find((order) => order.id === trackingOrderId) || null;
+  const wallet = cashbackWallet || { availableBalance: 0, pendingBalance: 0 };
+
+  // No "already reviewed this product" signal exists in the backend yet (see
+  // sem-indicador-produto-ja-avaliado pendência) — same limitation the per-item "Avaliar
+  // produto" button inside each order card already accepts. This highlight strip just
+  // surfaces the 3 most recent delivered items as a low-friction entry point to that same modal.
+  const reviewCandidates = orders
+    .filter((order) => order.status === 'delivered')
+    .flatMap((order) => order.items.map((item) => ({ item, order, product: resolveOrderLineProduct(item, products) })))
+    .slice(0, 3);
+
+  const pageCount = Math.max(1, Math.ceil(orders.length / ORDERS_PER_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const pagedOrders = orders.slice((safePage - 1) * ORDERS_PER_PAGE, safePage * ORDERS_PER_PAGE);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="fa-acct-head" style={{ marginBottom: 0 }}>
-        <div style={{ flex: 1 }}><h1 className="fa-h2">Meus pedidos</h1><p className="fa-muted" style={{ fontSize: 14, marginTop: 4 }}>{allItems.length} produtos comprados em {orders.length} pedidos</p></div>
-        <div style={{ display: 'flex', gap: 4, background: 'var(--fa-mist-2)', padding: 4, borderRadius: 'var(--fa-r-btn)' }}>
-          {[['produtos', 'Por produto'], ['pedidos', 'Por pedido']].map(([id, l]) => (
-            <button key={id} onClick={() => setView(id)} style={{ border: 'none', padding: '9px 14px', borderRadius: 'calc(var(--fa-r-btn) - 3px)', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: view === id ? 'var(--fa-surface)' : 'transparent', color: view === id ? 'var(--fa-primary)' : 'var(--fa-ink-2)', boxShadow: view === id ? 'var(--fa-shadow-sm)' : 'none' }}>{l}</button>
-          ))}
-        </div>
-      </div>
-
-      {view === 'produtos' ? (
-        <>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {filters.map(([id, l]) => <button key={id} className="fa-chip" data-active={filter === id ? '1' : '0'} onClick={() => setFilter(id)}>{l}</button>)}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {(wallet.availableBalance > 0 || wallet.pendingBalance > 0) && (
+        <div className="orders-hero">
+          <div className="orders-hero-cashback">
+            <span className="orders-hero-label">Cashback disponível</span>
+            <span className="orders-hero-value">{brl(wallet.availableBalance)}</span>
+            <span className="orders-hero-caption">
+              {wallet.pendingBalance > 0 ? `+ ${brl(wallet.pendingBalance)} a liberar quando seus pedidos forem entregues` : 'Aplique no pagamento do próximo pedido'}
+            </span>
           </div>
-          <div className="fa-block"><div style={{ padding: '4px 22px' }}>
-            {filtered.map((x, i) => {
-              const p = resolveOrderLineProduct(x, products);
-              const lineTotal = resolveOrderLineTotal(x, p);
-              const pickup = x.order.fulfillment === 'pickup';
-              return (
-                <div className="fa-row" key={x.order.id + '-' + x.id + '-' + i} style={{ gap: 14 }}>
-                  <div className="fa-ph" data-cat={p.cat} style={{ width: 56, height: 56, aspectRatio: 'auto', flex: 'none', cursor: 'pointer' }} onClick={() => p.id && onNav({ name: 'product', id: p.id })}>
-                    <Icon name={p.cat === 'medicamentos' ? 'pill' : p.cat === 'perfumaria' ? 'sparkle' : p.cat === 'bem-estar' ? 'leaf' : 'heart'} size={24} style={{ color: 'var(--fa-primary)', opacity: .5 }} />
-                  </div>
-                  <div className="fa-row-main">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span className="fa-row-label">{p.name}</span>
-                      <span className={'fa-badge ' + (pickup ? 'fa-badge-mist' : 'fa-badge-health')}><Icon name={pickup ? 'bag' : 'truck'} size={12} />{pickup ? 'Retirado na loja' : 'Entregue em casa'}</span>
-                    </div>
-                    <div className="fa-row-desc">{x.qty}x · {p.brand}{x.sub ? ' · assinatura' : ''} · pedido <span className="fa-mono">#{x.order.id}</span> · {x.order.date}{pickup && x.order.store ? ' · ' + x.order.store : ''}</div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-                    <div style={{ fontWeight: 800, fontSize: 14.5 }}>{brl(lineTotal)}</div>
-                    <button className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setConfirmP(p)}><Icon name="repeat" size={14} />Comprar de novo</button>
-                  </div>
-                </div>
-              );
-            })}
-            {filtered.length === 0 && <p className="fa-muted" style={{ padding: '24px 0', textAlign: 'center' }}>Nenhum produto nesta categoria.</p>}
-          </div></div>
-        </>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {orders.map((o) => <OrderCard key={o.id} order={o} products={products} statusMap={statusMap} onReorder={reorder} onOpenProduct={(p) => onNav({ name: 'product', id: p.id })} onTrackOrder={(order) => setTrackingOrderId(order.id)} onOpenSupport={(order) => openChat({ order })} defaultOpen={false} />)}
+          <div className="orders-hero-divider" />
+          <div className="orders-hero-recurrence">
+            <span className="orders-hero-recurrence-title">Ative a recorrência nos remédios de uso contínuo</span>
+            <span className="orders-hero-recurrence-caption">15% de desconto garantido em toda entrega automática, sem precisar comprar de novo todo mês</span>
+            <button className="fa-btn fa-btn-vital fa-btn-sm" type="button" onClick={() => onNav({ name: 'subscriptions' })}>Ativar recorrência</button>
+          </div>
         </div>
       )}
 
-      <Modal open={!!confirmP} onClose={() => setConfirmP(null)} icon="cart" title="Comprar novamente?"
-        sub={confirmP ? `“${confirmP.name}” será adicionado ao seu carrinho.` : ''}>
-        <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-          <button className="fa-btn fa-btn-primary fa-btn-block" onClick={() => { ctx.addToCart(confirmP); setConfirmP(null); }}><Icon name="cart" size={16} />Adicionar ao carrinho</button>
-          <button className="fa-btn fa-btn-soft fa-btn-block" onClick={() => setConfirmP(null)}>Cancelar</button>
-        </div>
-      </Modal>
+      {reviewCandidates.length > 0 && (
+        <section className="review-prompt-section">
+          <h2 className="review-prompt-heading">Avalie suas compras recentes</h2>
+          <div className="review-prompt-list">
+            {reviewCandidates.map(({ item, order, product }) => (
+              <div className="review-prompt-card" key={order.id + '_' + item.id}>
+                <span className="order-summary-thumb" style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden' }}><ProductVisual product={product} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} /></span>
+                <div className="review-prompt-body">
+                  <span className="review-prompt-title">{product.name}</span>
+                  <span className="review-prompt-sub">Pedido #{order.id} · {order.date}</span>
+                </div>
+                <div className="review-prompt-action">
+                  <StarPicker size={19} value={0} onChange={(rating) => setReviewTarget({ item, order, initialRating: rating })} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <OrderSupportDrawer order={trackedOrder} products={products} statusMap={statusMap} onClose={() => setTrackingOrderId('')} onOpenProduct={(product) => onNav({ name: 'product', id: product.id })} onOpenSupport={(order) => openChat({ order })} />
+      <div className="orders-head">
+        <h1 className="fa-h2">Meus pedidos</h1>
+        <span className="orders-count">{orders.length} {orders.length === 1 ? 'pedido' : 'pedidos'}</span>
+      </div>
+
+      {orders.length === 0 ? (
+        <div className="fa-card" style={{ padding: 48, textAlign: 'center' }}>
+          <span className="fa-iconbox" style={{ width: 64, height: 64, margin: '0 auto 16px' }}><Icon name="bag" size={30} /></span>
+          <h2 className="fa-h3" style={{ fontSize: 18 }}>Você ainda não fez nenhum pedido</h2>
+          <p className="fa-muted" style={{ marginTop: 8, fontSize: 14 }}>Assim que finalizar uma compra, ela aparece aqui.</p>
+          <button className="fa-btn fa-btn-primary" style={{ marginTop: 18 }} onClick={() => onNav({ name: 'home' })}>Explorar a loja</button>
+        </div>
+      ) : (
+        <>
+          <div className="orders-list">
+            {pagedOrders.map((o) => (
+              <OrderCard key={o.id} order={o} products={products} statusMap={statusMap} onReorder={reorder} onOpenProduct={(p) => onNav({ name: 'product', id: p.id })} onTrackOrder={(order) => setTrackingOrderId(order.id)} onOpenSupport={(order) => openChat({ order })} onReviewItem={(item, order) => setReviewTarget({ item, order })} onDownloadFiscalDocument={downloadOrderFiscalDocument} defaultOpen={false} />
+            ))}
+          </div>
+          {pageCount > 1 && (
+            <nav className="orders-pagination" aria-label="Páginas de pedidos">
+              <button className="orders-page-nav" type="button" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} aria-label="Página anterior"><Icon name="chevD" size={15} style={{ transform: 'rotate(90deg)' }} /></button>
+              <div className="orders-page-nums">
+                {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => (
+                  <button key={n} type="button" className={'orders-page-btn' + (n === safePage ? ' is-active' : '')} onClick={() => setPage(n)}>{n}</button>
+                ))}
+              </div>
+              <button className="orders-page-nav" type="button" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)} aria-label="Próxima página"><Icon name="chevD" size={15} style={{ transform: 'rotate(-90deg)' }} /></button>
+            </nav>
+          )}
+        </>
+      )}
+
+      <ProductReviewModal open={!!reviewTarget} item={reviewTarget && reviewTarget.item} initialRating={reviewTarget && reviewTarget.initialRating || 0} onClose={() => setReviewTarget(null)} onSubmit={submitProductReview} showToast={showToast} />
+
+      <OrderSupportDrawer order={trackedOrder} products={products} statusMap={statusMap} onClose={() => setTrackingOrderId('')} onOpenProduct={(product) => onNav({ name: 'product', id: product.id })} onOpenSupport={(order) => openChat({ order })} onReviewItem={(item, order) => setReviewTarget({ item, order })} onDownloadFiscalDocument={downloadOrderFiscalDocument} />
     </div>
   );
 }

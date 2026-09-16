@@ -52,4 +52,60 @@ Fluxo de validação de receita médica para produtos controlados, com dois pont
 
 ## Atualizações
 
+- 2026-09-03 (9): receita digital enviada como **link** (não arquivo) pelo chat agora cria uma
+  `Prescription` de verdade (`digital_reference_url`, mesmo campo já usado pelo PDV) — o
+  farmacêutico valida/recusa pelo mesmo card do chat, sem mudança nenhuma lá. Recusar uma receita
+  agora também encerra a thread do chat (`closed_reason='prescription_rejected'`), com aviso pro
+  cliente de que pode abrir um novo atendimento pra reenviar. Ver
+  [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR (Décima segunda
+  rodada)]].
+- 2026-09-03 (8): quando a receita digital é recusada, o item que exigia receita ganhou um botão
+  "Remover" no card de pagamento (reaproveita `RemoveItemModal` do carrinho) — o gate já é por
+  carrinho, não por item, então remover libera o pagamento imediatamente sem precisar de nova
+  receita. Ver [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR
+  (Décima primeira rodada)]].
+- 2026-09-03 (7): botão "Escolher tipo de receita" agora fica sempre visível em todo estado do
+  card de receita no checkout (nunca enviada, recusada, física), não só "em análise" — corrige uma
+  escolha errada sem precisar de link escondido. Escolher "Física" agora abre uma modal dedicada
+  avisando que o pedido só pode ser retirado na farmácia, com o seletor de loja embutido. Ver
+  [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR (Décima rodada)]].
+- 2026-09-03 (6): corrigido bug real de conversas duplicadas — abrir o chat da receita a partir do
+  carrinho/checkout sempre criava uma thread nova (`ensureMarketplaceChatThread` só reaproveitava
+  por `threadId` explícito, nunca por "já existe uma conversa geral aberta"); agora reaproveita.
+  Card "receita em análise" no checkout passou a abrir a modal "Como é a sua receita?" em vez do
+  chat direto — só escolher Física/Digital de novo aciona o fluxo correspondente. Ver
+  [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR (Nona rodada)]].
+- 2026-09-02 (5): receita física deixou de ser "pagar em dinheiro/maquininha no balcão" — agora
+  cobra automaticamente pelo cartão salvo do cliente, no momento em que o farmacêutico confirma a
+  retirada (`OrderService.confirm_internal_pickup`, reaproveitando `PaymentService.charge_card` já
+  usado pelo checkout online). Sem cartão salvo, a compra não pode ser finalizada (422 pedindo pra
+  cadastrar um em "Meus cartões"). Nada é cobrado na criação do pedido — só na retirada, e só
+  depois que o gate de aprovação da receita já liberou o pedido para `READY`. Ver
+  [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR (Oitava rodada)]].
+- 2026-09-02 (4): ao escolher "digital" (`PrescriptionKindModal`), o popup do widget de chat abre
+  com um banner central — instrui a enviar o link da receita ou anexar pelo clipe, deixa claro que
+  "digital" foi selecionado e oferece um link "Na verdade, minha receita é física" para trocar de
+  fluxo sem sair do popup. Novo `chatContext`/`openWidgetChatPanel(context)`, sem efeito em outros
+  usos do widget (falar com farmacêutico em geral não mostra o banner). Ver
+  [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR (Sétima rodada)]].
+- 2026-09-02 (3): reorganização visual do fluxo de receita — carrinho só mostra um aviso (sem
+  botão/modal), etapa de Entrega do checkout tem método+endereço no topo sem menção a receita,
+  etapa de Pagamento mostra o produto real antes do aviso, e enviar receita digital abre o popup
+  pequeno do widget flutuante em vez do modal grande de chat (novo `openWidgetChatPanel` +
+  `ChatWidget`'s `openSignal`). Ver
+  [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR (Terceira rodada)]].
+- 2026-09-02 (2): receita física (papel) agora tem fluxo próprio — nunca pode ser enviada por
+  foto/upload (o original tem que ficar retido na farmácia), só entrega por retirada, pré-pedido
+  sem cobrança online (`payment.method = 'pickup_cash'`, novo), pagamento coletado
+  presencialmente na retirada, validação da receita também presencial (farmacêutico confere e
+  aprova pela fila "Receitas" já existente). Corrigido também um bug real de RLS em
+  `prescription_checks` que bloqueava **todo** pedido de marketplace com item de receita, em
+  qualquer canal — ver [[../04_Seguranca_Riscos/rls-prescription-checks-bloqueava-todo-pedido-com-receita|nota de segurança]].
+  Ver [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR (Segunda rodada)]].
+- 2026-09-02: pagamento do checkout do marketplace agora fica bloqueado até a receita ser
+  validada pelo farmacêutico — novo endpoint `GET /customers/me/prescription-status` (última
+  prescrição do cliente sem `order_id`), motivo de recusa agora coletado de verdade no console
+  interno (chat e tela "Receitas") e mostrado no chat do cliente. Corrigido também um bug real de
+  RLS pós-commit em `PrescriptionService.decide` que fazia aprovar/recusar sempre falhar com 500.
+  Ver [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR]].
 - 2026-07-25: nota criada — documentação do estado atual do módulo.

@@ -59,7 +59,7 @@ class CategoryService:
 
         existing = await self.repository.get_by_name(tenant_id=str(self.subject.tenant_id), name=payload.name)
         if existing is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category name already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Já existe uma categoria com esse nome.")
         category = Category(
             tenant_id=str(self.subject.tenant_id),
             name=payload.name,
@@ -77,7 +77,7 @@ class CategoryService:
         category = await self._require_category(category_id)
         existing = await self.repository.get_by_name(tenant_id=str(self.subject.tenant_id), name=payload.name)
         if existing is not None and existing.id != category.id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category name already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Já existe uma categoria com esse nome.")
         category.name = payload.name
         category.description = payload.description
         await self.session.commit()

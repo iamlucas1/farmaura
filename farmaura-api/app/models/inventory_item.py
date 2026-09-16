@@ -137,3 +137,33 @@ class InventoryItem(Base, UuidModel, TimestampedModel):
         """Proxy the shared product's marketplace gallery URLs."""
 
         return self.product.marketplace_gallery_urls
+
+    @property
+    def short_description(self) -> str:
+        """Proxy the shared product's short marketing description paragraph."""
+
+        return self.product.short_description
+
+    @property
+    def bula_markdown(self) -> str:
+        """Proxy the shared product's package-insert (bula) Markdown content."""
+
+        return self.product.bula_markdown
+
+    @property
+    def marketing_highlights(self) -> list[str]:
+        """Proxy the shared product's short marketing highlight topics."""
+
+        return self.product.marketing_highlights
+
+    @property
+    def variant_group_id(self) -> str | None:
+        """Proxy the shared product's dosage/size variant group id."""
+
+        return self.product.variant_group_id
+
+    @property
+    def variant_label(self) -> str:
+        """Proxy the shared product's dosage/size variant label."""
+
+        return self.product.variant_label

@@ -49,6 +49,10 @@ class CouponCampaign(Base, UuidModel, TimestampedModel):
             "channel_scope IN ('all', 'online', 'pdv')",
             name="coupon_campaigns_channel_scope_valid",
         ),
+        UniqueConstraint(
+            "tenant_id", "target_customer_id", "anniversary_kind", "anniversary_year",
+            name="uq_coupon_campaigns_customer_anniversary_claim",
+        ),
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
@@ -78,3 +82,13 @@ class CouponCampaign(Base, UuidModel, TimestampedModel):
     stackable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # Personal, single-customer coupons (birthday / customer-anniversary claims — see
+    # CustomerService.claim_anniversary_offer) reuse this same campaign table instead of a
+    # parallel discount mechanism: target_customer_id locks redemption to that one customer
+    # (CouponService.resolve_coupon enforces it), and (tenant_id, target_customer_id,
+    # anniversary_kind, anniversary_year) is unique so a customer can't claim twice in the same
+    # year — regular admin campaigns leave all three NULL/"", which never collides under
+    # Postgres's NULL-distinct uniqueness semantics.
+    target_customer_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    anniversary_kind: Mapped[str] = mapped_column(String(24), default="", nullable=False)
+    anniversary_year: Mapped[int | None] = mapped_column(nullable=True)

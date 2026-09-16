@@ -1,8 +1,8 @@
 # Wallet de cashback sem isolamento por tenant — leitura e escrita cross-tenant via PDV
 
 **Tipo:** Vulnerabilidade (Broken Access Control / IDOR + falha de isolamento multi-tenant)
-**Status:** CONFIRMADO (verificado manualmente no código, também achado de forma independente por dois agentes de investigação com métodos diferentes)
-**Severidade:** CRÍTICO
+**Status:** CORRIGIDO PARCIALMENTE em 2026-09-04 (os dois vetores de cashback descritos abaixo estão fechados; ver "Atualizações" — a validação genérica de `customer_id` em `create_queue_order`/`create_reservation` para fins **não** relacionados a cashback continua em aberto)
+**Severidade:** CRÍTICO (era; ver atualização para o estado corrigido)
 **Sistema afetado:** `farmaura-api`
 **Categoria:** Broken Object Level Authorization (IDOR) + isolamento multi-tenant quebrado + integridade financeira
 **Data de identificação:** 2026-08-17 (auditoria completa de segurança, ver [[../08_Skills_Agentes_Prompts/auditoria-completa-seguranca|prompt de auditoria]])
@@ -98,4 +98,25 @@ Baixo para o item 1 — é uma checagem adicional que só rejeita casos hoje inv
 
 ## Atualizações
 
+- 2026-09-04: corrigidos os dois vetores descritos acima, como pré-requisito de segurança para
+  estender cashback ao marketplace ([[../00_Decisoes/2026-09-04-cashback-real-no-marketplace|ADR]]).
+  Camada 1 (aplicação): `PdvService._resolve_potential_cashback` e `_compute_cashback` — os dois
+  pontos que alimentam `discount-limit` (oráculo de leitura) e `_settle_cashback_ledger`
+  (drenagem/escrita) — agora chamam `CashbackRepository.get_customer_by_id(tenant_id=...)` antes de
+  tocar a wallet; um `customer_id` que não resolve para o tenant do subject faz o cashback ser
+  tratado como zero, em vez de ler/mutar a wallet de outro tenant. Camada 2 (RLS, defesa em
+  profundidade): `customer_cashback_wallets` e `cashback_transaction_lines` ganharam coluna
+  `tenant_id` (migration `20260903_01_marketplace_cashback`, com backfill) e entraram na malha
+  genérica de RLS (`row_level_security.py::tenant_tables`), nos mesmos moldes de
+  `cashback_rules`/`cashback_transactions`. `CashbackRepository.get_or_create_wallet` passou a
+  exigir `tenant_id` em toda chamada (não é mais possível criar/ler uma wallet sem escopo de
+  tenant). Validado localmente: `pg_class.relrowsecurity`/`relforcerowsecurity` confirmados `t`/`t`
+  para as duas tabelas após a migration + restart do container (bootstrap reaplica RLS).
+  **Ainda em aberto**: o item 1 da "Correção sugerida" original pedia validação de `customer_id`
+  logo no **início** de `create_queue_order`/`create_reservation`/`get_discount_limit` — o que foi
+  corrigido aqui cobre especificamente os dois pontos que tocam a wallet de cashback (o vetor
+  descrito neste achado), não uma auditoria completa de todo uso de `customer_id` nesses métodos
+  para outros fins (ex.: gravar `PdvOrder.customer_id` de um cliente de outro tenant por outro
+  motivo que não cashback) — se isso for uma exposição real, é um achado distinto, não coberto por
+  esta correção.
 - 2026-08-17: achado registrado e verificado manualmente contra o código (não só relatado por agente) via auditoria completa de segurança.

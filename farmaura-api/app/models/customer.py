@@ -73,5 +73,18 @@ class Customer(Base, UuidModel, TimestampedModel):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     marital_status: Mapped[str] = mapped_column(String(16), default="", nullable=False)
     children_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Stored as birth years, not ages: an age typed once ("8") would silently go stale the moment
+    # the year turns — birth year is the one fact that never needs re-entering, and every reader
+    # derives the current age from it (current_year - birth_year) instead of trusting a frozen
+    # number. See CustomerService for the derivation and app/schemas/customers.py for the wire format.
+    children_birth_years: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
+    # Parallel to children_birth_years by index (same slot = same child) — kept as a separate list
+    # rather than a list of objects to match the existing array-of-scalars pattern used for the
+    # other denormalized Customer fields (active_subscriptions, favorite_items, etc.).
+    children_names: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     last_device_type: Mapped[str] = mapped_column(String(16), default="", nullable=False)
     last_device_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    chat_flagged_spam: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    chat_violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    chat_blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    chat_permanently_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

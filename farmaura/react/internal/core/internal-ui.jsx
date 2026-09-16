@@ -131,9 +131,21 @@ function confirmAction(opts) {
   if (!_confirm) return Promise.resolve(window.confirm((opts && opts.body) || "Confirmar?"));
   return _confirm(opts || {});
 }
-/** opts: { message, actionLabel, onAction, duration } */
-function showToast(opts) {
-  if (_toast) _toast(typeof opts === "string" ? { message: opts } : (opts || {}));
+/** Result modal (success/erro/aviso) shown for every backend/user/server outcome.
+ * Accepts both call shapes already used across the app: showToast("mensagem", "warn"|"success")
+ * and showToast({ message, tone, title, actionLabel, onAction }). `tone` (or the string 2nd arg)
+ * is one of "success" | "warn" | "info" — "warn" is treated as an error/failure outcome, matching
+ * how every existing call site already uses it (there is no separate non-failure "warning" tone
+ * in this codebase). Always rendered as a modal with an explicit "Fechar" button — never a
+ * transient/auto-dismissing toast — so the user always sees and consciously acknowledges what
+ * happened, in Portuguese, before continuing. */
+function showToast(opts, legacyTone) {
+  if (!_toast) return;
+  if (typeof opts === "string") {
+    _toast({ message: opts, tone: legacyTone || "info" });
+    return;
+  }
+  _toast({ tone: "info", ...(opts || {}) });
 }
 
 function ConfirmHost() {
@@ -173,34 +185,57 @@ function ConfirmHost() {
   );
 }
 
+/* Título, ícone e tom exibidos por categoria de resultado — "warn" cobre toda falha
+ * reportada ao usuário (banco de dados, validação, servidor, permissão, etc.); o texto
+ * específico de qual falha foi vem sempre da própria mensagem (já traduzida e filtrada
+ * de detalhe sensível no backend — nunca stack trace, SQL ou caminho de arquivo). */
+const RESULT_KIND_META = {
+  success: { title: "Sucesso", icon: "check", bg: "var(--good-soft)", color: "var(--good)" },
+  warn: { title: "Erro", icon: "alert", bg: "var(--critical-soft)", color: "var(--critical)" },
+  info: { title: "Aviso", icon: "info", bg: "var(--info-soft)", color: "var(--info)" },
+};
+
 function ToastHost() {
-  const [items, setItems] = useState([]);
+  const [queue, setQueue] = useState([]);
   useEffect(() => {
     _toast = (opts) => {
       const id = Date.now() + Math.random();
-      const entry = { id, message: opts.message || "Feito", actionLabel: opts.actionLabel, onAction: opts.onAction };
-      setItems((cur) => [...cur, entry]);
-      entry._timer = setTimeout(() => setItems((cur) => cur.filter((x) => x.id !== id)), opts.duration || 6000);
+      setQueue((cur) => [...cur, {
+        id,
+        message: opts.message || "Feito.",
+        title: opts.title,
+        tone: opts.tone === "success" || opts.tone === "warn" ? opts.tone : "info",
+        actionLabel: opts.actionLabel,
+        onAction: opts.onAction,
+      }]);
     };
     return () => { _toast = null; };
   }, []);
-  const drop = (id) => setItems((cur) => cur.filter((x) => x.id !== id));
-  if (!items.length) return null;
+  const current = queue[0];
+  const dismiss = () => setQueue((cur) => cur.slice(1));
+  if (!current) return null;
+  const meta = RESULT_KIND_META[current.tone] || RESULT_KIND_META.info;
   return (
-    <div className="toast-stack" role="status" aria-live="polite">
-      {items.map((t) => (
-        <div key={t.id} className="toast">
-          <span className="toast-icon"><Icon name="check" size={14} /></span>
-          <span>{t.message}</span>
-          {t.actionLabel && (
-            <button className="toast-action" onClick={() => { if (t._timer) clearTimeout(t._timer); if (t.onAction) t.onAction(); drop(t.id); }}>
-              {t.actionLabel}
-            </button>
+    <Modal
+      open
+      onClose={dismiss}
+      title={(
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="stat-icon" style={{ width: 28, height: 28, background: meta.bg, color: meta.color }}><Icon name={meta.icon} size={15} /></span>
+          {current.title || meta.title}
+        </span>
+      )}
+      footer={(
+        <>
+          {current.actionLabel && (
+            <button className="btn btn-secondary" onClick={() => { if (current.onAction) current.onAction(); dismiss(); }}>{current.actionLabel}</button>
           )}
-          <button className="toast-close" aria-label="Dispensar" onClick={() => drop(t.id)}><Icon name="x" size={12} /></button>
-        </div>
-      ))}
-    </div>
+          <button className="btn btn-primary" onClick={dismiss}>Fechar</button>
+        </>
+      )}
+    >
+      <p style={{ margin: 0, whiteSpace: "pre-line" }}>{current.message}</p>
+    </Modal>
   );
 }
 

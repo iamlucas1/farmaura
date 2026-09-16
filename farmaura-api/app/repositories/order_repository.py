@@ -15,7 +15,7 @@ Observations:
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.delivery_route import DeliveryRoute
@@ -86,6 +86,27 @@ class OrderRepository:
             .where(Order.tenant_id == tenant_id, Order.customer_id == customer_id)
             .order_by(OrderItem.created_at.asc())
         )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def list_items_for_orders_matching_products(
+        self, *, tenant_id: str, name_brand_pairs: list[tuple[str, str]], customer_id: str = "",
+    ) -> list[OrderItem]:
+        """Return every line item from any order that also contains at least one of the given products.
+
+        The base for "frequently bought together" — matches by (name, brand) snapshot
+        pair rather than inventory_item_id, since the same logical product can be sold
+        from different store components. Pass `customer_id` to scope to one customer's
+        own orders only (their personal co-purchase pattern) instead of every customer's.
+        """
+
+        if not name_brand_pairs:
+            return []
+        match_clause = or_(*[and_(OrderItem.item_name_snapshot == name, OrderItem.brand_name_snapshot == brand) for name, brand in name_brand_pairs])
+        matching_order_ids = select(OrderItem.order_id).join(Order, Order.id == OrderItem.order_id).where(Order.tenant_id == tenant_id, match_clause)
+        if customer_id:
+            matching_order_ids = matching_order_ids.where(Order.customer_id == customer_id)
+        statement = select(OrderItem).where(OrderItem.order_id.in_(matching_order_ids.distinct()))
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 

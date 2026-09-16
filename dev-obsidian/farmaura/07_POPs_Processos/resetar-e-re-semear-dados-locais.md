@@ -13,6 +13,7 @@ Quando os dados locais ficaram inconsistentes, ou quando é preciso voltar a um 
 1. Derrubar a stack e apagar o volume do Postgres: `docker compose down -v` (ou remover especificamente o volume nomeado do Postgres, se não quiser derrubar tudo).
 2. Subir de novo: `./scripts/docker_up.sh` (ou `docker compose up --build`).
 3. Como o banco volta vazio, `bootstrap_database.py` recria o schema, a RLS e roda o seed completo automaticamente no boot — não é preciso chamar `seed.py` manualmente.
+4. **Banner da home, "Marcas em destaque" e ofertas do dia já vêm prontos do próprio seed** — `build_home_banner_settings()`/`build_home_brands_settings()`/`build_deal_of_the_day_settings()` em `scripts/seed.py` gravam esses três `PortalSetting` direto no banco (marcas com os 6 logos placeholder já commitados em `scripts/assets/demo_brands/`), então a home já sai completa (hero, marcas, ofertas agendadas) sem passo manual nenhum. **`populate_demo_content.py` deixou de ser necessário pra ver essas três seções** — continua útil só pra trocar banner/ofertas/marcas pela variante promocional de demo/investidor (copy diferente) num ambiente sem acesso direto a banco (`lumos-dev`), ver [[popular-conteudo-demo|popular-conteudo-demo]].
 
 ## Parâmetros do seed (`scripts/seed.py`)
 
@@ -40,4 +41,6 @@ Qualquer desenvolvedor trabalhando localmente. Não usar em produção — este 
 
 ## Atualizações
 
+- 2026-08-29 (2): "Marcas em destaque" passou a nascer direto do seed também (`build_home_brands_settings()`) — as três seções de merchandising da home (banner, marcas, ofertas do dia) agora vêm todas prontas de `scripts/seed.py`; `populate_demo_content.py` não é mais necessário pra ver nenhuma delas localmente.
+- 2026-08-29: banner da home (hero) passou a nascer direto do seed determinístico (antes só ofertas do dia vinha assim) — atualizado o passo 4 pra refletir que só "Marcas em destaque" ainda depende de `populate_demo_content.py`. Ver [[../00_Decisoes/2026-08-29-seed-banner-home-hero-e-limite-do-sanitizador|ADR]].
 - 2026-07-19: nota criada.

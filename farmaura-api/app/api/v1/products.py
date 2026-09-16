@@ -34,6 +34,7 @@ from app.schemas.product import (
     ProductStoreLinkRequest,
     ProductStoreLinksResponse,
     ProductUpdateRequest,
+    ProductVariantLinkRequest,
 )
 from app.services.product_service import ProductService
 
@@ -108,6 +109,31 @@ async def update_product_discard(
 
     service = ProductService(session=session, subject=subject)
     return await service.update_product_discard(product_id, payload)
+
+
+@router.post("/{product_id}/variant-group", response_model=ProductResponse)
+async def link_product_variant(
+    product_id: str,
+    payload: ProductVariantLinkRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> ProductResponse:
+    """Link this product as a dosage/size variant of another existing product."""
+
+    service = ProductService(session=session, subject=subject)
+    return await service.link_variant(product_id, payload)
+
+
+@router.delete("/{product_id}/variant-group", response_model=ProductResponse)
+async def unlink_product_variant(
+    product_id: str,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> ProductResponse:
+    """Remove this product from its variant group."""
+
+    service = ProductService(session=session, subject=subject)
+    return await service.unlink_variant(product_id)
 
 
 @router.get("/{product_id}/stores", response_model=ProductStoreLinksResponse)

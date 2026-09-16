@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -43,7 +43,7 @@ from app.services.coupon_service import CouponCartLine, CouponService
 from app.services.customer_access_service import provision_first_access
 from app.services.deal_suggestion_service import DealSuggestionService
 from app.services.geocoding_client import GeocodingClient
-from app.services.marketplace_projection import resolve_marketplace_category_id
+from app.services.marketplace_projection import build_marketplace_product_id, resolve_marketplace_category_id
 
 from app.models.chat_thread import ChatThread
 from app.models.coupon_campaign import CouponCampaign
@@ -102,6 +102,9 @@ from app.schemas.portal import (
     PortalHomeBannerUpdateRequest,
     PortalHomeBrandsResponse,
     PortalHomeBrandsUpdateRequest,
+    PortalHomeTrendsResponse,
+    PortalHomeTrendsUpdateRequest,
+    DealScheduleEntry,
     PortalDealOfTheDayResponse,
     PortalDealOfTheDayUpdateRequest,
     PortalLaunchModeResponse,
@@ -145,6 +148,7 @@ PORTAL_NAME_MARKETPLACE = 'marketplace'
 SETTING_KEY_MARKETPLACE_META = 'marketplace_meta'
 SETTING_KEY_HOME_BANNER = 'home_banner'
 SETTING_KEY_HOME_BRANDS = 'home_brands'
+SETTING_KEY_HOME_TRENDS = 'home_trends'
 SETTING_KEY_LAUNCH_MODE = 'launch_mode'
 SETTING_KEY_DEAL_OF_THE_DAY = 'deal_of_the_day'
 
@@ -176,6 +180,14 @@ SETTING_KEY_CNAE_SETTINGS = 'cnae_settings'
 # Real launch instant: 2026-09-05 09:00 America/Sao_Paulo (fixed UTC-3, no DST since 2019) == 12:00 UTC.
 _LAUNCH_MODE_PRODUCTION_LAUNCH_AT = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
 
+# Farmaura is a single-tenant Brazilian pharmacy — every "what's the wall-clock day/time right now"
+# calculation for "ofertas do dia" (daily reset boundary, weekday recurrence, end-time cutoff) means
+# Brasília time, never the container OS's own timezone (bare `.astimezone()` resolves to the
+# container's local tz, which defaults to UTC on this image — confirmed no `TZ`/tzdata configured).
+# Fixed offset, same rationale already used above for `_LAUNCH_MODE_PRODUCTION_LAUNCH_AT`: Brazil has
+# had no DST since 2019, so UTC-3 is always correct going forward, no zoneinfo database needed.
+_BRASILIA_TZ = timezone(timedelta(hours=-3))
+
 
 def _default_launch_mode() -> PortalLaunchModeResponse:
     """Return the launch-mode fallback used until a tenant has an explicit saved setting.
@@ -194,6 +206,46 @@ def _default_launch_mode() -> PortalLaunchModeResponse:
             subtext='A drogaria Farmaura está chegando. Volte em breve para conferir novidades e ofertas de lançamento.',
         )
     return PortalLaunchModeResponse()
+
+
+def _match_deal_schedule_entry(
+    entries: list[DealScheduleEntry], today: date, now_local: datetime
+) -> DealScheduleEntry | None:
+    """Pick the active "ofertas do dia" schedule entry for `today` (real Brasília calendar date —
+    see `PortalService._current_calendar_date`, deliberately not `reset_time`-shifted).
+
+    Exact-date match wins over weekday recurrence; within each tier, the first match in list order
+    wins (list order doubles as admin-facing display order AND same-day tie-break priority).
+
+    `end_time`, when set, is a *daily* cutoff — it applies to every day the weekday recurrence is
+    otherwise valid (with or without `start_date`/`end_date` bounds), not just the recurrence's
+    final day. E.g. "every Sunday until 20:00" needs no `end_date` at all: the entry matches every
+    Sunday up to that hour, stops matching after it, and matches again next Sunday from midnight.
+    Compares wall-clock time (`now_local`) — `start_date`/`end_date` still bound which *days* the
+    recurrence runs on at all, independently of this per-day cutoff.
+    """
+
+    iso = today.isoformat()
+    for entry in entries:
+        if iso in entry.specific_dates:
+            return entry
+    weekday = today.weekday()
+    for entry in entries:
+        if weekday not in entry.weekdays:
+            continue
+        if entry.start_date and iso < entry.start_date:
+            continue
+        if entry.end_date and iso > entry.end_date:
+            continue
+        if entry.end_time:
+            try:
+                cutoff_hour, cutoff_minute = (int(part) for part in entry.end_time.split(':'))
+            except ValueError:
+                cutoff_hour, cutoff_minute = 23, 59
+            if (now_local.hour, now_local.minute) >= (cutoff_hour, cutoff_minute):
+                continue
+        return entry
+    return None
 
 
 WEEKDAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom']
@@ -242,6 +294,7 @@ class PortalService:
             marketplace=marketplace,
             home_banner=await self._resolve_home_banner(tenant_id=tenant_id),
             home_brands=await self._resolve_home_brands(tenant_id=tenant_id),
+            home_trends=await self._resolve_home_trends(tenant_id=tenant_id),
             deal_of_the_day=await self._resolve_deal_of_the_day(tenant_id=tenant_id),
             launch_mode=await self._resolve_launch_mode(tenant_id=tenant_id),
             health_services=health_services,
@@ -338,6 +391,7 @@ class PortalService:
             marketplace=marketplace,
             home_banner=await self._resolve_home_banner(tenant_id=str(customer.tenant_id)),
             home_brands=await self._resolve_home_brands(tenant_id=str(customer.tenant_id)),
+            home_trends=await self._resolve_home_trends(tenant_id=str(customer.tenant_id)),
             deal_of_the_day=await self._resolve_deal_of_the_day(tenant_id=str(customer.tenant_id), subject=subject),
             launch_mode=await self._resolve_launch_mode(tenant_id=str(customer.tenant_id)),
             health_services=health_services,
@@ -371,6 +425,7 @@ class PortalService:
             marketplace=marketplace,
             home_banner=await self._resolve_home_banner(tenant_id=tenant_id, include_original=True),
             home_brands=await self._resolve_home_brands(tenant_id=tenant_id),
+            home_trends=await self._resolve_home_trends(tenant_id=tenant_id),
             deal_of_the_day=await self._resolve_deal_of_the_day(tenant_id=tenant_id, subject=subject),
             launch_mode=await self._resolve_launch_mode(tenant_id=tenant_id),
             store=store,
@@ -386,6 +441,11 @@ class PortalService:
             pdv_discount_settings=await self._resolve_pdv_discount_settings(tenant_id=tenant_id),
             cnae_settings=await self._resolve_cnae_settings(tenant_id=tenant_id),
         )
+
+    async def get_marketplace_meta(self, *, tenant_id: str | None) -> PortalMarketplaceMetaResponse:
+        """Return the tenant-scoped marketplace meta (fees, installments, cashback policy)."""
+
+        return await self._resolve_marketplace_meta(tenant_id=tenant_id)
 
     async def update_marketplace_meta(self, subject: TokenSubject, payload: PortalMarketplaceMetaUpdateRequest) -> PortalMarketplaceMetaResponse:
         """Persist tenant-scoped marketplace meta settings."""
@@ -442,6 +502,25 @@ class PortalService:
         )
         await self.session.commit()
         return await self._resolve_home_brands(tenant_id=str(subject.tenant_id))
+
+    async def update_home_trends(self, subject: TokenSubject, payload: PortalHomeTrendsUpdateRequest) -> PortalHomeTrendsResponse:
+        """Persist the tenant-scoped "tendências" curated product strip.
+
+        `mode="off"` intentionally keeps `product_refs` — same display-toggle-not-delete contract
+        as `update_home_banner`/`update_home_brands`, so the admin can hide the section without
+        losing the curated selection.
+        """
+
+        await self._require_user(subject)
+        value = payload.model_dump(mode='json')
+        await self._upsert_setting_payload(
+            tenant_id=str(subject.tenant_id),
+            portal_name=PORTAL_NAME_INTERNAL,
+            setting_key=SETTING_KEY_HOME_TRENDS,
+            value=value,
+        )
+        await self.session.commit()
+        return await self._resolve_home_trends(tenant_id=str(subject.tenant_id))
 
     async def update_deal_of_the_day(self, subject: TokenSubject, payload: PortalDealOfTheDayUpdateRequest) -> PortalDealOfTheDayResponse:
         """Persist the tenant-scoped "ofertas do dia" configuration (manual list or auto-cycle params).
@@ -1268,6 +1347,19 @@ class PortalService:
         except ValidationError:
             return PortalHomeBrandsResponse()
 
+    async def _resolve_home_trends(self, *, tenant_id: str | None) -> PortalHomeTrendsResponse:
+        """Return the tenant's "tendências" curated product strip, defaulting to none."""
+
+        if not tenant_id:
+            return PortalHomeTrendsResponse()
+        stored_value = await self._get_setting_payload(tenant_id=tenant_id, portal_name=PORTAL_NAME_INTERNAL, setting_key=SETTING_KEY_HOME_TRENDS, default=None)
+        if not stored_value:
+            return PortalHomeTrendsResponse()
+        try:
+            return PortalHomeTrendsResponse.model_validate(stored_value)
+        except ValidationError:
+            return PortalHomeTrendsResponse()
+
     async def _resolve_deal_of_the_day(self, *, tenant_id: str | None, subject: TokenSubject | None = None) -> PortalDealOfTheDayResponse:
         """Return the tenant's "ofertas do dia" section, auto-regenerating it first if due.
 
@@ -1292,7 +1384,25 @@ class PortalService:
             current = PortalDealOfTheDayResponse.model_validate(stored_value)
         except ValidationError:
             return PortalDealOfTheDayResponse()
-        if current.mode == 'auto' and self._deal_cycle_elapsed(current):
+        if current.mode == 'scheduled':
+            now_local = datetime.now(_BRASILIA_TZ)
+            entry = _match_deal_schedule_entry(current.schedule_entries, self._current_calendar_date(), now_local)
+            current = current.model_copy(update=(
+                {
+                    'product_refs': entry.product_refs,
+                    'title': entry.title,
+                    'subtitle': entry.subtitle,
+                    # The countdown widget (frontend `DealCountdown`) always counts down to whatever
+                    # `reset_time` this response carries — override it with the matched entry's own
+                    # `end_time` so the countdown reflects THAT entry's actual cutoff instead of the
+                    # tenant-wide cycle boundary. Falls back to the stored `reset_time` when the entry
+                    # has no `end_time` of its own (unchanged behavior). Does NOT affect the day
+                    # boundary used above to pick `entry` in the first place — that already ran.
+                    'reset_time': entry.end_time or current.reset_time,
+                }
+                if entry is not None else {'product_refs': [], 'title': '', 'subtitle': ''}
+            ))
+        elif current.mode == 'auto' and self._deal_cycle_elapsed(current):
             current = await self._run_deal_of_the_day_generation(tenant_id=tenant_id, current=current)
             if subject is not None:
                 await apply_tenant_context(self.session, subject)
@@ -1309,11 +1419,44 @@ class PortalService:
             hour, minute = (int(part) for part in current.reset_time.split(':'))
         except ValueError:
             hour, minute = 0, 0
-        last_local = current.last_generated_at.astimezone()
+        last_local = current.last_generated_at.astimezone(_BRASILIA_TZ)
         next_boundary = last_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if next_boundary <= last_local:
             next_boundary += timedelta(days=1)
-        return datetime.now(UTC).astimezone() >= next_boundary
+        return datetime.now(_BRASILIA_TZ) >= next_boundary
+
+    def _current_calendar_date(self) -> date:
+        """Return today's literal calendar date in Brasília time.
+
+        Used by `mode="scheduled"` to pick which `DealScheduleEntry` is active — deliberately NOT
+        tied to `reset_time` (unlike `_current_cycle_date` below, used by `mode="auto"`). An admin
+        setting "toda sábado" expects it active the entire real Saturday; coupling that to an
+        arbitrary `reset_time` (a field that exists for `mode="auto"`'s daily-regen cadence, but is
+        shared tenant-wide across every mode) caused a real bug: whenever `reset_time` was set to a
+        non-midnight value, every scheduled entry silently failed to match for part of the day (the
+        "cycle" was still "yesterday" per `_current_cycle_date`'s math, even though the wall-clock
+        calendar day had already turned). Weekday/date matching now always uses the real date.
+        """
+
+        return datetime.now(_BRASILIA_TZ).date()
+
+    def _current_cycle_date(self, reset_time: str) -> date:
+        """Return the calendar date of the `mode="auto"` daily-regeneration cycle in effect now.
+
+        From midnight up to `reset_time`, "today's cycle" is still yesterday's date — used only by
+        `_deal_cycle_elapsed` to decide when the next random draw is due. NOT used by
+        `mode="scheduled"` (see `_current_calendar_date` above) — the two modes' notions of "what
+        day is it" are deliberately independent now.
+        """
+
+        try:
+            hour, minute = (int(part) for part in reset_time.split(':'))
+        except ValueError:
+            hour, minute = 0, 0
+        now_local = datetime.now(_BRASILIA_TZ)
+        boundary_today = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        cycle_start = boundary_today if now_local >= boundary_today else boundary_today - timedelta(days=1)
+        return cycle_start.date()
 
     async def _run_deal_of_the_day_generation(
         self, *, tenant_id: str, current: PortalDealOfTheDayResponse
@@ -1805,21 +1948,37 @@ class PortalService:
         return PortalProductReviewCollectionResponse(product_ref=product_ref, rating_average=average, review_count=len(reviews), items=review_items)
 
     async def _resolve_review_purchase_match(self, *, customer: Customer, product_ref: str) -> tuple[str | None, str | None, str | None]:
-        """Resolve whether the customer has a matching paid order for the reviewed product."""
+        """Resolve whether the customer has a matching paid order for the reviewed product.
 
-        listing_id, inventory_id = self._split_product_ref(product_ref.strip())
-        statement = select(OrderItem, Order).join(Order, Order.id == OrderItem.order_id).where(Order.tenant_id == customer.tenant_id, Order.customer_id == customer.id)
-        if inventory_id:
-            statement = statement.where(OrderItem.inventory_item_id == inventory_id)
-        elif listing_id:
-            statement = statement.where(OrderItem.marketplace_listing_id == listing_id)
-        else:
-            statement = statement.where(OrderItem.item_name_snapshot == product_ref.strip())
-        row = (await self.session.execute(statement.order_by(desc(Order.created_at)))).first()
-        if row is None:
-            return None, inventory_id, listing_id
-        order_item, order = row
-        return order.id, order_item.inventory_item_id, order_item.marketplace_listing_id
+        `product_ref` from the frontend is almost always the grouped marketplace product id
+        (`mkt-<name>-<brand>`, see `build_marketplace_product_id`), never `inv-`/`listing-`
+        prefixed — those prefixes only ever come from `_product_ref_for_order_item` snapshots
+        elsewhere in this file. Matching by those FK columns only applies when the ref is
+        actually prefixed; otherwise we recompute the grouped id per order item in Python
+        (it is not a stored/generated column, so it can't be matched in SQL) and never write
+        an unmatched raw string into a uuid FK column.
+        """
+
+        cleaned_ref = product_ref.strip()
+        listing_id, inventory_id = self._split_product_ref(cleaned_ref)
+        if listing_id or inventory_id:
+            statement = select(OrderItem, Order).join(Order, Order.id == OrderItem.order_id).where(Order.tenant_id == customer.tenant_id, Order.customer_id == customer.id)
+            if inventory_id:
+                statement = statement.where(OrderItem.inventory_item_id == inventory_id)
+            else:
+                statement = statement.where(OrderItem.marketplace_listing_id == listing_id)
+            row = (await self.session.execute(statement.order_by(desc(Order.created_at)))).first()
+            if row is None:
+                return None, None, None
+            order_item, order = row
+            return order.id, order_item.inventory_item_id, order_item.marketplace_listing_id
+
+        statement = select(OrderItem, Order).join(Order, Order.id == OrderItem.order_id).where(Order.tenant_id == customer.tenant_id, Order.customer_id == customer.id).order_by(desc(Order.created_at))
+        for order_item, order in await self.session.execute(statement):
+            grouped_id = build_marketplace_product_id(order_item.item_name_snapshot, order_item.brand_name_snapshot)
+            if grouped_id == cleaned_ref:
+                return order.id, order_item.inventory_item_id, order_item.marketplace_listing_id
+        return None, None, None
 
     async def _get_setting_payload(self, *, tenant_id: str, portal_name: str, setting_key: str, default: dict | list | str | int | float | None) -> dict | list | str | int | float | None:
         """Return one decoded portal setting payload or the provided default."""

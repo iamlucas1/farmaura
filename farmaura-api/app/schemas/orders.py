@@ -64,9 +64,18 @@ class DeliveryCoverageResponse(StrictModel):
 
 
 class CheckoutPaymentRequest(StrictModel):
-    """Validate the selected payment method."""
+    """Validate the selected payment method.
 
-    method: str = Field(pattern="^(pix|credit_card|debit_card)$")
+    'pickup_cash' is the pre-order path for a physical (paper-born) prescription: the original
+    must be retained in person at the counter, so nothing is charged online — the order is
+    created unpaid. It requires a saved `payment_method_id` (or a new card to tokenize, resolved
+    client-side into one before this request is sent) so the customer's card can be charged
+    automatically once the pharmacist confirms the pickup (see
+    OrderService.create_marketplace_order / confirm_internal_pickup). Enforced server-side to
+    only pair with `delivery.method == 'pickup'`.
+    """
+
+    method: str = Field(pattern="^(pix|credit_card|debit_card|pickup_cash)$")
     payment_method_id: str = Field(default="", max_length=64)
 
 
@@ -82,6 +91,9 @@ class CheckoutOrderRequest(StrictModel):
     channel: str = Field(default="app", max_length=24)
     items: list[CheckoutOrderItemRequest] = Field(min_length=1, max_length=50)
     coupon_code: str = Field(default="", max_length=64)
+    # Wallet cashback the customer wants to apply. Advisory only — the server re-caps it at the
+    # available balance and the tenant's configured % of the order total.
+    cashback_redeem_amount: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
     delivery: CheckoutDeliveryRequest
     payment: CheckoutPaymentRequest
     prescription: CheckoutPrescriptionRequest = CheckoutPrescriptionRequest()
@@ -114,6 +126,8 @@ class MarketplaceOrderResponse(StrictModel):
     subtotal_amount: Decimal
     delivery_fee_amount: Decimal
     discount_amount: Decimal
+    cashback_applied_amount: Decimal = Decimal("0.00")
+    cashback_earned_amount: Decimal = Decimal("0.00")
     coupon_code: str = ""
     address: str = ""
     store: str = ""

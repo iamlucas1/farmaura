@@ -99,19 +99,32 @@ function creditCashback(customer, earned, ticket, applied) {
 
 /* Sugestões: o que o cliente mais compra de verdade (histórico real via /purchase-insights),
    casado com o estoque atual, para oferecer no balcão. */
-function pdvSuggestions(insights, inventory, cart) {
-  const inCart = new Set(cart.map((c) => c.id));
-  const pool = [];
-  const topProducts = (insights && insights.topProducts) || [];
-  topProducts.forEach((tp) => {
-    const key = tp.name.toLowerCase().split(" ")[0];
-    const it = inventory.find((x) => x.name.toLowerCase().includes(key) && x.qty > 0);
-    if (it && !pool.find((p) => p.it.id === it.id)) pool.push({ it, q: tp.totalQuantity });
+/* Remove itens com o mesmo nome (o mesmo produto cadastrado em mais de uma loja aparece como
+   uma linha de estoque por loja) — mantém só a primeira ocorrência, para listas de navegação
+   onde o usuário só quer ver o produto uma vez, não uma vez por loja. */
+function dedupeByName(items) {
+  const seen = new Set();
+  return items.filter((it) => {
+    const key = it.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
-  if (pool.length < 3) {
-    inventory.filter((x) => x.qty > 0).slice(0, 6).forEach((it) => { if (!pool.find((p) => p.it.id === it.id)) pool.push({ it, q: null }); });
-  }
-  return pool.filter((p) => !inCart.has(p.it.id)).slice(0, 4);
+}
+
+/* Retrato de "o que o cliente costuma comprar" para o card do PDV: em vez de ordenar tudo por
+   quantidade de compras (o que deixa a lista dominada por um único item muito recorrente, ex.:
+   só remédio de uso contínuo), escolhe o item mais comprado DE CADA categoria (Medicamentos,
+   Bem-estar, Perfumaria/Cosméticos, Fitoterápicos etc.) — assim a lista reflete a variedade real
+   do consumo do cliente, não só a frequência bruta. */
+function representativePurchasesByCategory(topProducts, limit = 5) {
+  const byCategory = new Map();
+  (topProducts || []).forEach((p) => {
+    const key = p.cat || "Outros";
+    const current = byCategory.get(key);
+    if (!current || p.q > current.q) byCategory.set(key, p);
+  });
+  return [...byCategory.values()].sort((a, b) => b.q - a.q).slice(0, limit);
 }
 
 /* Cartão "escolha" (rádio estilizado) usado no tipo de retirada/entrega, forma de pagamento e no
@@ -142,26 +155,58 @@ function ChoiceCard({ on, onClick, icon, title, sub, radio, style, children }) {
   );
 }
 
-/* Painel de sugestões (visão do farmacêutico) */
-function PdvUpsell({ customer, insights, inventory, cart, onAdd }) {
-  const sugg = pdvSuggestions(insights, inventory, cart);
+/* Painel de oportunidades de venda (visão do farmacêutico) — o que oferecer para maximizar o
+   ticket médio desta venda. Sempre vem do backend (/pdv/upsell-suggestions): com carrinho vazio
+   e cliente identificado, analisa só o histórico pessoal dele (perfil de compra, recorrência);
+   a partir do primeiro item no carrinho, passa a cruzar também o que costuma ser comprado junto
+   com os itens do carrinho — do próprio cliente e entre TODOS os clientes. Sem carrinho e sem
+   cliente identificado, não há nada para analisar (ver hasContext). */
+const PDV_UPSELL_INLINE_LIMIT = 5;
+const PDV_UPSELL_MODAL_LIMIT = 15;
+
+function PdvUpsellRow({ it, isFirst, onAdd }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "10px 0", borderTop: isFirst ? "none" : "1px dashed var(--border)" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 12 }}>{it.name}</div>
+        <div className="cell-muted" style={{ fontSize: 11, marginTop: 2 }}>{brl(it.price)}{it.category ? " · " + it.category : ""}</div>
+      </div>
+      <button className="btn btn-secondary btn-sm" onClick={() => onAdd(it.id)}>Oferecer</button>
+    </div>
+  );
+}
+
+function PdvUpsell({ items, loading, hasContext, onAdd }) {
+  const [seeAllOpen, setSeeAllOpen] = useState(false);
+  const inline = items.slice(0, PDV_UPSELL_INLINE_LIMIT);
+  const hasMore = items.length > PDV_UPSELL_INLINE_LIMIT;
   return (
     <div className="card card-pad" style={{ marginBottom: 14, background: "var(--accent-soft)", border: "none" }}>
       <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--accent)", marginBottom: 8 }}>
         <Icon name="sparkle" size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-        {customer ? "O cliente costuma comprar" : "Para oferecer"}
+        Oportunidades de venda
       </div>
-      {sugg.length === 0 ? (
+      {!hasContext ? (
+        <div className="cell-muted" style={{ fontSize: 12 }}>Identifique o cliente ou adicione um produto ao carrinho para ver oportunidades de venda.</div>
+      ) : loading ? (
+        <div className="cell-muted" style={{ fontSize: 12 }}>Buscando as melhores sugestões...</div>
+      ) : items.length === 0 ? (
         <div className="cell-muted" style={{ fontSize: 12 }}>Sem sugestões no momento.</div>
-      ) : sugg.map((s, i) => (
-        <div key={s.it.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "10px 0", borderTop: i ? "1px dashed var(--border)" : "none" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 12 }}>{s.it.name}</div>
-            <div className="cell-muted" style={{ fontSize: 11, marginTop: 2 }}>{brl(s.it.price)}{s.q ? " · comprou " + s.q + "×" : " · mais vendido"}</div>
-          </div>
-          <button className="btn btn-secondary btn-sm" onClick={() => onAdd(s.it.id)}>Oferecer</button>
-        </div>
-      ))}
+      ) : (
+        <>
+          {inline.map((it, i) => <PdvUpsellRow key={it.id} it={it} isFirst={i === 0} onAdd={onAdd} />)}
+          {hasMore && (
+            <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, width: "100%", justifyContent: "center" }} onClick={() => setSeeAllOpen(true)}>
+              Ver mais oportunidades ({Math.min(items.length, PDV_UPSELL_MODAL_LIMIT) - inline.length})
+            </button>
+          )}
+        </>
+      )}
+      {seeAllOpen && (
+        <Modal open onClose={() => setSeeAllOpen(false)} title="Oportunidades de venda" subtitle="Ordenadas da melhor para a pior oportunidade para esta venda.">
+          {items.slice(0, PDV_UPSELL_MODAL_LIMIT).map((it, i) => <PdvUpsellRow key={it.id} it={it} isFirst={i === 0} onAdd={(id) => { onAdd(id); setSeeAllOpen(false); }} />)}
+        </Modal>
+      )}
     </div>
   );
 }
@@ -325,32 +370,171 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
   );
 }
 
-/* Painel de recorrência: produtos comprados em vários meses seguidos — sugere configurar recorrência. */
-function PdvRecurrenceSuggestions({ candidates, onConfigure }) {
-  if (!candidates || candidates.length === 0) return null;
+const PDV_RECURRENCE_INLINE_LIMIT = 5;
+const PDV_RECURRENCE_MODAL_LIMIT = 15;
+
+/* Uma linha de oportunidade de recorrência — usada tanto na lista inline quanto na modal
+   "ver mais". Mostra o padrão real detectado (a cada quantos dias, quantas vezes seguidas)
+   ou, para medicamento de uso contínuo sem histórico suficiente ainda, a cadência clínica
+   padrão sugerida — nunca as duas coisas confundidas como se fossem a mesma certeza. */
+function PdvRecurrenceRow({ c, isFirst, onConfigure }) {
   return (
-    <div className="card card-pad" style={{ marginBottom: 14, background: "var(--accent-soft)", border: "none" }}>
-      <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--accent)", marginBottom: 8 }}>
-        <Icon name="repeat" size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-        Recorrência de compra
-      </div>
-      {candidates.map((c, i) => (
-        <div key={c.productKey} style={{ padding: "10px 0", borderTop: i ? "1px dashed var(--border)" : "none" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 12 }}>{c.name}</div>
-              <div style={{ fontSize: 11, marginTop: 2 }}>
-                <span className="cell-muted" style={{ textDecoration: "line-through" }}>{brl(c.lastUnitPrice)}</span>
-                <span style={{ color: "var(--good)", fontWeight: 700, marginLeft: 6 }}>{c.suggestedDiscountPercent}% off</span>
-              </div>
-            </div>
-            <button className="btn btn-secondary btn-sm" onClick={() => onConfigure && onConfigure(c)}>Configurar</button>
+    <div style={{ padding: "10px 0", borderTop: isFirst ? "none" : "1px dashed var(--border)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 12 }}>{c.name}</span>
+            {c.continuousUse && <Badge tone="warning">Uso contínuo</Badge>}
           </div>
-          <div className="cell-muted" style={{ fontSize: 11, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
-            <Icon name="calendar" size={12} />{c.consecutiveMonths} meses seguidos
+          <div style={{ fontSize: 11, marginTop: 2 }}>
+            <span className="cell-muted" style={{ textDecoration: "line-through" }}>{brl(c.lastUnitPrice)}</span>
+            <span style={{ color: "var(--good)", fontWeight: 700, marginLeft: 6 }}>{c.suggestedDiscountPercent}% off</span>
           </div>
         </div>
-      ))}
+        <button className="btn btn-secondary btn-sm" onClick={() => onConfigure && onConfigure(c)}>Configurar</button>
+      </div>
+      <div className="cell-muted" style={{ fontSize: 11, marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <Icon name="calendar" size={12} />
+        {c.intervalDetected
+          ? `Padrão identificado: a cada ${c.frequencyDays} dias · comprado ${c.occurrences}× seguindo esse ritmo`
+          : `Uso contínuo sugerido · cadência padrão de ${c.frequencyDays} dias`}
+      </div>
+      <div className="cell-muted" style={{ fontSize: 11, marginTop: 2 }}>
+        {c.avgQuantity} un. por ciclo · economiza {brl(c.savingsAmount)} por ciclo na recorrência · {brl(c.savingsAmount * (365 / c.frequencyDays))}/ano
+      </div>
+    </div>
+  );
+}
+
+/* Painel de recorrência: identifica o próprio ritmo de compra do cliente (a cada quantos
+   dias ele recompra o mesmo produto, 3× seguindo o mesmo padrão) e, separadamente, qualquer
+   medicamento de uso contínuo real (sinal clínico do próprio produto, não da quantidade de
+   compras) — sugere configurar como assinatura cobrada automaticamente todo mês no Asaas. */
+function PdvRecurrenceSuggestions({ candidates, onConfigure }) {
+  const [seeAllOpen, setSeeAllOpen] = useState(false);
+  if (!candidates || candidates.length === 0) return null;
+  const inline = candidates.slice(0, PDV_RECURRENCE_INLINE_LIMIT);
+  const hasMore = candidates.length > PDV_RECURRENCE_INLINE_LIMIT;
+  return (
+    <div className="card card-pad" style={{ marginBottom: 14, background: "var(--info-soft)", border: "none" }}>
+      <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--info)", marginBottom: 8 }}>
+        <Icon name="repeat" size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+        Oportunidades de recorrência
+      </div>
+      {inline.map((c, i) => <PdvRecurrenceRow key={c.productKey} c={c} isFirst={i === 0} onConfigure={onConfigure} />)}
+      {hasMore && (
+        <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, width: "100%", justifyContent: "center" }} onClick={() => setSeeAllOpen(true)}>
+          Ver mais oportunidades ({Math.min(candidates.length, PDV_RECURRENCE_MODAL_LIMIT) - inline.length})
+        </button>
+      )}
+      {seeAllOpen && (
+        <Modal open onClose={() => setSeeAllOpen(false)} title="Oportunidades de recorrência" subtitle="Uso contínuo primeiro, depois pelo padrão de compra mais consistente.">
+          {candidates.slice(0, PDV_RECURRENCE_MODAL_LIMIT).map((c, i) => (
+            <PdvRecurrenceRow key={c.productKey} c={c} isFirst={i === 0} onConfigure={(candidate) => { onConfigure && onConfigure(candidate); setSeeAllOpen(false); }} />
+          ))}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* "Produto que o cliente queria e não encontramos" — igual ao MissingProductBox do artifact,
+   mas com dados reais: busca em todas as lojas via /pdv/products/search e reaproveita a mesma
+   reserva entre lojas já usada no catálogo (onReserve = openReservation do PdvScreen). Quando o
+   produto não existe em nenhuma loja (ou nem está cadastrado no catálogo), registra a demanda
+   via pdvLogDemand em vez de reservar — não há estoque real para travar. */
+function PdvMissingProductBox({ pdvSearchProducts, pdvLogDemand, customer, onReserve }) {
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [phase, setPhase] = useState("idle"); // idle | elsewhere | noStock | notFound | registered
+  const [otherStoreMatches, setOtherStoreMatches] = useState([]);
+  const [matchedItemId, setMatchedItemId] = useState(null);
+  const [matchedName, setMatchedName] = useState("");
+
+  const reset = () => { setQ(""); setSearching(false); setPhase("idle"); setOtherStoreMatches([]); setMatchedItemId(null); setMatchedName(""); };
+
+  const runSearch = async () => {
+    const term = q.trim();
+    if (!term || !pdvSearchProducts) return;
+    setSearching(true);
+    const found = await pdvSearchProducts(term);
+    setSearching(false);
+    if (!found || found.length === 0) { setMatchedItemId(null); setMatchedName(""); setOtherStoreMatches([]); setPhase("notFound"); return; }
+    const withStock = found.find((it) => it.totalStock > 0);
+    if (withStock) {
+      setMatchedItemId(withStock.id); setMatchedName(withStock.name);
+      setOtherStoreMatches(withStock.components.filter((c) => c.qty > 0));
+      setPhase("elsewhere");
+    } else {
+      setMatchedItemId(found[0].id); setMatchedName(found[0].name); setOtherStoreMatches([]);
+      setPhase("noStock");
+    }
+  };
+
+  const registerDemand = async () => {
+    if (!pdvLogDemand) return;
+    const ok = await pdvLogDemand({ query: q.trim(), matchedItemId, customer });
+    if (ok) setPhase("registered");
+  };
+
+  return (
+    <div className="card card-pad" style={{ marginBottom: 14 }}>
+      <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 8 }}>Produto que o cliente queria e não encontramos</div>
+      {phase === "idle" && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input className="input" placeholder="Nome do medicamento/produto..." value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runSearch()} />
+          <button className="btn btn-secondary btn-sm" disabled={!q.trim() || searching} onClick={runSearch}>
+            <Icon name="search" size={13} />{searching ? "Buscando…" : "Buscar em outras lojas"}
+          </button>
+        </div>
+      )}
+      {phase === "elsewhere" && (
+        <div>
+          <div className="cell-muted" style={{ fontSize: 12, marginBottom: 8 }}>Encontramos <b style={{ color: "var(--text-primary)" }}>{matchedName}</b> em outra(s) loja(s):</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+            {otherStoreMatches.map((c) => (
+              <button type="button" key={c.id} className="identify-result" style={{ border: "1px solid var(--border)", borderRadius: 10 }} onClick={() => { onReserve(c); reset(); }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{c.storeName || "Loja"}</div>
+                  <div className="cell-muted" style={{ fontSize: 11 }}>{c.loc} · {brl(c.price)}</div>
+                </div>
+                <Badge tone="neutral">Reservar</Badge>
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={reset}>Cancelar</button>
+        </div>
+      )}
+      {phase === "noStock" && (
+        <div>
+          <div className="cell-muted" style={{ fontSize: 12, marginBottom: 10 }}>
+            <b style={{ color: "var(--text-primary)" }}>{matchedName}</b> está cadastrado no sistema, mas sem estoque disponível em nenhuma loja da rede no momento.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-secondary btn-sm" onClick={reset}>Cancelar</button>
+            <button className="btn btn-primary btn-sm" onClick={registerDemand}>Registrar que o cliente quis</button>
+          </div>
+        </div>
+      )}
+      {phase === "notFound" && (
+        <div>
+          <div className="cell-muted" style={{ fontSize: 12, marginBottom: 10 }}>
+            <b style={{ color: "var(--text-primary)" }}>{q.trim()}</b> não está cadastrado no sistema. É possível registrar o nome avulso para consulta posterior.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-secondary btn-sm" onClick={reset}>Cancelar</button>
+            <button className="btn btn-primary btn-sm" onClick={registerDemand}>Registrar nome avulso</button>
+          </div>
+        </div>
+      )}
+      {phase === "registered" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--good)", fontWeight: 700, fontSize: 12.5 }}>
+            <Icon name="check" size={14} />Registrado — obrigado por avisar
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={reset}>Buscar outro</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -513,7 +697,7 @@ const PRESCRIPTION_STATUS_META = {
 };
 
 function PdvScreen({ ctx }) {
-  const { inventory, coupons = [], pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
+  const { inventory, coupons = [], pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, pdvLogDemand, pdvFetchUpsellSuggestions, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [expandedResultId, setExpandedResultId] = useState(null);
@@ -729,6 +913,33 @@ function PdvScreen({ ctx }) {
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
 
+  // Oportunidades de venda: sempre vem do backend, nunca de uma lista genérica local — com
+  // carrinho vazio e cliente identificado, analisa só o histórico dele (perfil de compra e
+  // recorrência, sem sinal de "comprado junto" já que não há carrinho pra cruzar); a partir do
+  // primeiro item, passa a cruzar também co-compra (do próprio cliente e entre todos os
+  // clientes) com o que está no carrinho. Sem carrinho e sem cliente identificado, não há o que
+  // analisar — mostra um aviso em vez de uma lista genérica de mais vendidos.
+  const [upsellSuggestions, setUpsellSuggestions] = useState([]);
+  const [upsellLoading, setUpsellLoading] = useState(false);
+  const upsellCustomerId = pdvCustomer && pdvCustomer.id ? pdvCustomer.id : null;
+  useEffect(() => {
+    if (lines.length === 0 && !upsellCustomerId) {
+      setUpsellSuggestions([]);
+      setUpsellLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setUpsellLoading(true);
+    const t = setTimeout(async () => {
+      const found = pdvFetchUpsellSuggestions ? await pdvFetchUpsellSuggestions({
+        cartItems: lines.map((l) => ({ name: l.name, brand: l.brand })),
+        customerId: upsellCustomerId,
+      }) : [];
+      if (!cancelled) { setUpsellSuggestions(found); setUpsellLoading(false); }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [lines.map((l) => l.id + ":" + l.qty).join(","), upsellCustomerId]);
+
   /* Aplica um cupom ao carrinho — apenas preview local; o backend revalida tudo ao enviar ao caixa. */
   const applyCoupon = () => {
     const result = resolveMarketplaceCoupon(coupons, inventory, lines.map((l) => ({ id: l.id, qty: l.qty })), couponCode, [], null);
@@ -862,7 +1073,7 @@ function PdvScreen({ ctx }) {
                     </div>
                   </div>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => setIdOpen(true)}><Icon name="user" size={13} />Trocar cliente</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setIdOpen(true)}><Icon name="user" size={13} />Trocar cliente</button>
               </div>
               <div className="grid g-4" style={{ marginTop: 14, gap: 10 }}>
                 <div>
@@ -882,17 +1093,28 @@ function PdvScreen({ ctx }) {
                   <div style={{ fontWeight: 700, fontSize: 12.5 }}>{pdvCustomer.freqDays ? `a cada ${pdvCustomer.freqDays} dias` : "—"}</div>
                 </div>
               </div>
-              {Array.isArray(pdvCustomer.subscriptions) && pdvCustomer.subscriptions.length > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  <div className="cell-muted" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Costuma comprar</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {pdvCustomer.subscriptions.map((label) => <Badge key={label} tone="neutral">{label}</Badge>)}
-                  </div>
+              {Array.isArray(pdvCustomer.children) && pdvCustomer.children.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 12 }}>
+                  <span className="cell-muted">Filhos: </span>
+                  {pdvCustomer.children.map((c, i) => (
+                    <span key={i}>{i > 0 ? ", " : ""}{c.name ? c.name : "Filho(a)"}{c.age != null ? ` (${c.age} ${c.age === 1 ? "ano" : "anos"})` : ""}</span>
+                  ))}
                 </div>
               )}
-              {pdvCustomer.cashback > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "9px 12px", background: "var(--accent-soft)", borderRadius: "var(--radius-md)", fontSize: 12.5, fontWeight: 600, color: "var(--brand)" }}>
-                  <Icon name="gift" size={15} />{brl(pdvCustomer.cashback)} de cashback disponível
+              {Array.isArray(pdvCustomer.topProducts) && pdvCustomer.topProducts.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="cell-muted" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Costuma comprar</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {representativePurchasesByCategory(pdvCustomer.topProducts).map((p, i) => (
+                      <div key={p.n + i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 12 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.n}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
+                          {p.continuous && <Badge tone="accent">Uso contínuo</Badge>}
+                          {p.cat && <span className="cell-muted">{p.cat}</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -904,12 +1126,17 @@ function PdvScreen({ ctx }) {
           )}
 
           {/* ===== Visão do FARMACÊUTICO: sugestões do que o cliente mais compra + recorrência ===== */}
-          {operator === "pharm" && <PdvUpsell customer={pdvCustomer} insights={insights} inventory={inventory} cart={pdvCart} onAdd={pdvAdd} />}
+          {operator === "pharm" && <PdvUpsell items={upsellSuggestions} loading={upsellLoading} hasContext={lines.length > 0 || !!upsellCustomerId} onAdd={pdvAdd} />}
           {operator === "pharm" && pdvCustomer && <PdvRecurrenceSuggestions candidates={insights.recurrenceCandidates} onConfigure={setRecurrenceCandidate} />}
 
           {/* Retirada na loja ou entrega (visão do farmacêutico, com cliente identificado) */}
           {operator === "pharm" && pdvCustomer && (
             <div style={{ marginBottom: 14 }}><PdvFulfillmentPicker delivery={delivery} setDelivery={setDelivery} checkPdvDeliveryCoverage={checkPdvDeliveryCoverage} savedAddresses={savedAddresses} onSaveAddress={saveCustomerAddress} /></div>
+          )}
+
+          {/* Produto que o cliente queria e não encontramos — busca em outras lojas da rede, reserva ou registra a demanda */}
+          {operator === "pharm" && (
+            <PdvMissingProductBox pdvSearchProducts={pdvSearchProducts} pdvLogDemand={pdvLogDemand} customer={pdvCustomer} onReserve={openReservation} />
           )}
 
           {/* Catálogo de produtos — cartão persistente com a lista abaixo da busca, igual ao artifact */}
@@ -918,7 +1145,24 @@ function PdvScreen({ ctx }) {
               <SearchInput value={q} onChange={setQ} placeholder="Buscar produto, marca ou EAN — ou bipar o código de barras" />
             </div>
             {q.trim() === "" ? (
-              <div className="cell-muted" style={{ padding: "22px 14px", fontSize: 12.5, textAlign: "center" }}>Digite para buscar um produto no estoque.</div>
+              dedupeByName(inventory.filter((it) => it.qty > 0)).length === 0 ? (
+                <div className="cell-muted" style={{ padding: "22px 14px", fontSize: 12.5, textAlign: "center" }}>Nenhum produto em estoque nesta loja.</div>
+              ) : (
+                <div>
+                  {dedupeByName(inventory.filter((it) => it.qty > 0)).slice(0, 30).map((it) => (
+                    <button type="button" key={it.id} className="identify-result" onClick={() => pdvAdd(it.id)}>
+                      <div className="prod-row-icon"><Icon name={it.controlled ? "lock" : "box"} size={16} /></div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{it.name}</div>
+                        <div className="cell-muted mono" style={{ fontSize: 10.5 }}>{it.sku || it.ean}</div>
+                      </div>
+                      {it.controlled && <Badge tone="warning">Controlado</Badge>}
+                      <span style={{ fontWeight: 800, fontFamily: "var(--font-display)", fontSize: 13 }}>{brl(it.price)}</span>
+                      <Icon name="plus" size={14} style={{ color: "var(--text-muted)", flex: "none" }} />
+                    </button>
+                  ))}
+                </div>
+              )
             ) : results.length === 0 ? (
               <div className="cell-muted" style={{ padding: "22px 14px", fontSize: 12.5, textAlign: "center" }}>Nenhum produto encontrado.</div>
             ) : (
@@ -1060,21 +1304,6 @@ function PdvScreen({ ctx }) {
               </>
             )}
 
-            {/* Cashback do cliente (visão do caixa) — aplicar saldo além do desconto */}
-            {operator === "caixa" && pdvCustomer && cashAvailable > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 12 }}>
-                  <span>Usar cashback disponível ({brl(cashAvailable)})</span>
-                  <SwitchToggle on={cashWanted > 0} onChange={(on) => setCashWanted(on ? Math.min(cashAvailable, afterDisc) : 0)} />
-                </div>
-                {cashWanted > 0 && (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input className="input" type="number" min="0" step="0.01" max={Math.min(cashAvailable, afterDisc)} value={cashWanted} onChange={(e) => setCashWanted(Math.max(0, +e.target.value || 0))} placeholder="0,00" style={{ flex: 1, fontSize: 11.5 }} />
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Retirada/entrega (visão do farmacêutico) — resumo; a escolha em si fica na coluna da esquerda */}
             {operator === "pharm" && pdvCustomer && (
               <div className="cell-muted" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
@@ -1086,6 +1315,21 @@ function PdvScreen({ ctx }) {
             <Field label="Desconto adicional (%)" hint={discountLimit < 100 ? `Máximo permitido: ${discountLimit}% — limite de margem do produto${cashAvailable > 0 ? " e cashback do cliente" : ""}` : undefined}>
               <input className="input" type="number" min="0" max={discountLimit} value={discount} disabled={!!appliedCoupon} onChange={(e) => setDiscount(Math.max(0, Math.min(discountLimit, +e.target.value)))} />
             </Field>
+
+            {/* Cashback do cliente (visão do caixa) — aplicar saldo além do desconto, logo abaixo dele */}
+            {operator === "caixa" && pdvCustomer && cashAvailable > 0 && (
+              <div style={{ margin: "10px 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 12 }}>
+                  <span>Usar cashback disponível ({brl(cashAvailable)})</span>
+                  <SwitchToggle on={cashWanted > 0} onChange={(on) => setCashWanted(on ? Math.min(cashAvailable, afterDisc) : 0)} />
+                </div>
+                {cashWanted > 0 && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input className="input" type="number" min="0" step="0.01" max={Math.min(cashAvailable, afterDisc)} value={cashWanted} onChange={(e) => setCashWanted(Math.max(0, +e.target.value || 0))} placeholder="0,00" style={{ flex: 1, fontSize: 11.5 }} />
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{ margin: "10px 0" }}>
               <Field label="Cupom">
                 {appliedCoupon ? (
@@ -1349,7 +1593,7 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
   const [resolvedItem, setResolvedItem] = useState(null); // componente de estoque real que casa com o candidato
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [paymentMethodId, setPaymentMethodId] = useState("");
-  const [frequencyDays, setFrequencyDays] = useState(30);
+  const [frequencyDays, setFrequencyDays] = useState(candidate.frequencyDays || 30);
   const [quantity, setQuantity] = useState(candidate.avgQuantity || 1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1396,9 +1640,12 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
 
   if (result) {
     return (
-      <Modal open onClose={() => onConfirmed(result)} title="Recorrência confirmada">
+      <Modal open onClose={() => onConfirmed(result)} title="Assinatura confirmada">
         <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14, background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={26} /></span>
-        <p className="page-desc" style={{ marginBottom: 16 }}>Cobrança de {brl(result.totalCharged)} realizada no cartão salvo, com {result.discountPercent}% de desconto aplicado.</p>
+        <p className="page-desc" style={{ marginBottom: 16 }}>
+          Primeira cobrança de {brl(result.totalCharged)} realizada no cartão salvo, com {result.discountPercent}% de desconto aplicado.
+          A partir de agora, o Asaas cobra o mesmo valor automaticamente no cartão todos os meses — sem precisar confirmar de novo.
+        </p>
         <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => onConfirmed(result)}>Fechar</button>
       </Modal>
     );
@@ -1407,7 +1654,13 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
   return (
     <Modal
       open onClose={onClose} title="Configurar recorrência"
-      subtitle={candidate.name + " · comprado em " + candidate.consecutiveMonths + " meses seguidos. Cobrança imediata no cartão salvo, com 15% de desconto."}
+      subtitle={
+        candidate.name + " · " + (
+          candidate.intervalDetected
+            ? `padrão identificado: comprado a cada ${candidate.frequencyDays} dias, ${candidate.occurrences}× seguindo esse ritmo.`
+            : "medicamento de uso contínuo — sugestão de assinatura mesmo sem 3 compras seguidas ainda."
+        ) + " Assinatura no Asaas, cobrada automaticamente no cartão todo mês, com 15% de desconto."
+      }
     >
       {loading ? (
         <div className="cell-muted" style={{ padding: "12px 0" }}>Carregando estoque e cartões salvos...</div>
@@ -1416,10 +1669,12 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
       ) : (
         <>
           <div style={{ marginBottom: 10 }}>
-            <Field label="Quantidade"><QtyStepper value={quantity} onChange={setQuantity} min={1} max={20} /></Field>
+            <Field label="Quantidade por ciclo"><QtyStepper value={quantity} onChange={setQuantity} min={1} max={20} /></Field>
           </div>
           <div style={{ marginBottom: 10 }}>
-            <Field label="Frequência (dias)"><input className="input" type="number" min="7" max="365" value={frequencyDays} onChange={(e) => setFrequencyDays(Math.max(7, +e.target.value || 30))} /></Field>
+            <Field label="Ciclo de recompra do cliente (dias)" hint="Usado só para calcular a economia por ciclo — a cobrança no Asaas é sempre mensal, para ficar previsível.">
+              <input className="input" type="number" min="7" max="365" value={frequencyDays} onChange={(e) => setFrequencyDays(Math.max(7, +e.target.value || 30))} />
+            </Field>
           </div>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Cartão a cobrar</div>
@@ -1435,10 +1690,11 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
               </div>
             )}
           </div>
-          <div className="cell-muted" style={{ marginBottom: 12 }}>Total a cobrar agora: <b>{brl((resolvedItem.price * (1 - 0.15)) * quantity)}</b></div>
+          <div className="cell-muted" style={{ marginBottom: 4 }}>Primeira cobrança agora, e todo mês a partir daí: <b>{brl((resolvedItem.price * (1 - 0.15)) * quantity)}</b></div>
+          <div className="cell-muted" style={{ marginBottom: 12 }}>Economia por ciclo: <b style={{ color: "var(--good)" }}>{brl(resolvedItem.price * 0.15 * quantity)}</b></div>
           {error ? <div style={{ marginBottom: 10, color: "var(--critical)", fontSize: 12.5 }}>{error}</div> : null}
           <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={saving || !paymentMethodId} onClick={handleConfirm}>
-            <Icon name="repeat" size={16} />{saving ? "Cobrando..." : "Confirmar recorrência e cobrar agora"}
+            <Icon name="repeat" size={16} />{saving ? "Assinando..." : "Confirmar assinatura e cobrar agora"}
           </button>
         </>
       )}
@@ -1583,4 +1839,4 @@ function SendNotaModal({ nota, onClose, onSend }) {
   );
 }
 
-export { NotaFiscalModal, PAY_METHODS, PdvCaixaQueue, PdvIdentifyClient, PdvScreen, PdvUpsell, QrPlaceholder, RegisterCustomerModal, SendNotaModal, creditCashback, fmtAtendimento, maskCPF, pdvSuggestions };
+export { NotaFiscalModal, PAY_METHODS, PdvCaixaQueue, PdvIdentifyClient, PdvScreen, PdvUpsell, QrPlaceholder, RegisterCustomerModal, SendNotaModal, creditCashback, fmtAtendimento, maskCPF };

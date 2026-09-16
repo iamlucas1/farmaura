@@ -13,6 +13,7 @@ Não existe um schema/dependência de paginação reutilizado — cada rota defi
 - `inventory.py` (movimentações): só `limit` (padrão 50, máx 200), sem page/offset
 - `pdv.py` (busca de produto): só `limit` (padrão 20, máx 50)
 - `crm.py` `/customers`, `customers.py` `/me/addresses`, `/me/cart`: **sem nenhum parâmetro de paginação** — retornam lista completa
+- `orders.py` `GET /orders` (histórico de pedidos do cliente, `list_orders`): **sem nenhum parâmetro de paginação** — retorna todos os pedidos do cliente de uma vez, sem `page`/`page_size`/`limit`. Achado ao implementar avaliação de produto/nota fiscal em Meus pedidos (2026-08-26) — não é urgente hoje (volume de pedidos por cliente ainda baixo, pré-lançamento), mas cresce sem limite junto com o histórico de compras de cada cliente.
 
 ## Contexto
 

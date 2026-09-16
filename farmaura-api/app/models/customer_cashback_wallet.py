@@ -15,7 +15,7 @@ Observations:
 
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Numeric
+from sqlalchemy import CheckConstraint, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampedModel, UuidModel
@@ -38,6 +38,7 @@ class CustomerCashbackWallet(Base, UuidModel, TimestampedModel):
         CheckConstraint("lifetime_earned_total >= 0", name="customer_cashback_wallets_lifetime_non_negative"),
     )
 
+    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     customer_id: Mapped[str] = mapped_column(
         ForeignKey("customers.id", ondelete="CASCADE"),
         unique=True,

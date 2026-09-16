@@ -38,12 +38,14 @@ from app.models.order_item import OrderItem
 from app.models.prescription import Prescription
 from app.models.prescription_check import PrescriptionCheck
 from app.models.prescription_item import PrescriptionItem
+from app.repositories.chat_repository import ChatRepository
 from app.repositories.customer_payment_method_repository import CustomerPaymentMethodRepository
 from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.order_repository import OrderRepository
 from app.repositories.store_repository import StoreRepository
 from app.repositories.user_repository import UserRepository
+from app.services.cashback_service import CashbackService
 from app.services.catalog_service import CATALOG_CACHE_NAMESPACE
 from app.services.coupon_service import CouponCartLine, CouponService
 from app.schemas.auth import TokenSubject
@@ -141,6 +143,24 @@ class OrderService:
         response = await self._build_marketplace_orders_response(tenant_id=str(subject.tenant_id), customer_id=customer.id)
         return MarketplaceOrderChangeResponse(revision=response.revision, has_changes=True, items=response.items)
 
+    async def get_customer_order_fiscal_document_html(self, *, order_id: str) -> str:
+        """Return the printable fiscal document HTML for one of the caller's own orders.
+
+        `fiscal_documents` RLS has no per-customer ownership predicate (only `orders` does),
+        so ownership is enforced explicitly here rather than trusted to the database — this
+        method must never be reachable with a bare `document_id`, only through an order that
+        has already been proven to belong to the authenticated customer.
+        """
+
+        subject = self._require_subject()
+        customer = await self._resolve_customer(subject)
+        if customer is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+        order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id)
+        if order is None or order.customer_id != customer.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+        return await FiscalService(self.session).get_document_html_by_order_id(order_id=order.id)
+
     async def prepare_order(self, payload: OrderCreateRequest) -> OrderResponse:
         """Prepare a conservative draft order response."""
 
@@ -163,6 +183,11 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Informe um CPF válido em Minha Conta antes de finalizar a compra.",
+            )
+        if payload.payment.method == 'pickup_cash' and payload.delivery.method != 'pickup':
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail='Pagamento na retirada só está disponível para retirada na loja.',
             )
         requested_items = [(line.product_id, line.quantity) for line in payload.items]
         store_resolution = None
@@ -294,6 +319,22 @@ class OrderService:
             )
             if payment_method is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cartão selecionado não encontrado.')
+        elif payload.payment.method == 'pickup_cash':
+            # Receita física: nada é cobrado agora — o cartão só é debitado quando o farmacêutico
+            # confirma a retirada (ver confirm_internal_pickup), depois de conferir o papel
+            # original em mãos. Por isso a compra exige um cartão já salvo antes de finalizar: sem
+            # um token guardado agora não há como cobrar depois, sem o cliente presente.
+            card_repository = CustomerPaymentMethodRepository(self.session)
+            payment_method = (
+                await card_repository.get_for_customer(customer_id=customer.id, payment_method_id=payload.payment.payment_method_id)
+                if payload.payment.payment_method_id
+                else next(iter(await card_repository.list_for_customer(customer_id=customer.id)), None)
+            )
+            if payment_method is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='Cadastre um cartão em "Meus cartões" antes de finalizar a compra com receita física.',
+                )
         order = Order(
             id=str(uuid4()),
             tenant_id=str(subject.tenant_id),
@@ -330,7 +371,12 @@ class OrderService:
             estimated_delivery_at_label=self._build_delivery_eta(now, payload.delivery.method),
             completed_at_label='',
             marketplace_note=self._build_marketplace_note(payload, coupon=coupon, discount_amount=coupon_discount),
-            internal_note='Pagamento registrado automaticamente pelo checkout digital.',
+            internal_note=(
+                'Pré-pedido com receita física — reter o original na retirada; cartão salvo é '
+                'cobrado automaticamente ao confirmar a retirada.'
+                if payload.payment.method == 'pickup_cash'
+                else 'Pagamento registrado automaticamente pelo checkout digital.'
+            ),
             is_active=True,
         )
         await self.repository.add_order(order)
@@ -421,28 +467,47 @@ class OrderService:
             await self._attach_delivery_route_stop(order=order, fulfillment=fulfillment, subject=subject, store_id=store_id, now=now)
         if order.requires_prescription_review:
             await self._create_prescription_snapshot(order=order, customer=customer, payload=payload, order_items=created_items)
-        payment_service = PaymentService(self.session)
+        # Cashback: redeem wallet balance (capped server-side at a % of the order total) and
+        # accrue this order's earn as pending — released to the wallet once it's delivered/picked
+        # up. The redeemed amount reduces the real gateway charge below.
+        cashback_applied, _cashback_earned = await CashbackService(self.session, subject).apply_on_order(
+            order=order, order_items=created_items, requested_redeem=payload.cashback_redeem_amount,
+        )
+        charge_amount = quantize_money(max(Decimal('0.00'), total_amount - cashback_applied))
         pix_qr_code = ''
         pix_copy_paste = ''
-        if payload.payment.method == 'pix':
-            charge = await payment_service.charge_pix(
-                customer=customer, amount=total_amount, external_reference=order.order_code,
-                description=f'Pedido marketplace {order.order_code}',
-            )
-            pix_qr_code = charge['pix_qr_code']
-            pix_copy_paste = charge['pix_copy_paste']
-        else:
-            assert payment_method is not None  # guaranteed above: card methods 404 early when unresolved
-            billing_type = 'CREDIT_CARD' if payload.payment.method == 'credit_card' else 'DEBIT_CARD'
-            charge = await payment_service.charge_card(
-                customer=customer, provider_token=payment_method.provider_token, billing_type=billing_type,
-                amount=total_amount, external_reference=order.order_code,
-                description=f'Pedido marketplace {order.order_code}',
-            )
-        order.gateway_payment_id = charge['payment_id']
-        order.payment_status = payment_service.resolve_order_payment_status(charge['status'])
-        if order.payment_status == 'approved':
+        if payload.payment.method == 'pickup_cash':
+            # Physical (paper-born) prescription: nothing is charged online now — the original has
+            # to be handed over and retained in person first. The saved card resolved above is
+            # only actually charged once the pharmacist confirms the pickup (see
+            # confirm_internal_pickup), which is also the point that already guarantees the
+            # prescription has been reviewed (advance_internal_order blocks READY otherwise).
+            order.payment_status = 'pending_pickup'
+        elif charge_amount <= Decimal('0.00'):
+            # Cashback covered the whole order — nothing to charge through the gateway.
+            order.payment_status = 'approved'
             order.payment_confirmed_at = now
+        else:
+            payment_service = PaymentService(self.session)
+            if payload.payment.method == 'pix':
+                charge = await payment_service.charge_pix(
+                    customer=customer, amount=charge_amount, external_reference=order.order_code,
+                    description=f'Pedido marketplace {order.order_code}',
+                )
+                pix_qr_code = charge['pix_qr_code']
+                pix_copy_paste = charge['pix_copy_paste']
+            else:
+                assert payment_method is not None  # guaranteed above: card methods 404 early when unresolved
+                billing_type = 'CREDIT_CARD' if payload.payment.method == 'credit_card' else 'DEBIT_CARD'
+                charge = await payment_service.charge_card(
+                    customer=customer, provider_token=payment_method.provider_token, billing_type=billing_type,
+                    amount=charge_amount, external_reference=order.order_code,
+                    description=f'Pedido marketplace {order.order_code}',
+                )
+            order.gateway_payment_id = charge['payment_id']
+            order.payment_status = payment_service.resolve_order_payment_status(charge['status'])
+            if order.payment_status == 'approved':
+                order.payment_confirmed_at = now
         if coupon is not None:
             coupon.usage_count += 1
         record_customer_purchase(customer, order_total=total_amount)
@@ -549,10 +614,52 @@ class OrderService:
         if not expected_code or informed_code != expected_code:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Invalid pickup code.')
         now = datetime.now(UTC)
+        if order.payment_status == 'pending_pickup':
+            # Receita física: o pedido nasceu sem cobrar nada online (ver create_marketplace_order)
+            # e o cartão salvo pelo cliente só é debitado aqui, no exato momento em que o
+            # farmacêutico confere o código de retirada e o original em papel na mão.
+            if not order.selected_payment_method_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='Nenhum cartão vinculado a este pedido para cobrar na retirada.',
+                )
+            payment_method = await CustomerPaymentMethodRepository(self.session).get_for_customer(
+                customer_id=order.customer_id, payment_method_id=order.selected_payment_method_id,
+            )
+            if payment_method is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='O cartão salvo para este pedido não está mais disponível. Peça ao cliente para cadastrar um novo cartão antes de liberar a retirada.',
+                )
+            order_customer = await self.customer_repository.get_by_id(tenant_id=str(subject.tenant_id), customer_id=order.customer_id)
+            if order_customer is None:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Order customer unavailable for pickup charge.')
+            pickup_charge_amount = quantize_money(
+                max(Decimal('0.00'), order.total_amount - (order.cashback_applied_amount or Decimal('0.00')))
+            )
+            if pickup_charge_amount <= Decimal('0.00'):
+                order.payment_status = 'approved'
+                order.payment_confirmed_at = now
+            else:
+                payment_service = PaymentService(self.session)
+                charge = await payment_service.charge_card(
+                    customer=order_customer, provider_token=payment_method.provider_token, billing_type='CREDIT_CARD',
+                    amount=pickup_charge_amount, external_reference=order.order_code,
+                    description=f'Pedido marketplace {order.order_code} (retirada)',
+                )
+                order.gateway_payment_id = charge['payment_id']
+                order.payment_status = payment_service.resolve_order_payment_status(charge['status'])
+                if order.payment_status == 'approved':
+                    order.payment_confirmed_at = now
         order.status = OrderStatus.DISPATCHED.value
         order.completed_at_label = 'Retirado'
         order.updated_at = now
         fulfillment.picked_up_at_label = now.strftime('%H:%M')
+        # A completed pickup releases this order's pending cashback into the wallet.
+        await CashbackService(self.session, subject).release_pending_for_order(order=order)
+        # A picked-up order is a completed transaction — its pharmacist chat (if any) freezes,
+        # same rule as delivery confirmation in delivery_service.py::complete_own_stop_delivery.
+        await ChatRepository(self.session).close_threads_for_order(tenant_id=str(subject.tenant_id), order_id=order.id, reason='order_completed')
         await self.session.commit()
         return await self._load_internal_order(order)
 
@@ -589,6 +696,8 @@ class OrderService:
         order.status = OrderStatus.DISPATCHED.value
         order.completed_at_label = 'Postado'
         order.updated_at = now
+        # Shipping has no in-system delivery confirmation — dispatch is the release trigger.
+        await CashbackService(self.session, subject).release_pending_for_order(order=order)
         await self.session.commit()
         return await self._load_internal_order(order)
 
@@ -693,6 +802,8 @@ class OrderService:
             subtotal_amount=order.subtotal_amount,
             delivery_fee_amount=order.delivery_fee_amount,
             discount_amount=order.discount_amount,
+            cashback_applied_amount=order.cashback_applied_amount,
+            cashback_earned_amount=order.cashback_earned_amount,
             coupon_code=order.coupon_code,
             address=address,
             store=store,
@@ -919,6 +1030,7 @@ class OrderService:
             'pix': 'Pix',
             'credit_card': 'Cartão de crédito',
             'debit_card': 'Cartão de débito',
+            'pickup_cash': 'Pagamento na retirada',
         }
         return labels.get(method, 'Pagamento')
 

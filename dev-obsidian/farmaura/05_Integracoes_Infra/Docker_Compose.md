@@ -15,7 +15,7 @@ Empacotamento e orquestração local/deploy dos serviços do produto Farmaura.
 - `farmaura-api/docker-compose.staging.yml`: overlay para ambiente de teste com seed (não produção) —
   só sobrescreve `APP_ENV`/`APP_BASE_URL`/`APP_MARKETPLACE_BASE_URL`/`APP_ALLOWED_ORIGINS`; usado hoje
   em `lumos-dev` — ver [[Ambiente_Staging_Lumos_Dev]].
-- `farmaura-api/Dockerfile`: Python 3.13.13-slim-bookworm, dependências via `uv sync --no-dev`, entrypoint customizado `docker/entrypoint.sh`.
+- `farmaura-api/Dockerfile`: Python 3.13.13-slim-bookworm, dependências via `uv sync --group dev` (inclui `pytest`), entrypoint customizado `docker/entrypoint.sh`.
 
 ## Dependências
 
@@ -25,9 +25,12 @@ Empacotamento e orquestração local/deploy dos serviços do produto Farmaura.
 
 - [[PostgreSQL_RLS]] e [[Valkey]] — serviços orquestrados por este compose.
 - [[resetar-e-re-semear-dados-locais]] — POP que depende deste compose para reset de dados locais.
+- [[executar-testes-python-no-docker]] — POP para executar pytest no container da API.
 - [[Ambiente_Staging_Lumos_Dev]] — ambiente que usa `docker-compose.staging.yml`.
 
 ## Atualizações
+
+- 2026-09-01: imagem da API passou a instalar o grupo `dev`; `pytest` ficou disponível para a suíte de testes no Docker — ver [[executar-testes-python-no-docker]].
 
 - 2026-08-04: novo overlay `docker-compose.staging.yml` (commitado), usado para publicar um ambiente
   de teste com seed em `lumos-dev` — ver [[Ambiente_Staging_Lumos_Dev]].

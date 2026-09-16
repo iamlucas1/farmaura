@@ -135,7 +135,7 @@ class AuthService:
             )
         if user.two_factor_enabled:
             if not user.two_factor_secret.strip():
-                raise AuthenticationError("Two-factor authentication is not configured.")
+                raise AuthenticationError("Autenticação em duas etapas não está configurada para esta conta.")
             challenge_token = create_mfa_challenge_token(
                 settings=self.settings,
                 user_id=user_id,
@@ -178,16 +178,16 @@ class AuthService:
         if user is None:
             raise AuthenticationError()
         if not user.two_factor_enabled or not user.two_factor_secret.strip():
-            raise AuthenticationError("Two-factor authentication is not configured.")
+            raise AuthenticationError("Autenticação em duas etapas não está configurada para esta conta.")
         if int(challenge_payload["session_version"]) != user.session_version:
-            raise AuthenticationError("Authentication challenge expired.")
+            raise AuthenticationError("Esta solicitação expirou. Faça login novamente.")
         self._ensure_portal_login_allowed(
             role=UserRole(user.role),
             access_scope=AccessScope(user.access_scope),
             portal=PortalName(str(challenge_payload["portal"])),
         )
         if not verify_totp_code(user.two_factor_secret, payload.code):
-            raise AuthenticationError("Invalid two-factor code.")
+            raise AuthenticationError("Código de verificação inválido.")
         token_pair = await self._issue_token_pair(
             user_id=UUID(user.id),
             tenant_id=UUID(user.tenant_id),
@@ -216,9 +216,9 @@ class AuthService:
         if user is None:
             raise AuthenticationError()
         if not user.must_change_password:
-            raise AuthenticationError("Password change is not pending for this account.")
+            raise AuthenticationError("Esta conta não tem troca de senha pendente.")
         if int(challenge_payload["session_version"]) != user.session_version:
-            raise AuthenticationError("Authentication challenge expired.")
+            raise AuthenticationError("Esta solicitação expirou. Faça login novamente.")
         self._ensure_portal_login_allowed(
             role=UserRole(user.role),
             access_scope=AccessScope(user.access_scope),
@@ -268,7 +268,7 @@ class AuthService:
 
         user = await self._get_subject_user(subject)
         if user.two_factor_enabled:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Two-factor authentication is already enabled.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A autenticação em duas etapas já está ativa.")
         user.two_factor_secret = generate_totp_secret()
         await self.user_repository.save(user)
         await self.session.commit()
@@ -279,11 +279,11 @@ class AuthService:
 
         user = await self._get_subject_user(subject)
         if user.two_factor_enabled:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Two-factor authentication is already enabled.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A autenticação em duas etapas já está ativa.")
         if not user.two_factor_secret.strip():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Two-factor enrollment has not been started.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="O cadastro da autenticação em duas etapas ainda não foi iniciado.")
         if not verify_totp_code(user.two_factor_secret, payload.code):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid authenticator code.")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Código do aplicativo autenticador inválido.")
         user.two_factor_enabled = True
         await self.user_repository.save(user)
         await self.session.commit()
@@ -297,9 +297,9 @@ class AuthService:
 
         user = await self._get_subject_user(subject)
         if not user.two_factor_enabled or not user.two_factor_secret.strip():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Two-factor authentication is not enabled.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A autenticação em duas etapas não está ativa.")
         if not verify_totp_code(user.two_factor_secret, payload.code):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid authenticator code.")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Código do aplicativo autenticador inválido.")
         user.two_factor_enabled = False
         user.two_factor_secret = ""
         await self.user_repository.save(user)
@@ -322,7 +322,7 @@ class AuthService:
         await apply_authenticated_context(self.session, tenant_id="", user_id=str(refresh_payload["sub"]))
         refresh_record = await self.refresh_token_repository.get_by_token_id(str(refresh_payload["jti"]))
         if refresh_record is None:
-            raise AuthenticationError("Refresh token not recognized.")
+            raise AuthenticationError("Sessão não reconhecida. Faça login novamente.")
         await apply_authenticated_context(self.session, tenant_id=refresh_record.tenant_id, user_id=refresh_record.user_id)
         presented_hash = hash_refresh_token(payload.refresh_token)
         if refresh_record.token_hash != presented_hash:
@@ -331,18 +331,18 @@ class AuthService:
                 reason="refresh_token_reuse_detected",
             )
             await self.session.commit()
-            raise AuthenticationError("Refresh token compromised.")
+            raise AuthenticationError("Sessão inválida por segurança. Faça login novamente.")
         if refresh_record.is_revoked:
             await self.refresh_token_repository.revoke_family(
                 family_id=refresh_record.family_id,
                 reason="refresh_token_reuse_detected",
             )
             await self.session.commit()
-            raise AuthenticationError("Refresh token revoked.")
+            raise AuthenticationError("Sessão encerrada. Faça login novamente.")
         if refresh_record.expires_at <= datetime.now(tz=UTC):
             await self.refresh_token_repository.revoke(refresh_record, reason="refresh_token_expired")
             await self.session.commit()
-            raise AuthenticationError("Refresh token expired.")
+            raise AuthenticationError("Sessão expirada. Faça login novamente.")
         user = await self.user_repository.get_by_id(str(refresh_payload["sub"]))
         if user is None:
             raise AuthenticationError()
@@ -352,7 +352,7 @@ class AuthService:
                 reason="session_version_mismatch",
             )
             await self.session.commit()
-            raise AuthenticationError("Session invalidated.")
+            raise AuthenticationError("Sessão invalidada. Faça login novamente.")
         await self.refresh_token_repository.mark_used(refresh_record)
         replacement_token_id = str(uuid4())
         await self.refresh_token_repository.revoke(
@@ -382,7 +382,7 @@ class AuthService:
         await apply_authenticated_context(self.session, tenant_id="", user_id=str(refresh_payload["sub"]))
         refresh_record = await self.refresh_token_repository.get_by_token_id(str(refresh_payload["jti"]))
         if refresh_record is None:
-            raise AuthenticationError("Refresh token not recognized.")
+            raise AuthenticationError("Sessão não reconhecida. Faça login novamente.")
         await apply_authenticated_context(self.session, tenant_id=refresh_record.tenant_id, user_id=refresh_record.user_id)
         if refresh_record.token_hash != hash_refresh_token(payload.refresh_token):
             await self.refresh_token_repository.revoke_family(
@@ -390,7 +390,7 @@ class AuthService:
                 reason="logout_with_mismatched_token",
             )
             await self.session.commit()
-            raise AuthenticationError("Refresh token compromised.")
+            raise AuthenticationError("Sessão inválida por segurança. Faça login novamente.")
         if not refresh_record.is_revoked:
             await self.refresh_token_repository.revoke(refresh_record, reason="user_logout")
             await self.session.commit()
@@ -408,7 +408,7 @@ class AuthService:
             reason="user_logout_all",
         )
         await self.session.commit()
-        return LogoutAllResponse(detail="All sessions invalidated.")
+        return LogoutAllResponse(detail="Todas as sessões foram encerradas.")
 
     async def unlock_account(self, payload: UnlockAccountRequest) -> UnlockAccountResponse:
         """End an active brute-force lockout using the token from the lockout notification e-mail."""
@@ -436,7 +436,7 @@ class AuthService:
 
         user = await self.user_repository.get_by_id(str(subject.user_id))
         if user is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Authenticated user was not found.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário autenticado não foi encontrado.")
         return user
 
     def _build_two_factor_setup_response(self, user: object) -> TwoFactorSetupResponse:

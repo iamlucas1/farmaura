@@ -108,7 +108,7 @@ def test_black_stripe_uses_black_stripe_placeholder() -> None:
     product = build_marketplace_catalog_groups([item])[0]
 
     assert product["image_policy"] == "prescription_restricted"
-    assert product["image_url"].endswith("PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png")
+    assert product["image_url"].endswith("PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.webp")
     assert product["gallery"] == []
 
 
@@ -127,7 +127,7 @@ def test_antimicrobial_uses_retention_placeholder() -> None:
     product = build_marketplace_catalog_groups([item])[0]
 
     assert product["image_policy"] == "prescription_restricted"
-    assert product["image_url"].endswith("PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png")
+    assert product["image_url"].endswith("PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.webp")
 
 
 def test_red_stripe_uses_prescription_placeholder() -> None:
@@ -145,4 +145,4 @@ def test_red_stripe_uses_prescription_placeholder() -> None:
     product = build_marketplace_catalog_groups([item])[0]
 
     assert product["image_policy"] == "prescription_restricted"
-    assert product["image_url"].endswith("PlaceHolder-venda-sob-prescricao-medica.png")
+    assert product["image_url"].endswith("PlaceHolder-venda-sob-prescricao-medica.webp")

@@ -13,6 +13,7 @@ Observations:
 - write-side CRM automation can extend this service later;
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -31,6 +32,7 @@ from app.schemas.crm import (
     CrmAddressListResponse,
     CrmAddressResponse,
     CrmCategoryMixResponse,
+    CrmChildResponse,
     CrmCustomerCreateRequest,
     CrmCustomerListResponse,
     CrmCustomerResponse,
@@ -155,11 +157,14 @@ class CrmService:
                     product_key=entry.product_key,
                     name=entry.name,
                     brand=entry.brand,
-                    consecutive_months=entry.consecutive_months,
-                    last_purchased_month=entry.last_purchased_month,
+                    frequency_days=entry.frequency_days,
+                    occurrences=entry.occurrences,
+                    interval_detected=entry.interval_detected,
+                    continuous_use=entry.continuous_use,
                     avg_quantity=entry.avg_quantity,
                     last_unit_price=entry.last_unit_price,
                     suggested_discount_percent=entry.suggested_discount_percent,
+                    savings_amount=entry.savings_amount,
                 )
                 for entry in summary.recurrence_candidates
             ],
@@ -218,7 +223,12 @@ class CrmService:
 
         avatar = self._build_avatar(customer.full_name, customer.avatar_url)
         top_products = [
-            CrmTopProductResponse(name=str(item.get("name") or item.get("n") or "Produto"), quantity=int(item.get("quantity") or item.get("q") or 0))
+            CrmTopProductResponse(
+                name=str(item.get("name") or item.get("n") or "Produto"),
+                quantity=int(item.get("quantity") or item.get("q") or 0),
+                category=str(item.get("category") or item.get("cat") or ""),
+                continuous_use=bool(item.get("continuous_use") or item.get("continuous") or False),
+            )
             for item in list(customer.top_products_snapshot or [])
         ]
         category_mix = [
@@ -228,6 +238,13 @@ class CrmService:
         monthly = [int(value) for value in list(customer.monthly_orders_snapshot or [])]
         if len(monthly) < 12:
             monthly = monthly + [0] * (12 - len(monthly))
+        current_year = datetime.now(UTC).year
+        birth_years = list(customer.children_birth_years or [])
+        names = list(customer.children_names or [])
+        children = [
+            CrmChildResponse(name=names[index] if index < len(names) else "", age=current_year - birth_year)
+            for index, birth_year in enumerate(birth_years)
+        ]
         return CrmCustomerResponse(
             id=customer.id,
             name=customer.full_name,
@@ -254,6 +271,7 @@ class CrmService:
             interests=[str(item) for item in list(customer.interest_tags or [])],
             category_mix=category_mix,
             monthly=monthly[:12],
+            children=children,
         )
 
     def _build_avatar(self, name: str, avatar_url: str) -> str:

@@ -80,3 +80,15 @@ class BrandListResponse(StrictModel):
     """Represent the brand list payload."""
 
     items: list[BrandResponse]
+
+
+class PublicBrandResponse(StrictModel):
+    """Represent the public-safe subset of a brand record, for the marketplace brand page.
+
+    Deliberately excludes id/suppliers/is_discarded/timestamps — those are internal catalog
+    management fields, not something an anonymous storefront visitor needs.
+    """
+
+    name: str
+    description: str = ""
+    logo_url: str = ""

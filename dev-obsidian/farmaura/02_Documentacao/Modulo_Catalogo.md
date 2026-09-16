@@ -17,7 +17,7 @@ Domínio dono da **identidade do produto** (o que existe, como se chama, a quem 
 
 - `GET /catalog` — catálogo agrupado autenticado, com promoções personalizadas aplicadas (`require_marketplace_subject()`).
 - `GET /catalog/public` — catálogo público sem auth, rate-limited, campos reduzidos (sem SKU/EAN/inventory_ids).
-- `GET/POST/PUT/PATCH /products`, `/brands`, `/categories`, `/therapeutic-classes` — CRUD análogo nos 4 (roles `ADMIN, MANAGER, PHARMACIST`); `products` tem ainda `GET/POST /products/{id}/stores` (vínculo produto↔loja, cria `InventoryItem` zerado) e `PATCH /products/{id}/discard`.
+- `GET/POST/PUT/PATCH /products`, `/brands`, `/categories`, `/therapeutic-classes` — CRUD análogo nos 4 (roles `ADMIN, MANAGER, PHARMACIST`); `products` tem ainda `GET/POST /products/{id}/stores` (vínculo produto↔loja, cria `InventoryItem` zerado) e `PATCH /products/{id}/discard`. `/brands` também tem `GET /brands/public/{brand_name}` (público, rate-limited, sem auth) desde 2026-08-26 — só `name`/`description`/`logo_url`, usado pela página de marca do marketplace; ver [[../00_Decisoes/2026-08-26-endpoint-publico-de-marca-para-pagina-de-marca-do-marketplace|ADR]].
 - Promoções: **não em catalog.py** — `GET/POST/PUT/DELETE /portal/internal/promotions[/{id}]` + `POST /portal/internal/promotions/estimate-audience` (`api/v1/portal.py`), implementadas em `PortalService`. Leitura permite `CASHIER` além dos 3 roles; escrita não.
 
 ## Regras de negócio não óbvias
@@ -55,6 +55,7 @@ Domínio dono da **identidade do produto** (o que existe, como se chama, a quem 
 
 ## Atualizações
 
+- 2026-08-26: novo `GET /brands/public/{brand_name}` — primeira rota pública em `brands.py` (as outras 5 continuam internas). Resolve tenant via `SECURITY DEFINER` em vez de depender de RLS, já que `brands` não tem política própria (ver [[../04_Seguranca_Riscos/rls-ausente-em-tabelas-de-varios-dominios|risco já aberto]]).
 - 2026-08-03: `PublicCatalogItem` (schema de `GET /catalog/public`, servido a visitante anônimo)
   ganhou `aliases`/`inventory_ids` — só o `CatalogItem` autenticado (`GET /catalog`) tinha esses
   campos até então. Achado ao implementar "ofertas do dia" (`Modulo_Portal`): a home pública

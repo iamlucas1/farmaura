@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /miaura
+
+Sitemap: https://drogariafarmaura.com.br/sitemap.xml

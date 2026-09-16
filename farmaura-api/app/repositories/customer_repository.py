@@ -45,6 +45,16 @@ class CustomerRepository:
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_by_id(self, *, tenant_id: str, customer_id: str) -> Customer | None:
+        """Return one tenant-scoped customer by identifier."""
+
+        statement = select(Customer).where(
+            Customer.tenant_id == tenant_id,
+            Customer.id == customer_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
     async def get_by_cpf(self, *, tenant_id: str, cpf: str) -> Customer | None:
         """Return one tenant-scoped customer by CPF."""
 

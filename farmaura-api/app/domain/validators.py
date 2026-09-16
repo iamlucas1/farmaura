@@ -59,6 +59,25 @@ def is_valid_email(value: str) -> bool:
 
 
 # ============================================================================
+# URL VALIDATION
+# ============================================================================
+
+
+_HTTP_URL_PATTERN = re.compile(r"^https?://[^\s]+\.[^\s]+$")
+
+
+def is_http_url(value: str) -> bool:
+    """Return whether one candidate is a bare http(s) URL, not just text containing one.
+
+    Deliberately conservative (whole-string match, no query/path introspection) — this only
+    needs to distinguish "the customer pasted a link" from "the customer typed a sentence" for
+    the digital-prescription-by-link flow (see ChatService.submit_customer_prescription_link).
+    """
+
+    return bool(_HTTP_URL_PATTERN.match((value or "").strip()))
+
+
+# ============================================================================
 # PASSWORD STRENGTH VALIDATION
 # ============================================================================
 

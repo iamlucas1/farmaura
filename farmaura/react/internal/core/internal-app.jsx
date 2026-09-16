@@ -931,7 +931,8 @@ function PharmApp() {
     freqDays: item.freq_days == null ? null : Number(item.freq_days),
     subscriptions: Array.isArray(item.subscriptions) ? item.subscriptions : [],
     favorites: Array.isArray(item.favorites) ? item.favorites : [],
-    topProducts: Array.isArray(item.top_products) ? item.top_products.map((entry) => ({ n: entry.name || '', q: Number(entry.quantity || 0) })) : [],
+    topProducts: Array.isArray(item.top_products) ? item.top_products.map((entry) => ({ n: entry.name || '', q: Number(entry.quantity || 0), cat: entry.category || '', continuous: !!entry.continuous_use })) : [],
+    children: Array.isArray(item.children) ? item.children.map((entry) => ({ name: entry.name || '', age: entry.age == null ? null : Number(entry.age) })) : [],
     interests: Array.isArray(item.interests) ? item.interests : [],
     catMix: Array.isArray(item.category_mix) ? item.category_mix.map((entry) => [entry.name || '', Number(entry.value || 0)]) : [],
     monthly: Array.isArray(item.monthly) ? item.monthly.map((entry) => Number(entry || 0)) : Array(12).fill(0),
@@ -1071,6 +1072,7 @@ function PharmApp() {
       subscriptions: [],
       favorites: [],
       topProducts: [],
+      children: [],
       interests: [],
       catMix: [],
       monthly: Array(12).fill(0),
@@ -1926,11 +1928,14 @@ function PharmApp() {
           productKey: entry.product_key,
           name: entry.name,
           brand: entry.brand,
-          consecutiveMonths: Number(entry.consecutive_months || 0),
-          lastPurchasedMonth: entry.last_purchased_month || '',
+          frequencyDays: Number(entry.frequency_days || 30),
+          occurrences: Number(entry.occurrences || 0),
+          intervalDetected: !!entry.interval_detected,
+          continuousUse: !!entry.continuous_use,
           avgQuantity: Number(entry.avg_quantity || 1),
           lastUnitPrice: Number(entry.last_unit_price || 0),
           suggestedDiscountPercent: Number(entry.suggested_discount_percent || 0),
+          savingsAmount: Number(entry.savings_amount || 0),
         })) : [],
       };
     } catch (error) {
@@ -2655,6 +2660,51 @@ function PharmApp() {
       return null;
     }
   };
+  // Registra que um cliente pediu um produto sem estoque em lugar nenhum (ou não encontrado) — sinal de demanda, não reserva.
+  const pdvLogDemand = async ({ query, matchedItemId, customer }) => {
+    try {
+      await authClient.request('/pdv/demand-log', {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          matched_item_id: matchedItemId || null,
+          customer: customer ? {
+            id: customer.id || null, name: customer.name || '', doc: customer.doc || '', phone: customer.phone || '',
+            avatar: customer.avatar || '', recurring: !!customer.recurring, cashback: Number(customer.cashback || 0),
+          } : null,
+        }),
+      });
+      return true;
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível registrar a busca agora.', 'warn');
+      return false;
+    }
+  };
+  // Sugestões de venda para o carrinho atual — combina recorrência do cliente, o que ele
+  // costuma comprar junto e o que mais sai junto com esses produtos entre todos os clientes.
+  const pdvFetchUpsellSuggestions = async ({ cartItems, customerId }) => {
+    // Carrinho vazio é válido desde que haja cliente identificado — nesse caso a análise usa só
+    // o histórico pessoal dele (perfil de compra, recorrência), sem sinal de "comprado junto".
+    if (isFilePreview || !user || (!(cartItems || []).length && !customerId)) return [];
+    try {
+      const response = await authClient.request('/pdv/upsell-suggestions', {
+        method: 'POST',
+        body: JSON.stringify({
+          cart_items: cartItems.map((item) => ({ name: item.name || '', brand: item.brand || '' })),
+          customer_id: customerId || null,
+        }),
+      });
+      return Array.isArray(response.items) ? response.items.map((item) => ({
+        id: item.inventory_item_id,
+        name: item.name,
+        brand: item.brand,
+        category: item.category,
+        price: Number(item.price || 0),
+      })) : [];
+    } catch (error) {
+      return [];
+    }
+  };
   // Consulta o estado de validação de receita de cada item controlado do carrinho atual.
   const fetchPdvPrescriptionStatus = async (customerId, inventoryItemIds) => {
     if (isFilePreview || !user || !customerId || !(inventoryItemIds || []).length) return [];
@@ -2933,7 +2983,7 @@ function PharmApp() {
   };
   const finalizeSale = (msg) => showToast(msg || 'Venda registrada · nota emitida', 'success');
 
-  const showToast = (msg) => { kitShowToast({ message: msg }); };
+  const showToast = (msg, tone) => { kitShowToast(msg, tone); };
   const hydrateInventoryDashboard = (payload) => {
     const items = Array.isArray(payload && payload.items) ? payload.items.map(normalizeInventoryItem) : [];
     const itemMap = Object.fromEntries(items.map((it) => [it.id, it]));
@@ -4558,7 +4608,7 @@ function PharmApp() {
     unblockRequests, decideUnblockRequest,
     openCustomer: (name) => { setCrmFocus(name); goTo('crm'); setDrawerOrder(null); },
     crmFocus,
-    pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, pdvCreateReservation, fetchPdvPrescriptionStatus, createPdvPrescription, finalizeSale,
+    pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, pdvCreateReservation, pdvLogDemand, pdvFetchUpsellSuggestions, fetchPdvPrescriptionStatus, createPdvPrescription, finalizeSale,
     fetchTeamMembers, addTeamMember, updateTeamMember, setTeamMemberActive, updateTeamMemberStore,
     suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive,
     fetchPurchaseQuotes, fetchPurchaseQuote, createPurchaseQuote, updatePurchaseQuote, updatePurchaseQuoteStatus,

@@ -38,6 +38,7 @@ class CashbackTransactionLine(Base, UuidModel, TimestampedModel):
         CheckConstraint("cashback_amount >= 0", name="cashback_transaction_lines_amount_non_negative"),
     )
 
+    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     transaction_id: Mapped[str] = mapped_column(
         ForeignKey("cashback_transactions.id", ondelete="CASCADE"),
         index=True,

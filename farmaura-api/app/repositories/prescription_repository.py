@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.order import Order
 from app.models.prescription import Prescription
 from app.models.prescription_check import PrescriptionCheck
+from app.models.prescription_file import PrescriptionFile
 from app.models.prescription_item import PrescriptionItem
 
 
@@ -98,6 +99,37 @@ class PrescriptionRepository:
         self.session.add(item)
         await self.session.flush()
         return item
+
+    async def add_file(self, prescription_file: PrescriptionFile) -> PrescriptionFile:
+        """Persist one new prescription file link."""
+
+        self.session.add(prescription_file)
+        await self.session.flush()
+        return prescription_file
+
+    async def get_latest_for_customer(
+        self, *, tenant_id: str, customer_id: str, source_channel: str = "marketplace",
+    ) -> Prescription | None:
+        """Return the customer's most recent prescription submitted ahead of an order.
+
+        Used to gate marketplace checkout payment on prescription approval before an order
+        exists — `order_id IS NULL` excludes prescriptions already tied to a placed order,
+        whose approval/rejection instead flows through the order's own `prescription_status`.
+        """
+
+        statement = (
+            select(Prescription)
+            .where(
+                Prescription.tenant_id == tenant_id,
+                Prescription.customer_id == customer_id,
+                Prescription.source_channel == source_channel,
+                Prescription.order_id.is_(None),
+            )
+            .order_by(Prescription.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     async def get_latest_for_items(
         self, *, tenant_id: str, customer_id: str, inventory_item_ids: list[str], source_channel: str = "pdv",

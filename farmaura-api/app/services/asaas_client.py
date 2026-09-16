@@ -123,6 +123,17 @@ class AsaasClient:
         self.assert_configured()
         return self._request("POST", "/v3/payments", payload=payload).payload
 
+    def create_subscription(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create one recurring subscription in Asaas.
+
+        Asaas itself generates and charges a new payment every cycle against the
+        tokenized card on file — Farmaura does not need its own scheduler/cron for the
+        recurring charge itself, only to react to the resulting payment webhooks.
+        """
+
+        self.assert_configured()
+        return self._request("POST", "/v3/subscriptions", payload=payload).payload
+
     def get_pix_qrcode(self, payment_id: str) -> dict[str, Any]:
         """Return the Pix QR code payload for one previously created payment."""
 

@@ -48,6 +48,7 @@ from app.schemas.product import (
     ProductStoreLinksResponse,
     ProductStoreSummary,
     ProductUpdateRequest,
+    ProductVariantLinkRequest,
 )
 from app.services.catalog_service import CATALOG_CACHE_NAMESPACE
 from app.services.marketplace_projection import is_marketplace_image_restricted
@@ -104,11 +105,11 @@ class ProductService:
                 tenant_id=str(self.subject.tenant_id), ean_code=cleaned_ean,
             )
             if existing_ean is not None:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Product EAN already registered.")
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este código EAN já está cadastrado em outro produto.")
         sku = payload.sku.strip() or self._generate_sku(payload.name)
         existing_sku = await self.repository.get_product_by_sku(tenant_id=str(self.subject.tenant_id), sku=sku)
         if existing_sku is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Product SKU already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este SKU já está cadastrado em outro produto.")
         self._validate_marketplace_image_compliance(payload)
         await self._ensure_catalog_refs_exist(
             brand_id=payload.brand_id, category_id=payload.category_id, therapeutic_class_id=payload.therapeutic_class_id,
@@ -127,6 +128,11 @@ class ProductService:
             cnae_code=payload.cnae_code,
             marketplace_image_url=payload.marketplace_image_url,
             marketplace_gallery_urls=payload.marketplace_gallery_urls,
+            short_description=payload.short_description,
+            bula_markdown=payload.bula_markdown,
+            marketing_highlights=payload.marketing_highlights,
+            variant_label=payload.variant_label,
+            cashback_percent=payload.cashback_percent,
             is_active=True,
         )
         product = await self.repository.add_product(product)
@@ -146,11 +152,11 @@ class ProductService:
                 tenant_id=str(self.subject.tenant_id), ean_code=cleaned_ean,
             )
             if existing_ean is not None and existing_ean.id != product.id:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Product EAN already registered.")
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este código EAN já está cadastrado em outro produto.")
         sku = payload.sku.strip()
         existing_sku = await self.repository.get_product_by_sku(tenant_id=str(self.subject.tenant_id), sku=sku)
         if existing_sku is not None and existing_sku.id != product.id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Product SKU already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este SKU já está cadastrado em outro produto.")
         self._validate_marketplace_image_compliance(payload)
         await self._ensure_catalog_refs_exist(
             brand_id=payload.brand_id, category_id=payload.category_id, therapeutic_class_id=payload.therapeutic_class_id,
@@ -167,6 +173,52 @@ class ProductService:
         product.cnae_code = payload.cnae_code
         product.marketplace_image_url = payload.marketplace_image_url
         product.marketplace_gallery_urls = payload.marketplace_gallery_urls
+        product.short_description = payload.short_description
+        product.bula_markdown = payload.bula_markdown
+        product.marketing_highlights = payload.marketing_highlights
+        # variant_label alone (not variant_group_id) is editable here — renaming a variant's own
+        # label doesn't change which group it belongs to. Grouping itself only changes through
+        # link_variant/unlink_variant, so a client can never set an arbitrary shared id here and
+        # collide with an unrelated group.
+        product.variant_label = payload.variant_label
+        product.cashback_percent = payload.cashback_percent
+        await self.session.commit()
+        await self._reapply_tenant_context()
+        await self.session.refresh(product)
+        await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
+        summary = await self.repository.stock_summary_for_product(tenant_id=str(self.subject.tenant_id), product_id=product.id)
+        return self._serialize(product, *summary)
+
+    async def link_variant(self, product_id: str, payload: ProductVariantLinkRequest) -> ProductResponse:
+        """Link this product as a dosage/size variant of another existing product.
+
+        Reuses the target's variant_group_id if it already has one (joining its
+        existing group); otherwise mints a new group id shared by exactly these two.
+        """
+
+        product = await self._require_product(product_id)
+        target = await self._require_product(payload.link_to_product_id)
+        if target.id == product.id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A product cannot be a variant of itself.")
+        group_id = target.variant_group_id
+        if not group_id:
+            group_id = str(uuid4())
+            target.variant_group_id = group_id
+        product.variant_group_id = group_id
+        product.variant_label = payload.variant_label
+        await self.session.commit()
+        await self._reapply_tenant_context()
+        await self.session.refresh(product)
+        await invalidate_cache_scope(CATALOG_CACHE_NAMESPACE, str(self.subject.tenant_id))
+        summary = await self.repository.stock_summary_for_product(tenant_id=str(self.subject.tenant_id), product_id=product.id)
+        return self._serialize(product, *summary)
+
+    async def unlink_variant(self, product_id: str) -> ProductResponse:
+        """Remove this product from its variant group, leaving other members untouched."""
+
+        product = await self._require_product(product_id)
+        product.variant_group_id = None
+        product.variant_label = ""
         await self.session.commit()
         await self._reapply_tenant_context()
         await self.session.refresh(product)
@@ -439,6 +491,12 @@ class ProductService:
             cnae_code=product.cnae_code,
             marketplace_image_url=product.marketplace_image_url,
             marketplace_gallery_urls=list(product.marketplace_gallery_urls or []),
+            short_description=product.short_description,
+            bula_markdown=product.bula_markdown,
+            marketing_highlights=list(product.marketing_highlights or []),
+            variant_group_id=product.variant_group_id,
+            variant_label=product.variant_label,
+            cashback_percent=product.cashback_percent,
             is_active=product.is_active,
             is_discarded=product.is_discarded,
             store_count=store_count,

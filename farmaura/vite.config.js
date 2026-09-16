@@ -53,6 +53,11 @@ function portalDeepLinkFallback() {
 
 export default defineConfig({
   root: repositoryRoot,
+  // Scoped under farmaura/ (like lumosmed/public) rather than a repo-root public/, since this
+  // repo hosts several unrelated projects. Files here (favicon, robots.txt, sitemap.xml) are
+  // copied verbatim to the dist root regardless of Vite's `root`, which is what nginx expects
+  // (docker/web/nginx.conf serves /usr/share/nginx/html as the site root).
+  publicDir: resolve(configDirectory, "public"),
   appType: "mpa",
   plugins: [portalDeepLinkFallback()],
   server: {

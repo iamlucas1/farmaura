@@ -13,7 +13,7 @@ Observations:
 - PDV reads are optimized for the current console workflow rather than generic reuse;
 """
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.pdv_order import PdvOrder
@@ -72,6 +72,26 @@ class PdvRepository:
             .where(PdvSale.tenant_id == tenant_id, PdvSale.customer_id == customer_id)
             .order_by(PdvSaleItem.created_at.asc())
         )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def list_sale_items_for_sales_matching_products(
+        self, *, tenant_id: str, name_brand_pairs: list[tuple[str, str]], customer_id: str = "",
+    ) -> list[PdvSaleItem]:
+        """Return every balcão sale line from any sale that also contains at least one of the given products.
+
+        Same "frequently bought together" base as OrderRepository's equivalent, for the
+        balcão channel — matches by (name, brand) snapshot pair. Pass `customer_id` to
+        scope to one customer's own sales only.
+        """
+
+        if not name_brand_pairs:
+            return []
+        match_clause = or_(*[and_(PdvSaleItem.item_name_snapshot == name, PdvSaleItem.brand_name_snapshot == brand) for name, brand in name_brand_pairs])
+        matching_sale_ids = select(PdvSaleItem.pdv_sale_id).join(PdvSale, PdvSale.id == PdvSaleItem.pdv_sale_id).where(PdvSale.tenant_id == tenant_id, match_clause)
+        if customer_id:
+            matching_sale_ids = matching_sale_ids.where(PdvSale.customer_id == customer_id)
+        statement = select(PdvSaleItem).where(PdvSaleItem.pdv_sale_id.in_(matching_sale_ids.distinct()))
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 

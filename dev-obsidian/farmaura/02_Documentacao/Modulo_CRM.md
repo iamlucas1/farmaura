@@ -8,9 +8,9 @@ Projeção 360° do cliente (`crm.py`/`CrmService`, majoritariamente leitura), m
 
 - **`customers`** — perfil + muitos campos JSON de personalização (`top_products_snapshot`, `category_mix_snapshot`, `monthly_orders_snapshot`, `interest_tags`, `favorite_items`) que **só são populados pelo seed de demo**, nunca pela aplicação real — clientes reais nascem com esses campos vazios. RLS dedicada (`can_access_customer_row`).
 - **`customer_addresses`**, **`customer_payment_methods`** (só metadados tokenizados, nunca PAN/CVV) — RLS via subquery em `customers`.
-- **`customer_cashback_wallets`** — `available_balance`/`pending_balance`/`redeemed_total`/`expired_total`/`lifetime_earned_total`. **Sem `tenant_id` e sem RLS própria** — gap de defesa em profundidade.
+- **`customer_cashback_wallets`** — `available_balance`/`pending_balance`/`redeemed_total`/`expired_total`/`lifetime_earned_total`. Ganhou `tenant_id` + RLS em 2026-09-04 (ver [[../04_Seguranca_Riscos/cashback-wallet-vazamento-cross-tenant-via-pdv|nota de segurança]]).
 - **`cashback_rules`** — por loja, opcionalmente por item; `release_after_delivery`/`validity_days` existem no schema mas **não são usados** (ver regras abaixo).
-- **`cashback_transactions`**/**`cashback_transaction_lines`** — ledger auditável (earn/redeem); a segunda tabela também **sem `tenant_id`/RLS**.
+- **`cashback_transactions`**/**`cashback_transaction_lines`** — ledger auditável (earn/redeem); a segunda tabela também ganhou `tenant_id`/RLS em 2026-09-04.
 - **`coupon_campaigns`** — `discount_type` (percent/fixed/shipping), `scope_type` (`all`/`categories`/`products`/**`services`**, desde 2026-07-31 — ver [[../00_Decisoes/2026-07-31-atalhos-reais-e-servicos-de-saude-com-desconto|ADR]]) + `target_services_json`, `usage_limit`/`usage_count`/`per_customer_limit`, `audience`, `channel_scope` (`all`/`online`/`pdv` — novo, restringe o cupom a um canal), `stackable`. **Fora de todo o sistema de RLS** (nem lista genérica nem policy dedicada) — inconsistente com o resto do domínio (ver [[../04_Seguranca_Riscos/rls-ausente-em-tabelas-de-varios-dominios|risco documentado]]).
 - **`orders.coupon_code`** / **`pdv_orders.coupon_code`** / **`pdv_sales.coupon_code`** / **`health_service_appointments.coupon_code`** (desde 2026-07-31) — snapshot do código efetivamente resgatado em cada pedido/venda/agendamento; é a base tanto de `per_customer_limit` (contado somando os canais — `CouponService._count_customer_coupon_uses`) quanto do endpoint `/coupon-analytics`. `orders.coupon_code` também é exposto ao próprio cliente via `MarketplaceOrderResponse.coupon_code` (histórico de pedidos, `GET /orders`) — usado pelo preview client-side do carrinho pra contar quantos pedidos passados do cliente já usaram um código específico.
 - **`subscriptions`** — `subscription_status`, `frequency_days`, `discount_percent` (default 15%). RLS dedicada via `can_access_customer_row`.
@@ -18,14 +18,36 @@ Projeção 360° do cliente (`crm.py`/`CrmService`, majoritariamente leitura), m
 ## Endpoints
 
 - `GET/POST /crm/customers` (cadastro walk-in do PDV), `GET /crm/customers/{id}/payment-methods|addresses`, `POST /crm/customers/{id}/addresses`, `GET /crm/customers/{id}/purchase-insights` — roles `ADMIN, MANAGER, PHARMACIST` (+ `CASHIER` em alguns).
-- Self-service do cliente (`api/v1/customers.py`): perfil, endereços, cartões (`POST /me/payment-methods/tokenize-card` via Asaas), carrinho, alertas de disponibilidade — **nenhum endpoint de cashback/cupom/assinatura aqui**.
+- Self-service do cliente (`api/v1/customers.py`): perfil, endereços, cartões (`POST /me/payment-methods/tokenize-card` via Asaas), carrinho, alertas de disponibilidade, e desde 2026-09-04 `GET /me/cashback` (saldo disponível/pendente, ledger, teto de resgate) — cupom/assinatura continuam sem endpoint aqui, vivem em `portal.py`.
 - Cupons e assinaturas vivem em `api/v1/portal.py`: `GET/POST/PUT/DELETE /portal/internal/coupons[/{id}]`, `GET/POST/PUT/DELETE /portal/marketplace/subscriptions[/{product_ref}]`.
 - Analytics de cupom (novo): `GET /coupon-analytics` (`app/api/v1/coupon_analytics.py`, roles `ADMIN, MANAGER`) — agrega `Order`+`PdvSale` por `coupon_code`, mesma arquitetura de `purchase_analytics` (router fino → service → repository).
 - PDV: `POST /pdv/recurrence-confirmations` (confirma recorrência + cobra na hora).
 
 ## Mecânica de cashback
 
-**Só existe no canal PDV** — pedidos online nunca tocam `CashbackTransaction`/wallet. Resolução de regra prioriza item específico, senão cai para regra "fallback" da loja. Cálculo por linha (`line_total * percent`, capado por `maximum_cashback_amount`), resgate limitado a `min(pedido, saldo disponível, total do pedido)`. **Cashback ganho é imediatamente "disponível"** — apesar de `pending_balance`/`expired_total`/`validity_days`/`release_after_delivery` existirem no schema, nenhum código os usa; não há job de expiração.
+**Dois motores independentes sobre a mesma wallet/ledger, desde 2026-09-04** — ver
+[[../00_Decisoes/2026-09-04-cashback-real-no-marketplace|ADR]]:
+
+- **PDV** (`PdvService._compute_cashback`/`_settle_cashback_ledger`): fonte da % é `cashback_rules`
+  (por loja, opcionalmente por item específico, fallback para regra "geral" da loja). Cálculo por
+  linha (`line_total * percent`, capado por `maximum_cashback_amount`), resgate limitado a
+  `min(pedido, saldo disponível, total do pedido)`. **Cashback ganho é imediatamente
+  "disponível"** — sem etapa pendente.
+- **Marketplace** (`CashbackService`, `app/services/cashback_service.py`): fonte da % é
+  `InventoryProduct.cashback_percent` (por produto, fallback para
+  `PortalMarketplaceMetaResponse.cashback_default_percent`, configurável em Precificação). Ganho
+  entra em `pending_balance` na criação do pedido e só migra para `available_balance` quando o
+  pedido é entregue/retirado (`release_pending_for_order`, chamado por
+  `confirm_internal_pickup`/`dispatch_shipping_order`/`delivery_service.mark_stop_delivered`).
+  Resgate no checkout é capado por `min(saldo disponível, total do pedido ×
+  cashback_redeem_max_percent)` (novo campo, default 25%) e **abate o valor real cobrado no
+  Asaas** — nunca só um desconto de exibição. Cancelamento (hoje só via rejeição de receita)
+  reverte 100% (ganho estornado, resgatado devolvido) via `reverse_for_order`.
+
+Os dois motores continuam **não consolidados** — decisão consciente, ver "Alternativas
+consideradas" do ADR (semânticas de ganho diferentes: PDV disponível na hora, marketplace pendente
+até entrega). `expired_total`/`validity_days` continuam no schema sem nenhum código os usar — sem
+expiração de cashback em nenhum canal, ainda.
 
 ## Mecânica de cupons
 
@@ -91,7 +113,7 @@ o client já tem acesso legítimo à lista completa de cupons via bootstrap.
 
 ## Decisões de arquitetura dignas de nota
 
-- **`coupon_campaigns`, `cashback_transaction_lines` e `customer_cashback_wallets` fora da malha de RLS** — inconsistente com o resto do domínio (`customers`, `subscriptions`, `cashback_rules`/`cashback_transactions` estão protegidas). Vale confirmar se é intencional.
+- **`coupon_campaigns` fora da malha de RLS** — inconsistente com o resto do domínio (`customers`, `subscriptions`, `cashback_rules`/`cashback_transactions`/`customer_cashback_wallets`/`cashback_transaction_lines` estão protegidas, as duas últimas desde 2026-09-04). Vale confirmar se é intencional.
 - **Cupons/Assinaturas vivem em `portal_service.py`** (um "catch-all" de portal que também acumula settings, promoções, reviews, favoritos), separado do router/service CRM enxuto e focado — mas a *validação* de cupom foi extraída para `coupon_service.py`, fora do catch-all, justamente para ser compartilhável entre `order_service.py` e `pdv_service.py` sem depender de Portal.
 - **Dois motores de "assinatura" com semânticas de preço/cobrança bem diferentes** compartilhando o mesmo model.
 - **Cashback e cupom agora compõem de forma parcialmente auditável no PDV**: o desconto do cupom passa pelo mesmo teto de margem média que o desconto manual (`_discount_ceiling`, que já reservava headroom do cashback disponível). No checkout online, cupom e cashback continuam sem essa reconciliação — o marketplace não tem cashback (ver acima).
@@ -105,6 +127,10 @@ o client já tem acesso legítimo à lista completa de cupons via bootstrap.
 
 ## Atualizações
 
+- 2026-09-04: cashback real no marketplace — novo `CashbackService`, `GET /customers/me/cashback`,
+  ganho pendente→liberado, resgate abatendo o pagamento real, teto configurável, RLS adicionada a
+  `customer_cashback_wallets`/`cashback_transaction_lines`. Ver
+  [[../00_Decisoes/2026-09-04-cashback-real-no-marketplace|ADR]].
 - 2026-07-31: cupom ganhou `scope_type="services"` + `target_services_json`, redimível em agendamentos de serviço de saúde (`allow_service_scope` em `resolve_coupon` — nunca aceita um cupom de escopo produto/categoria/all num booking, nem o contrário). Corrigido bug real onde `_count_customer_coupon_uses` não contava bookings, permitindo reuso indevido de cupom de uso único. Ver [[../00_Decisoes/2026-07-31-atalhos-reais-e-servicos-de-saude-com-desconto|ADR]].
 - 2026-07-30 (2): preview client-side do cupom no marketplace passou a cobrir `channel_scope`, público-alvo (`audience`) e `per_customer_limit`, com mensagens específicas por status em vez de um "não está ativo" genérico — exigiu expor `MarketplaceOrderResponse.coupon_code`. Continua sendo só UX, nunca fonte de verdade; ver [[../04_Seguranca_Riscos/backend-e-fonte-unica-de-verdade-nunca-confiar-no-client|princípio formalizado]].
 - 2026-07-30: cupom deixou de ser client-trusted — validação e precificação movidas para `coupon_service.py`, compartilhado entre marketplace e PDV; cupom passou a existir também no PDV; novo `channel_scope`; novo endpoint `/coupon-analytics`. Ver ADR linkado acima.

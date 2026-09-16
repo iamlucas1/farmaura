@@ -71,6 +71,7 @@ def configure_logging() -> None:
             structlog.contextvars.merge_contextvars,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.add_log_level,
+            structlog.processors.format_exc_info,
             sanitize_log_event,
             structlog.processors.JSONRenderer(),
         ],

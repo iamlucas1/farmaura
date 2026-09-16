@@ -239,6 +239,27 @@ class InventoryRepository:
         result = await self.session.execute(statement)
         return list(result.scalars().unique().all())
 
+    async def list_products_by_names(self, *, tenant_id: str, names: list[str]) -> list[InventoryProduct]:
+        """Return every tenant product whose name exactly matches one of the given names (case-insensitive).
+
+        Used to cross-reference a customer's historical purchase-line snapshots (which
+        only carry a name/brand text snapshot, not a live product id) against the
+        current catalog's real clinical content (bula, description) — e.g. to detect
+        continuous-use medications for recurrence suggestions.
+        """
+
+        if not names:
+            return []
+        lowered = {name.strip().lower() for name in names if name.strip()}
+        if not lowered:
+            return []
+        statement = select(InventoryProduct).where(
+            InventoryProduct.tenant_id == tenant_id,
+            func.lower(InventoryProduct.name).in_(lowered),
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().unique().all())
+
     async def add_product(self, product: InventoryProduct) -> InventoryProduct:
         """Persist a new shared product."""
 

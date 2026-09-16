@@ -150,6 +150,46 @@ class PaymentService:
             "status": str(payment.get("status") or ""),
         }
 
+    async def charge_recurring_subscription(
+        self,
+        *,
+        customer: Customer,
+        provider_token: str,
+        amount: Decimal,
+        external_reference: str,
+        description: str,
+    ) -> dict[str, Any]:
+        """Create a monthly recurring Asaas subscription, tokenized card, first cycle due today.
+
+        Unlike charge_card (a single payment), this makes Asaas itself generate and
+        charge a new payment every month going forward against the same card token —
+        no cron job on our side. The first cycle's payment is created by Asaas right
+        after the subscription itself, asynchronously; its own status is confirmed
+        later via the existing payment webhook, same as any other charge.
+        """
+
+        provider_customer_id = await self.ensure_provider_customer(customer)
+        try:
+            subscription = await asyncio.to_thread(
+                self.asaas_client.create_subscription,
+                {
+                    "customer": provider_customer_id,
+                    "billingType": "CREDIT_CARD",
+                    "creditCardToken": provider_token,
+                    "value": float(amount),
+                    "nextDueDate": datetime.now(UTC).date().isoformat(),
+                    "cycle": "MONTHLY",
+                    "description": description,
+                    "externalReference": external_reference,
+                },
+            )
+        except AsaasError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+        return {
+            "subscription_id": str(subscription.get("id") or ""),
+            "status": str(subscription.get("status") or ""),
+        }
+
     def resolve_order_payment_status(self, provider_status: str) -> str:
         """Map one Asaas payment status onto the Farmaura order payment status."""
 

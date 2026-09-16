@@ -1,79 +1,57 @@
 import React from "react";
-import { AuraLayer, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
+import { CategoryRail, buildRailItems, categoryAccent } from "./shop-screen.jsx";
 
-/* FARMAURA — Serviços de saúde: public page (outside "Minha conta"). */
-
-const hsPriceP = (price) => price === 0 ? 'Gratuito' : brl(price);
+/* FARMAURA — Serviços de saúde: public page (outside "Minha conta"). Structure copied verbatim
+   from the reference demo's `data-cat="servicos"` panel — crumb + two-tone masthead + the same
+   category rail every catalog page shares, a single-column intro paragraph, a flat grid of
+   `.cat-service` cards (no grouping, no price/duration — those surface at the real booking step
+   in account-health-screen.jsx instead), and a closing "Falar com a equipe" chat button. */
 
 function ServicesScreen({ ctx }) {
-  const { healthServices, user, onNav, openChat } = ctx;
-  const groups = healthServices.reduce((map, service) => {
-    (map[service.group] = map[service.group] || []).push(service);
-    return map;
-  }, {});
+  const { cats, healthServices, user, onNav, openChat } = ctx;
   const schedule = () => onNav(user ? { name: 'account', tab: 'health' } : { name: 'login' });
-  const highlights = [
-    ['shield', 'Profissionais habilitados', 'Farmacêuticos treinados e ambiente preparado.'],
-    ['clock', 'Sem espera', 'Agende online e seja atendida na hora marcada.'],
-    ['pin', 'Pertinho de você', 'Disponível nas lojas Farmaura da sua região.'],
-  ];
+
+  const railItems = buildRailItems(cats);
+  const activeId = '__services__';
+  const activeIndex = Math.max(0, railItems.findIndex((item) => item.id === activeId));
+  const acc = categoryAccent(activeIndex, 'Serviços de saúde');
 
   return (
-    <div className="fa-wrap fa-fadein" style={{ paddingTop: 28, paddingBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--fa-ink-3)', marginBottom: 16 }}>
-        <a role="button" onClick={() => onNav({ name: 'home' })}>Início</a><Icon name="chevR" size={13} /><span style={{ color: 'var(--fa-ink-2)', fontWeight: 600 }}>Serviços de saúde</span>
-      </div>
-      <section className="fa-card" style={{ position: 'relative', overflow: 'hidden', background: 'var(--fa-primary)', color: '#fff', border: 'none', padding: 'clamp(28px,4vw,48px)', marginBottom: 28 }}>
-        <AuraLayer tone="#fff" />
-        <div style={{ position: 'relative', maxWidth: 620 }}>
-          <span className="fa-eyebrow" style={{ color: '#fff', opacity: .85 }}>Cuidado ampliado</span>
-          <h1 className="fa-h1" style={{ color: '#fff', marginTop: 10 }}>Serviços de saúde na sua farmácia</h1>
-          <p className="fa-lead" style={{ marginTop: 14, color: '#fff', opacity: .92 }}>Vacinas, aplicações, testes rápidos e aferições com farmacêuticos habilitados — sem fila e pertinho de você.</p>
-          <div style={{ display: 'flex', gap: 12, marginTop: 22, flexWrap: 'wrap' }}>
-            <button className="fa-btn fa-btn-vital fa-btn-lg" onClick={schedule}><Icon name="calendar" size={18} />Agendar um serviço</button>
-            <button className="fa-btn fa-btn-lg" style={{ background: 'rgba(255,255,255,.16)', color: '#fff' }} onClick={() => openChat && openChat()}><Icon name="chat" size={18} />Falar com farmacêutico</button>
-          </div>
+    <div className="fa-fadein">
+      <div className="fa-wrap">
+        <div className="fa-cat-crumb">
+          <a role="button" onClick={() => onNav({ name: 'home' })}>Início</a>
+          <Icon name="chevR" size={13} />
+          <span className="fa-cat-crumb-current">Serviços de saúde</span>
         </div>
-      </section>
-      <div className="fa-grid" style={{ '--fa-grid-min': '260px', marginBottom: 32 }}>
-        {highlights.map(([iconName, title, description]) => (
-          <div key={title} className="fa-card" style={{ padding: 20, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-            <span className="fa-iconbox" style={{ width: 46, height: 46 }}><Icon name={iconName} size={22} /></span>
-            <div><div style={{ fontWeight: 800, fontSize: 15 }}>{title}</div><p className="fa-muted" style={{ fontSize: 13, lineHeight: 1.45, marginTop: 4 }}>{description}</p></div>
+        <div className="fa-cat-masthead" style={{ '--acc': acc }}>
+          <h1 className="fa-cat-title"><span className="fa-cat-title-mark">S</span><span className="fa-cat-title-rest">erviços de saúde</span></h1>
+        </div>
+        <CategoryRail items={railItems} activeId={activeId} onNav={onNav} />
+        <p className="fa-cat-services-intro">Esses serviços acontecem presencialmente, na loja física da Drogaria Farmaura. Toque em um serviço para agendar, ou fale com a nossa equipe para tirar dúvidas.</p>
+        {healthServices.length === 0 ? (
+          <div className="fa-card" style={{ padding: 48, textAlign: 'center', marginBottom: 32 }}>
+            <span className="fa-iconbox" style={{ margin: '0 auto 12px', width: 56, height: 56 }}><Icon name="activity" size={26} /></span>
+            <div className="fa-h3">Nenhum serviço disponível ainda</div>
+            <p className="fa-muted" style={{ marginTop: 6 }}>Volte em breve — estamos preparando nossos serviços de saúde.</p>
           </div>
-        ))}
-      </div>
-      {Object.keys(groups).map((group) => (
-        <div key={group} style={{ marginBottom: 28 }}>
-          <h2 className="fa-h3" style={{ fontSize: 20, marginBottom: 14 }}>{group}</h2>
-          <div className="fa-grid" style={{ '--fa-grid-min': '320px' }}>
-            {groups[group].map((service) => (
-              <div key={service.id} className="fa-hs">
-                <span className="fa-iconbox" style={{ width: 46, height: 46 }}><Icon name={service.icon} size={22} /></span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 14.5, lineHeight: 1.3 }}>{service.name}</div>
-                  <p className="fa-muted" style={{ fontSize: 12.5, lineHeight: 1.45, margin: '5px 0 10px' }}>{service.desc}</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                    <span className="fa-faint" style={{ fontSize: 12.5, display: 'inline-flex', gap: 5, alignItems: 'center' }}><Icon name="clock" size={14} />{service.dur}</span>
-                    <span style={{ fontWeight: 800, fontSize: 14, color: service.price === 0 ? 'var(--fa-success)' : 'var(--fa-ink)' }}>{hsPriceP(service.price)}</span>
-                    <button className="fa-btn fa-btn-primary fa-btn-sm" style={{ marginLeft: 'auto' }} onClick={schedule}><Icon name="calendar" size={15} />Agendar</button>
-                  </div>
-                </div>
-              </div>
+        ) : (
+          <div className="fa-cat-services-grid" style={{ marginBottom: 24 }}>
+            {healthServices.map((service, index) => (
+              <button key={service.id} type="button" className="fa-cat-service" style={{ '--acc': categoryAccent(index, '') }} onClick={schedule}>
+                <span className="fa-cat-service-icon"><Icon name={service.icon} size={20} /></span>
+                <div className="fa-cat-service-name">{service.name}</div>
+                <p className="fa-cat-service-desc">{service.desc}</p>
+                <span className="fa-cat-service-cta">Agendar<Icon name="chevR" size={13} stroke={2.4} /></span>
+              </button>
             ))}
           </div>
-        </div>
-      ))}
-      <section className="fa-card fa-svc-cta" style={{ marginTop: 8, padding: 'clamp(24px,3vw,40px)', display: 'grid', gridTemplateColumns: '1fr auto', gap: 20, alignItems: 'center', background: 'var(--fa-rose-soft)', border: 'none' }}>
-        <div>
-          <h2 className="fa-h3" style={{ fontSize: 20, color: 'var(--fa-primary)' }}>Pronta para cuidar da sua saúde?</h2>
-          <p className="fa-muted" style={{ fontSize: 14, marginTop: 6 }}>Agende em poucos toques e seja atendida por um farmacêutico.</p>
-        </div>
-        <button className="fa-btn fa-btn-primary fa-btn-lg" onClick={schedule}>Agendar agora<Icon name="arrowR" size={18} /></button>
-      </section>
+        )}
+        <button className="fa-btn fa-btn-primary" style={{ marginBottom: 40 }} onClick={() => openChat && openChat()}><Icon name="chat" size={18} />Falar com a equipe</button>
+      </div>
     </div>
   );
 }
 
-export { ServicesScreen, hsPriceP };
+export { ServicesScreen };

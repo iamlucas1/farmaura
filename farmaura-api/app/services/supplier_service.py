@@ -60,7 +60,7 @@ class SupplierService:
 
         existing = await self.repository.get_by_cnpj(tenant_id=str(self.subject.tenant_id), cnpj=payload.cnpj)
         if existing is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Supplier CNPJ already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este CNPJ já está cadastrado para outro fornecedor.")
         supplier = Supplier(
             tenant_id=str(self.subject.tenant_id),
             legal_name=payload.legal_name,
@@ -91,7 +91,7 @@ class SupplierService:
         supplier = await self._require_supplier(supplier_id)
         existing = await self.repository.get_by_cnpj(tenant_id=str(self.subject.tenant_id), cnpj=payload.cnpj)
         if existing is not None and existing.id != supplier.id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Supplier CNPJ already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este CNPJ já está cadastrado para outro fornecedor.")
         supplier.legal_name = payload.legal_name
         supplier.trade_name = payload.trade_name
         supplier.cnpj = payload.cnpj

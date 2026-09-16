@@ -52,6 +52,10 @@ class Subscription(Base, UuidModel, TimestampedModel):
     )
     subscription_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     subscription_status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    # Links to the real recurring subscription on Asaas's side (their "sub_..." id) — Asaas
+    # itself generates and charges a new payment every cycle against it, not a job of ours.
+    # Empty for subscriptions created before this linkage existed, or without a live charge.
+    provider_subscription_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     product_name_snapshot: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
     frequency_days: Mapped[int] = mapped_column(default=30, nullable=False)

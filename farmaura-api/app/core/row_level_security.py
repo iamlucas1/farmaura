@@ -57,8 +57,11 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 tenant_tables text[] := ARRAY[
                     'audit_events',
                     'cashback_rules',
+                    'cashback_transaction_lines',
                     'cashback_transactions',
+                    'customer_cashback_wallets',
                     'chat_threads',
+                    'chat_unblock_requests',
                     'customers',
                     'delivery_routes',
                     'file_assets',
@@ -186,6 +189,49 @@ RLS_STATEMENTS: tuple[str, ...] = (
                       AND psi.created_at >= p_since
                 ) combined
                 GROUP BY product_id, month
+            $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION app_private.public_also_bought_products(p_tenant_id text, p_product_id text, p_limit int)
+            RETURNS TABLE(product_id text, order_count bigint)
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = pg_catalog, public, app_private
+            AS $$
+                -- Narrow, read-only aggregate bypass for the public "outros clientes também
+                -- compraram" ranking: for a given product, finds other products that appeared in
+                -- the same paid order / PDV sale, and returns only product ids + a co-occurrence
+                -- count — never a customer_id/order_id, same security shape as
+                -- public_monthly_product_sales above. Basket ids are kind-prefixed so an online
+                -- order_id and a PDV sale_id (both uuid) never collide when unioned.
+                WITH baskets AS (
+                    SELECT 'o:' || oi.order_id::text AS basket_id, ii.product_id::text AS product_id
+                    FROM order_items oi
+                    JOIN orders o ON o.id = oi.order_id
+                    JOIN inventory_items ii ON ii.id = oi.inventory_item_id
+                    WHERE o.tenant_id = p_tenant_id
+                      AND o.status <> 'cancelled'
+                      AND o.payment_status = 'paid'
+                      AND oi.inventory_item_id IS NOT NULL
+                    UNION ALL
+                    SELECT 'p:' || psi.pdv_sale_id::text AS basket_id, ii.product_id::text AS product_id
+                    FROM pdv_sale_items psi
+                    JOIN pdv_sales ps ON ps.id = psi.pdv_sale_id
+                    JOIN inventory_items ii ON ii.id = psi.inventory_item_id
+                    WHERE ps.tenant_id = p_tenant_id
+                      AND psi.inventory_item_id IS NOT NULL
+                ),
+                target_baskets AS (
+                    SELECT DISTINCT basket_id FROM baskets WHERE product_id = p_product_id
+                )
+                SELECT b.product_id, COUNT(DISTINCT b.basket_id)::bigint AS order_count
+                FROM baskets b
+                JOIN target_baskets tb ON tb.basket_id = b.basket_id
+                WHERE b.product_id <> p_product_id
+                GROUP BY b.product_id
+                ORDER BY order_count DESC
+                LIMIT p_limit
             $$;
     """,
     """
@@ -533,6 +579,22 @@ RLS_STATEMENTS: tuple[str, ...] = (
             WITH CHECK (
                 tenant_id = app_private.current_tenant_id()
                 AND app_private.can_access_chat_thread_row(customer_id, pharmacist_user_id)
+            )
+    """,
+    """
+    DROP POLICY IF EXISTS tenant_isolation_policy ON chat_unblock_requests
+    """,
+    """
+    DROP POLICY IF EXISTS chat_unblock_requests_access_policy ON chat_unblock_requests;
+    CREATE POLICY chat_unblock_requests_access_policy
+            ON chat_unblock_requests
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_chat_thread_row(customer_id, NULL)
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_chat_thread_row(customer_id, NULL)
             )
     """,
     """
@@ -1113,9 +1175,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     FROM prescriptions
                     WHERE prescriptions.id = prescription_checks.prescription_id
                       AND prescriptions.tenant_id = app_private.current_tenant_id()
-                      AND (
-                        prescriptions.reviewed_by_user_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                      AND app_private.can_access_prescription_row(
+                        prescriptions.customer_id,
+                        prescriptions.reviewed_by_user_id
                       )
                 )
             )
@@ -1125,9 +1187,9 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     FROM prescriptions
                     WHERE prescriptions.id = prescription_checks.prescription_id
                       AND prescriptions.tenant_id = app_private.current_tenant_id()
-                      AND (
-                        prescriptions.reviewed_by_user_id = app_private.current_user_id()
-                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                      AND app_private.can_access_prescription_row(
+                        prescriptions.customer_id,
+                        prescriptions.reviewed_by_user_id
                       )
                 )
             );

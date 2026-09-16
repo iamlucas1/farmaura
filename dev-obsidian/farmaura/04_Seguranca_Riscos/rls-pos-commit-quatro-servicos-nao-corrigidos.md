@@ -1,7 +1,7 @@
-# Bug de classe "commit() limpa contexto RLS transaction-local" — 4 métodos novos não corrigidos (Chat, Prescrição, Localização de estoque, Endereço CRM)
+# Bug de classe "commit() limpa contexto RLS transaction-local" — 2 métodos ainda não corrigidos (Localização de estoque, Endereço CRM); Chat e Prescrição corrigidos
 
 **Tipo:** Vulnerabilidade/robustez (falha funcional pós-commit, mesma classe já documentada em memória de sessão)
-**Status:** CONFIRMADO
+**Status:** PARCIALMENTE CORRIGIDO — `ChatService` corrigido em 2026-08-30; `PrescriptionService.decide` corrigido em 2026-09-02 (ver atualização); `InventoryService`, `CrmService` continuam confirmados e abertos.
 **Severidade:** MÉDIO (ALTO especificamente para `InventoryService.update_location`/`update_location_status`, que gera exceção não tratada em vez de erro controlado)
 **Sistema afetado:** `farmaura-api`
 **Categoria:** Consistência de RLS pós-commit / robustez
@@ -11,8 +11,8 @@
 
 O padrão já conhecido e corrigido em vários pontos do sistema (`portal_service.py`, `team_service.py`, `customer_service.py`, parte de `inventory_service.py`) — `session.commit()` limpa o contexto RLS transaction-local (`app.current_tenant_id` etc., setado via `set_config(..., true)`), então qualquer leitura protegida por RLS logo depois de um commit sem reaplicar `apply_tenant_context` roda com contexto vazio — **não foi aplicado consistentemente**. A auditoria encontrou quatro métodos adicionais, em três services, com o mesmo problema:
 
-1. **`ChatService`** (`send_message`, `send_customer_message`, `ensure_customer_thread`) — cada um persiste e comita, depois relê a mesma thread via `list_threads()`/`list_customer_threads()` (tabela `chat_threads`, `FORCE ROW LEVEL SECURITY`). Sem contexto, a busca vem vazia → `HTTPException(500, "Thread payload unavailable after send.")`. A escrita já foi persistida com sucesso antes do erro.
-2. **`PrescriptionService.decide`** — mesmo padrão: decide, comita, relê a fila (`list_review_queue()`, tabela `prescriptions` com RLS) → `HTTPException(500, "Prescription payload unavailable after update.")`.
+1. ~~**`ChatService`** (`send_message`, `send_customer_message`, `ensure_customer_thread`) — cada um persiste e comita, depois relê a mesma thread via `list_threads()`/`list_customer_threads()` (tabela `chat_threads`, `FORCE ROW LEVEL SECURITY`). Sem contexto, a busca vem vazia → `HTTPException(500, "Thread payload unavailable after send.")`. A escrita já foi persistida com sucesso antes do erro.~~ **CORRIGIDO em 2026-08-30** — `_reapply_tenant_context()` adicionado após os 4 pontos de commit do serviço (os três originais mais `submit_customer_prescription`, que ganhou o mesmo padrão desde a criação). Ver [[../00_Decisoes/2026-08-30-chat-farmaceutico-anti-spam-vinculo-pedido-e-congelamento|ADR do trabalho que corrigiu]].
+2. ~~**`PrescriptionService.decide`** — mesmo padrão: decide, comita, relê a fila (`list_review_queue()`, tabela `prescriptions` com RLS) → `HTTPException(500, "Prescription payload unavailable after update.")`.~~ **CORRIGIDO em 2026-09-02** — `apply_tenant_context` adicionado logo após o commit. Achado ao testar ponta a ponta o gate de pagamento por receita (aprovar/recusar sempre estourava esse 500, mascarado porque o fluxo nunca tinha sido exercitado completamente antes). Ver [[../00_Decisoes/2026-09-02-pagamento-bloqueado-ate-validacao-de-receita|ADR do trabalho que corrigiu]].
 3. **`InventoryService.update_location`/`update_location_status`** — em vez de uma nova `SELECT` via repository, usa `session.refresh(location)` (recarga explícita pela PK, que ignora `expire_on_commit=False` porque é uma chamada explícita). Sobre uma tabela com `FORCE ROW LEVEL SECURITY` (`inventory_locations_access_policy`), sem contexto isso não retorna nenhuma linha para o PK — o comportamento do SQLAlchemy nesse caso é `ObjectDeletedError`, **não tratado** em `core/exceptions.py` (que só trata `DomainError`/`IntegrityError`), resultando em exceção não capturada / 500 genérico. Métodos vizinhos no mesmo arquivo já foram corrigidos com `apply_tenant_context` — a correção não chegou a esses dois.
 4. **`CrmService.create_address`** — persiste endereço, comita, relê via `list_addresses(customer_id)` (que depende só de RLS, sem filtro manual de tenant — ver [[../04_Seguranca_Riscos/cashback-wallet-vazamento-cross-tenant-via-pdv|achado relacionado sobre ausência de filtro manual]]). Sem contexto, retorna lista **vazia**, sem lançar exceção nenhuma — o operador vê "sucesso" mas a lista de endereços parece não ter o que acabou de cadastrar.
 
@@ -57,7 +57,7 @@ Nenhuma — comportamento determinístico em qualquer chamada normal aos quatro 
 
 ## Escopo afetado
 
-`app/services/chat_service.py` (`send_message`, `send_customer_message`, `ensure_customer_thread`), `app/services/prescription_service.py` (`decide`), `app/services/inventory_service.py` (`update_location`, `update_location_status`), `app/services/crm_service.py` (`create_address`).
+~~`app/services/chat_service.py` (`send_message`, `send_customer_message`, `ensure_customer_thread`)~~ — corrigido. ~~`app/services/prescription_service.py` (`decide`)~~ — corrigido. Ainda abertos: `app/services/inventory_service.py` (`update_location`, `update_location_status`), `app/services/crm_service.py` (`create_address`).
 
 ## Causa raiz
 
@@ -87,4 +87,8 @@ Testar cada fluxo afetado ponta a ponta (enviar mensagem de chat, decidir prescr
 
 ## Atualizações
 
+- 2026-09-02: `PrescriptionService.decide` corrigido como parte do trabalho de bloqueio de
+  pagamento até validação de receita — `apply_tenant_context()` aplicado após o commit. Restam 2
+  dos 4 métodos originais (Estoque, CRM).
+- 2026-08-30: `ChatService` corrigido como parte do trabalho de guarda anti-spam/vínculo de pedido/congelamento do chat — `_reapply_tenant_context()` aplicado nos 4 pontos de commit do serviço. Os outros 3 métodos (Prescrição, Estoque, CRM) continuam confirmados e sem correção.
 - 2026-08-17: achado registrado via auditoria completa de segurança.

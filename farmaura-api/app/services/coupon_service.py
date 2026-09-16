@@ -23,9 +23,11 @@ Observations:
 from __future__ import annotations
 
 import json
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -150,6 +152,11 @@ class CouponService:
             raise invalid
         if campaign.channel_scope not in ('all', channel):
             raise invalid
+        # A personal anniversary claim (see claim_anniversary_coupon) is locked to the one
+        # customer it was generated for — anyone else quoting the code gets the same generic
+        # "invalid" response as any other ineligible coupon, never a hint that the code exists.
+        if campaign.target_customer_id is not None and campaign.target_customer_id != customer_id:
+            raise invalid
         # A "services" scope campaign only ever redeems on a health-service booking, and a
         # booking never redeems a generic "all"/"categories"/"products" campaign — same
         # deliberate isolation as PricingPromotion.target_services, so an existing sitewide
@@ -209,6 +216,68 @@ class CouponService:
         if discount_amount <= 0:
             raise invalid
         return campaign, discount_amount
+
+    async def get_customer_anniversary_coupon(
+        self, *, tenant_id: str, customer_id: str, kind: str, year: int,
+    ) -> CouponCampaign | None:
+        """Return the personal anniversary coupon a customer already claimed this year, if any.
+
+        Called before claim_anniversary_coupon so a repeat claim is idempotent — the caller gets
+        back the same coupon instead of a duplicate.
+        """
+
+        statement = select(CouponCampaign).where(
+            CouponCampaign.tenant_id == tenant_id,
+            CouponCampaign.target_customer_id == customer_id,
+            CouponCampaign.anniversary_kind == kind,
+            CouponCampaign.anniversary_year == year,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def claim_anniversary_coupon(
+        self,
+        *,
+        tenant_id: str,
+        customer_id: str,
+        kind: str,
+        year: int,
+        title: str,
+        percent: Decimal,
+        valid_until: datetime,
+    ) -> CouponCampaign:
+        """Issue one personal, single-use coupon for a customer's birthday/anniversary claim.
+
+        Reuses the coupon engine instead of a parallel discount mechanism: `target_customer_id`
+        locks it to this customer (enforced in resolve_coupon), `usage_limit=1` +
+        `per_customer_limit=1` make it single-use, and the caller is expected to have already
+        checked get_customer_anniversary_coupon so this only ever runs once per customer/kind/year
+        — same "check first, trust the unique constraint as backstop" convention already used for
+        CPF/SKU uniqueness elsewhere in this codebase, not a retry loop.
+        """
+
+        campaign = CouponCampaign(
+            id=str(uuid4()),
+            tenant_id=tenant_id,
+            code=f"ANIV{secrets.token_hex(5).upper()}",
+            title=title,
+            description="Cupom pessoal de aniversário, resgatado pelo cliente na área da conta.",
+            discount_type="percent",
+            discount_value=percent,
+            usage_limit=1,
+            per_customer_limit=1,
+            audience="all",
+            channel_scope="online",
+            scope_type="all",
+            starts_at=datetime.now(UTC),
+            ends_at=valid_until,
+            is_active=True,
+            target_customer_id=customer_id,
+            anniversary_kind=kind,
+            anniversary_year=year,
+        )
+        self.session.add(campaign)
+        await self.session.flush()
+        return campaign
 
     def compute_coupon_discount(self, campaign: CouponCampaign, eligible_subtotal: Decimal, secondary_fee_amount: Decimal) -> Decimal:
         """Return the priced discount for one resolved coupon campaign.

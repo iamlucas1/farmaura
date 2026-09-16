@@ -18,6 +18,7 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.tenant_context import apply_tenant_context
 from app.domain.enums import OrderStatus
 from app.models.prescription import Prescription
 from app.models.prescription_item import PrescriptionItem
@@ -39,6 +40,7 @@ from app.schemas.prescriptions import (
     PrescriptionQueueItemResponse,
     PrescriptionQueueResponse,
 )
+from app.services.cashback_service import CashbackService
 from app.services.chat_service import ChatService
 from app.services.inventory_stock_sync import restock_marketplace_order
 
@@ -220,6 +222,7 @@ class PrescriptionService:
                     checks=checks_map.get(prescription.id, []),
                     pharmacist_notes=prescription.pharmacist_notes,
                     rejection_reason=prescription.rejection_reason,
+                    digital_reference_url=prescription.digital_reference_url,
                 )
                 for prescription in prescriptions
             ]
@@ -238,7 +241,16 @@ class PrescriptionService:
         prescription.rejection_reason = payload.rejection_reason if payload.status == "rejected" else ""
         if prescription.order_id and payload.status in {"approved", "rejected"}:
             await self._apply_decision_to_order(prescription.order_id, payload)
+        if payload.status in {"approved", "rejected"}:
+            chat_service = ChatService(self.session, self.subject)
+            await chat_service.post_prescription_decision_message(
+                prescription_id=prescription.id, decision_status=payload.status, rejection_reason=payload.rejection_reason,
+            )
         await self.session.commit()
+        # commit() clears the transaction-local RLS tenant context — every requery after it
+        # needs this reapplied first, or it silently sees nothing (see the RLS-after-commit
+        # pattern already documented for CustomerService.upsert_cart_item).
+        await apply_tenant_context(self.session, self.subject)
         queue = await self.list_review_queue()
         match = next((item for item in queue.items if item.id == prescription_id), None)
         if match is None:
@@ -270,4 +282,7 @@ class PrescriptionService:
                 order_code=order.order_code,
                 reason="Pedido cancelado - receita rejeitada",
             )
+            # Full cashback reversal: void this order's pending earn and refund any
+            # wallet balance the customer redeemed on it.
+            await CashbackService(self.session, self.subject).reverse_for_order(order=order)
 

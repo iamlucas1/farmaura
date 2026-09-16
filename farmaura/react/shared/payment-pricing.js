@@ -14,13 +14,58 @@ Observations:
   logic (Asaas integration keeps charging the full order amount as it does today).
 */
 
-/** Build the Pix price and the per-installment breakdown for one table price. */
-function resolvePaymentBreakdown(price, paymentRules) {
+/** Return the installment-count override that applies to this price/cart context, or null.
+ *
+ * `productRef` is the product's display name (case-insensitive) — same scoping convention
+ * `PricingPromotion.target_products` already uses (see _matches_scope in
+ * pricing_promotion_service.py), so the admin picks products the same way in both places
+ * (CouponTargetPicker/buildCouponProductOptions) instead of a second, id-based scheme.
+ *
+ * Precedence: a rule scoped to this exact product wins over any value-threshold rule; among
+ * min_value rules whose threshold is met, the highest (most specific) threshold wins. Only
+ * max_installments/interest_free_installments are overridden — Pix discount and interest rate
+ * always come from the tenant-wide default, that axis was never part of this feature.
+ */
+function resolveInstallmentOverride(rules, basePrice, { productRef, cartTotal } = {}) {
+  const overrides = Array.isArray(rules.installmentOverrides ?? rules.installment_overrides)
+    ? (rules.installmentOverrides ?? rules.installment_overrides)
+    : [];
+  if (!overrides.length) return null;
+  const normalized = overrides.map((entry) => ({
+    scopeType: entry.scopeType ?? entry.scope_type,
+    productRef: String(entry.productRef ?? entry.product_ref ?? '').trim().toLowerCase(),
+    minValue: Number(entry.minValue ?? entry.min_value ?? 0),
+    maxInstallments: Math.max(1, Math.round(Number(entry.maxInstallments ?? entry.max_installments ?? 1))),
+    interestFreeInstallments: Math.max(1, Math.round(Number(entry.interestFreeInstallments ?? entry.interest_free_installments ?? 1))),
+  }));
+  const normalizedProductRef = String(productRef || '').trim().toLowerCase();
+  if (normalizedProductRef) {
+    const productMatch = normalized.find((entry) => entry.scopeType === 'product' && entry.productRef === normalizedProductRef);
+    if (productMatch) return productMatch;
+  }
+  const referenceValue = cartTotal != null ? Number(cartTotal) : basePrice;
+  const valueMatches = normalized
+    .filter((entry) => entry.scopeType === 'min_value' && entry.minValue <= referenceValue)
+    .sort((a, b) => b.minValue - a.minValue);
+  return valueMatches[0] || null;
+}
+
+/** Build the Pix price and the per-installment breakdown for one table price.
+ *
+ * `context` (optional) — `{ productRef, cartTotal }` — resolves an installment-count override
+ * (see resolveInstallmentOverride) before falling back to the tenant-wide defaults.
+ */
+function resolvePaymentBreakdown(price, paymentRules, context) {
   const basePrice = Math.max(0, Number(price) || 0);
   const rules = paymentRules || {};
   const pixDiscountPercent = Math.max(0, Number(rules.pixDiscountPercent ?? rules.pix_discount_percent ?? 0));
-  const maxInstallments = Math.max(1, Math.round(Number(rules.maxInstallments ?? rules.max_installments ?? 1)));
-  const interestFreeInstallments = Math.max(1, Math.round(Number(rules.interestFreeInstallments ?? rules.interest_free_installments ?? 1)));
+  const override = resolveInstallmentOverride(rules, basePrice, context || {});
+  const maxInstallments = override
+    ? override.maxInstallments
+    : Math.max(1, Math.round(Number(rules.maxInstallments ?? rules.max_installments ?? 1)));
+  const interestFreeInstallments = override
+    ? override.interestFreeInstallments
+    : Math.max(1, Math.round(Number(rules.interestFreeInstallments ?? rules.interest_free_installments ?? 1)));
   const installmentInterestPercent = Math.max(0, Number(rules.installmentInterestPercent ?? rules.installment_interest_percent ?? 0));
 
   const pixPrice = Math.round(basePrice * (1 - pixDiscountPercent / 100) * 100) / 100;

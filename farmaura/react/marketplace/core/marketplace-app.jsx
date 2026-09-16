@@ -11,19 +11,21 @@ import fakeBrandNeoquimicaUrl from "../assets/marketplace/fake-brands/neoquimica
 import fakeBrandNiveaUrl from "../assets/marketplace/fake-brands/nivea.png";
 import fakeBrandVichyUrl from "../assets/marketplace/fake-brands/vichy.png";
 import { MARKETPLACE_LOGO_FULL_URL, resolveMarketplaceAssetUrl } from "./marketplace-assets.js";
-import { PharmacistChatModal, PrescriptionModal } from "./marketplace-care-actions.jsx";
+import { ChatWidget, PharmacistChatModal } from "./marketplace-care-actions.jsx";
 import { Header, Footer } from "./marketplace-chrome.jsx";
 import { brl } from "./marketplace-components.jsx";
 import { Icon } from "./marketplace-icons.jsx";
-import { TweakColor, TweakRadio, TweakSection, TweakSelect, TweakSlider, TweakText, TweakToggle, TweaksPanel, useTweaks } from "./marketplace-tweaks-panel.jsx";
 import { AccountScreen, LoginScreen, UnlockAccountScreen } from "../screens/account-screen.jsx";
+import { DataRetentionScreen, PrivacyScreen, TermsScreen } from "../screens/legal-screen.jsx";
 import { ProfileCompletionNudge } from "../screens/account-profile-screen.jsx";
 import { CareScreen } from "../screens/care-screen.jsx";
 import { CartScreen } from "../screens/cart-screen.jsx";
 import { CheckoutScreen, ConfirmScreen } from "../screens/checkout-screen.jsx";
-import { CashbackScreen, PrescriptionScreen, SavedScreen } from "../screens/extra-screen.jsx";
+import { CashbackScreen, SavedScreen } from "../screens/extra-screen.jsx";
+import { ChatHistoryScreen } from "../screens/chat-history-screen.jsx";
 import { HomeScreen } from "../screens/home-screen.jsx";
 import { ProductScreen } from "../screens/product-screen.jsx";
+import { BulaScreen } from "../screens/bula-screen.jsx";
 import { ServicesScreen } from "../screens/services-screen.jsx";
 import { ShopScreen } from "../screens/shop-screen.jsx";
 import { SubscriptionsScreen } from "../screens/subscriptions-screen.jsx";
@@ -31,6 +33,73 @@ import { SubscriptionsScreen } from "../screens/subscriptions-screen.jsx";
 /* FARMAURA — App shell: routing, cart state, tweaks. Depends on all screen files. */
 
 const MARKETPLACE_ROUTE_RESERVED_KEYS = new Set(['name', 'id', 'cat', 'brand']);
+
+/* Static per-route <title> segments. 'product'/'category'/'brand' interpolate the real name when
+   available (see useDocumentTitle) and fall back to this generic label otherwise — search engines
+   and shared links otherwise all showed the same "Farmaura — Marketplace" title for every page. */
+const MARKETPLACE_ROUTE_TITLES = {
+  home: 'Farmaura — Farmácia de bairro com entrega rápida e cashback',
+  shop: 'Buscar produtos — Farmaura',
+  product: 'Produto — Farmaura',
+  bula: 'Bula do medicamento — Farmaura',
+  category: 'Categoria — Farmaura',
+  brand: 'Marca — Farmaura',
+  cart: 'Carrinho — Farmaura',
+  checkout: 'Finalizar compra — Farmaura',
+  confirm: 'Pedido confirmado — Farmaura',
+  care: 'Fale com o farmacêutico — Farmaura',
+  services: 'Serviços de saúde — Farmaura',
+  subscriptions: 'Assinaturas — Farmaura',
+  saved: 'Produtos salvos — Farmaura',
+  discover: 'Mais buscados — Farmaura',
+  offers: 'Ofertas do dia — Farmaura',
+  prescription: 'Enviar receita — Farmaura',
+  cashback: 'Cashback — Farmaura',
+  account: 'Minha conta — Farmaura',
+  login: 'Entrar — Farmaura',
+};
+
+function useMarketplaceDocumentTitle(route, products) {
+  useEffect(() => {
+    let title = MARKETPLACE_ROUTE_TITLES[route && route.name] || 'Farmaura — Marketplace';
+    if (route && route.name === 'product' && route.id) {
+      const product = (products || []).find((item) => item.id === route.id);
+      if (product && product.name) title = `${product.name} — Farmaura`;
+    } else if (route && route.name === 'bula' && route.id) {
+      const product = (products || []).find((item) => item.id === route.id);
+      if (product && product.name) title = `Bula — ${product.name} — Farmaura`;
+    } else if (route && route.name === 'category' && route.cat) {
+      title = `${route.cat} — Farmaura`;
+    } else if (route && route.name === 'brand' && route.brand) {
+      title = `${route.brand} — Farmaura`;
+    }
+    document.title = title;
+  }, [route && route.name, route && route.id, route && route.cat, route && route.brand, products]);
+}
+
+// Login/account/legal/cart flows carry no independent SEO value and are either private, duplicate,
+// or session-specific — search engines shouldn't index them even though the catalog/marketing
+// routes stay open. There is no server-side rendering here (one static marketplace.html shell for
+// every route), so this is the only per-route lever available; robots.txt is left permissive on
+// purpose (a Disallow would stop Googlebot from ever crawling far enough to see this tag).
+const MARKETPLACE_NOINDEX_ROUTES = new Set([
+  'login', 'unlock-account', 'terms', 'privacy', 'data-retention',
+  'account', 'orders', 'cart', 'checkout', 'confirm',
+  'cashback', 'saved', 'chats', 'search', 'discover',
+]);
+
+function useMarketplaceRobotsMeta(route) {
+  useEffect(() => {
+    let tag = document.querySelector('meta[name="robots"]');
+    if (!tag) {
+      tag = document.createElement('meta');
+      tag.setAttribute('name', 'robots');
+      document.head.appendChild(tag);
+    }
+    const noindex = MARKETPLACE_NOINDEX_ROUTES.has(route && route.name);
+    tag.setAttribute('content', noindex ? 'noindex, nofollow' : 'index, follow');
+  }, [route && route.name]);
+}
 
 function buildMarketplacePath(route) {
   const name = (route && route.name) || 'home';
@@ -55,6 +124,7 @@ function parseMarketplaceRoute(splat, searchParams) {
   const name = segments[0] || 'home';
   const route = { name };
   if (name === 'product' && segments[1]) route.id = decodeURIComponent(segments[1]);
+  else if (name === 'bula' && segments[1]) route.id = decodeURIComponent(segments[1]);
   else if (name === 'category' && segments[1]) route.cat = decodeURIComponent(segments[1]);
   else if (name === 'brand' && segments[1]) route.brand = decodeURIComponent(segments[1]);
   for (const [key, value] of searchParams.entries()) {
@@ -63,33 +133,33 @@ function parseMarketplaceRoute(splat, searchParams) {
   return route;
 }
 
-const FONT_STACKS = {
-  'Montserrat': "'Montserrat', system-ui, sans-serif",
-  'Manrope': "'Manrope', system-ui, sans-serif",
-  'Nunito Sans': "'Nunito Sans', system-ui, sans-serif",
+// Default UI variant selection, previously live-editable via a Tweaks panel; now fixed.
+const MARKETPLACE_DEFAULTS = {
+  density: "regular",
+  homeVariant: "A",
+  cardVariant: "standard",
+  productVariant: "A",
+  checkoutVariant: "A",
+  accountNav: "side",
+  showCashback: true,
 };
 
-const PALETTES = {
-  'Vinho Aura': { primary: '#7A0D16', ink: '#5C0910', vital: '#C81D28', rose: '#FFD6D9', roseSoft: '#FFEDEE' },
-  'Bordô': { primary: '#8E1B2E', ink: '#6E1322', vital: '#D32F3C', rose: '#FBD7DC', roseSoft: '#FCEAED' },
-  'Ameixa': { primary: '#5E1235', ink: '#470D28', vital: '#C2185B', rose: '#F6D6E4', roseSoft: '#FBE9F1' },
-  'Vermelho Vital': { primary: '#A11017', ink: '#7C0C12', vital: '#E03131', rose: '#FFD5D5', roseSoft: '#FFECEC' },
-};
 
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "paletteName": "Vermelho Vital",
-  "font": "Montserrat",
-  "aura": 35,
-  "density": "regular",
-  "radius": 100,
-  "homeVariant": "A",
-  "cardVariant": "image",
-  "productVariant": "A",
-  "checkoutVariant": "A",
-  "accountNav": "side",
-  "showCashback": true
-}/*EDITMODE-END*/;
+// Falar com farmacêutico, for a visitor who isn't logged in yet — WhatsApp instead of an
+// inline-login chat modal, per explicit product decision. The chat itself (attached files
+// included) stays reserved for authenticated customers, since it's what creates a real
+// Prescription tied to their account (see ChatService.submit_customer_prescription).
+const WHATSAPP_PHARMACIST_NUMBER = '5561996032094';
+function buildPharmacistWhatsAppUrl(message) {
+  const text = message || 'Olá! Gostaria de falar com um farmacêutico da Farmaura.';
+  return 'https://wa.me/' + WHATSAPP_PHARMACIST_NUMBER + '?text=' + encodeURIComponent(text);
+}
 
+// A chat message that's nothing but a link is how a customer with a digital prescription hosted
+// on an external platform submits it — mirrors the paperclip file-attach, just without a file
+// (see ChatService.submit_customer_prescription_link). Deliberately conservative: the whole
+// trimmed message has to be the link, not just mention one in passing.
+const CHAT_URL_ONLY_PATTERN = /^https?:\/\/\S+\.\S+$/i;
 
 const MARKETPLACE_CATALOG_STORAGE_KEY = 'marketplace_catalog';
 const MARKETPLACE_CHAT_STORAGE_KEY = 'chat_threads';
@@ -153,6 +223,26 @@ function createMarketplaceChatThread(options = {}) {
         at: buildMarketplaceChatTimestamp(),
       },
     ],
+  };
+}
+
+// Shared shape for one API chat message across every place a thread gets normalized (initial
+// bootstrap, ensure-thread, send-message, send-prescription) — kept in one place so attachment/
+// prescription fields can't drift out of sync between them the way from/text/at almost did.
+function normalizeChatMessageFromApi(message) {
+  return {
+    id: message.id,
+    from: message.from_role === 'me' ? 'me' : 'pharm',
+    text: message.text,
+    at: message.at,
+    prescriptionId: message.prescription_id || null,
+    prescriptionStatus: message.prescription_status || '',
+    prescriptionReferenceUrl: message.prescription_reference_url || '',
+    attachment: message.attachment ? {
+      fileId: message.attachment.file_id,
+      name: message.attachment.name,
+      contentType: message.attachment.content_type,
+    } : null,
   };
 }
 
@@ -343,6 +433,20 @@ function normalizeMarketplaceCatalogItem(item) {
     reviews: Number(reviewSummary.review_count ?? item.reviews ?? 0),
     reviewComments: reviewComments,
     info: item.info || item.description || "",
+    shortDescription: item.short_description || item.shortDescription || "",
+    bulaMarkdown: item.bula_markdown || item.bulaMarkdown || "",
+    marketingHighlights: Array.isArray(item.marketing_highlights)
+      ? item.marketing_highlights
+      : (Array.isArray(item.marketingHighlights) ? item.marketingHighlights : []),
+    variantGroupId: item.variant_group_id || item.variantGroupId || "",
+    variantLabel: item.variant_label || item.variantLabel || "",
+    variants: Array.isArray(item.variants) ? item.variants.map((entry) => ({
+      id: entry.id,
+      label: entry.label || "",
+      price: Number(entry.price || 0),
+      old: entry.old_price == null ? (entry.old == null ? null : Number(entry.old)) : Number(entry.old_price),
+      inStock: entry.in_stock !== undefined ? !!entry.in_stock : !!entry.inStock,
+    })) : [],
   };
 }
 
@@ -425,6 +529,12 @@ function createMarketplaceProfileSnapshot(user) {
     gender: '',
     maritalStatus: '',
     childrenCount: '',
+    // Birth years, not ages — an age typed once goes stale the moment the year turns; every
+    // reader derives the current age from the birth year instead (see childAgeFromBirthYear,
+    // account-profile-screen.jsx).
+    childrenBirthYears: [],
+    // Parallel to childrenBirthYears by index (same slot = same child).
+    childrenNames: [],
     photo: safeUser.photo || null,
     twoFactor: !!safeUser.twoFactorEnabled,
     memberSince: '',
@@ -446,6 +556,8 @@ function normalizeMarketplaceProfile(profilePayload, user) {
     gender: source.gender || '',
     maritalStatus: source.marital_status || '',
     childrenCount: source.children_count == null ? '' : Number(source.children_count),
+    childrenBirthYears: Array.isArray(source.children_birth_years) ? source.children_birth_years.map(Number) : [],
+    childrenNames: Array.isArray(source.children_names) ? source.children_names.map(String) : [],
     photo: source.avatar_url || null,
     twoFactor: typeof source.two_factor_enabled === 'boolean' ? source.two_factor_enabled : baseProfile.twoFactor,
     memberSince: source.member_since_label || '',
@@ -479,9 +591,15 @@ function normalizeMarketplaceOrder(item) {
     subtotal: Number(item.subtotal_amount || 0),
     deliveryFee: Number(item.delivery_fee_amount || 0),
     discountAmount: Number(item.discount_amount || 0),
+    cashbackApplied: Number(item.cashback_applied_amount || 0),
+    cashbackEarned: Number(item.cashback_earned_amount || 0),
     couponCode: item.coupon_code || '',
     pixQrCode: item.pix_qr_code || '',
     pixCopyPaste: item.pix_copy_paste || '',
+    fiscalDocument: item.fiscal_document ? {
+      id: item.fiscal_document.id,
+      documentNumber: item.fiscal_document.document_number || '',
+    } : null,
     items: Array.isArray(item.items) ? item.items.map((line) => ({
       id: line.product_id || line.id,
       productId: line.product_id || line.id,
@@ -607,6 +725,19 @@ function normalizeDealOfTheDay(source) {
   };
 }
 
+// "Tendências": admin-curated product list (Marketplace → Tendências, console interno). Same
+// client-side resolution principle as `normalizeDealOfTheDay` (no server-side product resolution,
+// refs matched against `products`/`CatalogItem.aliases` in `resolveHomeTrendsProducts`,
+// marketplace-components.jsx) — just off/on instead of deal's off/manual/auto/scheduled.
+function normalizeHomeTrends(source) {
+  const trends = source || {};
+  const mode = trends.mode || 'off';
+  return {
+    mode,
+    productRefs: mode === 'on' && Array.isArray(trends.product_refs) ? trends.product_refs.filter(Boolean) : [],
+  };
+}
+
 function normalizeMarketplaceSubscription(entry) {
   if (!entry || !entry.product_ref) {
     return null;
@@ -619,6 +750,51 @@ function normalizeMarketplaceSubscription(entry) {
     nextInDays: Number(entry.next_cycle_in_days || 0),
     since: entry.started_at_label || 'Assinatura recente',
   };
+}
+
+function normalizeMarketplacePrescriptionStatus(payload) {
+  const source = payload || {};
+  return {
+    status: source.status || 'none',
+    prescriptionId: source.prescription_id || '',
+    rejectionReason: source.rejection_reason || '',
+    submittedAtLabel: source.submitted_at_label || '',
+  };
+}
+
+function normalizeMarketplaceCashbackWallet(payload) {
+  const source = payload || {};
+  return {
+    availableBalance: Number(source.available_balance || 0),
+    pendingBalance: Number(source.pending_balance || 0),
+    lifetimeEarnedTotal: Number(source.lifetime_earned_total || 0),
+    redeemedTotal: Number(source.redeemed_total || 0),
+    redeemMaxPercent: Number(source.redeem_max_percent ?? 25),
+    entries: Array.isArray(source.entries) ? source.entries.map((entry) => ({
+      id: entry.id,
+      type: entry.type || '',
+      status: entry.status || '',
+      amount: Number(entry.amount || 0),
+      orderId: entry.order_id || '',
+      reference: entry.reference || '',
+      notes: entry.notes || '',
+      createdAtLabel: entry.created_at_label || '',
+    })) : [],
+  };
+}
+
+function normalizeMarketplaceAnniversaryOffers(payload) {
+  const offers = (payload && Array.isArray(payload.offers)) ? payload.offers : [];
+  return offers.map((offer) => ({
+    kind: offer.kind || '',
+    label: offer.label || '',
+    percent: Number(offer.percent || 0),
+    monthLabel: offer.month_label || '',
+    eligible: !!offer.eligible,
+    alreadyClaimed: !!offer.already_claimed,
+    code: offer.code || '',
+    validUntilLabel: offer.valid_until_label || '',
+  }));
 }
 
 function normalizeMarketplacePortalData(payload) {
@@ -635,6 +811,7 @@ function normalizeMarketplacePortalData(payload) {
     marketplace: source.marketplace || {},
     homeBanner: normalizeHomeBanner(source.home_banner),
     homeBrands: normalizeHomeBrands(source.home_brands),
+    homeTrends: normalizeHomeTrends(source.home_trends),
     dealOfTheDay: normalizeDealOfTheDay(source.deal_of_the_day),
     launchMode: normalizeLaunchMode(source.launch_mode),
     healthServices: Array.isArray(source.health_services) ? source.health_services.map(normalizeMarketplaceHealthService).filter(Boolean) : [],
@@ -655,6 +832,17 @@ function readMarketplaceScopedCache(user, key, fallbackValue) {
 
 function writeMarketplaceScopedCache(user, key, value) {
   window.FA_PORTAL_CACHE.writeLocal('marketplace', user, key, value);
+}
+
+// sessionStorage (not localStorage) on purpose — clears when the tab/browser closes, matching
+// what "this session" actually means for the floating chat widget, while still surviving a
+// same-tab reload, which a plain in-memory useState can't.
+function readMarketplaceScopedSessionCache(user, key, fallbackValue) {
+  return window.FA_PORTAL_CACHE.readSession('marketplace', user, key, fallbackValue);
+}
+
+function writeMarketplaceScopedSessionCache(user, key, value) {
+  window.FA_PORTAL_CACHE.writeSession('marketplace', user, key, value);
 }
 
 function MarketplaceAccessNotice({ onReset }) {
@@ -781,7 +969,7 @@ const FAKE_BRANDS = [
 // Same regulatory placeholder box art the real catalog falls back to for a product without a
 // custom photo (ProductVisual, marketplace-components.jsx) — alternating the two most generic
 // ones just for a little variety, not because it means anything here.
-const FAKE_SHOP_PLACEHOLDER_URLS = [resolveMarketplaceAssetUrl('PlaceHolder.png'), resolveMarketplaceAssetUrl('PlaceHolder-generico.png')];
+const FAKE_SHOP_PLACEHOLDER_URLS = [resolveMarketplaceAssetUrl('PlaceHolder.webp'), resolveMarketplaceAssetUrl('PlaceHolder-generico.webp')];
 
 function _fakeShopTile(item, index) {
   return (
@@ -796,7 +984,7 @@ function _fakeShopTile(item, index) {
 
 // The marketplace itself, mocked — not the real HomeScreen (no real hooks, no real Header/
 // portalData/authClient) and not the real catalog (no fetch, no database), just static JSX built
-// from the same CSS the real site uses (.fa-header/.fa-topbar/.fa-search/.fa-navrow/...) so it
+// from the same CSS the real site uses (.fa-header-sticky/.fa-topbar/.fa-search/.fa-navrow/...) so it
 // reads as "this is our store" rather than an abstract graphic. Entirely inert on purpose —
 // `pointer-events: none` on the whole thing — it's a backdrop the countdown card sits in front
 // of, never a functional page a visitor could interact with.
@@ -813,7 +1001,7 @@ function LaunchMarketplaceMock() {
           </div>
         </div>
       </div>
-      <div className="fa-header">
+      <div className="fa-header-sticky">
         <div className="fa-wrap fa-header-main">
           <span className="fa-logo"><img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_URL} alt="" /></span>
           <div className="fa-search"><Icon name="search" size={18} /><span className="cd-mock-search-text">Busque por remédios, marcas, sintomas...</span></div>
@@ -851,13 +1039,13 @@ function LaunchMarketplaceMock() {
 // Red/vinho-led on purpose — reds are weighted to show up more often than the lighter rose tones,
 // so the field reads as "red confetti with brand accents", not a pale pink haze.
 const CONFETTI_PALETTE = [
-  { color: '#C81D28', kind: 'pill', opacity: .88 },  // vital
-  { color: '#C81D28', kind: 'dot', opacity: .82 },   // vital
-  { color: '#7A0D16', kind: 'pill', opacity: .8 },   // primary (vinho)
-  { color: '#7A0D16', kind: 'dot', opacity: .75 },   // primary (vinho)
-  { color: '#C81D28', kind: 'pill', opacity: .85 },  // vital (repeated — bias the draw toward red)
-  { color: '#FFD6D9', kind: 'dot', opacity: .9 },    // rose accent
-  { color: '#FFEDEE', kind: 'dot', opacity: .85 },   // rose-soft accent
+  { color: '#E03131', kind: 'pill', opacity: .88 },  // vital
+  { color: '#E03131', kind: 'dot', opacity: .82 },   // vital
+  { color: '#A11017', kind: 'pill', opacity: .8 },   // primary
+  { color: '#A11017', kind: 'dot', opacity: .75 },   // primary
+  { color: '#E03131', kind: 'pill', opacity: .85 },  // vital (repeated — bias the draw toward red)
+  { color: '#FFD5D5', kind: 'dot', opacity: .9 },    // rose accent
+  { color: '#FFECEC', kind: 'dot', opacity: .85 },   // rose-soft accent
 ];
 
 const _randomBetween = (a, b) => a + Math.random() * (b - a);
@@ -1074,7 +1262,7 @@ function LaunchCountdownScreen({ launchMode, onLaunch }) {
 
 function App() {
   const authClient = useMemo(() => window.FA_API.createClient('marketplace'), []);
-  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const t = MARKETPLACE_DEFAULTS;
   const [portalData, setPortalData] = useState(() => normalizeMarketplacePortalData(window.FA_PORTAL_CACHE.readLocal('marketplace', null, MARKETPLACE_BOOTSTRAP_STORAGE_KEY, {})));
   const [products, setProducts] = useState(() => resolveMarketplaceCatalogSnapshot());
   const navigate = useNavigate();
@@ -1085,20 +1273,46 @@ function App() {
     [urlParams['*'], searchParams]
   );
   const goTo = (r) => navigate(buildMarketplacePath(r));
+  useMarketplaceDocumentTitle(route, products);
+  useMarketplaceRobotsMeta(route);
   const [items, setItems] = useState([]);
+  // Every async call that replaces the *entire* cart from a server response (syncCartItem,
+  // removeCartItem, the bootstrap's own cart fetch) bumps this before firing its request and
+  // checks it before applying the response. Two cart-mutating requests can resolve out of
+  // order (normal network jitter, not something reproducible on a fast local docker network) —
+  // without this guard, an older response landing after a newer one silently reverts it,
+  // collapsing the cart down to whatever that stale snapshot had (reported bug: toggling
+  // recurrence on one item made the others disappear until a refresh restored them from the
+  // real, unaffected server state — the server was always right, only the client overwrote
+  // itself with a stale response).
+  const cartMutationSeqRef = useRef(0);
   const [coupon, setCoupon] = useState(null);
   const [fav, setFav] = useState([]);
   const [availabilityAlerts, setAvailabilityAlerts] = useState([]);
+  const [prescriptionStatus, setPrescriptionStatus] = useState({ status: 'none', prescriptionId: '', rejectionReason: '', submittedAtLabel: '' });
+  const [cashbackWallet, setCashbackWallet] = useState({ availableBalance: 0, pendingBalance: 0, lifetimeEarnedTotal: 0, redeemedTotal: 0, redeemMaxPercent: 25, entries: [] });
+  const [anniversaryOffers, setAnniversaryOffers] = useState([]);
+  // Declared once per checkout session (client-side only, no server model backs it — a paper
+  // prescription never becomes a Prescription row until the pharmacist reviews the physical
+  // original at pickup): 'digital' keeps the existing chat-upload + online-approval gate;
+  // 'physical' instead forces pickup-only delivery and pay-at-pickup, enforced in
+  // checkout-screen.jsx. Lost on a hard reload by design — re-asking is the safe fallback.
+  const [prescriptionKind, setPrescriptionKind] = useState('');
   const [orders, setOrders] = useState([]);
   const [ordersRevision, setOrdersRevision] = useState('');
   const [lastOrder, setLastOrder] = useState(null);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [toast, setToast] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatWidgetOpenSignal, setChatWidgetOpenSignal] = useState(0);
+  const [chatWidgetContext, setChatWidgetContext] = useState(null);
   const [chatThreads, setChatThreads] = useState([]);
   const [activeChatThreadId, setActiveChatThreadId] = useState(null);
-  const [pendingChatOptions, setPendingChatOptions] = useState({});
-  const [rxOpen, setRxOpen] = useState(false);
+  // Threads the customer has actually touched (created or reused) *this* browser session —
+  // reset to empty on every fresh page load. The full-history page (chat-history-screen.jsx)
+  // shows every thread in `chatThreads`; the floating widget only ever offers these, per the
+  // explicit "widget = only what's active right now" / "page = everything" split.
+  const [sessionChatThreadIds, setSessionChatThreadIds] = useState([]);
   const [pendingAuth, setPendingAuth] = useState(null);
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -1183,10 +1397,52 @@ function App() {
     };
   }, [authClient]);
   useEffect(() => {
-    setItems(readMarketplaceScopedCache(user, MARKETPLACE_CART_STORAGE_KEY, []));
+    // Logging in mid-session (e.g. from the checkout gate, with items already in the guest
+    // cart) used to silently drop that cart: this effect swapped straight to the just-logged-in
+    // user's own (usually empty) cart cache, keyed separately from the anonymous one. Merge the
+    // guest cart into the account cart instead, standard "cart survives login" behavior — only
+    // on an actual anonymous-to-logged-in transition (current `user` truthy), never on logout,
+    // where adopting the next (guest) cache as-is is correct.
+    const nextItems = readMarketplaceScopedCache(user, MARKETPLACE_CART_STORAGE_KEY, []);
+    let guestItemsToPersist = [];
+    setItems((prevItems) => {
+      if (!user || !prevItems.length) {
+        return nextItems;
+      }
+      const merged = nextItems.map((item) => ({ ...item }));
+      prevItems.forEach((guestItem) => {
+        const existing = merged.find((item) => item.id === guestItem.id);
+        if (existing) {
+          existing.qty += guestItem.qty;
+        } else {
+          merged.push(guestItem);
+        }
+      });
+      guestItemsToPersist = prevItems.map((guestItem) => merged.find((item) => item.id === guestItem.id) || guestItem);
+      return merged;
+    });
     setRecent(readMarketplaceScopedCache(user, MARKETPLACE_RECENT_STORAGE_KEY, []));
     setChatThreads(normalizeMarketplaceChatThreads(readMarketplaceScopedCache(user, MARKETPLACE_CHAT_STORAGE_KEY, [])));
     setActiveChatThreadId(null);
+    if (user && guestItemsToPersist.length) {
+      // The guest cart merged above only ever lived in local state/cache — the server has never
+      // seen these items. Left unsynced, the *next* single-item cart mutation (e.g. toggling
+      // recurrence) would PUT just that one item and apply the server's "full cart" response
+      // as-is, silently wiping every other item the server doesn't know about. Persist the
+      // merged guest items to the account's server cart now, one at a time (not in parallel —
+      // each response is only guaranteed complete relative to the upserts already committed
+      // before it), so the server becomes authoritative before any other mutation can happen.
+      (async () => {
+        for (const item of guestItemsToPersist) {
+          try {
+            await syncCartItem(item.id, item.qty, item.sub);
+          } catch (error) {
+            // best-effort: item stays visible locally/in cache but may not survive a later
+            // single-item server mutation if this persist keeps failing.
+          }
+        }
+      })();
+    }
   }, [user && user.id]);
 
   useEffect(() => {
@@ -1314,12 +1570,24 @@ function App() {
     });
     setSubs(Array.isArray(response) ? response.map(normalizeMarketplaceSubscription).filter(Boolean) : []);
   };
+  const submitProductReview = (payload) => authClient.request('/portal/products/reviews', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [route.name, route.cat, route.id, route.query]);
 
   // ---- handlers ----
   const onNav = (r) => {
     if (r && r.name === 'product' && r.id) setRecent((prev) => [r.id, ...prev.filter((x) => x !== r.id)].slice(0, 8));
+    // Remember where the customer was before sending them to log in, so a plain "Entrar / Criar
+    // conta" click from a product/category/etc. page returns there after a successful login
+    // instead of dropping them on the home page. requireAuth's own goTo({name:'login'}) (used by
+    // checkout) is untouched — it already replays the original action via pendingAuth, a better
+    // recovery than a route reload for a flow with real in-progress state.
+    if (r && r.name === 'login' && !r.next && route && route.name !== 'login') {
+      r = { ...r, next: buildMarketplacePath(route) };
+    }
     window.FA_OBS.emit({
       portal: 'marketplace',
       type: 'navigation',
@@ -1346,87 +1614,275 @@ function App() {
   const markChatThreadRead = (threadId) => {
     setChatThreads((prev) => prev.map((thread) => thread.id === threadId ? { ...thread, unread: 0 } : thread));
   };
+  // Shared shape for one API thread response, mirroring normalizeChatMessageFromApi above —
+  // kept in one place so threadStatus/closedReason can't drift out of sync between the three
+  // call sites (ensure/send/send-attachment) the way every other field almost did.
+  const normalizeChatThreadFromApi = (response) => ({
+    id: response.id,
+    topic: response.topic,
+    orderCode: response.order && response.order !== '—' ? response.order : '',
+    protocol: response.protocol || '',
+    unread: response.unread,
+    lastAt: response.last_at || response.lastAt,
+    pharmacistName: response.pharmacist_name || response.pharmacistName || (portalData.pharmacist && portalData.pharmacist.name) || '',
+    messages: Array.isArray(response.msgs) ? response.msgs.map(normalizeChatMessageFromApi) : [],
+    threadStatus: response.thread_status || 'open',
+    closedReason: response.closed_reason || '',
+  });
+  const registerSessionChatThread = (threadId) => {
+    setSessionChatThreadIds((prev) => prev.includes(threadId) ? prev : [...prev, threadId]);
+  };
+  // Restores which thread(s) the widget had active before a reload — user isn't known yet at
+  // useState-initializer time (auth restoration is async), so this runs once user resolves,
+  // rather than trying to read storage synchronously at mount.
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    const savedSessionIds = readMarketplaceScopedSessionCache(user, 'chat_session_thread_ids', []);
+    if (Array.isArray(savedSessionIds) && savedSessionIds.length) {
+      setSessionChatThreadIds(savedSessionIds);
+    }
+    const savedActiveId = readMarketplaceScopedSessionCache(user, 'chat_active_thread_id', null);
+    if (savedActiveId) {
+      setActiveChatThreadId(savedActiveId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user && user.id]);
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    writeMarketplaceScopedSessionCache(user, 'chat_session_thread_ids', sessionChatThreadIds);
+  }, [user, sessionChatThreadIds]);
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    writeMarketplaceScopedSessionCache(user, 'chat_active_thread_id', activeChatThreadId);
+  }, [user, activeChatThreadId]);
+  // Chat has no push/real-time delivery (REST-only by design) — without this, a reply from the
+  // pharmacist only ever showed up after something else happened to refetch threads (sending a
+  // message, switching threads, a full reload). Polls only while logged in; harmless when no
+  // chat surface is even visible, same trade-off already accepted for the orders board's polling.
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await authClient.request('/chat/customer/threads', { method: 'GET' });
+        if (cancelled) {
+          return;
+        }
+        const normalized = (response && response.items || []).map(normalizeChatThreadFromApi);
+        setChatThreads((prev) => normalized.map((thread) => (
+          // Don't let a poll resurrect an unread badge on the thread the customer is currently
+          // looking at — the server only zeroes customer_unread_count when *they* send a
+          // message, not on open/select, so without this a stared-at thread would flicker.
+          thread.id === activeChatThreadId ? { ...thread, unread: 0 } : thread
+        )));
+      } catch {
+        // best-effort — a transient failure here shouldn't surface as an error toast
+      }
+    };
+    const interval = setInterval(poll, 4000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [user, authClient, activeChatThreadId]);
   const ensureMarketplaceChatThread = async (options = {}) => {
     if (options.threadId) {
       const existingById = chatThreads.find((thread) => thread.id === options.threadId);
       if (existingById) {
+        registerSessionChatThread(existingById.id);
         return existingById;
       }
     }
-    const response = await authClient.request('/chat/customer/threads', { method: 'POST', body: JSON.stringify({}) });
-    const normalized = {
-      id: response.id,
-      topic: response.topic,
-      orderCode: response.order,
-      unread: response.unread,
-      lastAt: response.last_at || response.lastAt,
-      pharmacistName: response.pharmacist_name || response.pharmacistName || (portalData.pharmacist && portalData.pharmacist.name) || '',
-      messages: Array.isArray(response.msgs) ? response.msgs.map((message) => ({ id: message.id, from: message.from_role === 'me' ? 'me' : 'pharm', text: message.text, at: message.at })) : [],
-    };
+    const orderId = (options.order && options.order.recordId) || null;
+    if (!orderId) {
+      // No order to key off yet — cart/checkout's prescription chat and every general "falar com
+      // farmacêutico" entry point all land here with orderId null. The backend already dedupes by
+      // order_id when one is passed (ChatService.ensure_customer_thread), but can't do that for an
+      // orderless request, so without this it POSTed a brand new "Atendimento farmacêutico" thread
+      // on every single click. Reuse whichever open, orderless thread the customer already has.
+      const existingGeneral = chatThreads.find((thread) => !thread.orderCode && thread.threadStatus !== 'closed');
+      if (existingGeneral) {
+        registerSessionChatThread(existingGeneral.id);
+        return existingGeneral;
+      }
+    }
+    const response = await authClient.request('/chat/customer/threads', {
+      method: 'POST',
+      body: JSON.stringify({ order_id: orderId }),
+    });
+    const normalized = normalizeChatThreadFromApi(response);
     setChatThreads((prev) => {
       const filtered = prev.filter((thread) => thread.id !== normalized.id);
       return [normalized, ...filtered];
     });
+    registerSessionChatThread(normalized.id);
     return normalized;
   };
-  // Opens the chat modal immediately, on top of whatever screen is active. When the
-  // visitor isn't signed in yet, the modal shows an inline login instead of routing away.
+  // Sets the active thread without touching chatOpen — unlike selectChatThread below, which is
+  // specifically for contexts already inside the full modal. Used by the widget's own inline
+  // switcher and by the full chat-history page, neither of which should pop the modal open.
+  const activateChatThread = (threadId) => {
+    setActiveChatThreadId(threadId);
+    markChatThreadRead(threadId);
+  };
+  // The one entry point for "falar com farmacêutico" everywhere in the app (header, drawer,
+  // footer, the floating widget, the old "Receita digital" spots — see openPrescription below):
+  // logged out goes straight to WhatsApp (real-time channel that needs no account), logged in
+  // opens the real chat modal, which is also how a prescription file gets attached to their
+  // account. No more inline-login-then-chat detour for a visitor who isn't signed in yet.
+  // Most callers fire this from a plain onClick without awaiting it, so failures are caught
+  // and toasted right here — nothing upstream would ever see the rejection otherwise.
   const openChat = (options = {}) => {
-    setPendingChatOptions(options);
-    setChatOpen(true);
     if (!user) {
+      window.open(buildPharmacistWhatsAppUrl(options.whatsappMessage), '_blank', 'noopener,noreferrer');
       return;
     }
+    setChatOpen(true);
     return (async () => {
-      const thread = await ensureMarketplaceChatThread(options);
-      if (thread && thread.id) {
-        setActiveChatThreadId(thread.id);
-        markChatThreadRead(thread.id);
+      try {
+        const thread = await ensureMarketplaceChatThread(options);
+        if (thread && thread.id) {
+          activateChatThread(thread.id);
+        }
+      } catch (error) {
+        showToast(error && error.message ? error.message : 'Não foi possível abrir o chat. Tente novamente.');
       }
     })();
   };
   const selectChatThread = (threadId) => {
-    setActiveChatThreadId(threadId);
-    markChatThreadRead(threadId);
+    activateChatThread(threadId);
     setChatOpen(true);
   };
+  // The floating bubble's own opener: unlike openChat() above, this never touches chatOpen (the
+  // full modal) — it's the general (no order) thread, created on first use this session and
+  // reused afterward, exactly like every other openChat() caller, just without popping the modal.
+  const openWidgetChat = async () => {
+    try {
+      const thread = await ensureMarketplaceChatThread({});
+      if (thread && thread.id) {
+        activateChatThread(thread.id);
+      }
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível abrir o chat. Tente novamente.');
+    }
+  };
+  // A caller who isn't the floating bubble itself (checkout's "Enviar receita", for a physical-
+  // vs-digital-declared-digital prescription) wants the small widget panel — not the full
+  // PharmacistChatModal — to actually pop open, not just have a thread ready for whenever the
+  // customer happens to click the bubble. `chatWidgetOpenSignal` is a pure signal (see
+  // ChatWidget's `openSignal` prop): incrementing it is what makes the already-collapsed panel
+  // expand.
+  const openWidgetChatPanel = async (context = null) => {
+    await openWidgetChat();
+    setChatWidgetOpenSignal((current) => current + 1);
+    // Optional context banner the panel shows above the conversation — e.g. "prescription_digital"
+    // reminds the customer what to actually send here right when the panel opens for that reason,
+    // instead of a blank chat with no clue why it just popped open.
+    setChatWidgetContext(context);
+  };
+  // Errors (rate limit, permanent block, thread frozen) are toasted here for immediate global
+  // visibility, then re-thrown so the composer (PharmacistChatPanel.send) can also keep the
+  // typed text instead of clearing it, and — for a block specifically — offer "contest".
   const sendChatMessage = async (threadId, messageText) => {
     const textValue = String(messageText || '').trim();
     if (!threadId || !textValue) {
       return;
     }
-    const response = await authClient.request('/chat/customer/threads/' + encodeURIComponent(threadId) + '/messages', {
-      method: 'POST',
-      body: JSON.stringify({ text: textValue }),
-    });
-    const normalized = {
-      id: response.id,
-      topic: response.topic,
-      orderCode: response.order,
-      unread: response.unread,
-      lastAt: response.last_at || response.lastAt,
-      pharmacistName: response.pharmacist_name || response.pharmacistName || (portalData.pharmacist && portalData.pharmacist.name) || '',
-      messages: Array.isArray(response.msgs) ? response.msgs.map((message) => ({ id: message.id, from: message.from_role === 'me' ? 'me' : 'pharm', text: message.text, at: message.at })) : [],
-    };
+    const isPrescriptionLink = CHAT_URL_ONLY_PATTERN.test(textValue);
+    try {
+      // A bare link goes to the dedicated endpoint so it creates a real Prescription the
+      // pharmacist can validate/reject — a plain text message with a URL in it would otherwise
+      // just sit there, unreadable as a submission and never unblocking payment.
+      const response = isPrescriptionLink
+        ? await authClient.request('/chat/customer/threads/' + encodeURIComponent(threadId) + '/prescriptions/link', {
+            method: 'POST',
+            body: JSON.stringify({ url: textValue }),
+          })
+        : await authClient.request('/chat/customer/threads/' + encodeURIComponent(threadId) + '/messages', {
+            method: 'POST',
+            body: JSON.stringify({ text: textValue }),
+          });
+      const normalized = normalizeChatThreadFromApi(response);
+      setChatThreads((prev) => [normalized, ...prev.filter((thread) => thread.id !== normalized.id)]);
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível enviar a mensagem. Tente novamente.');
+      throw error;
+    }
+  };
+  // Folds "enviar receita digital" into the chat: the backend validates the file (real content
+  // sniffing, not just the extension/Content-Type the browser claims — see
+  // app/core/file_validation.py), stores it, and links it to both a new Prescription (so it
+  // reaches the pharmacist's existing review queue) and this chat message in one request. Errors
+  // (wrong file type, too large, content that doesn't match its declared type, rate limit) surface
+  // as a rejected promise — the composer UI already has its own inline error slot for this one.
+  const sendPrescriptionAttachment = async (threadId, file, note) => {
+    if (!threadId || !file) {
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('note', String(note || '').slice(0, 1000));
+    const response = await authClient.request(
+      '/chat/customer/threads/' + encodeURIComponent(threadId) + '/prescriptions',
+      { method: 'POST', skipJsonContentType: true, body: formData },
+    );
+    const normalized = normalizeChatThreadFromApi(response);
     setChatThreads((prev) => [normalized, ...prev.filter((thread) => thread.id !== normalized.id)]);
   };
+  // The customer's appeal against their current chat block — see app.core.chat_guard. Errors
+  // (already-blocked-elsewhere-check failed, an appeal already pending) are left to the caller
+  // (the composer's own "contestar bloqueio" form) since they need inline, not toast, display.
+  const sendChatUnblockRequest = async (message) => {
+    const trimmed = String(message || '').trim();
+    if (!trimmed) {
+      return;
+    }
+    await authClient.request('/chat/customer/unblock-requests', {
+      method: 'POST',
+      body: JSON.stringify({ message: trimmed }),
+    });
+  };
   const syncCartItem = async (id, quantity, sub) => {
+    const seq = ++cartMutationSeqRef.current;
     const response = await authClient.request('/customers/me/cart/' + encodeURIComponent(id), {
       method: 'PUT',
       body: JSON.stringify({ quantity, is_subscription: !!sub }),
     });
+    if (seq !== cartMutationSeqRef.current) {
+      return;
+    }
     setItems((prev) => {
       const byRef = Object.fromEntries(prev.map((it) => [it.id, it]));
-      return (Array.isArray(response) ? response : []).map((entry) => ({
+      const serverItems = (Array.isArray(response) ? response : []).map((entry) => ({
         id: entry.product_ref,
         qty: entry.quantity,
         sub: entry.is_subscription,
         freq: (byRef[entry.product_ref] && byRef[entry.product_ref].freq) || 30,
       }));
+      // PUT never deletes, so any item present in `prev` but missing from `response` isn't a
+      // real removal — it's an item the server hasn't been told about yet (e.g. a guest-cart
+      // item still being persisted after login, see the login-merge effect above). Keep it
+      // instead of letting this "full cart" response silently drop it from the UI.
+      const merged = serverItems.map((item) => ({ ...item }));
+      prev.forEach((localItem) => {
+        if (!merged.some((item) => item.id === localItem.id)) {
+          merged.push(localItem);
+        }
+      });
+      return merged;
     });
   };
   const removeCartItem = async (id) => {
+    const seq = ++cartMutationSeqRef.current;
     const response = await authClient.request('/customers/me/cart/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (seq !== cartMutationSeqRef.current) {
+      return;
+    }
     setItems((prev) => {
       const byRef = Object.fromEntries(prev.map((it) => [it.id, it]));
       return (Array.isArray(response) ? response : []).map((entry) => ({
@@ -1564,19 +2020,13 @@ function App() {
   };
   const finalizeAuthenticatedSession = async (flow, rememberSession) => {
     const nextUser = await applyAuthenticatedFlow(flow, rememberSession);
-    if (pendingAuth) { const act = pendingAuth; setPendingAuth(null); goTo({ name: 'home' }); act(); }
+    // route.next is the page the customer was on before choosing to log in (see onNav) — return
+    // there instead of always dropping them on home. navigate() takes the raw path directly,
+    // unlike goTo() which only accepts a route object.
+    const returnPath = route && route.next ? route.next : '';
+    if (pendingAuth) { const act = pendingAuth; setPendingAuth(null); if (returnPath) navigate(returnPath); else goTo({ name: 'home' }); act(); }
+    else if (returnPath) navigate(returnPath);
     else goTo({ name: 'home' });
-    return nextUser;
-  };
-  // Signing in from inside the chat modal must not move the visitor off their current
-  // screen — only the pending chat thread loads, unlike the full-page login flow above.
-  const finalizeChatLogin = async (flow, rememberSession) => {
-    const nextUser = await applyAuthenticatedFlow(flow, rememberSession);
-    const thread = await ensureMarketplaceChatThread(pendingChatOptions);
-    if (thread && thread.id) {
-      setActiveChatThreadId(thread.id);
-      markChatThreadRead(thread.id);
-    }
     return nextUser;
   };
   // Runs `action` if logged in; otherwise routes to login and replays it after sign-in.
@@ -1589,8 +2039,10 @@ function App() {
     setPendingAuth(() => action);
     goTo({ name: 'login' });
   };
-  // Envio de receita: página dedicada, disponível somente para quem está logado.
-  const openPrescription = () => requireAuth(() => goTo({ name: 'rx' }));
+  // Envio de receita agora acontece dentro do chat com o farmacêutico (anexo na conversa —
+  // ver sendPrescriptionAttachment) em vez de uma página dedicada; todo ponto de entrada que
+  // antes levava à página "Receita digital" abre o mesmo chat/WhatsApp que o botão flutuante.
+  const openPrescription = () => openChat();
   const beginCheckout = () => requireAuth(() => goTo({ name: 'checkout' }));
   const logout = async () => {
     window.FA_OBS.emit({ portal: 'marketplace', type: 'auth', action: 'auth.logout', route: route.name, userRole: user && user.role || '', accessScope: user && user.accessScope || '' });
@@ -1646,7 +2098,11 @@ function App() {
     }
     let resolvedPaymentMethodId = details && details.payment && details.payment.paymentMethodId || '';
     const isCardPayment = details && details.payment && (details.payment.method === 'credit_card' || details.payment.method === 'debit_card');
-    if (isCardPayment && !resolvedPaymentMethodId && details.payment.newCard) {
+    // 'pickup_cash' (receita física) never charges now, but the pickup-time charge (see
+    // OrderService.confirm_internal_pickup) needs a saved card token to bill later, so it goes
+    // through the exact same resolve-or-tokenize path as an upfront card payment.
+    const requiresSavedCardOnly = details && details.payment && details.payment.method === 'pickup_cash';
+    if ((isCardPayment || requiresSavedCardOnly) && !resolvedPaymentMethodId && details.payment.newCard) {
       setPlacingOrder(true);
       try {
         const savedCards = await tokenizeAndSaveCard(details.payment.newCard);
@@ -1658,8 +2114,8 @@ function App() {
         return;
       }
     }
-    if (isCardPayment && !resolvedPaymentMethodId) {
-      showToast('Selecione ou cadastre um cartao para continuar');
+    if ((isCardPayment || requiresSavedCardOnly) && !resolvedPaymentMethodId) {
+      showToast(requiresSavedCardOnly ? 'Cadastre um cartão para a cobrança na retirada' : 'Selecione ou cadastre um cartao para continuar');
       return;
     }
     window.FA_OBS.emit({ portal: 'marketplace', type: 'commerce', action: 'checkout.place_order', route: route.name, userRole: user && user.role || '', accessScope: user && user.accessScope || '', metadata: { paymentMethod: details && details.payment && details.payment.method || '', fulfillment: details && details.delivery && details.delivery.method || '' } });
@@ -1671,6 +2127,7 @@ function App() {
           channel: 'app',
           items: availableItems.map((item) => ({ product_id: item.id, quantity: Number(item.qty || 0) })),
           coupon_code: coupon && coupon.code || '',
+          cashback_redeem_amount: Number(details && details.cashbackRedeemAmount || 0),
           delivery: {
             method: details && details.delivery && details.delivery.method || 'express',
             recipient_name: details && details.delivery && details.delivery.recipientName || user.name || '',
@@ -1705,6 +2162,7 @@ function App() {
       }
       setItems([]);
       setCoupon(null);
+      void refreshCashbackWallet();
       goTo({ name: 'confirm' });
     } catch (error) {
       if (error && error.status === 401) {
@@ -1724,6 +2182,80 @@ function App() {
       setPlacingOrder(false);
     }
   };
+
+  const refreshCashbackWallet = async () => {
+    if (!user) {
+      return;
+    }
+    try {
+      const payload = await authClient.request('/customers/me/cashback', { method: 'GET' });
+      setCashbackWallet(normalizeMarketplaceCashbackWallet(payload));
+    } catch (error) {
+      // Best-effort refresh — the checkout/account screens keep the last known balance on failure.
+    }
+  };
+
+  const refreshAnniversaryOffers = async () => {
+    if (!user) {
+      return;
+    }
+    try {
+      const payload = await authClient.request('/customers/me/anniversary-offers', { method: 'GET' });
+      setAnniversaryOffers(normalizeMarketplaceAnniversaryOffers(payload));
+    } catch (error) {
+      // Best-effort — "Meu perfil" just keeps showing whatever offers it last loaded.
+    }
+  };
+
+  const claimAnniversaryOffer = async (kind) => {
+    /** Claim one birthday/customer-anniversary coupon. The server re-validates eligibility —
+     * this never trusts the offer list's own `eligible` flag as authorization to claim. */
+
+    const payload = await authClient.request('/customers/me/anniversary-offers/claim', {
+      method: 'POST',
+      body: JSON.stringify({ kind }),
+    });
+    const claimed = normalizeMarketplaceAnniversaryOffers({ offers: [payload] })[0];
+    setAnniversaryOffers((current) => current.map((offer) => (offer.kind === kind ? claimed : offer)));
+    return claimed;
+  };
+
+  const refreshPrescriptionStatus = async () => {
+    if (!user) {
+      return;
+    }
+    try {
+      const payload = await authClient.request('/customers/me/prescription-status', { method: 'GET' });
+      setPrescriptionStatus(normalizeMarketplacePrescriptionStatus(payload));
+    } catch {
+      // best-effort — a transient failure here just leaves the last known status on screen,
+      // the next poll tick (or the bootstrap fetch on the next navigation) retries anyway.
+    }
+  };
+
+  // While the customer is on a screen that cares about the prescription gate (review or
+  // checkout) and it isn't resolved yet, poll for the pharmacist's decision — same reasoning as
+  // the chat polls on both sides: no push/real-time delivery, and the customer may be sitting in
+  // the chat waiting for a live "Validar"/"Recusar" from the pharmacist right now.
+  useEffect(() => {
+    const cartHasRx = items.some((item) => products.find((product) => product.id === item.id)?.rx);
+    const onGatedRoute = route.name === 'cart' || route.name === 'checkout';
+    // A physical prescription never goes through this online status at all — it's validated in
+    // person at pickup — so there's nothing here worth polling for.
+    if (!user || !cartHasRx || !onGatedRoute || prescriptionKind === 'physical' || prescriptionStatus.status === 'approved') {
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      if (!cancelled) {
+        void refreshPrescriptionStatus();
+      }
+    }, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [user, items, products, route.name, prescriptionStatus.status, prescriptionKind]);
 
   const checkCoverage = async ({ district, city, state, cep }) => {
     if (!user || !district) {
@@ -1789,10 +2321,13 @@ function App() {
           setSubs([]);
           setAvailabilityAlerts([]);
           setChatThreads([]);
+          setCashbackWallet({ availableBalance: 0, pendingBalance: 0, lifetimeEarnedTotal: 0, redeemedTotal: 0, redeemMaxPercent: 25, entries: [] });
+          setAnniversaryOffers([]);
           setCustomerProfile(createMarketplaceProfileSnapshot(user));
           return;
         }
-        const [bootstrapPayload, profilePayload, ordersPayload, chatPayload, cartPayload, addressesPayload, paymentMethodsPayload, availabilityAlertsPayload] = await Promise.all([
+        const cartFetchSeq = cartMutationSeqRef.current;
+        const [bootstrapPayload, profilePayload, ordersPayload, chatPayload, cartPayload, addressesPayload, paymentMethodsPayload, availabilityAlertsPayload, prescriptionStatusPayload, cashbackWalletPayload, anniversaryOffersPayload] = await Promise.all([
           authClient.request('/portal/marketplace/bootstrap', { method: 'GET' }),
           authClient.request('/customers/me', { method: 'GET' }),
           authClient.request('/orders', { method: 'GET' }),
@@ -1801,6 +2336,9 @@ function App() {
           authClient.request('/customers/me/addresses', { method: 'GET' }),
           authClient.request('/customers/me/payment-methods', { method: 'GET' }),
           authClient.request('/customers/me/availability-alerts', { method: 'GET' }),
+          authClient.request('/customers/me/prescription-status', { method: 'GET' }),
+          authClient.request('/customers/me/cashback', { method: 'GET' }),
+          authClient.request('/customers/me/anniversary-offers', { method: 'GET' }),
         ]);
         if (!active) {
           return;
@@ -1811,15 +2349,30 @@ function App() {
         setFav(normalizedBootstrap.favorites);
         setSubs(normalizedBootstrap.subscriptions);
         setAvailabilityAlerts(Array.isArray(availabilityAlertsPayload) ? availabilityAlertsPayload.map((entry) => entry && entry.product_ref).filter(Boolean) : []);
-        if (Array.isArray(cartPayload)) {
+        setPrescriptionStatus(normalizeMarketplacePrescriptionStatus(prescriptionStatusPayload));
+        setCashbackWallet(normalizeMarketplaceCashbackWallet(cashbackWalletPayload));
+        setAnniversaryOffers(normalizeMarketplaceAnniversaryOffers(anniversaryOffersPayload));
+        if (Array.isArray(cartPayload) && cartFetchSeq === cartMutationSeqRef.current) {
           setItems((prev) => {
             const byRef = Object.fromEntries(prev.map((it) => [it.id, it]));
-            return cartPayload.map((entry) => ({
+            const serverItems = cartPayload.map((entry) => ({
               id: entry.product_ref,
               qty: entry.quantity,
               sub: entry.is_subscription,
               freq: (byRef[entry.product_ref] && byRef[entry.product_ref].freq) || 30,
             }));
+            // The server cart is authoritative for items it already knows about, but a guest
+            // cart merged into `prev` moments ago (logging in mid-session, e.g. from the
+            // checkout gate) has items the server has never seen — dropping those here would
+            // silently undo that merge. Keep every server item as-is, then carry over anything
+            // from `prev` the server doesn't have yet.
+            const merged = serverItems.map((item) => ({ ...item }));
+            prev.forEach((localItem) => {
+              if (!merged.some((item) => item.id === localItem.id)) {
+                merged.push(localItem);
+              }
+            });
+            return merged;
           });
         }
         if (Array.isArray(addressesPayload)) {
@@ -1830,18 +2383,8 @@ function App() {
         }
         setCoupons(normalizedBootstrap.coupons);
         setChatThreads(normalizeMarketplaceChatThreads((chatPayload && chatPayload.items || []).map((thread) => ({
-          id: thread.id,
-          topic: thread.topic,
-          orderCode: thread.order,
-          unread: thread.unread,
-          lastAt: thread.last_at || thread.lastAt,
+          ...normalizeChatThreadFromApi(thread),
           pharmacistName: thread.pharmacist_name || thread.pharmacistName || normalizedBootstrap.pharmacist.name,
-          messages: Array.isArray(thread.msgs) ? thread.msgs.map((message) => ({
-            id: message.id,
-            from: message.from_role === 'me' ? 'me' : 'pharm',
-            text: message.text,
-            at: message.at,
-          })) : [],
         }))));
         setCustomerProfile(normalizeMarketplaceProfile(profilePayload, user));
         const liveOrders = Array.isArray(ordersPayload && ordersPayload.items)
@@ -1948,6 +2491,19 @@ function App() {
         gender: draft.gender || '',
         marital_status: draft.maritalStatus || '',
         children_count: draft.childrenCount === '' || draft.childrenCount == null ? null : Number(draft.childrenCount),
+        // Age (birth year) is the anchor: a child slot is only sent if its age is filled — a
+        // customer who set "2 filhos" but only filled one age shouldn't have a fake second child
+        // recorded. children_names stays index-aligned to the kept slots (same slot = same
+        // child everywhere this is read), even if the name itself was left blank.
+        ...(() => {
+          const years = Array.isArray(draft.childrenBirthYears) ? draft.childrenBirthYears : [];
+          const names = Array.isArray(draft.childrenNames) ? draft.childrenNames : [];
+          const keptIndices = years.reduce((acc, year, i) => { if (year !== '' && year != null) acc.push(i); return acc; }, []);
+          return {
+            children_birth_years: keptIndices.map((i) => Number(years[i])),
+            children_names: keptIndices.map((i) => (names[i] || '').trim()),
+          };
+        })(),
         marketing_program_preferences: draft.marketingProgramPreferences || customerProfile.marketingProgramPreferences,
         communication_channel_preferences: draft.communicationChannelPreferences || customerProfile.communicationChannelPreferences,
       }),
@@ -1969,6 +2525,8 @@ function App() {
       gender: customerProfile.gender,
       maritalStatus: customerProfile.maritalStatus,
       childrenCount: customerProfile.childrenCount,
+      childrenBirthYears: customerProfile.childrenBirthYears,
+      childrenNames: customerProfile.childrenNames,
       marketingProgramPreferences: mergePrivacyPreferenceUpdates(customerProfile.marketingProgramPreferences, programs || [], 'name'),
       communicationChannelPreferences: mergePrivacyPreferenceUpdates(customerProfile.communicationChannelPreferences, channels || [], 'channel'),
     });
@@ -2115,11 +2673,15 @@ function App() {
     cats: portalData.categories, products, route, onNav, onSearch,
     items, coupon, setCoupon, addToCart, updateQty, removeItem, patchItem, toggleItemSub,
     fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, unsubscribeAvailabilityAlert, recent, mostSearchedProductIds, beginCheckout, placeOrder, lastOrder, placingOrder, checkCoverage,
+    prescriptionStatus, refreshPrescriptionStatus, prescriptionKind, setPrescriptionKind,
+    cashbackWallet, refreshCashbackWallet,
+    anniversaryOffers, refreshAnniversaryOffers, claimAnniversaryOffer,
     user, logout, reorder, orders, statusMap: MARKETPLACE_ORDER_STATUS_MAP, stores: portalData.stores,
     deliveryEstimate: portalData.deliveryEstimate,
     paymentRules: portalData.marketplace,
     homeBanner: portalData.homeBanner,
     homeBrands: portalData.homeBrands,
+    homeTrends: portalData.homeTrends,
     dealOfTheDay: portalData.dealOfTheDay,
     profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
@@ -2127,25 +2689,15 @@ function App() {
     privacyPrograms: buildPrivacyPreferenceList(MARKETING_PROGRAM_CATALOG, customerProfile.marketingProgramPreferences, 'name'),
     commChannels: buildPrivacyPreferenceList(COMMUNICATION_CHANNEL_CATALOG, customerProfile.communicationChannelPreferences, 'channel'),
     healthServices: portalData.healthServices, healthHistory: portalData.healthHistory, bookHealthAppointment,
-    openChat, openPrescription, requireAuth,
-    chatThreads, activeChatThreadId, selectChatThread, sendChatMessage,
-    subs, patchSub, removeSub, addSub, skipNextSub, coupons,
+    openChat, openPrescription, openWidgetChatPanel, requireAuth,
+    chatThreads, activeChatThreadId, selectChatThread, activateChatThread, sendChatMessage, sendPrescriptionAttachment, sendChatUnblockRequest,
+    subs, patchSub, removeSub, addSub, skipNextSub, submitProductReview, coupons,
     accountNav: t.accountNav, showCashback: t.showCashback,
     cardVariant: t.cardVariant, homeVariant: t.homeVariant, productVariant: t.productVariant, checkoutVariant: t.checkoutVariant,
-    authClient, authReady, finalizeAuthenticatedSession,
+    authClient, authReady, finalizeAuthenticatedSession, showToast,
   };
 
   const canUseMarketplace = !user || window.FA_ACCESS.canAccessMarketplace(user);
-
-  // ---- tweak-driven CSS vars ----
-  const pal = PALETTES[t.paletteName] || PALETTES['Vinho Aura'];
-  const rootStyle = {
-    '--fa-primary': pal.primary, '--fa-primary-ink': pal.ink, '--fa-vital': pal.vital,
-    '--fa-rose': pal.rose, '--fa-rose-soft': pal.roseSoft,
-    '--fa-font': FONT_STACKS[t.font] || FONT_STACKS.Montserrat,
-    '--fa-radius-scale': t.radius / 100,
-    '--fa-aura': t.aura / 100,
-  };
 
   // Pre-launch countdown gate: when enabled and the configured instant hasn't passed, every
   // visitor — logged in or not — sees only this, in place of the entire storefront. No bypass by
@@ -2156,7 +2708,7 @@ function App() {
   const launchGateActive = !!launchMode.enabled && !Number.isNaN(launchAtMs) && Date.now() < launchAtMs;
   if (launchGateActive) {
     return (
-      <div id="fa-root" data-density={t.density} style={rootStyle}>
+      <div id="fa-root" data-density={t.density}>
         <LaunchCountdownScreen launchMode={launchMode} onLaunch={() => window.location.reload()} />
       </div>
     );
@@ -2168,8 +2720,11 @@ function App() {
       case 'category': return <ShopScreen ctx={ctx} mode="category" />;
       case 'brand': return <ShopScreen ctx={ctx} mode="brand" />;
       case 'offers': return <ShopScreen ctx={ctx} mode="offers" />;
+      case 'trends': return <ShopScreen ctx={ctx} mode="trends" />;
+      case 'shop': return <ShopScreen ctx={ctx} mode="catalog" />;
       case 'search': return <ShopScreen ctx={ctx} mode="search" />;
       case 'product': return <ProductScreen ctx={ctx} />;
+      case 'bula': return <BulaScreen ctx={ctx} />;
       case 'cart': return <CartScreen ctx={ctx} />;
       case 'checkout': return <CheckoutScreen ctx={ctx} />;
       case 'confirm': return <ConfirmScreen ctx={ctx} />;
@@ -2178,10 +2733,13 @@ function App() {
       case 'services': return <ServicesScreen ctx={ctx} />;
       case 'cashback': return <CashbackScreen ctx={ctx} />;
       case 'saved': return <SavedScreen ctx={ctx} />;
-      case 'rx': return <PrescriptionScreen ctx={ctx} />;
+      case 'chats': return <ChatHistoryScreen ctx={ctx} />;
       case 'discover': return <ShopScreen ctx={ctx} mode="mostsearched" />;
       case 'login': return <LoginScreen ctx={ctx} />;
       case 'unlock-account': return <UnlockAccountScreen ctx={ctx} />;
+      case 'terms': return <TermsScreen ctx={ctx} />;
+      case 'privacy': return <PrivacyScreen ctx={ctx} />;
+      case 'data-retention': return <DataRetentionScreen ctx={ctx} />;
       case 'account': return <AccountScreen ctx={ctx} />;
       case 'orders': return <AccountScreen ctx={ctx} />;
       default: return <HomeScreen ctx={ctx} />;
@@ -2189,8 +2747,8 @@ function App() {
   };
 
   return (
-    <div id="fa-root" data-density={t.density} style={rootStyle}>
-      <Header cats={portalData.categories} portalData={portalData} route={route} cartCount={cartCount} query={route.query} user={user} onNav={onNav} onSearch={onSearch} onChat={() => openChat()} onPrescription={openPrescription} authClient={authClient} />
+    <div id="fa-root" data-density={t.density}>
+      <Header cats={portalData.categories} portalData={portalData} route={route} cartCount={cartCount} query={route.query} user={user} onNav={onNav} onSearch={onSearch} onChat={() => openChat()} onPrescription={openPrescription} authClient={authClient} logout={logout} ordersCount={orders.length} products={products} />
       <main key={route.name + (route.cat || '') + (route.id || '') + (route.query || '') + (route.tab || '')}>
         {!authReady
           ? <div className="fa-wrap fa-fadein" style={{ paddingTop: 72, paddingBottom: 96, maxWidth: 720 }}>
@@ -2204,21 +2762,39 @@ function App() {
             </div>
           : canUseMarketplace ? renderScreen() : <MarketplaceAccessNotice onReset={logout} />}
       </main>
-      <Footer cats={portalData.categories} portalData={portalData} onNav={onNav} />
+      <Footer cats={portalData.categories} portalData={portalData} onNav={onNav} onPrescription={openPrescription} />
 
       <PharmacistChatModal
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        user={user}
         authClient={authClient}
-        onAuthenticated={finalizeChatLogin}
         threads={chatThreads}
         activeThreadId={activeChatThreadId}
         onSelectThread={selectChatThread}
         onSendMessage={sendChatMessage}
+        onSendAttachment={sendPrescriptionAttachment}
+        onRequestUnblock={sendChatUnblockRequest}
         onOpenAccountConversations={() => { setChatOpen(false); onNav({ name: 'account', tab: 'conversations' }); }}
       />
-      <PrescriptionModal open={rxOpen} onClose={() => setRxOpen(false)} />
+      {!chatOpen && (
+        <ChatWidget
+          user={user}
+          threads={chatThreads.filter((thread) => sessionChatThreadIds.includes(thread.id))}
+          activeThreadId={activeChatThreadId}
+          onSelectThread={activateChatThread}
+          onOpen={openWidgetChat}
+          onSend={sendChatMessage}
+          onSendAttachment={sendPrescriptionAttachment}
+          onRequestUnblock={sendChatUnblockRequest}
+          authClient={authClient}
+          whatsappUrl={buildPharmacistWhatsAppUrl()}
+          onExpand={() => setChatOpen(true)}
+          openSignal={chatWidgetOpenSignal}
+          chatContext={chatWidgetContext}
+          onDismissContext={() => setChatWidgetContext(null)}
+          onSwitchToPhysical={() => { setPrescriptionKind('physical'); setChatWidgetContext(null); }}
+        />
+      )}
       {user && <ProfileCompletionNudge ctx={ctx} />}
 
       {/* toast */}
@@ -2229,39 +2805,15 @@ function App() {
           <button onClick={() => onNav({ name: 'cart' })} style={{ border: 'none', background: 'rgba(255,255,255,.16)', color: '#fff', borderRadius: 8, padding: '6px 10px', fontWeight: 700, fontSize: 13, marginLeft: 6 }}>Ver carrinho</button>
         </div>
       )}
-
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="Layout das telas" />
-        <TweakRadio label="Card de produto" value={t.cardVariant} options={[{ value: 'standard', label: 'Padrão' }, { value: 'image', label: 'Imagem' }, { value: 'list', label: 'Lista' }]} onChange={(v) => setTweak('cardVariant', v)} />
-        <TweakRadio label="Página de produto" value={t.productVariant} options={[{ value: 'A', label: 'Dividida' }, { value: 'B', label: 'Editorial' }]} onChange={(v) => setTweak('productVariant', v)} />
-        <TweakRadio label="Checkout" value={t.checkoutVariant} options={[{ value: 'A', label: 'Etapas' }, { value: 'B', label: 'Página única' }]} onChange={(v) => setTweak('checkoutVariant', v)} />
-
-        <TweakSection label="Minha conta" />
-        <TweakRadio label="Navegação da conta" value={t.accountNav} options={[{ value: 'side', label: 'Lateral' }, { value: 'top', label: 'Topo' }]} onChange={(v) => setTweak('accountNav', v)} />
-        <TweakToggle label="Mostrar cashback" value={t.showCashback} onChange={(v) => setTweak('showCashback', v)} />
-
-        <TweakSection label="Marca" />
-        <TweakColor label="Cor primária" value={pal.primary}
-          options={Object.values(PALETTES).map((p) => [p.primary, p.vital, p.rose])}
-          onChange={(arr) => { const name = Object.keys(PALETTES).find((k) => PALETTES[k].primary === arr[0]); setTweak('paletteName', name); }} />
-        <TweakSelect label="Fonte" value={t.font} options={['Montserrat', 'Manrope', 'Nunito Sans']} onChange={(v) => setTweak('font', v)} />
-
-        <TweakSection label="Aparência" />
-        <TweakSlider label="Aura (decoração)" value={t.aura} min={0} max={100} unit="%" onChange={(v) => setTweak('aura', v)} />
-        <TweakRadio label="Densidade" value={t.density} options={[{ value: 'compact', label: 'Densa' }, { value: 'regular', label: 'Padrão' }, { value: 'comfy', label: 'Ampla' }]} onChange={(v) => setTweak('density', v)} />
-        <TweakSlider label="Raio das bordas" value={t.radius} min={40} max={160} step={5} unit="%" onChange={(v) => setTweak('radius', v)} />
-      </TweaksPanel>
     </div>
   );
 }
 
 export {
   App,
-  FONT_STACKS,
   MARKETPLACE_CATALOG_STORAGE_KEY,
   MARKETPLACE_CHAT_STORAGE_KEY,
-  PALETTES,
-  TWEAK_DEFAULTS,
+  MARKETPLACE_DEFAULTS,
   buildMarketplaceAliasMap,
   buildMarketplaceCatalogFallback,
   buildMarketplaceChatTimestamp,

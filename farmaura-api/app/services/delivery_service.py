@@ -27,9 +27,11 @@ from app.domain.enums import OrderStatus, UserRole
 from app.models.delivery_route_stop import DeliveryRouteStop
 from app.models.driver_location import DriverLocation
 from app.models.order import Order
+from app.repositories.chat_repository import ChatRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.order_repository import OrderRepository
 from app.repositories.user_repository import UserRepository
+from app.services.cashback_service import CashbackService
 from app.schemas.auth import TokenSubject
 from app.schemas.deliveries import (
     DeliveryLiveStopResponse,
@@ -219,6 +221,11 @@ class DeliveryService:
         fulfillment = await self.order_repository.get_fulfillment_by_order_id(order_id=order.id)
         if fulfillment is not None:
             fulfillment.delivered_at_label = now.strftime("%H:%M")
+        # A delivered order is a completed transaction — its pharmacist chat (if any) freezes,
+        # same rule as pickup confirmation in order_service.py::confirm_internal_pickup.
+        await ChatRepository(self.session).close_threads_for_order(tenant_id=tenant_id, order_id=order.id, reason="order_completed")
+        # A completed delivery releases this order's pending cashback into the wallet.
+        await CashbackService(self.session, self.subject).release_pending_for_order(order=order)
         await self.session.commit()
 
     async def _resolve_store_id(self) -> str:

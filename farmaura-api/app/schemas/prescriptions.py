@@ -71,6 +71,7 @@ class PrescriptionQueueItemResponse(StrictModel):
     checks: list[PrescriptionCheckResponse]
     pharmacist_notes: str = ""
     rejection_reason: str = ""
+    digital_reference_url: str = ""
 
 
 class PrescriptionQueueResponse(StrictModel):

@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
-import { ProductVisual, QtyStepper, brl } from "../core/marketplace-components.jsx";
+import React, { useEffect, useState } from "react";
+import { CHECKOUT_PHASES, CheckoutPhaseBar, ProductCard, ProductVisual, QtyStepper, RecurrenceInfoModal, RecurrenceOffModal, RemoveItemModal, ScrollRail, brl, resolveAlsoBoughtProducts } from "../core/marketplace-components.jsx";
+import { FullBleedBand } from "../core/marketplace-bands.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { resolvePaymentBreakdown } from "../../shared/payment-pricing.js";
 
@@ -170,7 +171,10 @@ function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders, del
   };
 }
 
-function OrderSummary({ items, products, coupon, children, deliveryEstimate, paymentRules }) {
+// Shared by OrderSummary and the checkout's cashback block, so both size the "how much can be
+// redeemed" preview against the exact same gross total the order summary already shows — server
+// still re-caps for real when the order is actually placed (see CashbackService.apply_on_order).
+function computeMarketplaceOrderTotal(items, products, coupon, deliveryEstimate) {
   const getProduct = (itemId) => products.find((entry) => entry.id === itemId) || null;
   const sumItem = (item) => {
     const product = getProduct(item.id);
@@ -179,32 +183,40 @@ function OrderSummary({ items, products, coupon, children, deliveryEstimate, pay
     return unit * item.qty;
   };
   const subtotal = items.reduce((sum, item) => sum + sumItem(item), 0);
+  const discount = coupon ? Number(coupon.discountAmount || 0) : 0;
+  const shipping = computeMarketplaceDeliveryFee(subtotal, deliveryEstimate);
+  return { subtotal, discount, shipping, total: subtotal - discount + shipping };
+}
+
+function OrderSummary({ items, products, coupon, children, beforeTotal, deliveryEstimate, paymentRules, cashbackApplied }) {
+  const getProduct = (itemId) => products.find((entry) => entry.id === itemId) || null;
+  const { subtotal, discount, shipping } = computeMarketplaceOrderTotal(items, products, coupon, deliveryEstimate);
   const subSavings = items.reduce((sum, item) => {
     const product = getProduct(item.id);
     if (!product) return sum;
     return sum + (item.sub ? product.price * 0.15 * item.qty : 0);
   }, 0);
-  const discount = coupon ? Number(coupon.discountAmount || 0) : 0;
-  const shipping = computeMarketplaceDeliveryFee(subtotal, deliveryEstimate);
-  const total = subtotal - discount + shipping;
-  const Line = ({ l, v, c, strong }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: strong ? 16 : 14, fontWeight: strong ? 800 : 500, color: c || (strong ? 'var(--fa-ink)' : 'var(--fa-ink-2)') }}>
-      <span>{l}</span><span>{v}</span>
+  const cashback = Math.max(0, Number(cashbackApplied || 0));
+  const total = Math.max(0, subtotal - discount + shipping - cashback);
+  const Row = ({ l, v, c, discount: isDiscount }) => (
+    <div className={'fa-cart-summary-row' + (isDiscount ? ' is-discount' : '')}>
+      <span>{l}</span><span style={c ? { color: c } : undefined}>{v}</span>
     </div>
   );
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <Line l={`Subtotal (${items.reduce((sum, item) => sum + item.qty, 0)} itens)`} v={brl(subtotal)} />
-      {coupon && <Line l={`Cupom ${coupon.code}`} v={'- ' + brl(discount)} c="var(--fa-success)" />}
-      {subSavings > 0 && <Line l="Economia assinatura" v={'- ' + brl(subSavings)} c="var(--fa-success)" />}
-      <Line l="Entrega" v={shipping === 0 ? 'Grátis' : brl(shipping)} c={shipping === 0 ? 'var(--fa-success)' : undefined} />
-      <hr className="fa-divider" style={{ margin: '6px 0' }} />
-      <Line l="Total" v={brl(total)} strong />
+    <div>
+      <Row l={`Subtotal (${items.reduce((sum, item) => sum + item.qty, 0)} itens)`} v={brl(subtotal)} />
+      {coupon && <Row l={`Cupom ${coupon.code}`} v={'-' + brl(discount)} discount />}
+      {subSavings > 0 && <Row l="Economia assinatura" v={'-' + brl(subSavings)} discount />}
+      <Row l="Entrega" v={shipping === 0 ? 'Grátis' : brl(shipping)} c={shipping === 0 ? 'var(--fa-success)' : undefined} />
+      {cashback > 0 && <Row l="Cashback" v={'-' + brl(cashback)} discount />}
+      {beforeTotal}
+      <div className="fa-cart-summary-total"><span>Total</span><span>{brl(total)}</span></div>
       {(() => {
-        const bestInstallment = resolvePaymentBreakdown(total, paymentRules).bestInstallmentLabel;
+        const bestInstallment = resolvePaymentBreakdown(total, paymentRules, { cartTotal: total }).bestInstallmentLabel;
         if (!bestInstallment || bestInstallment.n <= 1) return null;
         return (
-          <div className="fa-muted" style={{ fontSize: 12.5 }}>
+          <div className="fa-muted" style={{ fontSize: 12.5, marginTop: -8, marginBottom: 4 }}>
             ou {bestInstallment.n}x de {brl(bestInstallment.installmentValue)}{bestInstallment.hasInterest ? '' : ' sem juros'}
           </div>
         );
@@ -233,63 +245,95 @@ function FreeShipBar({ subtotal, deliveryEstimate }) {
   );
 }
 
-function CartRecommendations({ items, products, addToCart, onNav }) {
-  const trackRef = useRef(null);
+// Two real recommendation rails, same sourcing as the product page (no third, invented
+// heuristic): "Outros clientes também compraram" from the real co-purchase endpoint
+// (GET /catalog/products/{id}/also-bought, aggregated across every item in the cart instead of
+// a single product), "Recomendados para você" from the same same-category-then-reviews fallback
+// already used there. Either rail is simply omitted when it has nothing real to show.
+function CartRecommendations({ items, products, alsoBoughtIds, cardProps, fav, availabilityAlerts }) {
   const inCart = new Set(items.map((item) => item.id));
   const cartCategories = new Set(items.map((item) => products.find((product) => product.id === item.id)?.cat));
-  const pool = products.filter((product) => !inCart.has(product.id));
-  const scored = pool.map((product) => {
-    let score = 0;
-    if (cartCategories.has(product.cat)) score += 3;
-    if (product.tags.includes('mais-vendido')) score += 2;
-    if (product.discount > 0) score += 1;
-    return { p: product, s: score };
-  }).sort((left, right) => right.s - left.s).slice(0, 8).map((entry) => entry.p);
 
-  const scrollTrack = (direction) => {
-    if (!trackRef.current) return;
-    trackRef.current.scrollBy({ left: direction * 220, behavior: 'smooth' });
-  };
+  const alsoBought = resolveAlsoBoughtProducts(alsoBoughtIds, products, 10).filter((product) => !inCart.has(product.id));
+  const alsoBoughtIdSet = new Set(alsoBought.map((product) => product.id));
 
-  if (!scored.length) return null;
+  const pool = products.filter((product) => !inCart.has(product.id) && !alsoBoughtIdSet.has(product.id));
+  const sameCategory = pool.filter((product) => cartCategories.has(product.cat));
+  const relatedFill = pool.filter((product) => !cartCategories.has(product.cat)).sort((left, right) => right.reviews - left.reviews);
+  const related = [...sameCategory, ...relatedFill].slice(0, 10);
+
+  const renderCard = (product) => <ProductCard product={product} {...cardProps} fav={fav.includes(product.id)} notified={availabilityAlerts.includes(product.id)} />;
+
+  if (!alsoBought.length && !related.length) return null;
 
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <Icon name="sparkle" size={18} style={{ color: 'var(--fa-vital)' }} />
-        <h2 className="fa-h3" style={{ fontSize: 17 }}>Quem levou esses itens também levou</h2>
-      </div>
-      <p className="fa-faint" style={{ fontSize: 13, marginBottom: 14 }}>Complete seu cuidado — adicione com um toque.</p>
-      <div style={{ position: 'relative' }}>
-        <button type="button" aria-label="ver produtos anteriores" onClick={() => scrollTrack(-1)} style={{ position: 'absolute', top: '50%', left: -10, transform: 'translateY(-50%)', width: 42, height: 42, borderRadius: 999, border: '1px solid var(--fa-mist)', background: 'rgba(255,255,255,.96)', color: 'var(--fa-primary)', display: 'grid', placeItems: 'center', boxShadow: 'var(--fa-shadow-md)', zIndex: 2, cursor: 'pointer', transition: 'transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease' }} onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--fa-primary)'; event.currentTarget.style.color = '#fff'; event.currentTarget.style.borderColor = 'var(--fa-primary)'; event.currentTarget.style.transform = 'translateY(-50%) scale(1.04)'; }} onMouseLeave={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,.96)'; event.currentTarget.style.color = 'var(--fa-primary)'; event.currentTarget.style.borderColor = 'var(--fa-mist)'; event.currentTarget.style.transform = 'translateY(-50%)'; }}><Icon name="chevL" size={17} /></button>
-        <button type="button" aria-label="ver mais produtos" onClick={() => scrollTrack(1)} style={{ position: 'absolute', top: '50%', right: -10, transform: 'translateY(-50%)', width: 42, height: 42, borderRadius: 999, border: '1px solid var(--fa-mist)', background: 'rgba(255,255,255,.96)', color: 'var(--fa-primary)', display: 'grid', placeItems: 'center', boxShadow: 'var(--fa-shadow-md)', zIndex: 2, cursor: 'pointer', transition: 'transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease' }} onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--fa-primary)'; event.currentTarget.style.color = '#fff'; event.currentTarget.style.borderColor = 'var(--fa-primary)'; event.currentTarget.style.transform = 'translateY(-50%) scale(1.04)'; }} onMouseLeave={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,.96)'; event.currentTarget.style.color = 'var(--fa-primary)'; event.currentTarget.style.borderColor = 'var(--fa-mist)'; event.currentTarget.style.transform = 'translateY(-50%)'; }}><Icon name="chevR" size={17} /></button>
-        <div ref={trackRef} className="fa-noscroll" style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '6px 8px 6px', scrollSnapType: 'x proximity' }}>
-          {scored.map((product) => (
-            <div key={product.id} className="fa-card" style={{ width: 168, flex: 'none', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, scrollSnapAlign: 'start', cursor: 'pointer' }} onClick={() => onNav({ name: 'product', id: product.id })}>
-              <div style={{ position: 'relative' }}>
-                <ProductVisual product={product} label={product.sub} style={{ borderRadius: 'calc(var(--fa-r-card) - 6px)' }} />
-                {product.discount > 0 && <span className="fa-badge fa-badge-vital" style={{ position: 'absolute', top: 8, left: 8 }}>-{product.discount}%</span>}
-              </div>
-              <div className="fa-pc-brand" style={{ fontSize: 10.5 }}>{product.brand}</div>
-              <div style={{ fontWeight: 700, fontSize: 12.5, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: '2.6em' }}>{product.name}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 'auto' }}>
-                <span style={{ fontWeight: 800, fontSize: 15 }}>{brl(product.price)}</span>
-                {product.old && <span className="fa-price-old" style={{ fontSize: 11 }}>{brl(product.old)}</span>}
-              </div>
-              <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ width: '100%' }} onClick={(event) => { event.stopPropagation(); addToCart(product); }}><Icon name="plus" size={15} stroke={2.3} />Adicionar</button>
-            </div>
-          ))}
+    <>
+      {alsoBought.length > 0 && (
+        <div className="pd-section">
+          <div className="pd-carousel-head"><h2>Outros clientes também compraram</h2></div>
+          <ScrollRail items={alsoBought} itemWidth={220} ariaLabel="Outros clientes também compraram" renderItem={renderCard} />
         </div>
-      </div>
-    </div>
+      )}
+      {related.length > 0 && (
+        <div className="pd-section">
+          <div className="pd-carousel-head"><h2>Recomendados para você</h2></div>
+          <ScrollRail items={related} itemWidth={220} ariaLabel="Recomendados para você" renderItem={renderCard} />
+        </div>
+      )}
+    </>
   );
 }
 
 function CartScreen({ ctx }) {
-  const { items, products, onNav, updateQty, removeItem, coupon, setCoupon, patchItem, addToCart, beginCheckout, orders, coupons, deliveryEstimate, availabilityAlerts, subscribeAvailabilityAlert, paymentRules } = ctx;
+  const { items, products, onNav, updateQty, removeItem, coupon, setCoupon, patchItem, addToCart, beginCheckout, orders, coupons, deliveryEstimate, availabilityAlerts, subscribeAvailabilityAlert, paymentRules, fav, toggleFav, cardVariant, authClient } = ctx;
+  const cardProps = { variant: cardVariant, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onBuyNow: (product) => addToCart(product), onFav: toggleFav, onNotify: subscribeAvailabilityAlert };
   const [code, setCode] = useState('');
   const [err, setErr] = useState('');
+  const [confirmingSubOffId, setConfirmingSubOffId] = useState('');
+  const [confirmingRemoveId, setConfirmingRemoveId] = useState('');
+  const [recurrenceInfoOpen, setRecurrenceInfoOpen] = useState(false);
+  const [couponJustApplied, setCouponJustApplied] = useState(false);
+  const [alsoBoughtIds, setAlsoBoughtIds] = useState([]);
   const getProduct = (itemId) => products.find((entry) => entry.id === itemId) || null;
+  // Fixed alphabetical order by product name — independent of insertion order or of whatever
+  // order a cart mutation's server response happens to come back in (e.g. toggling recurrence),
+  // so the list never visibly reshuffles from an action that isn't reordering anything on purpose.
+  const sortedItems = [...items].sort((a, b) => {
+    const nameA = (getProduct(a.id) && getProduct(a.id).name) || '';
+    const nameB = (getProduct(b.id) && getProduct(b.id).name) || '';
+    return nameA.localeCompare(nameB, 'pt-BR');
+  });
+  // "Outros clientes também compraram" aggregated across every item in the cart — same real
+  // endpoint the product page uses per-product, just fetched once per cart item and merged
+  // (first occurrence wins) instead of a single product's own ranking.
+  const itemProductRefs = items.map((item) => {
+    const product = getProduct(item.id);
+    const alias = product && Array.isArray(product.aliases) ? product.aliases.find((entry) => entry.startsWith('prod-')) : null;
+    return alias ? alias.slice(5) : '';
+  }).filter(Boolean);
+  const itemProductRefsKey = itemProductRefs.join(',');
+  useEffect(() => {
+    setAlsoBoughtIds([]);
+    if (!itemProductRefsKey) return undefined;
+    let cancelled = false;
+    Promise.all(itemProductRefsKey.split(',').map((ref) =>
+      authClient.publicRequest('/catalog/products/' + ref + '/also-bought?limit=10', { method: 'GET' }).catch(() => ({ items: [] }))
+    )).then((responses) => {
+      if (cancelled) return;
+      const merged = [];
+      const seen = new Set();
+      responses.forEach((response) => {
+        (Array.isArray(response.items) ? response.items : []).forEach((entry) => {
+          if (entry && entry.product_id && !seen.has(entry.product_id)) {
+            seen.add(entry.product_id);
+            merged.push(entry.product_id);
+          }
+        });
+      });
+      setAlsoBoughtIds(merged);
+    });
+    return () => { cancelled = true; };
+  }, [itemProductRefsKey, authClient]);
   const subtotal = items.reduce((sum, item) => {
     const product = getProduct(item.id);
     if (!product) return sum;
@@ -305,6 +349,8 @@ function CartScreen({ ctx }) {
     if (result.ok) {
       setCoupon(result.coupon);
       setErr('');
+      setCouponJustApplied(true);
+      setTimeout(() => setCouponJustApplied(false), 1800);
       return;
     }
     setCoupon(null);
@@ -345,12 +391,21 @@ function CartScreen({ ctx }) {
   }
 
   return (
-    <div className="fa-wrap fa-fadein" style={{ paddingTop: 24, paddingBottom: 20 }}>
-      <h1 className="fa-h1" style={{ fontSize: 'clamp(26px,3vw,36px)', marginBottom: 6 }}>Seu carrinho</h1>
-      <p className="fa-lead" style={{ marginBottom: 24 }}>{items.reduce((sum, item) => sum + item.qty, 0)} itens · revise antes de finalizar</p>
+    <div className="fa-fadein">
+    <FullBleedBand index={0} contentStyle={{ paddingTop: 22, paddingBottom: 22 }}>
+      <CheckoutPhaseBar phases={CHECKOUT_PHASES} activeIndex={0} onSelect={() => {}} />
+    </FullBleedBand>
+    <div className="fa-wrap" style={{ paddingTop: 24, paddingBottom: 20 }}>
+      <h1 className="fa-h1" style={{ fontSize: 'clamp(26px,3vw,36px)', marginBottom: 24 }}>Seu carrinho</h1>
       <div className="fa-cart-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 'var(--fa-gap)', alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-          {items.map((item) => {
+          <div className="fa-cart-section-head">
+            <h2>{items.length} {items.length === 1 ? 'produto' : 'produtos'}</h2>
+            <button className="fa-cart-link-btn" type="button" onClick={() => setRecurrenceInfoOpen(true)}>
+              <Icon name="info" size={14} />Como funciona a recorrência?
+            </button>
+          </div>
+          {sortedItems.map((item) => {
             const product = getProduct(item.id);
             const freqs = [{ v: 30, l: 'todo mês' }, { v: 60, l: 'a cada 2 meses' }, { v: 90, l: 'a cada 3 meses' }];
             if (!product) {
@@ -363,7 +418,7 @@ function CartScreen({ ctx }) {
                         <div className="fa-pc-brand">Item indisponível</div>
                         <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3 }}>Este produto não está mais disponível no catálogo atual.</div>
                       </div>
-                      <button onClick={() => removeItem(item.id)} className="fa-iconbtn" style={{ width: 34, height: 34, flex: 'none', border: 'none', background: 'transparent', color: 'var(--fa-ink-3)' }} aria-label="remover"><Icon name="trash" size={18} /></button>
+                      <button onClick={() => removeItem(item.id)} className="fa-cart-item-remove" style={{ flex: 'none' }} aria-label="remover"><Icon name="trash" size={13} />Remover</button>
                     </div>
                     <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 8 }}>Remova este item do carrinho para continuar com o pedido.</div>
                   </div>
@@ -384,7 +439,7 @@ function CartScreen({ ctx }) {
                         <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3 }}>{product.name}</div>
                         <span className="fa-badge fa-badge-mist" style={{ marginTop: 6 }}><Icon name="minus" size={11} stroke={2.2} />Sem estoque no momento</span>
                       </div>
-                      <button onClick={() => removeItem(item.id)} className="fa-iconbtn" style={{ width: 34, height: 34, flex: 'none', border: 'none', background: 'transparent', color: 'var(--fa-ink-3)' }} aria-label="remover"><Icon name="trash" size={18} /></button>
+                      <button onClick={() => removeItem(item.id)} className="fa-cart-item-remove" style={{ flex: 'none' }} aria-label="remover"><Icon name="trash" size={13} />Remover</button>
                     </div>
                     <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 8 }}>Remova este item para finalizar a compra, ou peça para te avisarmos quando ele voltar.</div>
                     <button
@@ -401,79 +456,116 @@ function CartScreen({ ctx }) {
             }
             const unit = item.sub ? product.price * 0.85 : product.price;
             return (
-              <div key={item.id} className="fa-card" style={{ padding: 16, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                <div style={{ width: 96, flex: 'none', cursor: 'pointer' }} onClick={() => onNav({ name: 'product', id: product.id })}>
-                  <ProductVisual product={product} label={product.sub} style={{ width: 96, height: 96, aspectRatio: 'auto' }} />
+              <div key={item.id} className="fa-card fa-cart-item" style={{ padding: 16 }}>
+                <div className="fa-cart-item-media" onClick={() => onNav({ name: 'product', id: product.id })}>
+                  <ProductVisual product={product} label={product.sub} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} />
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                    <div>
-                      <div className="fa-pc-brand">{product.brand}</div>
-                      <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3, cursor: 'pointer' }} onClick={() => onNav({ name: 'product', id: product.id })}>{product.name}</div>
+                <div className="fa-cart-item-info">
+                  <div className="fa-pc-brand">{product.brand}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3, cursor: 'pointer' }} onClick={() => onNav({ name: 'product', id: product.id })}>{product.name}</div>
+                  {product.rx && (
+                    // Just a notice here — no CTA. Sending/choosing digital-vs-física now lives
+                    // entirely on the payment step, where it actually blocks something; showing
+                    // it again here (with its own button and its own modal) was the confusing
+                    // duplicate flow the user flagged.
+                    <div className="fa-cart-item-badges">
+                      <span className="fa-badge fa-badge-rx"><Icon name="rx" size={11} stroke={2.1} />Receita obrigatória para este item</span>
                     </div>
-                    <button onClick={() => removeItem(item.id)} className="fa-iconbtn" style={{ width: 34, height: 34, flex: 'none', border: 'none', background: 'transparent', color: 'var(--fa-ink-3)' }} aria-label="remover"><Icon name="trash" size={18} /></button>
-                  </div>
-                  {product.rx && <div style={{ margin: '8px 0' }}><span className="fa-badge fa-badge-rx"><Icon name="rx" size={11} stroke={2.1} />Receita</span></div>}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
-                    <QtyStepper value={item.qty} onChange={(qty) => updateQty(item.id, qty)} />
-                    <div style={{ textAlign: 'right' }}>
-                      {item.sub && <span className="fa-price-old" style={{ fontSize: 12 }}>{brl(product.price * item.qty)}</span>}
-                      <div style={{ fontWeight: 800, fontSize: 17 }}>{brl(unit * item.qty)}</div>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 12, border: item.sub ? '1.5px solid var(--fa-success)' : '1px solid var(--fa-mist)', borderRadius: 'var(--fa-r-input)', background: item.sub ? 'var(--fa-success-soft)' : 'var(--fa-surface)', overflow: 'hidden', transition: 'all .15s' }}>
-                    <button onClick={() => patchItem(item.id, { sub: !item.sub, freq: item.freq || 30 })} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                  )}
+                  <div style={{ marginTop: product.rx ? 8 : 12, border: item.sub ? '1.5px solid var(--fa-success)' : '1px solid var(--fa-mist)', borderRadius: 'var(--fa-r-input)', background: item.sub ? 'var(--fa-success-soft)' : 'var(--fa-surface)', overflow: 'hidden', transition: 'all .15s' }}>
+                    <button onClick={() => (item.sub ? setConfirmingSubOffId(item.id) : patchItem(item.id, { sub: true, freq: item.freq || 30 }))} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
                       <span style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', flex: 'none', background: item.sub ? 'var(--fa-success)' : 'var(--fa-success-soft)', color: item.sub ? '#fff' : 'var(--fa-success)' }}><Icon name="repeat" size={17} stroke={2} /></span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 13, color: item.sub ? 'var(--fa-success)' : 'var(--fa-ink)' }}>Compra recorrente <span style={{ color: 'var(--fa-success)' }}>· -15%</span></div>
                         <div className="fa-faint" style={{ fontSize: 11.5 }}>Receba automaticamente, sem precisar refazer o pedido</div>
                       </div>
-                      <span className="fa-toggle-mini" style={{ width: 36, height: 21, borderRadius: 99, background: item.sub ? 'var(--fa-success)' : 'var(--fa-mist)', position: 'relative', flex: 'none', transition: 'background .15s' }}><span style={{ position: 'absolute', top: 2, left: item.sub ? 17 : 2, width: 17, height: 17, borderRadius: 99, background: '#fff', transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.2)' }} /></span>
+                      <span className="fa-toggle-mini" style={{ width: 36, height: 21, borderRadius: 99, background: item.sub ? 'var(--fa-success)' : 'var(--fa-mist)', position: 'relative', flex: 'none', transition: 'background .15s' }}><span style={{ position: 'absolute', top: 2, left: item.sub ? 17 : 2, width: 17, height: 17, borderRadius: 99, background: '#fff', transition: 'left .15s', boxShadow: '0 1px 2px rgba(43,26,26,.2)' }} /></span>
                     </button>
                     {item.sub && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px 12px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fa-ink-2)' }}>Entregar</span>
-                        <select className="fa-input" value={item.freq || 30} onChange={(event) => patchItem(item.id, { freq: Number(event.target.value) })} style={{ height: 36, width: 'auto', paddingRight: 30, fontSize: 13, flex: 'none' }}>
-                          {freqs.map((freq) => <option key={freq.v} value={freq.v}>{freq.l}</option>)}
-                        </select>
-                        <span className="fa-badge fa-badge-health" style={{ marginLeft: 'auto' }}><Icon name="bell" size={11} stroke={2} />Lembrete incluso</span>
+                      <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--fa-ink-2)' }}>Entregar</span>
+                          <select className="fa-input" value={item.freq || 30} onChange={(event) => patchItem(item.id, { freq: Number(event.target.value) })} style={{ height: 36, width: 'auto', paddingRight: 30, fontSize: 13, flex: 'none' }}>
+                            {freqs.map((freq) => <option key={freq.v} value={freq.v}>{freq.l}</option>)}
+                          </select>
+                          <span className="fa-badge fa-badge-health" style={{ marginLeft: 'auto' }}><Icon name="bell" size={11} stroke={2} />Lembrete incluso</span>
+                        </div>
+                        {/* The quantity stepper in the aside already controls item.qty — this is
+                            the same value/handler, just surfaced inside the recurrence panel
+                            itself so it's unmistakable how many units ship on every cycle. */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', background: 'var(--fa-surface)', borderRadius: 'var(--fa-r-input)', border: '1px solid var(--fa-mist)' }}>
+                          <div>
+                            <div style={{ fontSize: 12.5, fontWeight: 700 }}>Quantidade por entrega</div>
+                            <div className="fa-faint" style={{ fontSize: 11 }}>{item.qty} {item.qty === 1 ? 'unidade enviada' : 'unidades enviadas'} a cada ciclo</div>
+                          </div>
+                          <QtyStepper value={item.qty} onChange={(qty) => updateQty(item.id, qty)} />
+                        </div>
                       </div>
                     )}
                   </div>
                 </div>
+                <div className="fa-cart-item-aside">
+                  <div style={{ textAlign: 'right' }}>
+                    {item.sub && <span className="fa-price-old" style={{ fontSize: 12 }}>{brl(product.price * item.qty)}</span>}
+                    <div style={{ fontWeight: 800, fontSize: 17 }}>{brl(unit * item.qty)}</div>
+                  </div>
+                  <QtyStepper value={item.qty} onChange={(qty) => updateQty(item.id, qty)} />
+                  <button onClick={() => setConfirmingRemoveId(item.id)} className="fa-cart-item-remove" aria-label="remover"><Icon name="trash" size={13} />Remover</button>
+                </div>
               </div>
             );
           })}
-          <button className="fa-btn fa-btn-soft" style={{ alignSelf: 'flex-start' }} onClick={() => onNav({ name: 'home' })}><Icon name="chevL" size={16} />Continuar comprando</button>
-          <CartRecommendations items={items} products={products} addToCart={addToCart} onNav={onNav} />
         </div>
-        <div className="fa-card fa-cart-summary" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 150 }}>
+        <div className="fa-card fa-cart-summary" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <FreeShipBar subtotal={subtotal} deliveryEstimate={deliveryEstimate} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Cupom de desconto</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input className="fa-input" placeholder="Digite seu cupom" value={code} onChange={(event) => { setCode(event.target.value.toUpperCase()); setErr(''); }} style={{ height: 42, textTransform: 'uppercase' }} />
-              <button className="fa-btn fa-btn-soft" onClick={apply}>Aplicar</button>
-            </div>
-            {err && <div style={{ color: 'var(--fa-error)', fontSize: 12.5, marginTop: 6 }}>{err}</div>}
-            {coupon && <div style={{ color: 'var(--fa-success)', fontSize: 12.5, marginTop: 6, fontWeight: 600 }}><Icon name="check" size={13} stroke={2.6} style={{ verticalAlign: -2 }} /> Cupom {coupon.code} aplicado {coupon.discountType === 'shipping' ? coupon.shippingDiscountMode === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '% no frete)' : coupon.shippingDiscountMode === 'fixed' ? '(' + brl(coupon.discountValue) + ' no frete)' : '(frete grátis)' : coupon.discountType === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '%' + (coupon.maxDiscountValue != null ? ', até ' + brl(coupon.maxDiscountValue) : '') + ')' : '(' + brl(coupon.discountAmount) + ')'}</div>}
-            {coupon && coupon.discountType === 'percent' && coupon.maxDiscountValue != null && coupon.discountAmount >= coupon.maxDiscountValue && (
-              <div style={{ color: 'var(--fa-ink-3)', fontSize: 11.5, marginTop: 4 }}>Desconto limitado ao teto máximo de {brl(coupon.maxDiscountValue)} deste cupom.</div>
-            )}
-          </div>
-          <hr className="fa-divider" />
-          <OrderSummary items={items} products={products} coupon={coupon} deliveryEstimate={deliveryEstimate} paymentRules={paymentRules} />
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Resumo do pedido</div>
+          <OrderSummary
+            items={items} products={products} coupon={coupon} deliveryEstimate={deliveryEstimate} paymentRules={paymentRules}
+            beforeTotal={
+              <div style={{ margin: '10px 0' }}>
+                <div className="fa-cart-coupon">
+                  <input className="fa-input" placeholder="Cupom" value={code} onChange={(event) => { setCode(event.target.value.toUpperCase()); setErr(''); }} style={{ textTransform: 'uppercase' }} />
+                  <button className={'fa-btn fa-btn-soft fa-cart-coupon-btn' + (couponJustApplied ? ' is-applied' : '')} onClick={apply}>{couponJustApplied ? <><Icon name="check" size={14} stroke={2.6} />Aplicado</> : 'Aplicar'}</button>
+                </div>
+                {err && <div style={{ color: 'var(--fa-error)', fontSize: 12.5, marginTop: 6 }}>{err}</div>}
+                {coupon && <div style={{ color: 'var(--fa-success)', fontSize: 12.5, marginTop: 6, fontWeight: 600 }}><Icon name="check" size={13} stroke={2.6} style={{ verticalAlign: -2 }} /> Cupom {coupon.code} aplicado {coupon.discountType === 'shipping' ? coupon.shippingDiscountMode === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '% no frete)' : coupon.shippingDiscountMode === 'fixed' ? '(' + brl(coupon.discountValue) + ' no frete)' : '(frete grátis)' : coupon.discountType === 'percent' ? '(' + Math.round(Number(coupon.discountValue || 0)) + '%' + (coupon.maxDiscountValue != null ? ', até ' + brl(coupon.maxDiscountValue) : '') + ')' : '(' + brl(coupon.discountAmount) + ')'}</div>}
+                {coupon && coupon.discountType === 'percent' && coupon.maxDiscountValue != null && coupon.discountAmount >= coupon.maxDiscountValue && (
+                  <div style={{ color: 'var(--fa-ink-3)', fontSize: 11.5, marginTop: 4 }}>Desconto limitado ao teto máximo de {brl(coupon.maxDiscountValue)} deste cupom.</div>
+                )}
+              </div>
+            }
+          />
           {hasUnavailableItems && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--fa-warn)', background: 'var(--fa-warn-soft)', borderRadius: 'var(--fa-r-input)', padding: '10px 12px' }}>
               <Icon name="info" size={15} style={{ flex: 'none' }} />Remova os itens indisponíveis para finalizar a compra.
             </div>
           )}
           <button className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" disabled={hasUnavailableItems} onClick={beginCheckout}>Finalizar compra<Icon name="arrowR" size={18} /></button>
+          <button className="fa-cart-continue-link" type="button" onClick={() => onNav({ name: 'home' })}>Continuar comprando</button>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 12, color: 'var(--fa-ink-3)' }}><Icon name="shield" size={15} />Pagamento 100% seguro</div>
         </div>
       </div>
+      <CartRecommendations items={items} products={products} alsoBoughtIds={alsoBoughtIds} cardProps={cardProps} fav={fav} availabilityAlerts={availabilityAlerts} />
+      <RecurrenceOffModal
+        open={!!confirmingSubOffId}
+        unitPrice={(getProduct(confirmingSubOffId) || {}).price}
+        qty={(items.find((item) => item.id === confirmingSubOffId) || {}).qty || 1}
+        freqDays={(items.find((item) => item.id === confirmingSubOffId) || {}).freq || 30}
+        onClose={() => setConfirmingSubOffId('')}
+        onConfirm={() => { patchItem(confirmingSubOffId, { sub: false }); setConfirmingSubOffId(''); }}
+      />
+      <RemoveItemModal
+        open={!!confirmingRemoveId}
+        product={getProduct(confirmingRemoveId)}
+        qty={(items.find((item) => item.id === confirmingRemoveId) || {}).qty || 1}
+        isSubscribed={!!(items.find((item) => item.id === confirmingRemoveId) || {}).sub}
+        onClose={() => setConfirmingRemoveId('')}
+        onConfirm={() => { removeItem(confirmingRemoveId); setConfirmingRemoveId(''); }}
+      />
+      <RecurrenceInfoModal open={recurrenceInfoOpen} onClose={() => setRecurrenceInfoOpen(false)} />
+    </div>
     </div>
   );
 }
 
-export { CartRecommendations, CartScreen, FreeShipBar, OrderSummary, computeMarketplaceCouponDiscount, computeMarketplaceDeliveryFee, isMarketplaceCouponActive, normalizeMarketplaceCouponCode, normalizeMarketplaceCouponTargetList, resolveMarketplaceCoupon };
+export { CartRecommendations, CartScreen, FreeShipBar, OrderSummary, computeMarketplaceCouponDiscount, computeMarketplaceDeliveryFee, computeMarketplaceOrderTotal, isMarketplaceCouponActive, normalizeMarketplaceCouponCode, normalizeMarketplaceCouponTargetList, resolveMarketplaceCoupon };

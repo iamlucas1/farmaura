@@ -207,6 +207,26 @@ class DealSuggestionService:
 
         return await self._list_promotion_kind_matches(kind="product_discount", limit=limit, label_prefix="Desconto")
 
+    async def list_active_promotion_refs(self) -> list[str]:
+        """Return every item ref currently covered by an active promotion, either kind, unlimited.
+
+        Cheap membership-check companion to `list_active_promotion_products`/
+        `list_active_discount_products` — those two format full `DealSuggestionItem` rows and cap at
+        `limit` (<=50) for display in their own suggestion tab; this one just needs the complete ref
+        set so the console can flag "has an active promotion" on *any* product it renders (bestseller
+        suggestions, manual search, already-curated list), not just the top N shown under the
+        Promoção/Desconto tabs themselves.
+        """
+
+        visible_items = await self._list_visible_inventory_items()
+        now = datetime.now(UTC)
+        refs: set[str] = set()
+        for kind in ("campaign", "product_discount"):
+            for promotion in await self._list_active_promotions(kind=kind):
+                for item in list_promotion_matches(promotion, visible_items, now=now):
+                    refs.add(_item_ref(item))
+        return sorted(refs)
+
     async def list_active_coupon_products(self, *, limit: int) -> DealSuggestionListResponse:
         """List products currently targeted by an active coupon campaign."""
 

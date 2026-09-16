@@ -36,6 +36,7 @@ class ChatThread(Base, UuidModel, TimestampedModel):
     thread_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     source_channel: Mapped[str] = mapped_column(String(24), default="marketplace", nullable=False)
     thread_status: Mapped[str] = mapped_column(String(24), default="open", nullable=False)
+    closed_reason: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     topic: Mapped[str] = mapped_column(String(120), default="Atendimento farmacêutico", nullable=False)
     customer_name_snapshot: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     pharmacist_name_snapshot: Mapped[str] = mapped_column(String(255), default="", nullable=False)

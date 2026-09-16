@@ -17,6 +17,7 @@ Observations:
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated
 
 from pydantic import Field, StringConstraints
@@ -30,6 +31,7 @@ from app.schemas.common import StrictModel
 
 
 MarketplaceImageUrl = Annotated[str, StringConstraints(max_length=600_000)]
+MarketingHighlight = Annotated[str, StringConstraints(max_length=140)]
 
 
 class ProductResponse(StrictModel):
@@ -51,6 +53,12 @@ class ProductResponse(StrictModel):
     cnae_code: str = ""
     marketplace_image_url: str
     marketplace_gallery_urls: list[str]
+    short_description: str = ""
+    bula_markdown: str = ""
+    marketing_highlights: list[str] = Field(default_factory=list)
+    variant_group_id: str | None = None
+    variant_label: str = ""
+    cashback_percent: Decimal | None = None
     is_active: bool
     is_discarded: bool = False
     store_count: int = 0
@@ -73,6 +81,11 @@ class ProductCreateRequest(StrictModel):
     cnae_code: str = Field(default="", max_length=20)
     marketplace_image_url: MarketplaceImageUrl = ""
     marketplace_gallery_urls: list[MarketplaceImageUrl] = Field(default_factory=list, max_length=8)
+    short_description: str = Field(default="", max_length=2_000)
+    bula_markdown: str = Field(default="", max_length=20_000)
+    marketing_highlights: list[MarketingHighlight] = Field(default_factory=list, max_length=8)
+    variant_label: str = Field(default="", max_length=60)
+    cashback_percent: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("100"))
 
 
 class ProductUpdateRequest(StrictModel):
@@ -89,6 +102,18 @@ class ProductUpdateRequest(StrictModel):
     cnae_code: str = Field(default="", max_length=20)
     marketplace_image_url: MarketplaceImageUrl = ""
     marketplace_gallery_urls: list[MarketplaceImageUrl] = Field(default_factory=list, max_length=8)
+    short_description: str = Field(default="", max_length=2_000)
+    bula_markdown: str = Field(default="", max_length=20_000)
+    marketing_highlights: list[MarketingHighlight] = Field(default_factory=list, max_length=8)
+    variant_label: str = Field(default="", max_length=60)
+    cashback_percent: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("100"))
+
+
+class ProductVariantLinkRequest(StrictModel):
+    """Validate a request to link one product as a dosage/size variant of another."""
+
+    link_to_product_id: str = Field(min_length=1)
+    variant_label: str = Field(min_length=1, max_length=60)
 
 
 class ProductStatusUpdateRequest(StrictModel):

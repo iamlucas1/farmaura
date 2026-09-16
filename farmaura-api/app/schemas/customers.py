@@ -13,6 +13,8 @@ Observations:
 - richer customer fields should remain tenant-scoped;
 """
 
+from decimal import Decimal
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import Field
@@ -41,6 +43,11 @@ class CustomerProfileResponse(StrictModel):
     gender: str = ""
     marital_status: str = ""
     children_count: int | None = None
+    # Birth years, not ages — see Customer.children_birth_years; the frontend derives each
+    # child's current age from these so it advances every year without re-entry.
+    children_birth_years: list[int] = Field(default_factory=list)
+    # Parallel to children_birth_years by index (same slot = same child).
+    children_names: list[str] = Field(default_factory=list)
     avatar_url: str = ""
     two_factor_enabled: bool = False
     member_since_label: str = ""
@@ -64,6 +71,8 @@ class CustomerProfileUpdateRequest(StrictModel):
     gender: str = Field(default="", max_length=40)
     marital_status: str = Field(default="", max_length=16)
     children_count: int | None = Field(default=None, ge=0, le=20)
+    children_birth_years: list[Annotated[int, Field(ge=1900, le=2100)]] = Field(default_factory=list, max_length=20)
+    children_names: list[Annotated[str, Field(max_length=160)]] = Field(default_factory=list, max_length=20)
     marketing_program_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
     communication_channel_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
 
@@ -203,3 +212,71 @@ class ProductAvailabilityAlertCreateRequest(StrictModel):
     """Validate a back-in-stock notification request payload."""
 
     product_name: str = Field(default="", max_length=255)
+
+
+class CustomerPrescriptionStatusResponse(StrictModel):
+    """Represent the customer's most recent pre-order prescription submission.
+
+    Gates the marketplace checkout payment step: 'none' means the customer hasn't sent one yet
+    for the prescription item(s) in their cart, 'pending' means it's awaiting pharmacist review,
+    'approved' clears payment, 'rejected' carries the pharmacist's reason for another attempt.
+    """
+
+    status: str = "none"
+    prescription_id: str = ""
+    rejection_reason: str = ""
+    submitted_at_label: str = ""
+
+
+class CustomerCashbackLedgerEntry(StrictModel):
+    """Represent one movement in the customer's cashback ledger."""
+
+    id: str
+    type: str
+    status: str
+    amount: Decimal
+    order_id: str = ""
+    reference: str = ""
+    notes: str = ""
+    created_at_label: str = ""
+
+
+class CustomerCashbackSummaryResponse(StrictModel):
+    """Represent the customer's cashback wallet and its recent ledger."""
+
+    available_balance: Decimal = Decimal("0.00")
+    pending_balance: Decimal = Decimal("0.00")
+    lifetime_earned_total: Decimal = Decimal("0.00")
+    redeemed_total: Decimal = Decimal("0.00")
+    redeem_max_percent: Decimal = Decimal("25.00")
+    entries: list[CustomerCashbackLedgerEntry] = Field(default_factory=list)
+
+
+class CustomerAnniversaryOfferResponse(StrictModel):
+    """Represent one birthday/customer-anniversary discount the customer may claim.
+
+    Only listed at all when the admin has that kind enabled (app/schemas/portal.py's
+    birthday_discount_enabled / customer_anniversary_discount_enabled) — a disabled kind never
+    appears, rather than showing up greyed out.
+    """
+
+    kind: str
+    label: str
+    percent: Decimal
+    month_label: str = ""
+    eligible: bool = False
+    already_claimed: bool = False
+    code: str = ""
+    valid_until_label: str = ""
+
+
+class CustomerAnniversaryOffersResponse(StrictModel):
+    """Represent every anniversary discount currently offered to the customer."""
+
+    offers: list[CustomerAnniversaryOfferResponse] = Field(default_factory=list)
+
+
+class CustomerAnniversaryClaimRequest(StrictModel):
+    """Validate a request to claim one anniversary discount coupon."""
+
+    kind: str = Field(max_length=24)

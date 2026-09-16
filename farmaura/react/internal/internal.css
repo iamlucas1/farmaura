@@ -24,10 +24,11 @@
   --bg:#faf7f5; --surface:#ffffff; --surface-2:#f1ebe9; --surface-3:#e8e1df;
   --text-primary:#2b1a1a; --text-secondary:#6b5757; --text-muted:#746868;
   --border:rgba(43,26,26,0.11); --border-strong:rgba(43,26,26,0.18);
-  /* brand = crimson chrome (rail, logo, brand marks). accent = the primary action (teal), reserved and rare. */
+  /* brand = crimson chrome (rail, logo, brand marks). accent = the primary action — same red family as
+     the marketplace's --fa-primary/--fa-rose, so both apps read as one product, not two palettes. */
   --brand:#a11017; --brand-ink:#7c0c12;
   --heat:161,16,23; /* RGB triple for the movement-heatmap intensity scale */
-  --accent:#0f6b60; --accent-hover:#0b564d; --accent-contrast:#ffffff; --accent-soft:#e3f1ee; --accent-soft-strong:#c6e6df;
+  --accent:#a11017; --accent-hover:#7c0c12; --accent-contrast:#ffffff; --accent-soft:#ffecec; --accent-soft-strong:#ffd5d5;
   --good:#1f6b49; --good-soft:#e4f1eb; --warning:#8a5514; --warning-soft:#fceedb; --serious:#9a3f14; --serious-soft:#f8e3d5; --critical:#b3261e; --critical-soft:#fbe2e2;
   --info:#3a6ea5; --info-soft:#e6edf5;
   --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100; --series-5:#e87ba4; --series-6:#3a6ea5; --series-7:#4a3aa7; --series-8:#e34948;
@@ -46,7 +47,7 @@
     --bg:#1c1211; --surface:#241816; --surface-2:#2e201d; --surface-3:#3a2724;
     --text-primary:#f5ede9; --text-secondary:#cbb8b5; --text-muted:#9c8683;
     --border:rgba(255,232,224,0.10); --border-strong:rgba(255,232,224,0.17);
-    --accent:#3fb9a8; --accent-hover:#5accba; --accent-contrast:#052b26; --accent-soft:rgba(63,185,168,0.16); --accent-soft-strong:rgba(63,185,168,0.30); --heat:234,120,110;
+    --accent:#e2636d; --accent-hover:#ee8890; --accent-contrast:#2b0506; --accent-soft:rgba(226,99,109,0.16); --accent-soft-strong:rgba(226,99,109,0.30); --heat:234,120,110;
     --good:#5fce9a; --good-soft:rgba(95,206,154,0.14); --warning:#f0b429; --warning-soft:rgba(240,180,41,0.14); --serious:#ef8b63; --serious-soft:rgba(239,139,99,0.14); --critical:#f16565; --critical-soft:rgba(241,101,101,0.14);
     --info:#5b96d6; --info-soft:rgba(91,150,214,0.16);
     --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500; --series-5:#d55181; --series-6:#5b96d6; --series-7:#9085e9; --series-8:#e66767;
@@ -60,7 +61,7 @@
   --bg:#1c1211; --surface:#241816; --surface-2:#2e201d; --surface-3:#3a2724;
   --text-primary:#f5ede9; --text-secondary:#cbb8b5; --text-muted:#9c8683;
   --border:rgba(255,232,224,0.10); --border-strong:rgba(255,232,224,0.17);
-  --accent:#3fb9a8; --accent-hover:#5accba; --accent-contrast:#052b26; --accent-soft:rgba(63,185,168,0.16); --accent-soft-strong:rgba(63,185,168,0.30); --heat:234,120,110;
+  --accent:#e2636d; --accent-hover:#ee8890; --accent-contrast:#2b0506; --accent-soft:rgba(226,99,109,0.16); --accent-soft-strong:rgba(226,99,109,0.30); --heat:234,120,110;
   --good:#5fce9a; --good-soft:rgba(95,206,154,0.14); --warning:#f0b429; --warning-soft:rgba(240,180,41,0.14); --serious:#ef8b63; --serious-soft:rgba(239,139,99,0.14); --critical:#f16565; --critical-soft:rgba(241,101,101,0.14);
   --info:#5b96d6; --info-soft:rgba(91,150,214,0.16);
   --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500; --series-5:#d55181; --series-6:#5b96d6; --series-7:#9085e9; --series-8:#e66767;
@@ -405,24 +406,6 @@ tr.clickable:hover .link-cell { text-decoration: underline; }
 }
 .confirm-check input { margin-top: 2px; flex: none; width: 15px; height: 15px; accent-color: var(--accent); }
 
-/* ---------- undo toast ---------- */
-.toast-stack {
-  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 200;
-  display: flex; flex-direction: column-reverse; gap: 8px; align-items: center; width: max-content;
-  max-width: calc(100vw - 32px); pointer-events: none;
-}
-.toast {
-  pointer-events: auto; display: flex; align-items: center; gap: 13px; background: var(--surface);
-  color: var(--text-primary); border: 1px solid var(--border-strong); padding: 10px 11px 10px 14px;
-  border-radius: 12px; box-shadow: var(--shadow-lg); font-size: 12.5px; font-weight: 600;
-  animation: toast-in .22s cubic-bezier(.2,.8,.2,1);
-}
-.toast-icon { color: var(--good); display: flex; flex: none; }
-.toast-action { background: var(--accent-soft); border: none; color: var(--accent); font-weight: 800; font-size: 12px; cursor: pointer; padding: 6px 11px; border-radius: 8px; white-space: nowrap; font-family: inherit; }
-.toast-action:hover { background: var(--accent-soft-strong); }
-.toast-close { background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; padding: 4px; border-radius: 6px; }
-.toast-close:hover { color: var(--text-primary); background: var(--surface-2); }
-
 /* ---------- command palette ---------- */
 .topbar-search.as-button { cursor: pointer; }
 .topbar-search.as-button:hover { background: var(--surface-3); }
@@ -531,7 +514,6 @@ tr.clickable:focus-visible, .pdv-rx-choice:focus-visible { outline: 2px solid va
 @keyframes pop-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }
 @keyframes slide-in-right { from { transform: translateX(24px); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
 @keyframes drop-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 .route-fade { animation: route-in .13s ease-out; }
 @keyframes route-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }

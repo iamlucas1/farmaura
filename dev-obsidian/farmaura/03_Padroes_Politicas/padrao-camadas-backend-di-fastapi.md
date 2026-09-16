@@ -26,4 +26,5 @@ A hierarquia `DomainError` é **minoritária na prática** — 18 dos ~29 arquiv
 
 ## Atualizações
 
+- 2026-09-13: `app/core/exceptions.py` passou a garantir que **toda** resposta de erro (`DomainError`, `HTTPException` solto, validação, erro de banco, erro inesperado) sempre devolve `{"detail": "<mensagem segura em português>", "category": "<categoria>"}` — inclusive as rotas que ainda usam `HTTPException` direto (a exceção conhecida citada acima), que agora ganham uma `category` inferida do status HTTP mesmo sem migrar para `DomainError`. Ver [[../00_Decisoes/2026-09-13-erros-e-sucessos-em-modal-pt-br-no-console-interno|ADR]].
 - 2026-07-19: nota criada.

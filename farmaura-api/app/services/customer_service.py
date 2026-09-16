@@ -19,7 +19,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import asyncio
+import calendar
 import re
+from datetime import UTC, datetime
 
 from app.core.tenant_context import apply_tenant_context
 from app.domain.validators import is_valid_cpf, normalize_cpf
@@ -32,10 +34,14 @@ from app.repositories.customer_address_repository import CustomerAddressReposito
 from app.repositories.customer_payment_method_repository import CustomerPaymentMethodRepository
 from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
+from app.repositories.prescription_repository import PrescriptionRepository
 from app.repositories.product_availability_alert_repository import ProductAvailabilityAlertRepository
 from app.repositories.user_repository import UserRepository
 from app.services.asaas_client import AsaasClient, AsaasError
+from app.services.cashback_service import CashbackService
+from app.services.coupon_service import CouponService
 from app.services.marketplace_projection import build_marketplace_catalog_groups
+from app.services.portal_service import PortalService
 from app.schemas.auth import TokenSubject
 from app.schemas.customers import (
     CardTokenizeRequest,
@@ -43,15 +49,26 @@ from app.schemas.customers import (
     CartItemUpsertRequest,
     CustomerAddressResponse,
     CustomerAddressUpsertRequest,
+    CustomerAnniversaryClaimRequest,
+    CustomerAnniversaryOfferResponse,
+    CustomerAnniversaryOffersResponse,
     CustomerAvatarUpdateRequest,
+    CustomerCashbackSummaryResponse,
     CustomerPaymentMethodCreateRequest,
     CustomerPaymentMethodResponse,
     CustomerPaymentMethodUpdateRequest,
+    CustomerPrescriptionStatusResponse,
     CustomerProfileResponse,
     CustomerProfileUpdateRequest,
     ProductAvailabilityAlertCreateRequest,
     ProductAvailabilityAlertResponse,
 )
+
+
+ANNIVERSARY_MONTH_LABELS = {
+    1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril", 5: "maio", 6: "junho",
+    7: "julho", 8: "agosto", 9: "setembro", 10: "outubro", 11: "novembro", 12: "dezembro",
+}
 
 
 # ============================================================================
@@ -73,6 +90,7 @@ class CustomerService:
         self.cart_repository = CartRepository(session)
         self.inventory_repository = InventoryRepository(session)
         self.availability_alert_repository = ProductAvailabilityAlertRepository(session)
+        self.prescription_repository = PrescriptionRepository(session)
 
     async def get_profile(self, subject: TokenSubject) -> CustomerProfileResponse:
         """Return a subject-derived customer profile."""
@@ -80,6 +98,142 @@ class CustomerService:
         user = await self._get_subject_user(subject)
         customer = await self.customer_repository.get_by_email(tenant_id=str(subject.tenant_id), email=user.email)
         return self._build_profile_response(subject=subject, user=user, customer=customer)
+
+    async def get_prescription_status(self, subject: TokenSubject) -> CustomerPrescriptionStatusResponse:
+        """Return the customer's most recent pre-order prescription submission status.
+
+        Checkout uses this to gate payment on prescription items: keeps looking at the same
+        submission (by design a single, cart-wide gate — not per medication) until it either
+        becomes an order (see PrescriptionService._apply_decision_to_order for the post-order
+        path) or the customer sends a new one after a rejection.
+        """
+
+        customer = await self._resolve_customer(subject)
+        prescription = await self.prescription_repository.get_latest_for_customer(
+            tenant_id=str(subject.tenant_id), customer_id=customer.id,
+        )
+        if prescription is None:
+            return CustomerPrescriptionStatusResponse()
+        return CustomerPrescriptionStatusResponse(
+            status=prescription.status,
+            prescription_id=prescription.id,
+            rejection_reason=prescription.rejection_reason,
+            submitted_at_label=prescription.submitted_at_label,
+        )
+
+    async def get_cashback_summary(self, subject: TokenSubject) -> CustomerCashbackSummaryResponse:
+        """Return the authenticated customer's cashback wallet balances, ledger, and redeem ceiling."""
+
+        customer = await self._resolve_customer(subject)
+        return await CashbackService(self.session, subject).get_wallet_summary(
+            tenant_id=str(subject.tenant_id), customer_id=customer.id,
+        )
+
+    async def get_anniversary_offers(self, subject: TokenSubject) -> CustomerAnniversaryOffersResponse:
+        """Return the birthday/customer-anniversary coupons currently offered to this customer.
+
+        Only lists kinds the admin has enabled (app/schemas/portal.py); a birthday offer is
+        further dropped when the customer has no birth date on file, since there's nothing to
+        check eligibility against.
+        """
+
+        customer = await self._resolve_customer(subject)
+        meta = await PortalService(self.session).get_marketplace_meta(tenant_id=str(subject.tenant_id))
+        now = datetime.now(UTC)
+
+        candidates: list[tuple[str, str, object, int | None]] = []
+        if meta.birthday_discount_enabled:
+            birth_month = self._parse_birth_month(customer.birth_date)
+            if birth_month is not None:
+                candidates.append(("birthday", "Aniversário de nascimento", meta.birthday_discount_percent, birth_month))
+        if meta.customer_anniversary_discount_enabled:
+            candidates.append(("customer_anniversary", "Aniversário de cliente", meta.customer_anniversary_discount_percent, customer.created_at.month))
+
+        coupon_service = CouponService(self.session)
+        offers: list[CustomerAnniversaryOfferResponse] = []
+        for kind, label, percent, month in candidates:
+            existing = await coupon_service.get_customer_anniversary_coupon(
+                tenant_id=str(subject.tenant_id), customer_id=customer.id, kind=kind, year=now.year,
+            )
+            offers.append(CustomerAnniversaryOfferResponse(
+                kind=kind,
+                label=label,
+                percent=percent,
+                month_label=ANNIVERSARY_MONTH_LABELS.get(month, ""),
+                eligible=month == now.month,
+                already_claimed=existing is not None,
+                code=existing.code if existing is not None else "",
+                valid_until_label=existing.ends_at.strftime("%d/%m/%Y") if existing is not None and existing.ends_at else "",
+            ))
+        return CustomerAnniversaryOffersResponse(offers=offers)
+
+    async def claim_anniversary_offer(self, subject: TokenSubject, payload: CustomerAnniversaryClaimRequest) -> CustomerAnniversaryOfferResponse:
+        """Issue the customer's personal coupon for one anniversary kind, re-validating eligibility server-side.
+
+        Idempotent: claiming a kind already claimed this year just returns the existing coupon
+        instead of a second one — the server is the sole source of truth for both eligibility and
+        "already claimed", never trusting whatever the client's own offer list last showed.
+        """
+
+        customer = await self._resolve_customer(subject)
+        meta = await PortalService(self.session).get_marketplace_meta(tenant_id=str(subject.tenant_id))
+        now = datetime.now(UTC)
+
+        if payload.kind == "birthday":
+            if not meta.birthday_discount_enabled:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Este benefício não está disponível.")
+            month = self._parse_birth_month(customer.birth_date)
+            label = "Aniversário de nascimento"
+            percent = meta.birthday_discount_percent
+        elif payload.kind == "customer_anniversary":
+            if not meta.customer_anniversary_discount_enabled:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Este benefício não está disponível.")
+            month = customer.created_at.month
+            label = "Aniversário de cliente"
+            percent = meta.customer_anniversary_discount_percent
+        else:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Tipo de benefício inválido.")
+
+        if month is None or month != now.month:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Este benefício só pode ser resgatado durante o mês do seu aniversário.")
+
+        coupon_service = CouponService(self.session)
+        existing = await coupon_service.get_customer_anniversary_coupon(
+            tenant_id=str(subject.tenant_id), customer_id=customer.id, kind=payload.kind, year=now.year,
+        )
+        if existing is None:
+            last_day = calendar.monthrange(now.year, now.month)[1]
+            valid_until = now.replace(day=last_day, hour=23, minute=59, second=59, microsecond=0)
+            existing = await coupon_service.claim_anniversary_coupon(
+                tenant_id=str(subject.tenant_id), customer_id=customer.id, kind=payload.kind,
+                year=now.year, title=label, percent=percent, valid_until=valid_until,
+            )
+            await self.session.commit()
+            await apply_tenant_context(self.session, subject)
+
+        return CustomerAnniversaryOfferResponse(
+            kind=payload.kind,
+            label=label,
+            percent=percent,
+            month_label=ANNIVERSARY_MONTH_LABELS.get(month, ""),
+            eligible=True,
+            already_claimed=True,
+            code=existing.code,
+            valid_until_label=existing.ends_at.strftime("%d/%m/%Y") if existing.ends_at else "",
+        )
+
+    @staticmethod
+    def _parse_birth_month(birth_date: str) -> int | None:
+        """Return the month (1-12) from a stored "YYYY-MM-DD" birth date, or None if unset/invalid."""
+
+        parts = (birth_date or "").split("-")
+        if len(parts) != 3:
+            return None
+        try:
+            month = int(parts[1])
+        except ValueError:
+            return None
+        return month if 1 <= month <= 12 else None
 
     async def update_avatar(self, subject: TokenSubject, payload: CustomerAvatarUpdateRequest) -> CustomerProfileResponse:
         """Persist the authenticated customer avatar."""
@@ -118,6 +272,8 @@ class CustomerService:
         customer.gender = payload.gender.strip()
         customer.marital_status = payload.marital_status.strip()
         customer.children_count = payload.children_count
+        customer.children_birth_years = list(payload.children_birth_years)
+        customer.children_names = list(payload.children_names)
         customer.marketing_program_preferences = list(payload.marketing_program_preferences)
         customer.communication_channel_preferences = list(payload.communication_channel_preferences)
         await self.customer_repository.save(customer)
@@ -595,6 +751,8 @@ class CustomerService:
             gender=getattr(customer, "gender", "") or "",
             marital_status=getattr(customer, "marital_status", "") or "",
             children_count=getattr(customer, "children_count", None),
+            children_birth_years=list(getattr(customer, "children_birth_years", None) or []),
+            children_names=list(getattr(customer, "children_names", None) or []),
             avatar_url=getattr(customer, "avatar_url", "") or "",
             two_factor_enabled=bool(getattr(user, "two_factor_enabled", False)),
             member_since_label=getattr(customer, "member_since_label", "") or "",

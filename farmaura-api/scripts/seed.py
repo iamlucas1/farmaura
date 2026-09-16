@@ -16,12 +16,14 @@ Observations:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import sys
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -43,6 +45,7 @@ from app.models.cashback_transaction_line import CashbackTransactionLine
 from app.models.chat_message import ChatMessage
 from app.models.chat_message_attachment import ChatMessageAttachment
 from app.models.chat_thread import ChatThread
+from app.models.chat_unblock_request import ChatUnblockRequest
 from app.models.customer import Customer
 from app.models.customer_address import CustomerAddress
 from app.models.customer_cashback_wallet import CustomerCashbackWallet
@@ -122,6 +125,28 @@ MFA_SECRET = "JBSWY3DPEHPK3PXP"
 # fields — this just extends it to the operational day itself. Every existing `SEED_NOW -
 # timedelta(days=N)` call site keeps working unchanged, since they're all relative to this anchor.
 SEED_NOW = datetime.now(UTC).replace(hour=9, minute=30, second=0, microsecond=0)
+_BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
+
+# OTC-only subset of the catalog (never requires_prescription/is_controlled — this is meant to
+# look like a real storefront promotion), rotated across build_deal_of_the_day_settings()'s
+# scheduled entries.
+DEAL_OF_THE_DAY_CANDIDATE_KEYS = [
+    "vitamin_c", "sunscreen", "dipyrone", "simethicone", "glycemia_strips",
+    "paracetamol", "ibuprofen", "loratadine", "omeprazole", "vitamin_d3",
+    "complex_b", "melatonin", "cough_syrup", "omega3", "magnesium", "probiotic",
+    "facial_moisturizer", "shampoo", "lip_balm", "toothbrush",
+]
+
+# Distinct-but-overlapping subset of the same OTC candidate pool — real products can plausibly be
+# both "on sale" (Ofertas do dia) and "trending" (Tendências) at once, so some overlap is fine;
+# this just isn't the exact same list, so the two sections don't render as identical duplicates.
+HOME_TRENDS_CANDIDATE_KEYS = [
+    "ibuprofen", "loratadine", "omeprazole", "facial_moisturizer",
+    "shampoo", "lip_balm", "toothbrush", "probiotic",
+]
+_DEAL_OF_THE_DAY_WEEKDAY_LABELS = [
+    "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo",
+]
 
 # CNAEs (atividades) registrados para a farmácia. O ICMS de cada CNAE fica em
 # 0.00% no seed de propósito — é uma alíquota efetiva que a contabilidade da
@@ -334,6 +359,185 @@ def build_cnae_settings() -> PortalSetting:
                 "state_code": "DF",
                 "trailing_12m_revenue": "1200000.00",
             },
+        }),
+    )
+
+
+#: Reproduces the storefront's `.hero` (gradient + 3 decorative arc circles) exactly, via real
+#: classes the marketplace stylesheet defines (`.fa-hero-decorative`/`.fa-hero-arc`/...,
+#: `marketplace.css`) rather than inline `style` — the banner-HTML sanitizer deliberately blocks
+#: `position`/`background-image`/gradients on arbitrary admin `style` attributes (see
+#: PortalService._HOME_BANNER_ALLOWED_STYLE_PROPERTIES), but `class` passes through untouched,
+#: and what a class name actually renders as is decided by our own stylesheet, never by admin
+#: input — so this gets the full demo look without weakening that boundary. See dev-obsidian
+#: ADR 2026-08-29 for the reasoning.
+_HOME_BANNER_HTML = (
+    '<div class="fa-hero-decorative">'
+    '<span class="fa-hero-arc a1"></span><span class="fa-hero-arc a2"></span><span class="fa-hero-arc a3"></span>'
+    '<div class="fa-hero-kicker">A farmácia do seu bairro</div>'
+    '<div class="fa-hero-title">Tudo o que a maior farmácia da região teria, perto de você</div>'
+    '<div class="fa-hero-sub">Medicamentos, saúde e bem-estar com entrega rápida, cashback e atendimento de verdade.</div>'
+    '<div class="fa-hero-actions">'
+    '<div class="fa-hero-btn fa-hero-btn--white">Ver ofertas</div>'
+    '<div class="fa-hero-btn fa-hero-btn--ghost">Enviar receita</div>'
+    "</div></div>"
+)
+
+
+def build_home_banner_settings() -> PortalSetting:
+    """Build the marketplace home hero banner already active, mirroring the reference demo's `.hero`.
+
+    A fresh tenant would normally have this `mode="off"` (no banner at all, see
+    PortalService._resolve_home_banner's default) until an admin configures one by hand through
+    Catálogo/Marketplace -> Banner da vitrine — seeded here already on, single HTML slide, so the
+    home page shows a hero right after `docker compose up` with no manual console step or extra
+    script run needed (same reasoning as build_deal_of_the_day_settings below). Content/copy and
+    styling (gradient, decorative arcs) are lifted straight from the demo's `.hero` section — see
+    _HOME_BANNER_HTML's own comment for how that stays inside the banner-HTML sanitizer's rules.
+    """
+
+    return PortalSetting(
+        id=seed_uuid("setting-home-banner"),
+        tenant_id=TENANT_ID,
+        portal_name="internal",
+        setting_key="home_banner",
+        value_json=json_text({
+            "mode": "image",
+            "slides": [
+                {
+                    "id": "seed-home-banner-hero",
+                    "kind": "html",
+                    "html": _HOME_BANNER_HTML,
+                    "alt_text": "Tudo o que a maior farmácia da região teria, perto de você",
+                    "link_type": "offers",
+                }
+            ],
+            "target_width": 1600,
+            "target_height": 480,
+        }),
+    )
+
+
+#: Real, recognizable pharmacy/dermocosmetic brand logos — standard nominative/retailer use of a
+#: supplier's logo to say "we sell this brand", same reasoning already documented next to the
+#: identical list in farmaura/react/marketplace/core/marketplace-app.jsx (FAKE_BRANDS, used there
+#: for the pre-launch countdown mock). Copied here (scripts/assets/real_brands/, from the frontend
+#: package's farmaura/react/marketplace/assets/marketplace/fake-brands/) rather than read cross-
+#: package at seed time: the farmaura-api Docker image's build context never includes the sibling
+#: farmaura/ frontend directory (see Dockerfile — only app/alembic/scripts/storage are copied), so
+#: a path reaching into that package would resolve on the host but not inside the container this
+#: actually runs in — same reason scripts/assets/demo_brands/ (the fictional-name set
+#: populate_demo_content.py uses) is a committed copy rather than a live reference to anything.
+#: Name spelling matches this catalog's actual `InventoryProduct.brand` values where a match
+#: exists ("Neo Quimica", no accent — unlike marketplace-app.jsx's own "Neo Química", since that
+#: copy is purely decorative and never has to equal a real filter value) — EMS, La Roche-Posay,
+#: Neo Quimica, Nivea and Vichy all resolve to real seeded products when clicked; Johnson &
+#: Johnson and Cimed don't have a seeded product yet and show an empty shop until one does, same
+#: as any other brand a tenant adds before stocking it.
+_HOME_BRANDS_ASSETS_DIR = Path(__file__).parent / "assets" / "real_brands"
+_HOME_BRANDS_REAL = [
+    ("EMS", "ems.png"),
+    ("Neo Quimica", "neoquimica.png"),
+    ("Vichy", "vichy.png"),
+    ("La Roche-Posay", "laroche.png"),
+    ("Johnson & Johnson", "jnj.png"),
+    ("Nivea", "nivea.png"),
+    ("Cimed", "cimed.png"),
+]
+
+
+def build_home_brands_settings() -> PortalSetting:
+    """Build the marketplace "marcas em destaque" circle strip already active.
+
+    Same reasoning as build_home_banner_settings above: a fresh tenant has this `mode="off"`
+    until an admin configures it by hand (or until someone runs populate_demo_content.py, which
+    sets a different, fictional-name set of fake brands over HTTP) — seeded here already on, so
+    the home page shows the strip right after `docker compose up`, no extra script run needed.
+    """
+
+    circles = [
+        {
+            "id": "seed-brand-" + name.lower().replace(" ", "-").replace("&", "e"),
+            "image": "data:image/png;base64," + base64.b64encode((_HOME_BRANDS_ASSETS_DIR / filename).read_bytes()).decode("ascii"),
+            "alt_text": f"Logo {name}",
+            "brand_name": name,
+        }
+        for name, filename in _HOME_BRANDS_REAL
+    ]
+    return PortalSetting(
+        id=seed_uuid("setting-home-brands"),
+        tenant_id=TENANT_ID,
+        portal_name="internal",
+        setting_key="home_brands",
+        value_json=json_text({"mode": "on", "circles": circles}),
+    )
+
+
+def build_home_trends_settings(catalog: dict[str, object]) -> PortalSetting:
+    """Build the marketplace "Tendências" curated product strip already active.
+
+    Mirrors the demo's `.band[--band-bg:var(--fa-success-soft)]` "Tendências" section — same
+    reasoning as build_home_banner_settings/build_home_brands_settings above: a fresh tenant would
+    have this `mode="off"` (see PortalHomeTrendsResponse's default) until an admin curates one by
+    hand through Catálogo/Marketplace -> Tendências (home-trends-screen.jsx) — seeded here already
+    on, so the section shows up right after `docker compose up`. Curated manually rather than
+    driven by a real "trending" signal (period-over-period growth) because no such signal exists
+    in the backend yet — same honest-curation choice already made for "Ofertas do dia"/"Marcas em
+    destaque" — see dev-obsidian ADR for the "Tendências" band.
+    """
+
+    inventory: dict[str, InventoryItem] = catalog["inventory"]  # type: ignore[assignment]
+    refs = [f"inv-{inventory[key].id}" for key in HOME_TRENDS_CANDIDATE_KEYS if key in inventory]
+
+    return PortalSetting(
+        id=seed_uuid("setting-home-trends"),
+        tenant_id=TENANT_ID,
+        portal_name="internal",
+        setting_key="home_trends",
+        value_json=json_text({"mode": "on", "product_refs": refs}),
+    )
+
+
+def build_deal_of_the_day_settings(catalog: dict[str, object]) -> PortalSetting:
+    """Build "ofertas do dia" already pre-activated in scheduled mode, one entry per day.
+
+    A fresh tenant would normally have this section `mode="off"` until an admin configures it by
+    hand — seeded here already `mode="scheduled"` with one calendar entry per day (today plus the
+    next six), specifically so the feature is visible/testable right after `docker compose up`
+    with no manual console setup or extra script run needed. Anchored to the real current date
+    (Brasília time, matching `PortalService._current_cycle_date`/`_BRASILIA_TZ`) rather than the
+    fixed `SEED_NOW`, same reasoning as `build_coupon_campaigns`'s schedule-sensitive coupons — a
+    fixed date would go stale the moment real time moves past it.
+    """
+
+    inventory: dict[str, InventoryItem] = catalog["inventory"]  # type: ignore[assignment]
+    refs = [f"inv-{inventory[key].id}" for key in DEAL_OF_THE_DAY_CANDIDATE_KEYS if key in inventory]
+
+    per_day = 5
+    days = 7
+    today = datetime.now(_BRASILIA_TZ).date()
+    entries = []
+    for offset in range(days):
+        day = today + timedelta(days=offset)
+        day_refs = [refs[(offset * per_day + i) % len(refs)] for i in range(min(per_day, len(refs)))]
+        entries.append({
+            "id": f"seed-{day.isoformat()}",
+            "title": f"Ofertas de {_DEAL_OF_THE_DAY_WEEKDAY_LABELS[day.weekday()]}",
+            "subtitle": day.strftime("%d/%m"),
+            "product_refs": day_refs,
+            "specific_dates": [day.isoformat()],
+        })
+
+    return PortalSetting(
+        id=seed_uuid("setting-deal-of-the-day"),
+        tenant_id=TENANT_ID,
+        portal_name="internal",
+        setting_key="deal_of_the_day",
+        value_json=json_text({
+            "mode": "scheduled",
+            "reset_time": "00:00",
+            "schedule_entries": entries,
+            "show_countdown": True,
         }),
     )
 
@@ -565,13 +769,24 @@ def build_customers() -> dict[str, Customer]:
             tenure_months=27,
             active_subscriptions=["SUB-1001"],
             favorite_items=["Losartana 50mg", "Vitamina C 1g", "Tiras de Glicemia"],
-            top_products_snapshot=[{"name": "Losartana 50mg", "count": 5}, {"name": "Vitamina C 1g", "count": 3}],
+            top_products_snapshot=[
+                {"name": "Losartana 50mg", "quantity": 8, "category": "Medicamentos", "continuous_use": True},
+                {"name": "Tiras de Glicemia", "quantity": 6, "category": "Medicamentos", "continuous_use": True},
+                {"name": "Vitamina C 1g", "quantity": 5, "category": "Bem-estar"},
+                {"name": "Passiflora Incarnata 400mg", "quantity": 3, "category": "Fitoterápicos"},
+                {"name": "Protetor Solar FPS 70", "quantity": 2, "category": "Perfumaria"},
+            ],
             interest_tags=["hipertensao", "bem-estar", "entrega-rapida"],
             category_mix_snapshot=[{"category": "Medicamentos", "share": 68}, {"category": "Bem-estar", "share": 32}],
             monthly_orders_snapshot=[1, 2, 1, 0, 1, 2],
             marketing_program_preferences=[{"name": "Cashback Farmaura", "enabled": True}],
             communication_channel_preferences=[{"channel": "whatsapp", "enabled": True}, {"channel": "email", "enabled": True}],
             is_active=True,
+            # Chat spam-guard scenario: violation 4 of 4 — one more slip and the next block is
+            # permanent. chat_blocked_until anchors to real wall-clock time (not SEED_NOW) so the
+            # block is still visibly active whenever this seed is actually loaded and tested.
+            chat_violation_count=4,
+            chat_blocked_until=datetime.now(UTC) + timedelta(minutes=45),
         ),
         "lucas": Customer(
             id=seed_uuid("customer-lucas"),
@@ -599,7 +814,12 @@ def build_customers() -> dict[str, Customer]:
             tenure_months=17,
             active_subscriptions=["SUB-1002"],
             favorite_items=["Amoxicilina 500mg", "Clonazepam 2mg"],
-            top_products_snapshot=[{"name": "Amoxicilina 500mg", "count": 2}, {"name": "Dipirona 1g", "count": 2}],
+            top_products_snapshot=[
+                {"name": "Clonazepam 2mg", "quantity": 4, "category": "Medicamentos", "continuous_use": True},
+                {"name": "Amoxicilina 500mg", "quantity": 2, "category": "Medicamentos"},
+                {"name": "Dipirona 1g", "quantity": 2, "category": "Medicamentos"},
+                {"name": "Protetor Solar FPS 70", "quantity": 1, "category": "Perfumaria"},
+            ],
             interest_tags=["receita-digital", "retirada-loja"],
             category_mix_snapshot=[{"category": "Medicamentos", "share": 88}, {"category": "Perfumaria", "share": 12}],
             monthly_orders_snapshot=[0, 1, 1, 0, 1, 1],
@@ -633,13 +853,21 @@ def build_customers() -> dict[str, Customer]:
             tenure_months=2,
             active_subscriptions=[],
             favorite_items=["Protetor Solar FPS 70", "Serum Vitamina C"],
-            top_products_snapshot=[{"name": "Protetor Solar FPS 70", "count": 1}, {"name": "Serum Vitamina C", "count": 1}],
+            top_products_snapshot=[
+                {"name": "Protetor Solar FPS 70", "quantity": 2, "category": "Perfumaria"},
+                {"name": "Serum Vitamina C", "quantity": 1, "category": "Perfumaria"},
+                {"name": "Vitamina C 1g", "quantity": 1, "category": "Bem-estar"},
+                {"name": "Passiflora Incarnata 400mg", "quantity": 1, "category": "Fitoterápicos"},
+            ],
             interest_tags=["dermocosmeticos", "marketplace"],
             category_mix_snapshot=[{"category": "Perfumaria", "share": 76}, {"category": "Bem-estar", "share": 24}],
             monthly_orders_snapshot=[0, 0, 0, 0, 1, 1],
             marketing_program_preferences=[{"name": "Ofertas skincare", "enabled": True}],
             communication_channel_preferences=[{"channel": "email", "enabled": True}, {"channel": "push", "enabled": True}],
             is_active=True,
+            # Chat spam-guard scenario: pharmacist has flagged this customer as spam, halving
+            # her per-minute message limit (see app.core.chat_guard._effective_limit).
+            chat_flagged_spam=True,
         ),
         "bianca": Customer(
             id=seed_uuid("customer-bianca"),
@@ -667,13 +895,57 @@ def build_customers() -> dict[str, Customer]:
             tenure_months=33,
             active_subscriptions=[],
             favorite_items=["Fralda Infantil Premium", "Dipirona 1g"],
-            top_products_snapshot=[{"name": "Fralda Infantil Premium", "count": 2}, {"name": "Dipirona 1g", "count": 2}],
+            top_products_snapshot=[
+                {"name": "Fralda Infantil Premium", "quantity": 5, "category": "Infantil"},
+                {"name": "Dipirona 1g", "quantity": 2, "category": "Medicamentos"},
+            ],
             interest_tags=["infantil", "retirada-loja"],
             category_mix_snapshot=[{"category": "Infantil", "share": 59}, {"category": "Medicamentos", "share": 41}],
             monthly_orders_snapshot=[1, 0, 1, 1, 1, 1],
             marketing_program_preferences=[{"name": "Ofertas maternidade", "enabled": True}],
             communication_channel_preferences=[{"channel": "whatsapp", "enabled": True}, {"channel": "email", "enabled": False}],
             is_active=True,
+            # Chat spam-guard scenario: violation 1 of 4 — freshly blocked, short cooldown.
+            chat_violation_count=1,
+            chat_blocked_until=datetime.now(UTC) + timedelta(minutes=1),
+        ),
+        "cliente_bloqueio_permanente": Customer(
+            id=seed_uuid("customer-bloqueio-permanente"),
+            tenant_id=TENANT_ID,
+            external_code="CRM-0090",
+            full_name="Roberto Teste Farmaura",
+            email="roberto.teste@cliente.farmaura.com.br",
+            phone="+55 61 99900-0090",
+            cpf="",
+            birth_date="",
+            gender="",
+            avatar_url="",
+            loyalty_tier="Novo",
+            is_recurring=False,
+            two_factor_enabled=False,
+            member_since_label="agosto de 2026",
+            city_label="Brasilia",
+            district_label="Ceilandia",
+            cashback_balance=money("0.00"),
+            orders_count=0,
+            total_spent=money("0.00"),
+            average_ticket=money("0.00"),
+            last_purchase_days_ago=None,
+            purchase_frequency_days=None,
+            tenure_months=0,
+            active_subscriptions=[],
+            favorite_items=[],
+            top_products_snapshot=[],
+            interest_tags=[],
+            category_mix_snapshot=[],
+            monthly_orders_snapshot=[],
+            marketing_program_preferences=[],
+            communication_channel_preferences=[],
+            is_active=True,
+            # Chat spam-guard scenario: dedicated test customer, permanently blocked after
+            # 5 escalating violations, with a pending appeal for the pharmacist review queue.
+            chat_violation_count=5,
+            chat_permanently_blocked=True,
         ),
         "rafael": Customer(
             id=seed_uuid("customer-rafael"),
@@ -701,7 +973,11 @@ def build_customers() -> dict[str, Customer]:
             tenure_months=52,
             active_subscriptions=["SUB-1003"],
             favorite_items=["Tiras de Glicemia", "Losartana 50mg"],
-            top_products_snapshot=[{"name": "Tiras de Glicemia", "count": 6}, {"name": "Losartana 50mg", "count": 4}],
+            top_products_snapshot=[
+                {"name": "Tiras de Glicemia", "quantity": 6, "category": "Medicamentos", "continuous_use": True},
+                {"name": "Losartana 50mg", "quantity": 4, "category": "Medicamentos", "continuous_use": True},
+                {"name": "Vitamina C 1g", "quantity": 3, "category": "Bem-estar"},
+            ],
             interest_tags=["diabetes", "delivery"],
             category_mix_snapshot=[{"category": "Medicamentos", "share": 71}, {"category": "Bem-estar", "share": 29}],
             monthly_orders_snapshot=[2, 1, 2, 2, 2, 2],
@@ -746,6 +1022,18 @@ def build_customers() -> dict[str, Customer]:
         "Paracetamol 750mg", "Vitamina D3", "Protetor Labial FPS 30", "Whey Protein Concentrado",
         "Fralda Infantil Premium", "Omega 3 1000mg", "Shampoo Anticaspa", "Alcool em Gel 70%",
     ]
+    # Category (+ whether it's a continuous-use item) for each pool product — lets the bulk
+    # customers' top_products_snapshot demonstrate real category spread too, not just Medicamentos.
+    favorite_item_categories = {
+        "Paracetamol 750mg": ("Medicamentos", False),
+        "Vitamina D3": ("Bem-estar", True),
+        "Protetor Labial FPS 30": ("Perfumaria", False),
+        "Whey Protein Concentrado": ("Bem-estar", False),
+        "Fralda Infantil Premium": ("Infantil", False),
+        "Omega 3 1000mg": ("Bem-estar", True),
+        "Shampoo Anticaspa": ("Perfumaria", False),
+        "Alcool em Gel 70%": ("Higiene", False),
+    }
     tier_cycle = ["Bronze", "Prata", "Ouro"]
     for row_index, (first_name, last_name, gender, district) in enumerate(bulk_customer_rows):
         key = f"bulk_customer_{row_index:02d}"
@@ -759,6 +1047,8 @@ def build_customers() -> dict[str, Customer]:
         birth_year = 1968 + (row_index * 3) % 38
         favorite_a = favorite_item_pool[row_index % len(favorite_item_pool)]
         favorite_b = favorite_item_pool[(row_index + 3) % len(favorite_item_pool)]
+        category_a, continuous_a = favorite_item_categories[favorite_a]
+        category_b, continuous_b = favorite_item_categories[favorite_b]
         customers[key] = Customer(
             id=seed_uuid("customer-" + key),
             tenant_id=TENANT_ID,
@@ -785,7 +1075,11 @@ def build_customers() -> dict[str, Customer]:
             tenure_months=3 + (row_index * 5) % 48,
             active_subscriptions=["SUB-BULK-" + f"{row_index:03d}"] if row_index % 6 == 0 else [],
             favorite_items=[favorite_a, favorite_b],
-            top_products_snapshot=[{"name": favorite_a, "count": 2 + row_index % 4}, {"name": favorite_b, "count": 1 + row_index % 3}],
+            top_products_snapshot=[
+                {"name": favorite_a, "quantity": 2 + row_index % 4, "category": category_a, "continuous_use": continuous_a},
+                {"name": favorite_b, "quantity": 1 + row_index % 3, "category": category_b, "continuous_use": continuous_b},
+                *([{"name": "Passiflora Incarnata 400mg", "quantity": 1, "category": "Fitoterápicos"}] if row_index % 4 == 0 else []),
+            ],
             interest_tags=["marketplace", "entrega-rapida"] if row_index % 2 == 0 else ["retirada-loja", "bem-estar"],
             category_mix_snapshot=[{"category": "Medicamentos", "share": 55 + row_index % 20}, {"category": "Bem-estar", "share": 45 - row_index % 20}],
             monthly_orders_snapshot=[row_index % 3, (row_index + 1) % 3, (row_index + 2) % 3, row_index % 2, (row_index + 1) % 2, row_index % 4],
@@ -832,6 +1126,88 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "cashback_percent": "6.00",
             "cashback_min": "20.00",
             "cashback_max": "18.00",
+            # bula_markdown/marketing_highlights/variant_group/variant_label seed the PDP redesign
+            # (product-screen.jsx) — Losartana is the pair used to demo the dosage-picker chips.
+            "bula_markdown": (
+                "## Indicações\n\n"
+                "Losartana Potássica é indicada para o tratamento da hipertensão arterial, "
+                "ajudando a controlar a pressão sanguínea ao longo do dia.\n\n"
+                "## Modo de uso\n\n"
+                "- Tomar 1 comprimido ao dia, com ou sem alimentos\n"
+                "- Preferencialmente sempre no mesmo horário\n"
+                "- Não interromper o uso sem orientação médica\n\n"
+                "## Contraindicações\n\n"
+                "Não utilizar durante a gravidez. Consulte um médico em caso de doença renal ou hepática.\n\n"
+                "**Uso contínuo, conforme orientação médica — não interrompa o tratamento sem falar "
+                "com seu médico ou farmacêutico.**"
+            ),
+            "short_description": (
+                "Losartana Potássica é indicada para o tratamento da hipertensão arterial, ajudando "
+                "a controlar a pressão sanguínea ao longo do dia. Uso contínuo, conforme orientação "
+                "médica — não interrompa o tratamento sem falar com seu médico ou farmacêutico."
+            ),
+            "marketing_highlights": [
+                "30 comprimidos por caixa",
+                "Uso contínuo, 1x ao dia",
+                "Genérico com o mesmo efeito do referência",
+            ],
+            "variant_group": "losartana-potassica",
+            "variant_label": "50mg",
+        },
+        {
+            "key": "losartan_100",
+            "sku": "FA-PROD-043",
+            "name": "Losartana Potassica 100mg 30 comprimidos",
+            "description": "Anti-hipertensivo para tratamento continuo — dosagem maior.",
+            "price": "36.90",
+            "requires_prescription": False,
+            "brand": "Genfar",
+            "category": "Medicamentos",
+            "therapeutic_class": "Anti-hipertensivo",
+            "cnae": "47.71-7-01",
+            "ean": "7896004700028",
+            "location": "A1-02",
+            "batch": "LOT-LOS100-2608",
+            "expiry": "08/2027",
+            "quantity": 40,
+            "minimum": 10,
+            "low_stock_threshold": 10,
+            "attention_stock_threshold": 20,
+            "normal_stock_threshold": 35,
+            "acquisition_cost": "21.50",
+            "market_reference_price": "39.90",
+            "promo": "0.00",
+            "published_price": "36.90",
+            "commission": "7.50",
+            "payment_fee": "2.49",
+            "fixed_fee": "0.79",
+            "target_margin": "21.00",
+            "cashback_percent": "6.00",
+            "cashback_min": "20.00",
+            "cashback_max": "18.00",
+            "bula_markdown": (
+                "## Indicações\n\n"
+                "Losartana Potássica 100mg é indicada para o tratamento da hipertensão arterial em "
+                "pacientes que necessitam de uma dose maior para o controle adequado da pressão.\n\n"
+                "## Modo de uso\n\n"
+                "- Tomar 1 comprimido ao dia, com ou sem alimentos\n"
+                "- Não interromper o uso sem orientação médica\n\n"
+                "## Contraindicações\n\n"
+                "Não utilizar durante a gravidez. Consulte um médico em caso de doença renal ou hepática.\n\n"
+                "**Uso contínuo, conforme orientação médica.**"
+            ),
+            "short_description": (
+                "Losartana Potássica 100mg é indicada para o tratamento da hipertensão arterial em "
+                "pacientes que necessitam de uma dose maior para o controle adequado da pressão. "
+                "Uso contínuo, conforme orientação médica."
+            ),
+            "marketing_highlights": [
+                "30 comprimidos por caixa",
+                "Dosagem maior — 100mg",
+                "Uso contínuo, 1x ao dia",
+            ],
+            "variant_group": "losartana-potassica",
+            "variant_label": "100mg",
         },
         {
             "key": "amoxicillin",
@@ -864,6 +1240,26 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "cashback_percent": "4.00",
             "cashback_min": "25.00",
             "cashback_max": "10.00",
+            "bula_markdown": (
+                "## Indicações\n\nAntibiótico indicado para infecções bacterianas sensíveis à amoxicilina "
+                "(respiratórias, urinárias, de pele e tecidos moles).\n\n"
+                "## Modo de uso\n\n"
+                "- Seguir rigorosamente o horário e a duração prescritos pelo médico\n"
+                "- Não interromper o tratamento mesmo com melhora dos sintomas\n\n"
+                "## Contraindicações\n\n"
+                "Não utilizar em caso de alergia a penicilinas.\n\n"
+                "**Medicamento sob prescrição — a receita é validada por um farmacêutico antes do envio.**"
+            ),
+            "short_description": (
+                "Antibiótico indicado para infecções bacterianas sensíveis à amoxicilina — "
+                "respiratórias, urinárias, de pele e tecidos moles. Venda sob prescrição médica; "
+                "a receita é validada por um farmacêutico antes do envio."
+            ),
+            "marketing_highlights": [
+                "21 cápsulas por caixa",
+                "Tratamento de 7 dias (posologia usual)",
+                "Requer receita médica",
+            ],
         },
         {
             "key": "clonazepam",
@@ -930,6 +1326,24 @@ def build_catalog() -> dict[str, dict[str, object]]:
             "cashback_percent": "10.00",
             "cashback_min": "20.00",
             "cashback_max": "15.00",
+            "bula_markdown": (
+                "## Indicações\n\nSuplemento vitamínico indicado para reposição de vitamina C em casos "
+                "de deficiência nutricional e como auxiliar da imunidade.\n\n"
+                "## Modo de uso\n\n"
+                "- Dissolver 1 comprimido em um copo de água\n"
+                "- Tomar 1 vez ao dia, preferencialmente pela manhã\n\n"
+                "## Contraindicações\n\n"
+                "Não utilizar em caso de hipersensibilidade a qualquer componente da fórmula."
+            ),
+            "short_description": (
+                "Suplemento vitamínico para reposição de vitamina C, auxiliar da imunidade na rotina "
+                "diária. Comprimidos efervescentes de dissolução rápida, sabor laranja."
+            ),
+            "marketing_highlights": [
+                "30 comprimidos efervescentes",
+                "Sabor laranja",
+                "Sem glúten",
+            ],
         },
         {
             "key": "sunscreen",
@@ -1163,9 +1577,14 @@ def build_catalog() -> dict[str, dict[str, object]]:
         ("thermometer", "Termometro Digital", "G-Tech", "Higiene", "Equipamentos e Acessórios", "24.90", "13.80", "47.73-3-00"),
         ("face_mask", "Mascara Descartavel Tripla Camada 50 unidades", "Descarpack", "Higiene", "Equipamentos e Acessórios", "34.90", "19.50", "47.73-3-00"),
         ("adhesive_bandage", "Curativo Adesivo Caixa 100 unidades", "Band-Aid", "Higiene", "Primeiros Socorros", "18.90", "9.90", "47.73-3-00"),
+        # Fitoterápicos — a category the demo catalog didn't have before, so a customer's
+        # purchase history can genuinely span it (see representativePurchasesByCategory,
+        # point-of-sale-screen.jsx, and the customers' top_products_snapshot above).
+        ("passiflora", "Passiflora Incarnata 400mg 30 capsulas", "Herbarium", "Fitoterápicos", "Calmante Natural", "32.90", "17.50", "47.71-7-01"),
+        ("valerian", "Valeriana 300mg 60 capsulas", "Herbarium", "Fitoterápicos", "Calmante Natural", "38.90", "21.00", "47.71-7-01"),
     ]
     location_prefix_by_category = {
-        "Medicamentos": "A", "Bem-estar": "B", "Perfumaria": "C", "Infantil": "D", "Higiene": "E",
+        "Medicamentos": "A", "Bem-estar": "B", "Perfumaria": "C", "Infantil": "D", "Higiene": "E", "Fitoterápicos": "F",
     }
     expiry_cycle = ["06/2027", "07/2027", "08/2027", "09/2027", "10/2027", "11/2027", "12/2027", "01/2028", "02/2028", "03/2028"]
     location_index_by_category: dict[str, int] = {}
@@ -1276,6 +1695,11 @@ def build_catalog() -> dict[str, dict[str, object]]:
             is_controlled=bool(spec.get("is_controlled", False)),
             controlled_category=str(spec.get("controlled_category", "none")),
             cnae_code=str(spec["cnae"]),
+            short_description=str(spec.get("short_description", "")),
+            bula_markdown=str(spec.get("bula_markdown", "")),
+            marketing_highlights=list(spec.get("marketing_highlights", [])),
+            variant_group_id=seed_uuid("variant-group-" + str(spec["variant_group"])) if spec.get("variant_group") else None,
+            variant_label=str(spec.get("variant_label", "")),
         )
         inventory[key] = InventoryItem(
             id=seed_uuid("inventory-" + key),
@@ -1408,6 +1832,23 @@ def build_catalog() -> dict[str, dict[str, object]]:
             market_reference_price=money(str(spec["market_reference_price"])),
             is_active=True,
         )
+
+    # One real superpromoção — upgrades the already-seeded Vitamina C product-discount promotion
+    # (was a plain 8% off) into `highlight_style="superpromo"` at 20% off, matching the reference
+    # demo's "Leve 3 pague 1" card treatment exactly (dark card face, gradient ring, pulsing
+    # badge — see ProductCard/marketplace.css). `urgency_label` already exists as a real,
+    # end-to-end-wired free-text field (admin-settable, shown on the card when a promotion wins)
+    # — reused here as the super-badge's own label instead of inventing a separate field, since
+    # that's exactly what it already models ("free-text message shown when this promotion wins").
+    # Vitamina C is in DEAL_OF_THE_DAY_CANDIDATE_KEYS, so this shows up in "Ofertas do dia" too,
+    # not just the plain catalog — no separate one-off card needed to see the treatment for real.
+    if "vitamin_c" in pricing_promotions:
+        superpromo = pricing_promotions["vitamin_c"]
+        superpromo.name = "Leve 3 pague 1"
+        superpromo.description = "Superpromoção de demonstração — combo Leve 3 pague 1."
+        superpromo.discount_value = money("20.00")
+        superpromo.highlight_style = "superpromo"
+        superpromo.urgency_label = "Leve 3 pague 1"
 
     return {
         "brands": brands,
@@ -1888,6 +2329,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
     wallets = [
         CustomerCashbackWallet(
             id=seed_uuid("wallet-mariana"),
+            tenant_id=TENANT_ID,
             customer_id=customers["mariana"].id,
             available_balance=money("38.40"),
             pending_balance=money("0.00"),
@@ -1897,6 +2339,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
         ),
         CustomerCashbackWallet(
             id=seed_uuid("wallet-lucas"),
+            tenant_id=TENANT_ID,
             customer_id=customers["lucas"].id,
             available_balance=money("5.10"),
             pending_balance=money("7.20"),
@@ -1906,6 +2349,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
         ),
         CustomerCashbackWallet(
             id=seed_uuid("wallet-camila"),
+            tenant_id=TENANT_ID,
             customer_id=customers["camila"].id,
             available_balance=money("4.80"),
             pending_balance=money("0.00"),
@@ -1915,6 +2359,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
         ),
         CustomerCashbackWallet(
             id=seed_uuid("wallet-bianca"),
+            tenant_id=TENANT_ID,
             customer_id=customers["bianca"].id,
             available_balance=money("0.00"),
             pending_balance=money("0.00"),
@@ -1924,6 +2369,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
         ),
         CustomerCashbackWallet(
             id=seed_uuid("wallet-rafael"),
+            tenant_id=TENANT_ID,
             customer_id=customers["rafael"].id,
             available_balance=money("21.10"),
             pending_balance=money("5.20"),
@@ -1961,6 +2407,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
         wallets.append(
             CustomerCashbackWallet(
                 id=seed_uuid("wallet-" + key),
+                tenant_id=TENANT_ID,
                 customer_id=customer.id,
                 available_balance=customer.cashback_balance,
                 pending_balance=money("0.00"),
@@ -4053,13 +4500,12 @@ PURCHASE_ANALYTICS_HISTORY_PLAN: dict[str, list[int]] = {
 
 
 def build_purchase_analytics_history(
-    customers: dict[str, Customer], users: dict[str, User], catalog: dict[str, dict[str, object]]
+    users: dict[str, User], catalog: dict[str, dict[str, object]]
 ) -> dict[str, list[object]]:
     """Backdate online + PDV sales across several months for the purchase-planning panel."""
 
     inventory = catalog["inventory"]
     listings = catalog["listings"]
-    buyer = customers["mariana"]
     cashier = users["cashier_lead"]
     pharmacist = users["pharmacist_lead"]
     now = datetime.now(tz=UTC)
@@ -4087,7 +4533,12 @@ def build_purchase_analytics_history(
                 id=order_id,
                 tenant_id=TENANT_ID,
                 store_id=STORE_ID,
-                customer_id=buyer.id,
+                # Store-wide monthly demand for the Painel de Compras (ABC/XYZ), not any real
+                # customer's own purchase — no customer_id, same convention as the pdv_sales
+                # branch below ("Cliente balcao"), so this synthetic volume never contaminates
+                # a real customer's personal purchase history/recurrence detection (see the
+                # dev-obsidian pendência this fixed: it used to attribute all of it to "mariana").
+                customer_id=None,
                 selected_address_id=None,
                 selected_payment_method_id=None,
                 order_code=f"FA-HIST-{product_key[:4].upper()}-{months_ago}",
@@ -4096,10 +4547,10 @@ def build_purchase_analytics_history(
                 fulfillment_type="pickup",
                 payment_method_label="pix",
                 payment_status="paid",
-                customer_display_name=buyer.full_name,
-                customer_document_snapshot=buyer.cpf,
-                customer_phone_snapshot=buyer.phone,
-                customer_email_snapshot=buyer.email,
+                customer_display_name="Cliente app",
+                customer_document_snapshot="",
+                customer_phone_snapshot="",
+                customer_email_snapshot="",
                 subtotal_amount=money(str(online_total)),
                 total_amount=money(str(online_total)),
                 placed_at_label=label(sale_at),
@@ -5611,6 +6062,7 @@ def build_cashback(
     lines = [
         CashbackTransactionLine(
             id=seed_uuid("cashback-line-mariana-losartan"),
+            tenant_id=TENANT_ID,
             transaction_id=transactions[0].id,
             cashback_rule_id=rules["losartan"].id,
             customer_id=customers["mariana"].id,
@@ -5624,6 +6076,7 @@ def build_cashback(
         ),
         CashbackTransactionLine(
             id=seed_uuid("cashback-line-mariana-vitamin-c"),
+            tenant_id=TENANT_ID,
             transaction_id=transactions[0].id,
             cashback_rule_id=rules["vitamin_c"].id,
             customer_id=customers["mariana"].id,
@@ -5637,6 +6090,7 @@ def build_cashback(
         ),
         CashbackTransactionLine(
             id=seed_uuid("cashback-line-rafael-glycemia"),
+            tenant_id=TENANT_ID,
             transaction_id=transactions[3].id,
             cashback_rule_id=rules["glycemia_strips"].id,
             customer_id=customers["rafael"].id,
@@ -5650,6 +6104,7 @@ def build_cashback(
         ),
         CashbackTransactionLine(
             id=seed_uuid("cashback-line-rafael-losartan"),
+            tenant_id=TENANT_ID,
             transaction_id=transactions[3].id,
             cashback_rule_id=rules["losartan"].id,
             customer_id=customers["rafael"].id,
@@ -5663,6 +6118,7 @@ def build_cashback(
         ),
         CashbackTransactionLine(
             id=seed_uuid("cashback-line-camila-serum"),
+            tenant_id=TENANT_ID,
             transaction_id=transactions[6].id,
             cashback_rule_id=rules["serum"].id,
             customer_id=customers["camila"].id,
@@ -5784,10 +6240,279 @@ def build_chat(
         )
     ]
 
+    # ------------------------------------------------------------------
+    # Chat spam-guard / order-freeze scenarios, for manual QA of:
+    # app.core.chat_guard, ChatService.flag_customer_spam/unblock_customer,
+    # and the order-completion auto-close hooks in delivery_service.py /
+    # order_service.py::confirm_internal_pickup. Customer-level block state
+    # (violation counts, flags, permanent block) lives on the Customer rows
+    # themselves — see build_customers().
+    # ------------------------------------------------------------------
+
+    thread_general_camila = ChatThread(
+        id=seed_uuid("thread-1008"),
+        tenant_id=TENANT_ID,
+        order_id=None,
+        customer_id=customers["camila"].id,
+        pharmacist_user_id=users["pharmacist_lead"].id,
+        thread_code="CHAT-1008",
+        source_channel="marketplace",
+        thread_status="open",
+        topic="Atendimento farmaceutico",
+        customer_name_snapshot=customers["camila"].full_name,
+        pharmacist_name_snapshot=users["pharmacist_lead"].full_name,
+        order_code_snapshot="",
+        last_message_preview="Posso tomar protetor solar em jejum?",
+        last_message_at_label="agora",
+        customer_unread_count=0,
+        pharmacist_unread_count=1,
+        is_active=True,
+    )
+    # order_id/customer_id pairs below match the real owner of each named order from
+    # build_orders() (online_in_transit -> rafael, online_delivered -> mariana,
+    # online_pickup_ready -> camila) — a thread claiming to be about an order the
+    # marketplace customer doesn't actually own would be a seed inconsistency, not just
+    # cosmetic: "Meus pedidos" simply wouldn't show it.
+    thread_open_order_rafael = ChatThread(
+        id=seed_uuid("thread-1007"),
+        tenant_id=TENANT_ID,
+        order_id=orders["online_in_transit"].id,
+        customer_id=customers["rafael"].id,
+        pharmacist_user_id=users["pharmacist_lead"].id,
+        thread_code="CHAT-1007",
+        source_channel="marketplace",
+        thread_status="open",
+        topic="Pedido " + orders["online_in_transit"].order_code,
+        customer_name_snapshot=customers["rafael"].full_name,
+        pharmacist_name_snapshot=users["pharmacist_lead"].full_name,
+        order_code_snapshot=orders["online_in_transit"].order_code,
+        last_message_preview="Ainda esta a caminho?",
+        last_message_at_label="agora",
+        customer_unread_count=0,
+        pharmacist_unread_count=1,
+        is_active=True,
+    )
+    thread_closed_delivered_mariana = ChatThread(
+        id=seed_uuid("thread-1006"),
+        tenant_id=TENANT_ID,
+        order_id=orders["online_delivered"].id,
+        customer_id=customers["mariana"].id,
+        pharmacist_user_id=users["pharmacist_lead"].id,
+        thread_code="CHAT-1006",
+        source_channel="marketplace",
+        thread_status="closed",
+        closed_reason="order_completed",
+        topic="Pedido " + orders["online_delivered"].order_code,
+        customer_name_snapshot=customers["mariana"].full_name,
+        pharmacist_name_snapshot=users["pharmacist_lead"].full_name,
+        order_code_snapshot=orders["online_delivered"].order_code,
+        last_message_preview="Este atendimento foi encerrado porque o pedido foi concluido.",
+        last_message_at_label="agora",
+        customer_unread_count=0,
+        pharmacist_unread_count=0,
+        is_active=True,
+    )
+    # "Retirado" completion is represented as DISPATCHED + completed_at_label — see
+    # ChatService._resolve_order_code_and_completion — this thread simulates the state a
+    # real pickup confirmation would leave behind, without mutating the seeded order itself.
+    thread_closed_pickup_camila = ChatThread(
+        id=seed_uuid("thread-1009"),
+        tenant_id=TENANT_ID,
+        order_id=orders["online_pickup_ready"].id,
+        customer_id=customers["camila"].id,
+        pharmacist_user_id=users["pharmacist_lead"].id,
+        thread_code="CHAT-1009",
+        source_channel="marketplace",
+        thread_status="closed",
+        closed_reason="order_completed",
+        topic="Pedido " + orders["online_pickup_ready"].order_code,
+        customer_name_snapshot=customers["camila"].full_name,
+        pharmacist_name_snapshot=users["pharmacist_lead"].full_name,
+        order_code_snapshot=orders["online_pickup_ready"].order_code,
+        last_message_preview="Este atendimento foi encerrado porque o pedido foi concluido.",
+        last_message_at_label="agora",
+        customer_unread_count=0,
+        pharmacist_unread_count=0,
+        is_active=True,
+    )
+    thread_permanent_block_roberto = ChatThread(
+        id=seed_uuid("thread-1010"),
+        tenant_id=TENANT_ID,
+        order_id=None,
+        customer_id=customers["cliente_bloqueio_permanente"].id,
+        pharmacist_user_id=users["pharmacist_lead"].id,
+        thread_code="CHAT-1010",
+        source_channel="marketplace",
+        thread_status="open",
+        topic="Atendimento farmaceutico",
+        customer_name_snapshot=customers["cliente_bloqueio_permanente"].full_name,
+        pharmacist_name_snapshot=users["pharmacist_lead"].full_name,
+        order_code_snapshot="",
+        last_message_preview="promocao promocao promocao",
+        last_message_at_label="agora",
+        customer_unread_count=0,
+        pharmacist_unread_count=1,
+        is_active=True,
+    )
+    thread_general_bianca = ChatThread(
+        id=seed_uuid("thread-1011"),
+        tenant_id=TENANT_ID,
+        order_id=None,
+        customer_id=customers["bianca"].id,
+        pharmacist_user_id=users["pharmacist_lead"].id,
+        thread_code="CHAT-1011",
+        source_channel="marketplace",
+        thread_status="open",
+        topic="Atendimento farmaceutico",
+        customer_name_snapshot=customers["bianca"].full_name,
+        pharmacist_name_snapshot=users["pharmacist_lead"].full_name,
+        order_code_snapshot="",
+        last_message_preview="Cadê meu pedido? Cadê meu pedido? Cadê meu pedido?",
+        last_message_at_label="agora",
+        customer_unread_count=0,
+        pharmacist_unread_count=1,
+        is_active=True,
+    )
+    threads.extend([
+        thread_general_camila,
+        thread_open_order_rafael,
+        thread_closed_delivered_mariana,
+        thread_closed_pickup_camila,
+        thread_permanent_block_roberto,
+        thread_general_bianca,
+    ])
+
+    messages.extend([
+        ChatMessage(
+            id=seed_uuid("chat-message-1008-1"),
+            thread_id=thread_general_camila.id,
+            sender_user_id=None,
+            sender_customer_id=customers["camila"].id,
+            message_type="text",
+            sender_role="customer",
+            sender_name_snapshot=customers["camila"].full_name,
+            body_text="Posso tomar protetor solar em jejum?",
+            sent_at_label="agora",
+            customer_read=True,
+            pharmacist_read=False,
+            is_internal_note=False,
+        ),
+        ChatMessage(
+            id=seed_uuid("chat-message-1007-1"),
+            thread_id=thread_open_order_rafael.id,
+            sender_user_id=None,
+            sender_customer_id=customers["rafael"].id,
+            message_type="text",
+            sender_role="customer",
+            sender_name_snapshot=customers["rafael"].full_name,
+            body_text="Ainda esta a caminho?",
+            sent_at_label="agora",
+            customer_read=True,
+            pharmacist_read=False,
+            is_internal_note=False,
+        ),
+        ChatMessage(
+            id=seed_uuid("chat-message-1011-1"),
+            thread_id=thread_general_bianca.id,
+            sender_user_id=None,
+            sender_customer_id=customers["bianca"].id,
+            message_type="text",
+            sender_role="customer",
+            sender_name_snapshot=customers["bianca"].full_name,
+            body_text="Cadê meu pedido? Cadê meu pedido? Cadê meu pedido?",
+            sent_at_label="agora",
+            customer_read=True,
+            pharmacist_read=False,
+            is_internal_note=False,
+        ),
+        ChatMessage(
+            id=seed_uuid("chat-message-1006-1"),
+            thread_id=thread_closed_delivered_mariana.id,
+            sender_user_id=users["pharmacist_lead"].id,
+            sender_customer_id=None,
+            message_type="text",
+            sender_role="pharmacist",
+            sender_name_snapshot="Sistema",
+            body_text="Este atendimento foi encerrado porque o pedido foi concluido. Abra um novo atendimento para continuar.",
+            sent_at_label="agora",
+            customer_read=True,
+            pharmacist_read=True,
+            is_internal_note=False,
+        ),
+        ChatMessage(
+            id=seed_uuid("chat-message-1009-1"),
+            thread_id=thread_closed_pickup_camila.id,
+            sender_user_id=users["pharmacist_lead"].id,
+            sender_customer_id=None,
+            message_type="text",
+            sender_role="pharmacist",
+            sender_name_snapshot="Sistema",
+            body_text="Este atendimento foi encerrado porque o pedido foi concluido. Abra um novo atendimento para continuar.",
+            sent_at_label="agora",
+            customer_read=True,
+            pharmacist_read=True,
+            is_internal_note=False,
+        ),
+        ChatMessage(
+            id=seed_uuid("chat-message-1010-1"),
+            thread_id=thread_permanent_block_roberto.id,
+            sender_user_id=None,
+            sender_customer_id=customers["cliente_bloqueio_permanente"].id,
+            message_type="text",
+            sender_role="customer",
+            sender_name_snapshot=customers["cliente_bloqueio_permanente"].full_name,
+            body_text="promocao promocao promocao",
+            sent_at_label="agora",
+            customer_read=True,
+            pharmacist_read=False,
+            is_internal_note=False,
+        ),
+    ])
+
+    unblock_requests = [
+        ChatUnblockRequest(
+            id=seed_uuid("unblock-request-pending"),
+            tenant_id=TENANT_ID,
+            customer_id=customers["cliente_bloqueio_permanente"].id,
+            thread_id=thread_permanent_block_roberto.id,
+            status="pending",
+            customer_message="Foi sem querer, mandei a mesma mensagem varias vezes porque achei que nao tinha enviado.",
+            violation_count_snapshot=customers["cliente_bloqueio_permanente"].chat_violation_count,
+            permanently_blocked_snapshot=True,
+        ),
+        ChatUnblockRequest(
+            id=seed_uuid("unblock-request-approved"),
+            tenant_id=TENANT_ID,
+            customer_id=customers["lucas"].id,
+            thread_id=threads[0].id,
+            status="approved",
+            customer_message="Nao era spam, eu so estava tentando reenviar a foto da receita que nao carregava.",
+            violation_count_snapshot=1,
+            permanently_blocked_snapshot=False,
+            decided_by_user_id=users["pharmacist_lead"].id,
+            decided_at=SEED_NOW,
+            pharmacist_notes="Confirmado — falha de upload do lado do cliente, nao era spam.",
+        ),
+        ChatUnblockRequest(
+            id=seed_uuid("unblock-request-denied"),
+            tenant_id=TENANT_ID,
+            customer_id=customers["bianca"].id,
+            thread_id=thread_general_bianca.id,
+            status="denied",
+            customer_message="Achei o bloqueio injusto, so queria saber do meu pedido.",
+            violation_count_snapshot=1,
+            permanently_blocked_snapshot=False,
+            decided_by_user_id=users["pharmacist_lead"].id,
+            decided_at=SEED_NOW,
+            pharmacist_notes="Mesma pergunta enviada 12 vezes em menos de um minuto — mantido.",
+        ),
+    ]
+
     return {
         "threads": threads,
         "messages": messages,
         "attachments": attachments,
+        "unblock_requests": unblock_requests,
     }
 
 
@@ -5917,10 +6642,14 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     factory = session_factory or SessionFactory
     password_hash = hash_password(DEFAULT_PASSWORD)
     cnae_settings = build_cnae_settings()
+    home_banner_settings = build_home_banner_settings()
+    home_brands_settings = build_home_brands_settings()
     stores = build_stores()
     users = build_users(password_hash)
     customers = build_customers()
     catalog = build_catalog()
+    home_trends_settings = build_home_trends_settings(catalog)
+    deal_of_the_day_settings = build_deal_of_the_day_settings(catalog)
     coupon_campaigns = build_coupon_campaigns()
     coupon_redemptions = build_coupon_redemption_history(customers, users, catalog, coupon_campaigns)
     suppliers = build_suppliers()
@@ -5933,7 +6662,7 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     orders_data = build_orders(customers, customer_assets, catalog)
     logistics = build_logistics(users, customers, orders_data)
     pdv_data = build_pdv(users, customers, catalog)
-    analytics_history = build_purchase_analytics_history(customers, users, catalog)
+    analytics_history = build_purchase_analytics_history(users, catalog)
     fiscal_documents = build_fiscal_documents(users, customers, orders_data, pdv_data)
     prescription_data = build_prescriptions(users, orders_data, customers, catalog)
     saved_and_subscriptions = build_saved_and_subscriptions(customers, catalog)
@@ -5943,7 +6672,7 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
     refresh_tokens = build_refresh_tokens(users)
 
     async with factory() as session:
-        await upsert_many(session, [cnae_settings])
+        await upsert_many(session, [cnae_settings, home_banner_settings, home_brands_settings, home_trends_settings, deal_of_the_day_settings])
         await upsert_many(session, list(stores.values()))
         await upsert_many(session, list(users.values()))
         await upsert_many(session, list(customers.values()))
@@ -5996,6 +6725,7 @@ async def seed_database(session_factory: async_sessionmaker[AsyncSession] | None
         await upsert_many(session, chat["threads"] + daily["chat_threads"])
         await upsert_many(session, chat["messages"] + daily["chat_messages"])
         await upsert_many(session, chat["attachments"])
+        await upsert_many(session, chat["unblock_requests"])
         await upsert_many(session, audit_events)
         await upsert_many(session, refresh_tokens)
         await session.commit()

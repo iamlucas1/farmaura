@@ -18,14 +18,14 @@ import logoFullUrl from "../assets/brand/Farmaura - Logotipo Principal.svg";
 import logoFullTaglineUrl from "../assets/brand/Farmaura - Logotipo Principal com Frase.svg";
 import logoFullWhiteUrl from "../assets/brand/Farmaura - Logotipo Branca.png";
 import logoFullWhiteTaglineUrl from "../assets/brand/Farmaura - Logotipo Branca com Frase.png";
-import placeholderDefaultUrl from "../assets/marketplace/placeholders/PlaceHolder.png";
-import placeholderGenericUrl from "../assets/marketplace/placeholders/PlaceHolder-generico.png";
-import placeholderPrescriptionUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica.png";
-import placeholderPrescriptionGenericUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-generico.png";
-import placeholderPrescriptionRetentionUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png";
-import placeholderPrescriptionRetentionGenericUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.png";
-import placeholderPrescriptionBlackStripeUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.png";
-import placeholderPrescriptionBlackStripeRetentionUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png";
+import placeholderDefaultUrl from "../assets/marketplace/placeholders/PlaceHolder.webp";
+import placeholderGenericUrl from "../assets/marketplace/placeholders/PlaceHolder-generico.webp";
+import placeholderPrescriptionUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica.webp";
+import placeholderPrescriptionGenericUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-generico.webp";
+import placeholderPrescriptionRetentionUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.webp";
+import placeholderPrescriptionRetentionGenericUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.webp";
+import placeholderPrescriptionBlackStripeUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.webp";
+import placeholderPrescriptionBlackStripeRetentionUrl from "../assets/marketplace/placeholders/PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.webp";
 
 const MARKETPLACE_LOGO_MARK_URL = logoMarkUrl;
 // Full brand lockup (isotipo + "Farmaura" wordmark, already baked into one image) — use this
@@ -37,14 +37,14 @@ const MARKETPLACE_LOGO_FULL_TAGLINE_URL = logoFullTaglineUrl;
 const MARKETPLACE_LOGO_FULL_WHITE_URL = logoFullWhiteUrl;
 const MARKETPLACE_LOGO_FULL_WHITE_TAGLINE_URL = logoFullWhiteTaglineUrl;
 const MARKETPLACE_PLACEHOLDER_URLS = {
-  "PlaceHolder.png": placeholderDefaultUrl,
-  "PlaceHolder-generico.png": placeholderGenericUrl,
-  "PlaceHolder-venda-sob-prescricao-medica.png": placeholderPrescriptionUrl,
-  "PlaceHolder-venda-sob-prescricao-medica-generico.png": placeholderPrescriptionGenericUrl,
-  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png": placeholderPrescriptionRetentionUrl,
-  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.png": placeholderPrescriptionRetentionGenericUrl,
-  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.png": placeholderPrescriptionBlackStripeUrl,
-  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png": placeholderPrescriptionBlackStripeRetentionUrl,
+  "PlaceHolder.webp": placeholderDefaultUrl,
+  "PlaceHolder-generico.webp": placeholderGenericUrl,
+  "PlaceHolder-venda-sob-prescricao-medica.webp": placeholderPrescriptionUrl,
+  "PlaceHolder-venda-sob-prescricao-medica-generico.webp": placeholderPrescriptionGenericUrl,
+  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.webp": placeholderPrescriptionRetentionUrl,
+  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.webp": placeholderPrescriptionRetentionGenericUrl,
+  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.webp": placeholderPrescriptionBlackStripeUrl,
+  "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.webp": placeholderPrescriptionBlackStripeRetentionUrl,
 };
 
 function resolveMarketplaceAssetUrl(name) {

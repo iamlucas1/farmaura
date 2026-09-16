@@ -24,6 +24,7 @@ from app.models.category import Category
 from app.models.chat_message import ChatMessage
 from app.models.chat_message_attachment import ChatMessageAttachment
 from app.models.chat_thread import ChatThread
+from app.models.chat_unblock_request import ChatUnblockRequest
 from app.models.coupon_campaign import CouponCampaign
 from app.models.customer import Customer
 from app.models.customer_address import CustomerAddress
@@ -87,6 +88,7 @@ __all__ = [
     "ChatMessage",
     "ChatMessageAttachment",
     "ChatThread",
+    "ChatUnblockRequest",
     "Customer",
     "CustomerAddress",
     "CustomerCashbackWallet",

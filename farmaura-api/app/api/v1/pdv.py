@@ -22,6 +22,8 @@ from app.domain.enums import UserRole
 from app.schemas.auth import TokenSubject
 from app.schemas.orders import DeliveryCoverageResponse
 from app.schemas.pdv import (
+    PdvDemandLogRequest,
+    PdvDemandLogResponse,
     PdvDiscountLimitRequest,
     PdvDiscountLimitResponse,
     PdvDraftSessionListResponse,
@@ -42,6 +44,8 @@ from app.schemas.pdv import (
     PdvSaleCreateRequest,
     PdvSaleListResponse,
     PdvSaleResponse,
+    PdvUpsellSuggestionRequest,
+    PdvUpsellSuggestionResponse,
 )
 from app.services.operations_service import OperationsService
 from app.services.pdv_service import PdvService
@@ -152,6 +156,30 @@ async def create_pdv_reservation(
 
     service = PdvService(session=session, subject=subject)
     return await service.create_reservation(payload)
+
+
+@router.post("/demand-log", response_model=PdvDemandLogResponse, status_code=201)
+async def log_pdv_product_demand(
+    payload: PdvDemandLogRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> PdvDemandLogResponse:
+    """Log a product the customer wanted that had no stock anywhere, or wasn't found at all."""
+
+    service = PdvService(session=session, subject=subject)
+    return await service.log_demand(payload)
+
+
+@router.post("/upsell-suggestions", response_model=PdvUpsellSuggestionResponse)
+async def get_pdv_upsell_suggestions(
+    payload: PdvUpsellSuggestionRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> PdvUpsellSuggestionResponse:
+    """Recommend real, in-stock products to offer alongside the current cart."""
+
+    service = PdvService(session=session, subject=subject)
+    return await service.get_upsell_suggestions(payload)
 
 
 @router.post("/prescriptions", response_model=PdvPrescriptionResponse, status_code=201)

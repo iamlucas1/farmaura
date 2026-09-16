@@ -1,12 +1,12 @@
 /* FARMAURA — Account: LoginScreen + AccountScreen shell + Summary + Order pieces. */
 import React, { useEffect, useState } from "react";
-import { MARKETPLACE_LOGO_FULL_WHITE_URL } from "../core/marketplace-assets.js";
-import { AuraLayer, brl } from "../core/marketplace-components.jsx";
+import { MARKETPLACE_LOGO_FULL_URL } from "../core/marketplace-assets.js";
+import { brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
-import { faCashback } from "./account-shared.jsx";
 import { ConversationsInbox, HealthServices, MyOrders, SavedProducts } from "./account-health-screen.jsx";
 import { buildAddressLine, buildAddressSecondaryLine, normalizeAddress } from "../core/marketplace-address.js";
-import { DataPrivacy, MyCards, ProfileManage } from "./account-profile-screen.jsx";
+import { AccountSettings, MyCards, ProfileManage } from "./account-profile-screen.jsx";
+import { ACCOUNT_NAV_LINKS, AccountNavShell } from "./account-shared.jsx";
 
 
 const initials = (name) => name.split(' ').map((s) => s[0]).slice(0, 2).join('');
@@ -155,52 +155,38 @@ function LoginScreen({ ctx }) {
   };
 
   return (
-    <div className="fa-wrap fa-fadein" style={{ paddingTop: 40, paddingBottom: 60, maxWidth: 980 }}>
-      <div className="fa-card fa-login-grid" style={{ overflow: 'hidden', display: 'grid', gridTemplateColumns: '1fr 1fr', minHeight: 540 }}>
-        <div style={{ position: 'relative', overflow: 'hidden', background: 'var(--fa-primary)', color: '#fff', padding: 'clamp(28px,3.5vw,44px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <AuraLayer tone="#fff" />
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <div className="fa-logo">
-              <img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_WHITE_URL} alt="Farmaura" />
-            </div>
-          </div>
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <h2 className="fa-h1" style={{ color: '#fff', fontSize: 'clamp(24px,2.6vw,32px)' }}>Cuidado que acompanha você</h2>
-            <p style={{ opacity: .9, marginTop: 12, fontSize: 15, lineHeight: 1.55, maxWidth: 320 }}>Entre para acompanhar pedidos, gerenciar assinaturas e falar com seu farmacêutico.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
-              {[['truck', 'Acompanhe entregas em tempo real'], ['repeat', 'Gerencie suas assinaturas'], ['rx', 'Guarde suas receitas digitais']].map(([ic, l]) => (
-                <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 500, opacity: .95 }}><Icon name={ic} size={18} />{l}</span>
-              ))}
-            </div>
-          </div>
-          <div style={{ position: 'relative', zIndex: 1, opacity: .7, fontSize: 12.5 }}>Atendimento farmacêutico 24h</div>
-        </div>
-
-        <div style={{ padding: 'clamp(28px,3.5vw,44px)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+    <div className="fa-wrap fa-fadein fa-login-aureola" style={{ paddingTop: 40, paddingBottom: 60, maxWidth: 1180 }}>
+      <div className="fa-login-aureola-bg" aria-hidden="true" />
+      <img className="fa-login-aureola-mark" src={MARKETPLACE_LOGO_FULL_URL} alt="" aria-hidden="true" />
+      <div className="fa-login-aureola-row">
+        <div className="fa-card fa-login-aureola-card" style={{ padding: 'clamp(28px,3.5vw,44px)' }}>
+          <span className="fa-logo" style={{ marginBottom: 22 }}>
+            <img className="fa-logo-full-img" src={MARKETPLACE_LOGO_FULL_URL} alt="Farmaura" />
+          </span>
           {mode === 'register' ? (
             <React.Fragment>
               <h1 className="fa-h2" style={{ marginBottom: 6 }}>Vamos começar</h1>
               <p className="fa-muted" style={{ fontSize: 14, marginBottom: 22 }}>Crie sua conta em menos de um minuto.</p>
               <form onSubmit={submitRegister} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div className="fa-field"><label>Nome completo</label>
-                  <input className="fa-input" value={registerName} onChange={(e) => setRegisterName(e.target.value)} placeholder="Seu nome" />
+                <div className="fa-field"><label htmlFor="register-name">Nome completo</label>
+                  <input id="register-name" className="fa-input" value={registerName} onChange={(e) => setRegisterName(e.target.value)} placeholder="Seu nome" />
                 </div>
-                <div className="fa-field"><label>E-mail</label>
-                  <input className="fa-input" type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} placeholder="voce@email.com" />
+                <div className="fa-field"><label htmlFor="register-email">E-mail</label>
+                  <input id="register-email" className="fa-input" type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} placeholder="voce@email.com" />
                 </div>
-                <div className="fa-field"><label>Telefone (opcional)</label>
-                  <input className="fa-input" type="tel" value={registerPhone} onChange={(e) => setRegisterPhone(e.target.value)} placeholder="(00) 00000-0000" />
+                <div className="fa-field"><label htmlFor="register-phone">Telefone (opcional)</label>
+                  <input id="register-phone" className="fa-input" type="tel" value={registerPhone} onChange={(e) => setRegisterPhone(e.target.value)} placeholder="(00) 00000-0000" />
                 </div>
-                <div className="fa-field"><label>Senha</label>
+                <div className="fa-field"><label htmlFor="register-password">Senha</label>
                   <div style={{ position: 'relative' }}>
-                    <input className="fa-input" type={registerShow ? 'text' : 'password'} value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} style={{ paddingRight: 44 }} placeholder="Mín. 8 car., maiúscula, número e especial" />
+                    <input id="register-password" className="fa-input" type={registerShow ? 'text' : 'password'} value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} style={{ paddingRight: 44 }} placeholder="Mín. 8 car., maiúscula, número e especial" />
                     <button type="button" onClick={() => setRegisterShow(!registerShow)} aria-label="mostrar senha" style={{ position: 'absolute', right: 6, top: 5, width: 36, height: 36, border: 'none', background: 'transparent', color: 'var(--fa-ink-3)', borderRadius: 8 }}>
                       <Icon name={registerShow ? 'eyeoff' : 'eye'} size={18} />
                     </button>
                   </div>
                 </div>
-                <div className="fa-field"><label>Confirmar senha</label>
-                  <input className="fa-input" type={registerShow ? 'text' : 'password'} value={registerConfirmPassword} onChange={(e) => setRegisterConfirmPassword(e.target.value)} placeholder="Repita a senha" />
+                <div className="fa-field"><label htmlFor="register-confirm-password">Confirmar senha</label>
+                  <input id="register-confirm-password" className="fa-input" type={registerShow ? 'text' : 'password'} value={registerConfirmPassword} onChange={(e) => setRegisterConfirmPassword(e.target.value)} placeholder="Repita a senha" />
                 </div>
                 <label className="fa-check" data-on={remember ? '1' : '0'} onClick={() => setRemember(!remember)} style={{ marginTop: -4 }}>
                   <span className="box"><Icon name="check" size={14} stroke={2.6} /></span>Continuar conectada
@@ -228,8 +214,8 @@ function LoginScreen({ ctx }) {
                 </React.Fragment>
               ) : (
                 <form onSubmit={submitFirstAccess} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div className="fa-field"><label>E-mail cadastrado</label>
-                    <input className="fa-input" type="email" value={firstAccessEmail} onChange={(e) => setFirstAccessEmail(e.target.value)} placeholder="voce@email.com" />
+                  <div className="fa-field"><label htmlFor="first-access-email">E-mail cadastrado</label>
+                    <input id="first-access-email" className="fa-input" type="email" value={firstAccessEmail} onChange={(e) => setFirstAccessEmail(e.target.value)} placeholder="voce@email.com" />
                   </div>
                   {firstAccessError && <div className="fa-card" style={{ padding: '14px 16px', background: 'var(--fa-rose-soft)', color: 'var(--fa-primary)', fontWeight: 600, fontSize: 13.5 }}>{firstAccessError}</div>}
                   <button type="submit" className="fa-btn fa-btn-primary fa-btn-lg fa-btn-block" disabled={firstAccessBusy || !firstAccessEmail.trim()}>
@@ -247,13 +233,13 @@ function LoginScreen({ ctx }) {
               <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 {stage === 'credentials' && (
                   <React.Fragment>
-                    <div className="fa-field"><label>E-mail</label>
-                      <input className="fa-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" />
+                    <div className="fa-field"><label htmlFor="login-email">E-mail</label>
+                      <input id="login-email" className="fa-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" />
                     </div>
                     <div className="fa-field">
-                      <label style={{ display: 'flex', justifyContent: 'space-between' }}>Senha</label>
+                      <label htmlFor="login-password" style={{ display: 'flex', justifyContent: 'space-between' }}>Senha</label>
                       <div style={{ position: 'relative' }}>
-                        <input className="fa-input" type={show ? 'text' : 'password'} value={pass} onChange={(e) => setPass(e.target.value)} style={{ paddingRight: 44 }} />
+                        <input id="login-password" className="fa-input" type={show ? 'text' : 'password'} value={pass} onChange={(e) => setPass(e.target.value)} style={{ paddingRight: 44 }} />
                         <button type="button" onClick={() => setShow(!show)} aria-label="mostrar senha" style={{ position: 'absolute', right: 6, top: 5, width: 36, height: 36, border: 'none', background: 'transparent', color: 'var(--fa-ink-3)', borderRadius: 8 }}>
                           <Icon name={show ? 'eyeoff' : 'eye'} size={18} />
                         </button>
@@ -263,22 +249,22 @@ function LoginScreen({ ctx }) {
                 )}
                 {stage === 'two_factor' && (
                   <div className="fa-field">
-                    <label>Código de verificação</label>
-                    <input className="fa-input" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value.replace(/\D+/g, '').slice(0, 8))} placeholder="000000" />
+                    <label htmlFor="login-2fa-code">Código de verificação</label>
+                    <input id="login-2fa-code" className="fa-input" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value.replace(/\D+/g, '').slice(0, 8))} placeholder="000000" />
                   </div>
                 )}
                 {stage === 'password_change' && (
                   <React.Fragment>
-                    <div className="fa-field"><label>Nova senha</label>
+                    <div className="fa-field"><label htmlFor="password-change-new">Nova senha</label>
                       <div style={{ position: 'relative' }}>
-                        <input className="fa-input" type={showNewPassword ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={{ paddingRight: 44 }} placeholder="Mín. 8 car., maiúscula, número e especial" />
+                        <input id="password-change-new" className="fa-input" type={showNewPassword ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={{ paddingRight: 44 }} placeholder="Mín. 8 car., maiúscula, número e especial" />
                         <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} aria-label="mostrar senha" style={{ position: 'absolute', right: 6, top: 5, width: 36, height: 36, border: 'none', background: 'transparent', color: 'var(--fa-ink-3)', borderRadius: 8 }}>
                           <Icon name={showNewPassword ? 'eyeoff' : 'eye'} size={18} />
                         </button>
                       </div>
                     </div>
-                    <div className="fa-field"><label>Confirmar nova senha</label>
-                      <input className="fa-input" type={showNewPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repita a nova senha" />
+                    <div className="fa-field"><label htmlFor="password-change-confirm">Confirmar nova senha</label>
+                      <input id="password-change-confirm" className="fa-input" type={showNewPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repita a nova senha" />
                     </div>
                   </React.Fragment>
                 )}
@@ -334,12 +320,13 @@ function LoginScreen({ ctx }) {
             </div>
           )}
 
-          <p className="fa-muted" style={{ fontSize: 12.5, textAlign: 'center', marginTop: 20, lineHeight: 1.5 }}>Ao continuar, você concorda com os <a role="button" style={{ color: 'var(--fa-primary)', fontWeight: 600 }}>Termos</a> e a <a role="button" style={{ color: 'var(--fa-primary)', fontWeight: 600 }}>Política de Privacidade</a>.</p>
+          <p className="fa-muted" style={{ fontSize: 12.5, textAlign: 'center', marginTop: 20, lineHeight: 1.5 }}>Ao continuar, você concorda com os <a role="button" onClick={() => onNav({ name: 'terms' })} style={{ color: 'var(--fa-primary)', fontWeight: 600 }}>Termos</a> e a <a role="button" onClick={() => onNav({ name: 'privacy' })} style={{ color: 'var(--fa-primary)', fontWeight: 600 }}>Política de Privacidade</a>.</p>
         </div>
       </div>
     </div>
   );
 }
+
 
 /* Landing page for the link sent in the account-lockout e-mail (?token=...). */
 function UnlockAccountScreen({ ctx }) {
@@ -549,20 +536,13 @@ function OrderCard({ order, products, statusMap, onReorder, onOpenProduct, onTra
 }
 
 /* ---------------- Account shell ---------------- */
-const ACCT_TABS = [
-  { id: 'summary', label: 'Resumo da conta', icon: 'grid' },
-  { id: 'profile', label: 'Gerenciar perfil', icon: 'cog' },
-  { id: 'privacy', label: 'Privacidade de dados', icon: 'shield' },
-  { id: 'orders', label: 'Meus pedidos', icon: 'bag' },
-  { id: 'conversations', label: 'Minhas conversas', icon: 'chat' },
-  { id: 'health', label: 'Serviços de saúde', icon: 'activity' },
-  { id: 'cards', label: 'Meus cartões', icon: 'card' },
-  { id: 'logout', label: 'Sair', icon: 'logout' },
-];
-
 function AccountScreen({ ctx }) {
   const { user, onNav, logout, route } = ctx;
-  const [tab, setTab] = useState(route.tab || 'summary');
+  // "Resumo da conta" removed (no longer part of the account nav — see
+  // 2026-09-04-shell-de-conta-unificado-conforme-demo ADR): the demo has no dashboard concept,
+  // and every real entry point into /account already targets a specific tab, so "Meu perfil" is
+  // the new default landing when none is given.
+  const [tab, setTab] = useState(route.tab || 'profile');
   useEffect(() => { if (route.tab) setTab(route.tab); }, [route.tab]);
 
   const [profile, setProfile] = useState({ ...ctx.profile, name: ctx.profile.name || user.name, email: ctx.profile.email || user.email });
@@ -587,168 +567,30 @@ function AccountScreen({ ctx }) {
     );
   }
 
-  const go = (id) => { if (id === 'logout') { logout(); return; } setTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const active = ACCT_TABS.find((t) => t.id === tab) || ACCT_TABS[0];
-
   let content;
   switch (tab) {
     case 'profile': content = <ProfileManage ctx={ctx} acct={acct} />; break;
-    case 'privacy': content = <DataPrivacy ctx={ctx} acct={acct} />; break;
+    case 'settings': case 'privacy': content = <AccountSettings ctx={ctx} acct={acct} />; break;
     case 'orders': content = <MyOrders ctx={ctx} />; break;
     case 'conversations': content = <ConversationsInbox ctx={ctx} />; break;
     case 'health': content = <HealthServices ctx={ctx} />; break;
     case 'saved': content = <SavedProducts ctx={ctx} />; break;
     case 'cards': content = <MyCards ctx={ctx} acct={acct} />; break;
-    default: content = <AccountSummary ctx={ctx} acct={acct} setTab={go} />;
+    default: content = <ProfileManage ctx={ctx} acct={acct} />;
   }
 
+  // The shared shell (account-shared.jsx) keys its active-link highlight and crumb off its own
+  // link keys, which don't always equal the internal tab id (payments -> tab "cards", messages ->
+  // tab "conversations", settings absorbs the old standalone "privacy" tab).
+  const activeKey = tab === 'cards' ? 'payments' : tab === 'conversations' ? 'messages' : tab === 'privacy' ? 'settings' : tab;
+  const crumbLabel = (ACCOUNT_NAV_LINKS.find((item) => item.key === activeKey) || {}).label || 'Minha conta';
+
   return (
-    <div className={'fa-wrap fa-fadein fa-acct--' + (ctx.accountNav || 'side')} style={{ paddingTop: 24, paddingBottom: 28, maxWidth: 1160 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--fa-ink-3)', marginBottom: 16 }}>
-        <a role="button" onClick={() => onNav({ name: 'home' })}>Início</a><Icon name="chevR" size={13} />
-        <a role="button" onClick={() => go('summary')} style={{ color: tab === 'summary' ? 'var(--fa-ink-2)' : undefined, fontWeight: tab === 'summary' ? 600 : 400 }}>Minha conta</a>
-        {tab !== 'summary' && <><Icon name="chevR" size={13} /><span style={{ color: 'var(--fa-ink-2)', fontWeight: 600 }}>{active.label}</span></>}
-      </div>
-
-      <div className="fa-acct-grid">
-        <aside className="fa-acct-side">
-          <div className="fa-card fa-acct-userbox">
-            <span className="fa-avatar fa-avatar-sm">{profile.photo ? <img src={profile.photo} alt="" /> : initials(profile.name)}</span>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.name}</div>
-              <div className="fa-faint" style={{ fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</div>
-            </div>
-          </div>
-          <nav className="fa-card fa-acct-nav">
-            {ACCT_TABS.map((t) => (
-              <button key={t.id} className="fa-acct-navlink" data-active={tab === t.id ? '1' : '0'} data-danger={t.id === 'logout' ? '1' : '0'} onClick={() => go(t.id)}>
-                <span className="fa-acct-navic"><Icon name={t.icon} size={19} /></span>{t.label}
-                {t.id !== 'logout' && <Icon name="chevR" size={15} className="fa-acct-navchev" />}
-              </button>
-            ))}
-          </nav>
-        </aside>
-
-        <div style={{ minWidth: 0 }} key={tab} className="fa-fadein">{content}</div>
-      </div>
-    </div>
+    <AccountNavShell ctx={ctx} activeKey={activeKey} crumbLabel={crumbLabel}>
+      <div key={tab} className="fa-fadein">{content}</div>
+    </AccountNavShell>
   );
 }
 
-/* ---------------- Resumo da conta ---------------- */
-function AccountSummary({ ctx, acct, setTab }) {
-  const { orders, statusMap, products, onNav, reorder, openChat, openPrescription, addresses, cards } = ctx;
-  const { profile } = acct;
-  const safeProfileName = profile.name || 'Cliente';
-  const firstName = safeProfileName.trim().split(/\s+/).filter(Boolean)[0] || 'Cliente';
-  const primaryAddrSource = addresses.find((a) => a.primary) || addresses[0] || null;
-  const primaryAddr = primaryAddrSource ? normalizeAddress(primaryAddrSource) : null;
-  const primaryCard = cards.find((c) => c.primary) || cards[0] || null;
-  const recent = orders.slice(0, 2);
 
-  const care = [
-    { icon: 'chat', t: 'Atendimento farmacêutico', d: 'Tire dúvidas com um farmacêutico 24h.', act: () => openChat() },
-    { icon: 'rx', t: 'Receita digital', d: 'Envie e organize suas receitas.', act: () => openPrescription() },
-    { icon: 'repeat', t: 'Compras recorrentes', d: '15% off e reposição automática.', act: () => onNav({ name: 'subscriptions' }) },
-    { icon: 'heart', t: 'Programa de cuidado', d: 'Serviços de saúde e benefícios.', act: () => setTab('health') },
-  ];
-  const summaryCards = [
-    ['bag', orders.length, 'Pedidos', null],
-    ['repeat', (ctx.subs || []).filter((s) => !s.paused).length, 'Assinaturas ativas', { name: 'subscriptions' }],
-    ['gift', brl(faCashback(orders, products).available), 'Em cashback', { name: 'cashback' }],
-    ['activity', '3', 'Serviços de saúde', null],
-  ];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div className="fa-acct-head">
-        <span className="fa-avatar">{profile.photo ? <img src={profile.photo} alt="" /> : initials(safeProfileName)}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 className="fa-h1" style={{ fontSize: 'clamp(24px,2.6vw,32px)' }}>Olá, {firstName}</h1>
-          <p className="fa-muted" style={{ fontSize: 14 }}>{profile.memberSince}</p>
-        </div>
-        <button className="fa-btn fa-btn-ghost fa-btn-sm" onClick={() => setTab('profile')}><Icon name="edit" size={16} />Editar perfil</button>
-      </div>
-
-      <div className="fa-grid" style={{ '--fa-grid-min': '160px', gap: 14 }}>
-        {summaryCards
-          .filter(([ic]) => ic !== 'gift' || ctx.showCashback !== false)
-          .map(([ic, v, l, go]) => (
-          <div
-            key={l}
-            onClick={go ? () => onNav(go) : undefined}
-            className="fa-card"
-            style={{ padding: '18px 14px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 106, textAlign: 'center', cursor: go ? 'pointer' : 'default' }}
-          >
-            <span className="fa-iconbox" style={{ width: 40, height: 40, flex: 'none' }}><Icon name={ic} size={20} /></span>
-            <div style={{ width: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ fontWeight: 800, fontSize: 'clamp(24px, 2.2vw, 32px)', lineHeight: 0.95, whiteSpace: 'nowrap' }}>{v}</div>
-              <div className="fa-faint" style={{ width: '100%', fontSize: 12.5, lineHeight: 1.1, marginTop: 6, whiteSpace: 'nowrap' }}>{l}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="fa-grid" style={{ '--fa-grid-min': '280px' }}>
-        <div className="fa-block">
-          <div className="fa-block-head"><Icon name="pin" size={18} style={{ color: 'var(--fa-primary)' }} /><div style={{ flex: 1 }}><div className="fa-block-title">Endereço principal</div></div><a role="button" style={{ color: 'var(--fa-primary)', fontWeight: 700, fontSize: 13 }} onClick={() => setTab('profile')}>Gerenciar</a></div>
-          <div className="fa-block-body">
-            {primaryAddr ? (
-              <>
-                <span className="fa-badge fa-badge-rose" style={{ marginBottom: 10 }}>{primaryAddr.label}</span>
-                <div style={{ fontWeight: 700, fontSize: 14.5 }}>{buildAddressLine(primaryAddr) || "Endereço não informado"}</div>
-                <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 4 }}>{buildAddressSecondaryLine(primaryAddr)}</div>
-                <div className="fa-faint fa-mono" style={{ fontSize: 12.5, marginTop: 4 }}>CEP {primaryAddr.cep}</div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontWeight: 700, fontSize: 14.5 }}>Nenhum endereço salvo</div>
-                <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 4 }}>Adicione um endereço para agilizar suas próximas compras.</div>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="fa-block">
-          <div className="fa-block-head"><Icon name="card" size={18} style={{ color: 'var(--fa-primary)' }} /><div style={{ flex: 1 }}><div className="fa-block-title">Cartão principal</div></div><a role="button" style={{ color: 'var(--fa-primary)', fontWeight: 700, fontSize: 13 }} onClick={() => setTab('cards')}>Gerenciar</a></div>
-          <div className="fa-block-body">
-            {primaryCard ? (
-              <div className="fa-paycard" data-brand={primaryCard.brand}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ fontWeight: 800, letterSpacing: '.04em' }}>{primaryCard.brand}</span><Icon name="card" size={22} style={{ opacity: .7 }} /></div>
-                <div className="fa-mono" style={{ fontSize: 17, letterSpacing: '.12em' }}>•••• •••• •••• {primaryCard.last4}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, opacity: .85 }}><span>{primaryCard.holder}</span><span>val {primaryCard.exp}</span></div>
-              </div>
-            ) : (
-              <>
-                <div style={{ fontWeight: 700, fontSize: 14.5 }}>Nenhum cartão salvo</div>
-                <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 4 }}>Cadastre um cartão para acelerar o pagamento no checkout.</div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <div className="fa-section-head" style={{ marginBottom: 14 }}><h2 className="fa-h3" style={{ fontSize: 20 }}>Cuidado Farmaura</h2><a role="button" style={{ color: 'var(--fa-primary)', fontWeight: 700, fontSize: 13.5 }} onClick={() => onNav({ name: 'care' })}>Conhecer todos<Icon name="arrowR" size={15} style={{ marginLeft: 4, verticalAlign: 'middle' }} /></a></div>
-        <div className="fa-grid" style={{ '--fa-grid-min': '220px', gap: 14 }}>
-          {care.map((c) => (
-            <div key={c.t} className="fa-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10, cursor: 'pointer' }} onClick={c.act}>
-              <span className="fa-iconbox" style={{ width: 44, height: 44 }}><Icon name={c.icon} size={22} /></span>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{c.t}</div>
-              <p className="fa-muted" style={{ fontSize: 13, lineHeight: 1.45, flex: 1 }}>{c.d}</p>
-              <span style={{ color: 'var(--fa-primary)', fontWeight: 700, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Acessar<Icon name="arrowR" size={14} /></span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <div className="fa-section-head" style={{ marginBottom: 14 }}><h2 className="fa-h3" style={{ fontSize: 20 }}>Pedidos recentes</h2><a role="button" style={{ color: 'var(--fa-primary)', fontWeight: 700, fontSize: 13.5 }} onClick={() => setTab('orders')}>Ver todos<Icon name="arrowR" size={15} style={{ marginLeft: 4, verticalAlign: 'middle' }} /></a></div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {recent.map((o) => <OrderCard key={o.id} order={o} products={products} statusMap={statusMap} onReorder={reorder} onOpenProduct={(p) => onNav({ name: 'product', id: p.id })} onTrackOrder={(order) => onNav({ name: 'account', tab: 'orders', trackOrderId: order.id })} onOpenSupport={(order) => openChat({ order })} />)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export { ACCT_TABS, AccountScreen, AccountSummary, LoginScreen, OrderCard, OrderTracker, UnlockAccountScreen, initials, resolveOrderLineProduct, resolveOrderLineTotal, resolveOrderStatusMeta };
+export { AccountScreen, LoginScreen, OrderCard, OrderTracker, UnlockAccountScreen, initials, resolveOrderLineProduct, resolveOrderLineTotal, resolveOrderStatusMeta };

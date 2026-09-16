@@ -48,8 +48,11 @@ from app.schemas.portal import (
     PortalHomeBannerUpdateRequest,
     PortalHomeBrandsResponse,
     PortalHomeBrandsUpdateRequest,
+    PortalHomeTrendsResponse,
+    PortalHomeTrendsUpdateRequest,
     PortalDealOfTheDayResponse,
     PortalDealOfTheDayUpdateRequest,
+    DealSuggestionActivePromotionRefsResponse,
     DealSuggestionListResponse,
     PortalLaunchModeResponse,
     PortalLaunchModeUpdateRequest,
@@ -180,6 +183,18 @@ async def update_home_brands(
     return await service.update_home_brands(subject, payload)
 
 
+@router.put("/internal/home-trends", response_model=PortalHomeTrendsResponse)
+async def update_home_trends(
+    payload: PortalHomeTrendsUpdateRequest,
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session=Depends(get_subject_session),
+) -> PortalHomeTrendsResponse:
+    """Persist the tenant-scoped marketplace home "tendências" curated product strip."""
+
+    service = PortalService(session)
+    return await service.update_home_trends(subject, payload)
+
+
 @router.put("/internal/deal-of-the-day", response_model=PortalDealOfTheDayResponse)
 async def update_deal_of_the_day(
     payload: PortalDealOfTheDayUpdateRequest,
@@ -262,6 +277,18 @@ async def get_deal_suggestions_coupons(
 
     service = DealSuggestionService(session=session, tenant_id=str(subject.tenant_id))
     return await service.list_active_coupon_products(limit=limit)
+
+
+@router.get("/internal/deal-suggestions/active-promotion-refs", response_model=DealSuggestionActivePromotionRefsResponse)
+async def get_deal_suggestions_active_promotion_refs(
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DealSuggestionActivePromotionRefsResponse:
+    """List every item ref currently covered by an active promotion (any kind), unlimited."""
+
+    service = DealSuggestionService(session=session, tenant_id=str(subject.tenant_id))
+    refs = await service.list_active_promotion_refs()
+    return DealSuggestionActivePromotionRefsResponse(refs=refs)
 
 
 @router.put("/internal/launch-mode", response_model=PortalLaunchModeResponse)

@@ -10,7 +10,9 @@ Responsibilities:
 - configure the "marcas em destaque" strip from the static placeholder logos in
   scripts/assets/demo_brands/ (generated once, committed as plain PNGs — no image
   library is a runtime dependency of this script or of the API itself);
-- curate "ofertas do dia" from the real bestseller ranking, in manual mode;
+- curate "ofertas do dia" from the real bestseller ranking, either as a single manual list
+  (default) or, with --deal-mode scheduled, as one calendar entry per day for testing the
+  agendado mode;
 
 Observations:
 - deliberately does not create or touch any user account — credential provisioning is a
@@ -30,12 +32,26 @@ import argparse
 import base64
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 
 
 ASSETS_DIR = Path(__file__).parent / "assets" / "demo_brands"
+
+_BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
+
+_WEEKDAY_LABELS = [
+    "Segunda-feira",
+    "Terça-feira",
+    "Quarta-feira",
+    "Quinta-feira",
+    "Sexta-feira",
+    "Sábado",
+    "Domingo",
+]
 
 FAKE_BRANDS = [
     ("VitaPlus", "vitaplus.png"),
@@ -140,6 +156,53 @@ def _update_deal_of_the_day(client: httpx.Client, limit: int) -> None:
     print(f"deal-of-the-day: mode={body['mode']}, refs={len(body['product_refs'])}")
 
 
+def _update_deal_of_the_day_scheduled(client: httpx.Client, limit: int, days: int) -> None:
+    """Seed "ofertas do dia" in scheduled mode, one calendar entry per of the next `days` days.
+
+    Each entry is a `specific_dates` (not weekday-recurrence) entry so it matches deterministically
+    regardless of what day this script happens to run — today's entry is active immediately, and the
+    following days are already visible in the admin calendar UI for the human to click through
+    without waiting. Dates are computed in Brasília time to match `PortalService._current_cycle_date`
+    (always Brasília wall-clock, independent of the API container's own OS timezone).
+    """
+
+    suggestions = client.get(
+        "/portal/internal/deal-suggestions/bestsellers", params={"limit": limit * days}
+    )
+    suggestions.raise_for_status()
+    refs = [item["ref"] for item in suggestions.json()["items"]]
+    if not refs:
+        print("deal-of-the-day (scheduled): no bestseller suggestions available, skipping")
+        return
+
+    today = datetime.now(_BRASILIA_TZ).date()
+    entries = []
+    for offset in range(days):
+        day = today + timedelta(days=offset)
+        day_refs = [refs[(offset * limit + i) % len(refs)] for i in range(min(limit, len(refs)))]
+        entries.append(
+            {
+                "id": f"demo-{day.isoformat()}",
+                "title": f"Ofertas de {_WEEKDAY_LABELS[day.weekday()]}",
+                "subtitle": day.strftime("%d/%m"),
+                "product_refs": day_refs,
+                "specific_dates": [day.isoformat()],
+                "weekdays": [],
+            }
+        )
+
+    payload = {
+        "mode": "scheduled",
+        "reset_time": "00:00",
+        "schedule_entries": entries,
+        "show_countdown": True,
+    }
+    response = client.put("/portal/internal/deal-of-the-day", json=payload)
+    response.raise_for_status()
+    body = response.json()
+    print(f"deal-of-the-day (scheduled): mode={body['mode']}, entries={len(body['schedule_entries'])}")
+
+
 # ============================================================================
 # ENTRYPOINT
 # ============================================================================
@@ -165,6 +228,19 @@ def main() -> None:
         help="Internal admin password (default: local seed password, or $POPULATE_ADMIN_PASSWORD).",
     )
     parser.add_argument("--deal-limit", type=int, default=6, help="How many bestsellers to curate (default: 6).")
+    parser.add_argument(
+        "--deal-mode",
+        choices=["manual", "scheduled"],
+        default="scheduled",
+        help="'scheduled' (default) seeds one calendar entry per day for --scheduled-days, already "
+        "active, to test the agendado mode; 'manual' curates a single always-on list instead.",
+    )
+    parser.add_argument(
+        "--scheduled-days",
+        type=int,
+        default=7,
+        help="With --deal-mode scheduled, how many calendar entries (starting today) to create (default: 7).",
+    )
     parser.add_argument("--skip-banner", action="store_true")
     parser.add_argument("--skip-brands", action="store_true")
     parser.add_argument("--skip-deal-of-the-day", action="store_true")
@@ -186,7 +262,10 @@ def main() -> None:
         if not args.skip_brands:
             _update_home_brands(client)
         if not args.skip_deal_of_the_day:
-            _update_deal_of_the_day(client, args.deal_limit)
+            if args.deal_mode == "scheduled":
+                _update_deal_of_the_day_scheduled(client, args.deal_limit, args.scheduled_days)
+            else:
+                _update_deal_of_the_day(client, args.deal_limit)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import invalidate_cache_scope
+from app.core.logging import get_logger
 from app.core.tenant_context import apply_tenant_context
 from app.domain.enums import UserRole
 from app.repositories.cashback_repository import CashbackRepository
@@ -41,6 +42,8 @@ from app.schemas.fiscal import FiscalDocumentResponse
 from app.schemas.pdv import (
     PdvCustomerLiteResponse,
     PdvDeliveryRequest,
+    PdvDemandLogRequest,
+    PdvDemandLogResponse,
     PdvDiscountLimitRequest,
     PdvDiscountLimitResponse,
     PdvDraftCartLineResponse,
@@ -64,6 +67,9 @@ from app.schemas.pdv import (
     PdvSaleCreateRequest,
     PdvSaleListResponse,
     PdvSaleResponse,
+    PdvUpsellSuggestionItemResponse,
+    PdvUpsellSuggestionRequest,
+    PdvUpsellSuggestionResponse,
 )
 from app.models.cashback_transaction import CashbackTransaction
 from app.models.cashback_transaction_line import CashbackTransactionLine
@@ -86,7 +92,7 @@ from app.services.inventory_stock_sync import decrement_lot_fefo
 from app.services.marketplace_projection import build_marketplace_catalog_groups, resolve_marketplace_category_id
 from app.services.payment_service import PaymentService
 from app.services.portal_service import PortalService
-from app.services.purchase_history_service import DEFAULT_RECURRENCE_DISCOUNT_PERCENT
+from app.services.purchase_history_service import DEFAULT_RECURRENCE_DISCOUNT_PERCENT, PurchaseHistoryService
 
 
 # ============================================================================
@@ -95,6 +101,8 @@ from app.services.purchase_history_service import DEFAULT_RECURRENCE_DISCOUNT_PE
 
 
 RESERVATION_HOLD_HOURS = 48
+
+logger = get_logger("pdv_service")
 
 
 class PdvService:
@@ -555,6 +563,57 @@ class PdvService:
             customer=self._customer_from_payload(payload.customer),
         )
 
+    async def log_demand(self, payload: PdvDemandLogRequest) -> PdvDemandLogResponse:
+        """Record a product a customer asked for that had no stock anywhere, or wasn't found at all.
+
+        No stock is held and no order is created — this is a demand signal for
+        buying/restocking decisions, not a reservation. Kept as a structured log
+        event (not a dedicated table) since there is no query/reporting need for
+        it yet; see the dev-obsidian pendência tracking this as a possible future
+        upgrade to a queryable table if the pharmacy wants historical reporting.
+        """
+
+        logger.info(
+            "pdv_product_demand",
+            tenant_id=str(self.subject.tenant_id),
+            store_id=await self._get_store_id(),
+            pharmacist_user_id=str(self.subject.user_id),
+            query=payload.query,
+            matched_item_id=payload.matched_item_id,
+            customer_id=payload.customer.id if payload.customer and payload.customer.id else None,
+        )
+        return PdvDemandLogResponse(logged=True)
+
+    async def get_upsell_suggestions(self, payload: PdvUpsellSuggestionRequest) -> PdvUpsellSuggestionResponse:
+        """Recommend real, in-stock products to offer alongside the current cart.
+
+        Delegates the actual scoring (global + personal co-purchase, personal top
+        products/recurrence) to PurchaseHistoryService — this method only resolves the
+        request/response shape and the current store, since the recommendation logic
+        itself has nothing PDV-specific about it.
+        """
+
+        cart_pairs = [(line.name, line.brand) for line in payload.cart_items]
+        store_id = await self._get_store_id()
+        suggestions = await PurchaseHistoryService(self.session).get_cart_upsell_suggestions(
+            tenant_id=str(self.subject.tenant_id),
+            store_id=store_id,
+            customer_id=payload.customer_id or "",
+            cart_pairs=cart_pairs,
+        )
+        return PdvUpsellSuggestionResponse(
+            items=[
+                PdvUpsellSuggestionItemResponse(
+                    inventory_item_id=suggestion.inventory_item_id,
+                    name=suggestion.name,
+                    brand=suggestion.brand,
+                    category=suggestion.category,
+                    price=suggestion.price,
+                )
+                for suggestion in suggestions
+            ],
+        )
+
     async def claim_order(self, order_id: str) -> PdvOrderResponse:
         """Assign a queued order to the cashier flow."""
 
@@ -655,15 +714,16 @@ class PdvService:
         return response_items
 
     async def confirm_recurrence(self, payload: PdvRecurrenceConfirmRequest) -> PdvRecurrenceConfirmResponse:
-        """Confirm a pharmacist-detected recurrence: charge the saved card now and record the subscription.
+        """Confirm a pharmacist-detected recurrence: create a real Asaas subscription, charged monthly.
 
         This is independent of any PdvOrder — the pharmacist confirms this while
-        still building the cart, before an order is ever sent to the cashier
-        queue, so there is no PdvOrder id to attach to yet. It also deliberately
-        does not create any recurring schedule or cron job — per the agreed
-        scope, monthly auto-charging is a future phase. The Subscription row
-        created here exists only as a durable record of the agreement and to
-        keep this product from being suggested again by the recurrence detector.
+        still building the cart, before an order is ever sent to the cashier queue,
+        so there is no PdvOrder id to attach to yet. The recurring charge itself is
+        Asaas's own subscription mechanism (see PaymentService.charge_recurring_subscription)
+        — no cron job of ours generates future cycles. The Subscription row created
+        here is our durable record of the agreement (and keeps this product from being
+        suggested again by the recurrence detector); Subscription.provider_subscription_id
+        links it to the Asaas side.
         """
 
         cashback_repository = CashbackRepository(self.session)
@@ -693,10 +753,15 @@ class PdvService:
 
         subscription_code = "SUB-" + uuid4().hex[:8].upper()
         payment_service = PaymentService(self.session)
-        charge = await payment_service.charge_card(
+        # A real Asaas subscription, not a one-off charge: Asaas itself generates and
+        # charges a new payment every month against this same card token from here on —
+        # "cobrado automaticamente todo mês" is Asaas's job, not a cron job of ours. The
+        # billing cycle is always monthly regardless of the customer's own detected
+        # purchase cadence (frequency_days) — that cadence drives the *suggestion*, the
+        # subscription itself bills on a simple, predictable monthly cycle.
+        provider_subscription = await payment_service.charge_recurring_subscription(
             customer=customer,
             provider_token=payment_method.provider_token,
-            billing_type="CREDIT_CARD",
             amount=discounted_total,
             external_reference=subscription_code,
             description="Recorrência PDV - " + inventory_item.name,
@@ -710,6 +775,7 @@ class PdvService:
             inventory_item_id=inventory_item.id,
             subscription_code=subscription_code,
             subscription_status="active",
+            provider_subscription_id=provider_subscription["subscription_id"],
             product_name_snapshot=inventory_item.name,
             quantity=payload.quantity,
             frequency_days=payload.frequency_days,
@@ -727,7 +793,7 @@ class PdvService:
         return PdvRecurrenceConfirmResponse(
             subscription_id=subscription.id,
             discount_percent=discount_percent,
-            charge_status=payment_service.resolve_order_payment_status(charge["status"]),
+            charge_status=provider_subscription["status"].lower() or "active",
             total_charged=discounted_total,
         )
 
@@ -981,7 +1047,14 @@ class PdvService:
         if not order.customer_id:
             return Decimal("0.00"), Decimal("0.00"), [], None
         cashback_repository = CashbackRepository(self.session)
-        wallet = await cashback_repository.get_or_create_wallet(customer_id=order.customer_id)
+        customer = await cashback_repository.get_customer_by_id(
+            tenant_id=str(self.subject.tenant_id), customer_id=order.customer_id,
+        )
+        if customer is None:
+            return Decimal("0.00"), Decimal("0.00"), [], None
+        wallet = await cashback_repository.get_or_create_wallet(
+            tenant_id=str(self.subject.tenant_id), customer_id=order.customer_id,
+        )
         cashback_applied = max(Decimal("0.00"), min(requested_apply_amount, wallet.available_balance, order.total_amount))
         item_ids = [item.inventory_item_id for item in order_items if item.inventory_item_id]
         rules = await cashback_repository.resolve_rules_for_items(
@@ -1073,6 +1146,7 @@ class PdvService:
                 await cashback_repository.add_transaction_line(
                     CashbackTransactionLine(
                         id=str(uuid4()),
+                        tenant_id=str(self.subject.tenant_id),
                         transaction_id=transaction.id,
                         cashback_rule_id=line["rule_id"],
                         customer_id=str(order.customer_id),
@@ -1094,7 +1168,14 @@ class PdvService:
         if not customer_id:
             return Decimal("0.00")
         cashback_repository = CashbackRepository(self.session)
-        wallet = await cashback_repository.get_or_create_wallet(customer_id=customer_id)
+        customer = await cashback_repository.get_customer_by_id(tenant_id=str(self.subject.tenant_id), customer_id=customer_id)
+        if customer is None:
+            # customer_id came from the request payload — a value that does not resolve to a
+            # customer of this tenant must never read another tenant's wallet balance.
+            return Decimal("0.00")
+        wallet = await cashback_repository.get_or_create_wallet(
+            tenant_id=str(self.subject.tenant_id), customer_id=customer_id,
+        )
         return wallet.available_balance
 
     async def _resolve_discount_minimum_margin_percent(self) -> Decimal:

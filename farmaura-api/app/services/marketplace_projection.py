@@ -130,7 +130,7 @@ def build_marketplace_asset_url(asset_name: str) -> str:
 def resolve_marketplace_placeholder_asset(is_generic: bool) -> str:
     """Return the default placeholder asset, driven strictly by the product's generic flag."""
 
-    return "PlaceHolder-generico.png" if is_generic else "PlaceHolder.png"
+    return "PlaceHolder-generico.webp" if is_generic else "PlaceHolder.webp"
 
 
 def resolve_marketplace_prescription_placeholder_asset(
@@ -142,20 +142,20 @@ def resolve_marketplace_prescription_placeholder_asset(
     category = str(controlled_category or "none").strip().lower()
     if category == "black_stripe":
         return (
-            "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.png"
+            "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta-generico.webp"
             if is_generic
-            else "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.png"
+            else "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-tarja-preta.webp"
         )
     if category in {"prescription_retention", "special_control"}:
         return (
-            "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.png"
+            "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita-generico.webp"
             if is_generic
-            else "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.png"
+            else "PlaceHolder-venda-sob-prescricao-medica-com-retencao-receita.webp"
         )
     return (
-        "PlaceHolder-venda-sob-prescricao-medica-generico.png"
+        "PlaceHolder-venda-sob-prescricao-medica-generico.webp"
         if is_generic
-        else "PlaceHolder-venda-sob-prescricao-medica.png"
+        else "PlaceHolder-venda-sob-prescricao-medica.webp"
     )
 
 
@@ -274,6 +274,13 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
                 "sub": medication_class or category or "Medicamentos",
                 "description": name,
                 "info": "Disponivel no marketplace Farmaura",
+                "short_description": str(getattr(item, "short_description", "") or ""),
+                "bula_markdown": str(getattr(item, "bula_markdown", "") or ""),
+                "marketing_highlights": [
+                    str(topic).strip() for topic in (getattr(item, "marketing_highlights", None) or []) if str(topic).strip()
+                ],
+                "variant_group_id": str(getattr(item, "variant_group_id", "") or ""),
+                "variant_label": str(getattr(item, "variant_label", "") or ""),
                 "image_url": image_payload["image_url"],
                 "image_alt": image_payload["image_alt"],
                 "image_policy": image_payload["image_policy"],
@@ -285,7 +292,7 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
                 "stock": available_stock,
                 "is_available": available_stock > 0,
                 "tags": tags[:],
-                "aliases": ["inv-" + str(getattr(item, "id"))],
+                "aliases": ["inv-" + str(getattr(item, "id")), "prod-" + str(getattr(item, "product_id", ""))],
                 "inventory_ids": [str(getattr(item, "id"))],
                 "components": [component],
                 "source_count": 1,
@@ -306,10 +313,24 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
             current["image_alt"] = MARKETPLACE_RESTRICTED_IMAGE_ALT
             current["image_policy"] = MARKETPLACE_RESTRICTED_IMAGE_POLICY
             current["gallery"] = []
+        # A group can in principle merge more than one InventoryProduct row (grouping key is
+        # name+brand, not product_id) — first non-blank value found wins for these product-level
+        # fields, same "first writer wins" principle already used for sku/ean above.
+        if not current["short_description"]:
+            current["short_description"] = str(getattr(item, "short_description", "") or "")
+        if not current["bula_markdown"]:
+            current["bula_markdown"] = str(getattr(item, "bula_markdown", "") or "")
+        if not current["marketing_highlights"]:
+            current["marketing_highlights"] = [
+                str(topic).strip() for topic in (getattr(item, "marketing_highlights", None) or []) if str(topic).strip()
+            ]
+        if not current["variant_group_id"]:
+            current["variant_group_id"] = str(getattr(item, "variant_group_id", "") or "")
+            current["variant_label"] = str(getattr(item, "variant_label", "") or "")
         current["source_count"] = int(current["source_count"]) + 1
         current["components"].append(component)
         current["inventory_ids"] = sorted({*current["inventory_ids"], str(getattr(item, "id"))})
-        current["aliases"] = sorted({*current["aliases"], "inv-" + str(getattr(item, "id"))})
+        current["aliases"] = sorted({*current["aliases"], "inv-" + str(getattr(item, "id")), "prod-" + str(getattr(item, "product_id", ""))})
         current["tags"] = sorted({*current["tags"], *tags})
         should_replace_primary = (
             effective_price < current["price"]
@@ -344,4 +365,39 @@ def build_marketplace_catalog_groups(items: list[object]) -> list[dict[str, obje
             )
         )
     rows.sort(key=lambda row: (str(row["name"]).lower(), str(row["brand"]).lower()))
+    _attach_variant_siblings(rows)
     return rows
+
+
+def _attach_variant_siblings(rows: list[dict[str, object]]) -> None:
+    """Attach each row's `variants` list — every catalog row sharing its `variant_group_id`.
+
+    Self-inclusive (a row lists itself among its own variants) so the frontend can render one
+    chip row and simply mark `entry.id === product.id` as the active choice, without a special
+    case for "this is the product I'm already looking at".
+    """
+
+    by_group: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        group_id = str(row.get("variant_group_id") or "")
+        if group_id:
+            by_group.setdefault(group_id, []).append(row)
+    for row in rows:
+        group_id = str(row.get("variant_group_id") or "")
+        members = by_group.get(group_id) if group_id else None
+        if not members or len(members) < 2:
+            row["variants"] = []
+            continue
+        row["variants"] = sorted(
+            [
+                {
+                    "id": member["id"],
+                    "label": member["variant_label"] or member["name"],
+                    "price": member["price"],
+                    "old_price": member["old_price"],
+                    "in_stock": bool(member["stock"]),
+                }
+                for member in members
+            ],
+            key=lambda variant: Decimal(variant["price"]),
+        )

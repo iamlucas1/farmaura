@@ -65,7 +65,7 @@ class TherapeuticClassService:
 
         existing = await self.repository.get_by_name(tenant_id=str(self.subject.tenant_id), name=payload.name)
         if existing is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Therapeutic class name already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Já existe uma classe terapêutica com esse nome.")
         await self._ensure_category_exists(payload.category_id)
         therapeutic_class = TherapeuticClass(
             tenant_id=str(self.subject.tenant_id),
@@ -93,7 +93,7 @@ class TherapeuticClassService:
         therapeutic_class = await self._require_therapeutic_class(therapeutic_class_id)
         existing = await self.repository.get_by_name(tenant_id=str(self.subject.tenant_id), name=payload.name)
         if existing is not None and existing.id != therapeutic_class.id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Therapeutic class name already registered.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Já existe uma classe terapêutica com esse nome.")
         await self._ensure_category_exists(payload.category_id)
         therapeutic_class.name = payload.name
         therapeutic_class.description = payload.description

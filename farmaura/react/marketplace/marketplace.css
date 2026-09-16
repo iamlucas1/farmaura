@@ -1,22 +1,21 @@
 /* ============================================================
    FARMAURA — Design System tokens + base styles
-   Drives everything through CSS variables so Tweaks can retune
-   color / font / radius / density / aura live.
+   Drives everything through CSS custom properties.
    ============================================================ */
 
 :root {
-  /* Core palette (overridable by Tweaks via inline vars on #fa-root) */
-  --fa-primary: #7A0D16;        /* Vinho Aura */
-  --fa-primary-ink: #5C0910;    /* darker vinho for text on rosé */
-  --fa-vital: #C81D28;          /* Vermelho Vital — energy accent */
+  /* Core palette */
+  --fa-primary: #A11017;        /* Vermelho Vital */
+  --fa-primary-ink: #7C0C12;    /* darker red for text on rosé */
+  --fa-vital: #E03131;          /* Vermelho Vital, bright — energy accent */
   --fa-bg: #FAF7F5;             /* Off-white Clínico */
   --fa-surface: #FFFFFF;
-  --fa-rose: #FFD6D9;           /* Rosé Cuidado */
-  --fa-rose-soft: #FFEDEE;
+  --fa-rose: #FFD5D5;           /* Rosé Cuidado */
+  --fa-rose-soft: #FFECEC;
   --fa-beige: #F6F1E8;          /* Bege Atalho — quick category tiles */
   --fa-ink: #2B1A1A;            /* Grafite Quente */
   --fa-ink-2: #6B5757;          /* muted text */
-  --fa-ink-3: #9A8A8A;          /* faint text */
+  --fa-ink-3: #746868;          /* faint text — darkened from #9A8A8A to clear WCAG AA 4.5:1 on every surface it appears on (was ~3.1-3.3:1) */
   --fa-mist: #E8E1DF;           /* Cinza Névoa borders */
   --fa-mist-2: #F1EBE9;
 
@@ -24,11 +23,14 @@
   --fa-success-soft: #E4F1EB;
   --fa-warn: #F2A03D;
   --fa-warn-soft: #FCEEDB;
+  --fa-warn-ink: #945F22;       /* darkened --fa-warn for text — recurred as a raw #b9772a literal
+                                    in 3 places (urgency/scarcity copy, warn badges); formalized as
+                                    a token here since #b9772a itself failed WCAG AA (~3.4-3.7:1) */
   --fa-error: #B3261E;
   --fa-info: #3A6EA5;
   --fa-info-soft: #E6EDF5;
 
-  /* Radius (scaled by --fa-radius-scale from Tweaks) */
+  /* Radius scale multiplier */
   --fa-radius-scale: 1;
   --fa-r-card: calc(16px * var(--fa-radius-scale));
   --fa-r-btn: calc(12px * var(--fa-radius-scale));
@@ -42,6 +44,7 @@
   --fa-grid-min: 220px;
 
   --fa-font: 'Nunito Sans', system-ui, sans-serif;
+  --fa-mono: 'Spline Sans Mono', ui-monospace, monospace;
 
   /* Aura decoration intensity 0..1 */
   --fa-aura: 0.5;
@@ -49,7 +52,11 @@
   --fa-shadow-sm: 0 1px 2px rgba(43,26,26,.05), 0 1px 3px rgba(43,26,26,.06);
   --fa-shadow-md: 0 4px 14px rgba(43,26,26,.07), 0 2px 6px rgba(43,26,26,.05);
   --fa-shadow-lg: 0 18px 50px rgba(43,26,26,.13), 0 6px 16px rgba(43,26,26,.07);
-  --fa-maxw: 1240px;
+  /* Content column width — this is what actually controls how much empty margin shows on the
+     sides of a centered desktop layout (the .fa-wrap padding below only adds room *inside* this
+     column, it doesn't move the column's own outer edge). Wider column = less visible margin,
+     content spans further toward the sides at any given desktop viewport width. */
+  --fa-maxw: 1320px;
 }
 
 [data-density="compact"] { --fa-gap: 12px; --fa-card-pad: 12px; --fa-grid-min: 180px; }
@@ -73,14 +80,70 @@ button { font-family: inherit; cursor: pointer; }
 a[role="button"], .fa-navlink, [role="button"] { cursor: pointer; }
 input, select, textarea { font-family: inherit; }
 a { color: inherit; text-decoration: none; }
+/* Breadcrumb-style link rendered as a real <button> — reaches keyboard focus and Enter/Space like
+   any other control, unlike an `<a role="button">` with no href (invisible to the tab order). */
+.fa-crumb-link { border: none; background: none; padding: 2px 3px; margin: -2px -3px; color: inherit; font: inherit; border-radius: 6px; }
+.fa-crumb-link:hover { color: var(--fa-primary); }
+.fa-crumb-link:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--fa-rose-soft); color: var(--fa-primary); }
 ::selection { background: var(--fa-rose); color: var(--fa-primary-ink); }
 
+/* Side padding scales with viewport instead of a fixed 24px — on wide desktop the content was
+   sitting almost flush with its own 1240px box despite generous empty margin just outside it;
+   clamp() gives it real breathing room up to 40px there while staying exactly as compact as
+   before down to the point the mobile override below takes over. Same responsive-padding idiom
+   as the reference demo's own `.fa-wrap` (`clamp(18px,3vw,32px)`), just tuned wider per request. */
 .fa-wrap { max-width: var(--fa-maxw); margin: 0 auto; padding: 0 24px; }
 @media (max-width: 640px) { .fa-wrap { padding: 0 16px; } }
+
+/* Composição visual "padrão farmácia" — core/marketplace-bands.jsx. Mechanics copied from the
+   reference demo: wave pinned to a band's own top edge, own color, translated up over whatever
+   precedes it; content padding leaves clearance for the next band's wave to overlap into it. */
+.fa-band { position: relative; width: 100%; background: var(--band-bg); overflow: visible; }
+.fa-band .fa-wrap { padding-top: 26px; padding-bottom: 86px; }
+@media (max-width: 640px) { .fa-band .fa-wrap { padding-top: 18px; padding-bottom: 56px; } }
+.fa-band-wave { position: absolute; top: 0; left: 0; width: 100%; height: 78px; transform: translateY(-100%); line-height: 0; pointer-events: none; }
+.fa-band-wave svg { display: block; width: 100%; height: 100%; }
+@media (max-width: 640px) { .fa-band-wave { height: 44px; } }
+.fa-band-head { text-align: center; max-width: 560px; margin: 0 auto 16px; }
+.fa-band-head h2 { font-weight: 800; font-size: clamp(22px, 2.4vw, 30px); line-height: 1.1; margin: 0 0 5px; color: var(--fa-ink); letter-spacing: -0.01em; }
+.fa-band-head p { font-size: 13px; color: var(--fa-ink-2); margin: 0; }
+
+/* Band footer CTA — matches the demo's `.band-cta`/`.slide-btn`: a vertical text-swap button
+   (two stacked labels, second one slides up on hover) instead of a plain static link. */
+.fa-band-cta { display: flex; justify-content: center; margin-top: 20px; }
+.fa-slide-btn {
+  position: relative; display: inline-flex; align-items: flex-start; justify-content: center;
+  height: 46px; padding: 0 26px; border: none; border-radius: var(--fa-r-btn); overflow: hidden;
+  background: var(--fa-primary); color: #fff; cursor: pointer; font-family: inherit;
+  white-space: nowrap; box-shadow: 0 6px 18px -8px var(--fa-primary); transition: background .2s ease;
+}
+.fa-slide-btn:hover { background: var(--fa-primary-ink); }
+.fa-slide-btn-inner { display: inline-block; transition: transform .3s cubic-bezier(.2,.8,.3,1.1); }
+.fa-slide-btn:hover .fa-slide-btn-inner { transform: translateY(-50%); }
+.fa-slide-btn-face { display: flex; align-items: center; justify-content: center; gap: 8px; height: 46px; white-space: nowrap; font-weight: 700; font-size: 13.5px; }
+@media (prefers-reduced-motion: reduce) {
+  .fa-slide-btn-inner, .fa-slide-btn:hover .fa-slide-btn-inner { transition: none; transform: none; }
+}
 
 /* Hide scrollbars on horizontal rails */
 .fa-noscroll::-webkit-scrollbar { display: none; }
 .fa-noscroll { scrollbar-width: none; }
+
+/* ScrollRail prev/next arrows (core/marketplace-components.jsx) */
+.fa-rail-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 999px;
+  border: 1px solid var(--fa-mist); background: rgba(255,255,255,.96); color: var(--fa-primary);
+  display: grid; place-items: center; box-shadow: var(--fa-shadow-md); z-index: 2; cursor: pointer;
+  transition: transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease;
+}
+.fa-rail-arrow-prev { left: -10px; }
+.fa-rail-arrow-next { right: -10px; }
+.fa-rail-arrow:hover { background: var(--fa-primary); color: #fff; border-color: var(--fa-primary); transform: translateY(-50%) scale(1.04); }
+.fa-rail-arrow:focus-visible { outline: none; border-color: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
+
+/* Visualmente oculto mas presente pra leitor de tela e crawler — ex.: o <h1> real de páginas
+   cuja hierarquia visual já é carregada pela marca/hero, não por um título de texto grande. */
+.fa-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* ---------- Type ---------- */
 .fa-h1 { font-weight: 800; font-size: clamp(28px, 4vw, 46px); line-height: 1.04; letter-spacing: -.02em; margin: 0; }
@@ -101,8 +164,9 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
 }
 .fa-btn:active { transform: translateY(1px) scale(.99); }
+.fa-btn:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--fa-rose-soft); }
 .fa-btn-primary { background: var(--fa-primary); color: #fff; box-shadow: 0 6px 18px -8px var(--fa-primary); }
-.fa-btn-primary:hover { background: #6a0b13; }
+.fa-btn-primary:hover { background: #890e14; }
 .fa-btn-vital { background: var(--fa-vital); color: #fff; box-shadow: 0 8px 20px -8px var(--fa-vital); }
 .fa-btn-vital:hover { filter: brightness(.95); }
 .fa-btn-ghost { background: transparent; color: var(--fa-primary); border: 1.5px solid var(--fa-primary); }
@@ -133,7 +197,7 @@ a { color: inherit; text-decoration: none; }
 .fa-badge-health { background: var(--fa-success-soft); color: var(--fa-success); }
 .fa-badge-rose { background: var(--fa-rose); color: var(--fa-primary-ink); }
 .fa-badge-mist { background: var(--fa-mist-2); color: var(--fa-ink-2); }
-.fa-badge-warn { background: var(--fa-warn-soft); color: #b9772a; }
+.fa-badge-warn { background: var(--fa-warn-soft); color: var(--fa-warn-ink); }
 .fa-badge-outline { background: transparent; border: 1px solid var(--fa-mist); color: var(--fa-ink-2); }
 
 /* ---------- Icon container ---------- */
@@ -144,28 +208,38 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ---------- Category menu (home top, sourced from the internal Categorias catalog) ---------- */
+/* Solid capsule tiles, one real accent color per category — matches the demo's `.catjar`. */
 .fa-quickcats {
-  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px 22px;
+  display: flex; flex-wrap: wrap; gap: 14px 10px;
 }
-@media (max-width: 640px) { .fa-quickcats { justify-content: center; } }
 .fa-quickcat {
-  flex: 0 0 92px;
-  display: flex; flex-direction: column; align-items: center; gap: 9px;
-  border: none; background: transparent; padding: 0; cursor: pointer; text-align: center;
+  --acc: var(--fa-primary);
+  /* Grow to share the row's full width evenly (like the demo's `repeat(N,1fr)` grid, whose
+     column count is fixed at 7 — this app's shortcut+category count varies, so a `flex-grow`
+     row does the same job without a media query pinned to a specific item count) instead of
+     sizing to content and dumping all the extra room into gaps only, which reads as cramped. */
+  flex: 1 1 90px; max-width: 170px;
+  display: flex; flex-direction: column; align-items: center; gap: 11px;
+  border: none; background: transparent; padding: 6px; cursor: pointer; text-align: center;
 }
 .fa-quickcat-tile {
-  width: 100%; max-width: 104px; height: 56px; border-radius: 15px;
-  background: var(--fa-rose-soft); color: var(--fa-primary);
-  display: grid; place-items: center;
-  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+  width: 62px; height: 84px; border-radius: 31px;
+  background: var(--acc); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 10px 18px -12px var(--acc);
+  transition: transform .16s ease, box-shadow .16s ease;
 }
-.fa-quickcat:hover .fa-quickcat-tile { transform: translateY(-3px); box-shadow: var(--fa-shadow-md); }
+.fa-quickcat:hover .fa-quickcat-tile { transform: translateY(-3px); box-shadow: 0 14px 22px -12px var(--acc); }
 .fa-quickcat:active .fa-quickcat-tile { transform: translateY(-1px) scale(.98); }
 .fa-quickcat-label {
-  font-size: 12.5px; font-weight: 700; line-height: 1.18;
-  color: var(--fa-ink); max-width: 104px; text-wrap: balance;
+  font-size: 12px; font-weight: 700; line-height: 1.3;
+  color: var(--fa-ink-2); max-width: 14ch; text-wrap: balance;
 }
-@media (max-width: 640px) { .fa-quickcat-label { font-size: 12px; } }
+.fa-quickcat:hover .fa-quickcat-label { color: var(--fa-ink); }
+@media (max-width: 640px) {
+  .fa-quickcat-tile { width: 54px; height: 74px; border-radius: 27px; }
+  .fa-quickcat-label { font-size: 11.5px; }
+}
 
 /* ---------- Banner slider (rotating hero) ---------- */
 .fa-slider { position: relative; overflow: hidden; border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-sm); }
@@ -176,6 +250,36 @@ a { color: inherit; text-decoration: none; }
 .fa-slide-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .fa-slide-item button { display: block; width: 100%; height: 100%; border: none; padding: 0; margin: 0; background: none; cursor: pointer; }
 .fa-slide-item-html { width: 100%; height: 100%; overflow: auto; }
+/* An HTML slide (kind="html") is text-driven and must size to its own content/padding, not the
+   fixed clamp() band sized for image slides — otherwise its padding gets squeezed/stretched to
+   fit that band instead of the values the slide's own markup asks for. */
+.fa-slide-item.fa-slide-item--html { min-height: 0; }
+.fa-slide-item--html .fa-slide-item-html { height: auto; overflow: visible; }
+
+/* Reusable "decorative hero" treatment for admin-authored banner HTML (kind="html") — real,
+   static classes in our own stylesheet, not inline style, so an admin banner can look like this
+   without needing the sanitized style attribute to allow gradients/position (it deliberately
+   doesn't — see PortalService._sanitize_home_banner_html and the seed's own hero banner, which
+   opts in with class="fa-hero-decorative"). */
+.fa-hero-decorative {
+  position: relative; overflow: hidden; box-sizing: border-box; width: 100%; min-height: 280px;
+  border-radius: var(--fa-r-card);
+  background: linear-gradient(135deg, var(--fa-primary), var(--fa-primary-ink));
+  padding: clamp(34px, 5vw, 56px) clamp(24px, 4vw, 48px);
+  color: #fff; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 14px;
+}
+.fa-hero-arc { position: absolute; border: 1.5px solid rgba(255,255,255,.5); border-radius: 50%; pointer-events: none; }
+.fa-hero-arc.a1 { width: 520px; height: 520px; right: -180px; top: -220px; }
+.fa-hero-arc.a2 { width: 340px; height: 340px; right: 40px; bottom: -220px; }
+.fa-hero-arc.a3 { width: 180px; height: 180px; right: 300px; top: 40px; }
+.fa-hero-kicker { position: relative; font-size: 11.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #FFD5D5; margin: 0; }
+.fa-hero-title { position: relative; font-size: clamp(28px, 4vw, 46px); font-weight: 800; line-height: 1.08; margin: 0; max-width: 15ch; }
+.fa-hero-sub { position: relative; font-size: 15px; color: rgba(255,255,255,.85); margin: 0; max-width: 46ch; }
+.fa-hero-actions { position: relative; display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.fa-hero-btn { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--fa-r-btn); font-weight: 700; font-size: 13.5px; padding: 12px 20px; }
+.fa-hero-btn--white { background: #fff; color: var(--fa-primary); }
+.fa-hero-btn--ghost { background: rgba(255,255,255,.14); color: #fff; }
+@media (max-width: 640px) { .fa-hero-decorative { min-height: 240px; } .fa-hero-arc.a1 { right: -240px; } }
 .fa-slide-content { position: relative; z-index: 1; max-width: 560px; }
 .fa-slide-lead { font-size: 17px; line-height: 1.5; margin-top: 16px; max-width: 460px; }
 .fa-slide-actions { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
@@ -213,7 +317,7 @@ a { color: inherit; text-decoration: none; }
 }
 .fa-ph-label {
   position: relative; font-family: 'Spline Sans Mono', monospace;
-  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
   color: var(--fa-ink-3); background: rgba(255,255,255,.7); padding: 4px 9px; border-radius: 999px;
 }
 .fa-ph-glyph { position: relative; opacity: .5; }
@@ -230,14 +334,17 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-sm);
 }
 
+/* Product-card grids intentionally pin their own 16px gap (the demo's `.grid { gap:16px }`)
+   instead of following the density-tweak `--fa-gap` token (20/12/28px) — that token still
+   governs non-card grids (account layout, etc.), which were never part of matching the demo. */
 .fa-grid {
-  display: grid; gap: var(--fa-gap);
+  display: grid; gap: 16px;
   grid-template-columns: repeat(auto-fill, minmax(var(--fa-grid-min), 1fr));
 }
 
 /* Home product grid: 5 per row → 2 rows (10 items) */
 .fa-grid-5 {
-  display: grid; gap: var(--fa-gap);
+  display: grid; gap: 16px;
   grid-template-columns: repeat(5, 1fr);
 }
 @media (max-width: 1100px) { .fa-grid-5 { grid-template-columns: repeat(4, 1fr); } }
@@ -249,33 +356,229 @@ a { color: inherit; text-decoration: none; }
 .fa-feed-sec { padding: 40px 0; }
 .fa-feed-sec:first-child { padding-top: 0; }
 .fa-feed-sec + .fa-feed-sec { border-top: 1px solid var(--fa-mist); }
-.fa-feed-sec.fa-feed-tight { padding-top: 0; border-top: none; }
+.fa-feed-sec.fa-feed-tight { padding-top: 0; padding-bottom: 0; border-top: none; }
 
-/* ---------- Ofertas do dia (admin-curated, urgency strip + countdown — Direção D) ---------- */
+/* ---------- Product detail page (screens/product-screen.jsx) — layout/typography ported from
+   the reference demo's product-detail panel. Classes the demo already shared with something real
+   (quantity stepper → .fa-qty, subscription switch → Toggle/.fa-switch, image box → ProductVisual/
+   .fa-ph) reuse those instead of duplicating a twin — only what's genuinely new to this page lives
+   here. ---------- */
+/* 3 columns: gallery | name/description/dosage | price/actions — the middle column is the only
+   flexible one, both side columns stay a fixed width so price/actions don't stretch awkwardly
+   wide on large screens. Collapses to 1 column below 1080px (gallery, then info, then buy box, in
+   that reading order — matches source order in the JSX). */
+.pd-layout { display: grid; grid-template-columns: 380px 1fr 340px; gap: 32px; align-items: start; padding-top: 4px; }
+/* Tablet range (641-1080px, e.g. iPad portrait/landscape, half-screen laptop windows): the full
+   3-column desktop grid needs ~1084px minimum to stay readable (380+340px fixed columns + gaps +
+   a viable middle), so below that it used to collapse straight to the phone's single stacked
+   column — wasting most of the tablet's width on a single narrow strip. This 2-column hybrid keeps
+   the gallery beside the purchase info instead, matching how a tablet is actually held/browsed. */
+@media (max-width: 1080px) {
+  .pd-layout {
+    grid-template-columns: minmax(240px, 320px) 1fr;
+    grid-template-areas: "gallery middle" "gallery buybox";
+  }
+  .pd-gallery { grid-area: gallery; }
+  .pd-info { grid-area: middle; }
+  .pd-buybox { grid-area: buybox; }
+}
+@media (max-width: 640px) {
+  .pd-layout { grid-template-columns: 1fr; grid-template-areas: "gallery" "middle" "buybox"; }
+}
+.pd-gallery { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 20px; }
+.pd-gallery-thumbs { display: flex; gap: 10px; flex-wrap: wrap; }
+.pd-buybox { display: flex; flex-direction: column; background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 24px; }
+@media (min-width: 1081px) { .pd-buybox { position: sticky; top: 20px; } }
+.pd-highlights { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 18px; padding: 0; list-style: none; }
+.pd-highlights li { display: flex; gap: 9px; align-items: flex-start; font-size: 13.5px; color: var(--fa-ink-2); line-height: 1.5; }
+.pd-highlights li svg { flex: none; margin-top: 2px; color: var(--fa-success); }
+.pd-variant-group { margin-bottom: 18px; }
+.pd-variant-label { font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2); margin-bottom: 9px; }
+.pd-variant-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.pd-variant-btn { display: inline-flex; align-items: center; min-height: 44px; border: 1px solid var(--fa-mist); background: var(--fa-surface); border-radius: 10px; padding: 9px 15px; font-size: 13px; font-weight: 700; color: var(--fa-ink-2); cursor: pointer; font-family: var(--fa-font); transition: border-color .15s, color .15s, background .15s; }
+.pd-variant-btn:hover { border-color: var(--fa-rose); }
+.pd-variant-btn:focus-visible { outline: none; border-color: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
+.pd-variant-btn.is-active { border-color: var(--fa-primary); background: var(--fa-primary); color: #fff; }
+.pd-bula { font-size: 14.5px; color: var(--fa-ink-2); line-height: 1.7; max-width: 68ch; }
+.pd-bula h1, .pd-bula h2, .pd-bula h3 { color: var(--fa-ink); font-weight: 800; margin: 18px 0 8px; }
+.pd-bula h1:first-child, .pd-bula h2:first-child, .pd-bula h3:first-child { margin-top: 0; }
+.pd-bula p { margin: 0 0 12px; }
+.pd-bula ul, .pd-bula ol { margin: 0 0 12px; padding-left: 20px; }
+.pd-bula li { margin-bottom: 4px; }
+.pd-bula strong { color: var(--fa-ink); }
+.pd-brand { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fa-ink-3); margin-bottom: 6px; }
+.pd-name { font-size: clamp(24px,2.6vw,32px); font-weight: 800; color: var(--fa-ink); line-height: 1.18; margin: 0 0 12px; }
+.pd-rating-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px; color: var(--fa-ink-2); flex-wrap: wrap; }
+.pd-stars { display: inline-flex; gap: 2px; color: var(--fa-warn); }
+.pd-stars svg { width: 15px; height: 15px; }
+.pd-stars .is-empty { color: var(--fa-mist); }
+.pd-price-block { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 4px; flex-wrap: wrap; }
+.pd-price { font-family: var(--fa-mono); font-weight: 800; font-size: 34px; color: var(--fa-ink); }
+.pd-price.is-discounted { color: var(--fa-success); font-size: 38px; }
+.pd-price-was { font-family: var(--fa-mono); font-size: 15px; color: var(--fa-ink-3); text-decoration: line-through; }
+.pd-price-off { background: var(--fa-success); color: #fff; font-size: 13px; font-weight: 800; padding: 5px 12px; border-radius: 999px; }
+.pd-installment { font-size: 12.5px; color: var(--fa-ink-2); margin: 4px 0 18px; }
+.pd-recurrence-info { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-left: -10px; border: none; background: none; padding: 15px; border-radius: 999px; color: var(--fa-ink-3); cursor: pointer; }
+.pd-recurrence-info svg { width: 14px; height: 14px; }
+.pd-recurrence-info:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--fa-rose-soft); }
+.pd-recurrence { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 46px; padding: 0 14px; background: var(--fa-rose-soft); border-radius: var(--fa-r-input); margin-bottom: 18px; }
+.pd-recurrence-title { font-size: 12.5px; font-weight: 700; color: var(--fa-ink); line-height: 1.25; display: flex; align-items: center; }
+.pd-add-btn { width: 100%; height: 52px; font-size: 14.5px; }
+.pd-bula-cta { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 16px; padding: 16px 0 0; border: none; border-top: 1px solid var(--fa-mist); background: none; text-align: left; font: inherit; text-decoration: none; color: inherit; cursor: pointer; }
+.pd-bula-cta-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.pd-bula-cta-text b { font-size: 13.5px; color: var(--fa-ink); transition: color .15s ease; }
+.pd-bula-cta:hover .pd-bula-cta-text b, .pd-bula-cta:focus-visible .pd-bula-cta-text b { color: var(--fa-primary); }
+.pd-bula-cta:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--fa-rose-soft); border-radius: var(--fa-r-btn); }
+.pd-bula-cta-text small { font-size: 12px; color: var(--fa-ink-2); }
+.pd-bula-cta > svg { width: 15px; height: 15px; color: var(--fa-ink-3); flex: none; }
+
+/* Mobile-only sticky buy bar — hidden above the same 1080px breakpoint where .pd-buybox stops
+   being sticky (desktop already keeps price/CTA in view via that). Off-screen by default,
+   slides up once the real buy button in the buybox scrolls out of view. */
+.pd-sticky-bar {
+  display: none;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  align-items: center; justify-content: space-between; gap: 14px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--fa-surface);
+  border-top: 1px solid var(--fa-mist);
+  box-shadow: var(--fa-shadow-lg);
+  transform: translateY(100%);
+  transition: transform .22s ease;
+}
+.pd-sticky-bar.is-visible { transform: translateY(0); }
+.pd-sticky-bar-price { font-family: var(--fa-mono); font-weight: 800; font-size: 20px; color: var(--fa-ink); flex: none; }
+.pd-sticky-bar .fa-btn { flex: 1; max-width: 220px; }
+@media (max-width: 1080px) { .pd-sticky-bar { display: flex; } }
+@media (prefers-reduced-motion: reduce) { .pd-sticky-bar { transition: none; } }
+
+.bula-back-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--fa-mist); background: var(--fa-surface); color: var(--fa-ink-2); border-radius: var(--fa-r-pill); padding: 8px 14px; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.bula-back-btn:hover { border-color: var(--fa-primary); color: var(--fa-primary); }
+.bula-back-btn svg { width: 15px; height: 15px; flex: none; }
+.bula-head { display: flex; align-items: center; gap: 16px; padding: 4px 0 30px; }
+.bula-head-icon { width: 52px; height: 52px; border-radius: 15px; background: var(--fa-info); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.bula-head-eyebrow { font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--fa-info); margin-bottom: 4px; }
+.bula-head h1 { font-size: clamp(22px,2.6vw,28px); font-weight: 800; color: var(--fa-ink); margin: 0; }
+.bula-doc { max-width: 760px; margin: 0 auto 60px; background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: clamp(24px,4vw,44px); }
+.bula-id-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; padding-bottom: 28px; margin-bottom: 28px; border-bottom: 1px solid var(--fa-mist); list-style: none; }
+@media (max-width: 560px) { .bula-id-grid { grid-template-columns: 1fr; } }
+.bula-id-grid dt { font-size: 11px; font-weight: 700; color: var(--fa-ink-3); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 3px; }
+.bula-id-grid dd { font-size: 13.5px; font-weight: 600; color: var(--fa-ink); margin: 0; }
+
+.pd-shipping { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--fa-mist); }
+.pd-shipping-head { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 700; margin-bottom: 9px; color: var(--fa-ink-2); }
+.pd-shipping-head-label { display: inline-flex; align-items: center; gap: 8px; }
+.pd-shipping-head svg { width: 15px; height: 15px; }
+.pd-shipping-form { display: flex; gap: 8px; }
+.pd-shipping-form .fa-input { flex: 1; height: 42px; }
+.pd-shipping-form button { height: 42px; padding: 0 16px; font-size: 12.5px; white-space: nowrap; }
+/* Column, not the demo's single line — a real lookup shows both the resolved district (so the
+   customer can confirm the CEP typed in) and the coverage note underneath, never just one line. */
+.pd-shipping-result { margin-top: 9px; font-size: 12.5px; color: var(--fa-ink-2); display: flex; flex-direction: column; gap: 2px; }
+.pd-shipping-result.is-error { color: var(--fa-error); }
+.pd-shipping-result b { color: var(--fa-ink); }
+.pd-section { margin-top: 44px; padding-top: 36px; border-top: 1px solid var(--fa-mist); }
+.pd-section h2 { font-size: clamp(19px,2.2vw,23px); font-weight: 800; color: var(--fa-ink); margin: 0 0 18px; }
+.pd-carousel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.pd-carousel-head h2 { margin: 0; }
+.pd-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+@media (max-width: 820px) { .pd-two-col { grid-template-columns: 1fr; } }
+.pd-panel { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 28px; height: 100%; }
+.pd-panel-head { text-align: center; max-width: 420px; margin: 0 auto 18px; }
+.pd-panel-head h2 { font-size: clamp(19px,2.2vw,23px); font-weight: 800; color: var(--fa-ink); margin: 0 0 5px; letter-spacing: -.01em; }
+.pd-panel-head p { font-size: 12.5px; color: var(--fa-ink-2); margin: 0; }
+.pd-desc { font-size: 14.5px; color: var(--fa-ink-2); line-height: 1.7; margin: 0; max-width: 68ch; }
+.pd-specs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; margin: 0; }
+@media (max-width: 480px) { .pd-specs { grid-template-columns: 1fr; } }
+.pd-spec dt { font-size: 11px; font-weight: 700; color: var(--fa-ink-3); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 4px; }
+.pd-spec dd { font-size: 13.5px; font-weight: 600; color: var(--fa-ink); margin: 0; }
+.pd-reviews-summary { display: flex; align-items: center; gap: 20px; margin-bottom: 28px; flex-wrap: wrap; }
+/* --fa-font, not mono — DESIGN.md reserves mono for prices/codes/tracking IDs, and this is a
+   rating score, not one of those; using it here was the source of the "fonts look different"
+   report (mono showing up far from any price context, plus at an unloaded weight). */
+.pd-rating-big { font-size: 42px; font-weight: 800; color: var(--fa-ink); }
+.pd-reviews-meta { display: flex; flex-direction: column; gap: 4px; }
+.pd-reviews-count { font-size: 12.5px; color: var(--fa-ink-2); }
+.pd-review-list { display: flex; flex-direction: column; gap: 22px; }
+.pd-review { padding-bottom: 22px; border-bottom: 1px solid var(--fa-mist); }
+.pd-review:last-child { border-bottom: none; padding-bottom: 0; }
+.pd-review-head { display: flex; align-items: center; gap: 12px; }
+.pd-review-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--fa-rose-soft); color: var(--fa-primary); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; flex: none; }
+.pd-review-id { flex: 1; }
+.pd-review-name { font-size: 13.5px; font-weight: 700; color: var(--fa-ink); }
+.pd-review-date { font-size: 11.5px; color: var(--fa-ink-3); }
+.pd-review-text { font-size: 13.5px; color: var(--fa-ink-2); line-height: 1.6; margin: 8px 0 0; }
+
+/* ---------- Ofertas do dia (admin-curated, urgency band + countdown) ---------- */
+/* The whole strip — head row + product grid — sits inside one gradient band, matching the
+   reference demo's `.deal-band` (the grid is a real in-flow child of the band, not a separate
+   section below it). Product cards themselves (`.fa-pc`/ProductCard) are untouched here. */
+.fa-deal-band {
+  position: relative; overflow: hidden;
+  background: linear-gradient(135deg, var(--fa-vital), var(--fa-primary));
+  box-shadow: 0 14px 34px -14px var(--fa-primary), var(--fa-shadow-lg);
+  border-radius: var(--fa-r-card);
+  padding: clamp(18px, 2.4vw, 26px) clamp(18px, 2.4vw, 26px) clamp(22px, 2.8vw, 28px);
+}
+.fa-deal-arc { position: absolute; border: 1.5px solid rgba(255,255,255,.35); border-radius: 50%; pointer-events: none; }
+.fa-deal-arc.b1 { width: 300px; height: 300px; right: -100px; top: -140px; }
+.fa-deal-arc.b2 { width: 200px; height: 200px; left: -80px; bottom: -120px; }
 .fa-deal-head {
-  background: linear-gradient(120deg, var(--fa-primary), var(--fa-primary-ink));
-  border-radius: var(--fa-r-card); padding: 18px 22px; color: #fff;
+  position: relative; color: #fff;
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 .fa-deal-head-left { display: flex; align-items: center; gap: 12px; }
-.fa-deal-flame { font-size: 24px; line-height: 1; }
-.fa-deal-title { color: #fff; margin: 0; font-weight: 800; font-size: 19px; letter-spacing: -.01em; }
-.fa-deal-sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255,255,255,.78); }
-.fa-deal-countdown { display: flex; align-items: center; gap: 6px; }
-.fa-deal-countdown-seg {
-  background: rgba(255,255,255,.14); border-radius: 8px; padding: 6px 10px; text-align: center; min-width: 46px;
+.fa-deal-flame { font-size: 28px; line-height: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,.25)); }
+.fa-deal-title { color: #fff; margin: 0; font-weight: 800; font-size: clamp(19px, 2.2vw, 23px); letter-spacing: -.01em; }
+.fa-deal-sub { margin: 3px 0 0; font-size: 12.5px; color: rgba(255,255,255,.82); }
+.fa-deal-countdown { position: relative; display: flex; align-items: flex-start; gap: 8px; }
+.fa-deal-countdown-unit { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.fa-deal-countdown-digits { display: flex; gap: 4px; }
+.fa-deal-countdown-label { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.85); }
+.fa-deal-countdown-colon { font-size: 22px; font-weight: 800; line-height: 1; color: rgba(255,255,255,.75); align-self: center; margin-top: -15px; }
+.fa-flipdigit {
+  display: inline-flex; align-items: center; justify-content: center; overflow: hidden; perspective: 200px;
+  width: 30px; height: 42px; border-radius: 8px; background: #fff; box-shadow: var(--fa-shadow-md);
+  font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 800; color: var(--fa-ink);
 }
-.fa-deal-countdown-seg b { display: block; font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 800; line-height: 1; }
-.fa-deal-countdown-seg em { font-style: normal; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.7); }
-.fa-deal-countdown-colon { font-weight: 800; opacity: .6; color: #fff; }
+.fa-deal-countdown-unit--seconds .fa-flipdigit { color: var(--fa-vital); }
+.fa-flipdigit-face { display: inline-block; animation: faFlipDigit .3s cubic-bezier(.2,.8,.3,1); transform-origin: 50% 100%; }
+@keyframes faFlipDigit { 0% { transform: rotateX(-90deg); opacity: .4; } 100% { transform: rotateX(0deg); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .fa-flipdigit-face { animation: none; } }
+.fa-deal-grid { position: relative; }
+/* Real feature, not in the demo (it has no paginated /offers) — kept inside the band, styled to
+   read as this band's own CTA (solid white pill, bold) rather than borrowing the page's neutral
+   soft-button treatment, which would go flat/invisible against the gradient. */
+.fa-deal-more {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; margin-top: 20px; border: none; border-radius: var(--fa-r-btn);
+  background: #fff; color: var(--fa-primary); font-weight: 800; font-size: 14.5px;
+  padding: 14px 20px; cursor: pointer; box-shadow: var(--fa-shadow-md);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.fa-deal-more:hover { transform: translateY(-1px); box-shadow: var(--fa-shadow-lg); }
+.fa-deal-more:active { transform: translateY(0); }
 @media (max-width: 560px) {
-  .fa-deal-head { padding: 14px 16px; }
   .fa-deal-title { font-size: 16.5px; }
+  .fa-flipdigit { width: 26px; height: 38px; font-size: 17px; }
 }
-/* Reskin the shared ProductCard discount badge to the urgency accent inside this strip only —
-   same component/markup as every other grid, just a scoped color override. */
-.fa-deal-grid .fa-pc-discount-badge { background: var(--fa-warn); color: var(--fa-primary-ink); }
+/* Reskin the shared ProductCard badges to the urgency accent inside this strip only — the
+   discount pill and the "Leve 3 pague 1"-style superbadge otherwise sit in red-on-red (this
+   band's own gradient, or the superpromo card's own dark face) and camouflage instead of
+   standing out. `.is-dark` (superpromo) is fixed globally further below, not repeated here. */
+.fa-deal-grid .fa-pc-demo-superbadge {
+  background: var(--fa-warn); color: var(--fa-primary-ink);
+  /* Only here (base .fa-pc-demo-superbadge stays 900 everywhere else) — at this weight the short
+     "Leve 3 pague 1" label read chunky/heavy against the amber fill; a lighter weight reads
+     thinner without losing legibility. */
+  font-weight: 700;
+  box-shadow: 0 4px 12px -3px rgba(0,0,0,.35);
+}
+.fa-deal-grid .fa-pc-demo-discount:not(.is-dark) {
+  background: var(--fa-warn); color: var(--fa-primary-ink);
+  box-shadow: 0 4px 10px -3px rgba(0,0,0,.35);
+}
 .fa-deal-grid .fa-pc[data-superpromo="1"] { border-color: var(--fa-warn); }
 
 /* Home strip only: cap to exactly 2 rows regardless of how many deals are curated (unlike the
@@ -287,8 +590,6 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 1100px) { .fa-deal-grid-limited > :nth-child(n+9) { display: none; } }
 @media (max-width: 880px)  { .fa-deal-grid-limited > :nth-child(n+7) { display: none; } }
 @media (max-width: 600px)  { .fa-deal-grid-limited > :nth-child(n+5) { display: none; } }
-
-.fa-deal-more { margin-top: 16px; }
 
 /* ===== Product card — style A (standard) ===== */
 .fa-pc {
@@ -309,66 +610,148 @@ a { color: inherit; text-decoration: none; }
 .fa-pc[data-superpromo="1"]:hover {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--fa-vital) 24%, transparent), var(--fa-shadow-lg);
 }
-.fa-pc-superbadge {
-  display: inline-flex; align-items: center; gap: 3px;
-  background: linear-gradient(135deg, var(--fa-vital), var(--fa-primary));
-  color: #fff; font-weight: 900; font-size: 15px; letter-spacing: -.01em;
-  padding: 5px 10px 5px 7px; border-radius: 999px; line-height: 1;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--fa-vital) 45%, transparent);
-  animation: faSuperPulse 2.2s ease-in-out infinite;
-}
-@keyframes faSuperPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
-@media (prefers-reduced-motion: reduce) { .fa-pc-superbadge { animation: none; } }
 
-/* Badge de desconto do modo Simplificado — maior que um badge comum, sem virar superpromoção */
-.fa-pc-discount-badge { font-size: 14px; font-weight: 800; padding: 6px 11px; }
+/* Promoção comum (qualquer desconto) — borda vermelha simples ao redor do card para dar destaque,
+   do jeito que já existia no demo de referência mas não veio na migração para o componente real.
+   Mais discreta que a superpromoção acima (sem preenchimento escuro nem glow) — a superpromoção
+   continua sendo o único tratamento "alto", reservado pro pulso/gradiente (ver Two-Reds Rule). */
+.fa-pc[data-discount="1"]:not([data-superpromo="1"]) { border-color: var(--fa-vital); }
+.fa-pc[data-discount="1"]:not([data-superpromo="1"]):hover { border-color: var(--fa-vital); }
+/* Dentro da faixa "Ofertas do dia" o fundo já é um gradiente vital/primary — reskin pro amarelo de
+   urgência (mesmo princípio já aplicado à borda da superpromoção logo abaixo) pra manter contraste. */
+.fa-deal-grid .fa-pc[data-discount="1"]:not([data-superpromo="1"]) { border-color: var(--fa-warn); }
 
-/* Chip "Economize R$X" — sempre em reais, é o que mais convence, independente de % ou valor fixo */
-.fa-pc-savings {
-  display: inline-flex; align-items: center; font-weight: 700; font-size: 12.5px;
-  color: var(--fa-success); background: var(--fa-success-soft);
-  padding: 3px 9px; border-radius: 999px; width: fit-content;
-}
-.fa-pc-savings[data-super="1"] {
-  font-size: 15px; font-weight: 900; color: var(--fa-vital); background: none; padding: 0;
-}
-
-/* Texto de urgência/escassez, configurável por promoção — estilo "restam poucas unidades" */
-.fa-pc-urgency {
-  display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700;
-  color: #b9772a;
-}
-.fa-pc-flags { position: absolute; top: calc(var(--fa-card-pad) + 6px); left: calc(var(--fa-card-pad) + 6px); display: flex; flex-direction: column; gap: 6px; z-index: 2; align-items: flex-start; }
-.fa-pc-fav { position: absolute; top: calc(var(--fa-card-pad) + 4px); right: calc(var(--fa-card-pad) + 4px); z-index: 2;
-  width: 32px; height: 32px; border-radius: 999px; background: rgba(255,255,255,.85); backdrop-filter: blur(4px);
+.fa-pc-fav { position: absolute; top: calc(var(--fa-card-pad) - 4px); right: calc(var(--fa-card-pad) - 4px); z-index: 2;
+  width: 44px; height: 44px; border-radius: 999px; background: rgba(255,255,255,.85); backdrop-filter: blur(4px);
   border: 1px solid var(--fa-mist); display: flex; align-items: center; justify-content: center; color: var(--fa-ink-2); }
 .fa-pc-fav:hover { color: var(--fa-vital); }
+.fa-pc-fav:focus-visible { outline: none; border-color: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
 .fa-pc-fav[data-on="1"] { color: var(--fa-vital); background: var(--fa-rose-soft); border-color: var(--fa-rose); }
 .fa-pc-brand { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fa-ink-3); }
 .fa-pc-name { font-weight: 700; font-size: 14.5px; line-height: 1.28; color: var(--fa-ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.56em; }
 .fa-pc-meta { font-size: 12px; color: var(--fa-ink-3); }
-.fa-pc-price-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .fa-price { font-weight: 800; font-size: 19px; color: var(--fa-ink); letter-spacing: -.01em; }
 .fa-price-old { font-size: 13px; color: var(--fa-ink-3); text-decoration: line-through; }
-.fa-pc-foot { display: flex; gap: 8px; align-items: center; }
-.fa-pc-foot .fa-btn { flex: 1; }
+
+/* ===== Product card content — matches the demo's bare `.card` (thumb/brand/name/price +
+   discount badge only), scoped to `.fa-pc-demo` (standard/image variants) so the unrelated
+   `list` variant — a different layout the demo has no equivalent for — keeps its own richer
+   body (stars, quick-add, etc.) untouched. The heart (`.fa-pc-fav`, unchanged above) is the one
+   thing kept on top of the demo's design, per explicit request — everything else (stars,
+   "Economize" chip, urgency line, rx/"Top" badges, quick-add button) is dropped to match. */
+.fa-pc-demo { padding: 14px; gap: 8px; --fa-card-pad: 14px; }
+.fa-pc-demo .fa-pc-name { font-size: 13.5px; min-height: 2.6em; }
+/* Floating badge strip — pinned above the card's own top edge, same as the demo's
+   `.card-discount`/`.card-badges`, so the discount pill visibly overlaps the thumb's top-left
+   corner instead of sitting in normal flow above it. */
+.fa-pc-demo-flags { position: absolute; top: -10px; left: 10px; z-index: 1; }
+.fa-pc-demo-flags.fa-pc-demo-badges { top: -13px; left: 10px; right: 10px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fa-pc-demo-superbadge {
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  background: linear-gradient(135deg, var(--fa-vital), var(--fa-primary)); color: #fff;
+  font-weight: 900; font-size: 11px; letter-spacing: -.01em; padding: 5px 11px 5px 8px; border-radius: 999px;
+  box-shadow: 0 4px 12px -3px var(--fa-vital); animation: faDemoBadgePulse 2.2s ease-in-out infinite;
+}
+.fa-pc-demo-discount {
+  display: inline-flex; align-items: center; font-size: 14.5px; font-weight: 800; letter-spacing: -.01em;
+  color: #fff; background: var(--fa-vital); border-radius: 999px; padding: 5px 12px;
+  box-shadow: 0 4px 10px -3px var(--fa-vital); width: fit-content;
+}
+/* Was `--fa-primary-ink` — the exact fill of the superpromo card's own dark face, so the pill
+   blended into the card's corner instead of reading as a badge. --fa-warn stands out against both
+   the dark card and the deal band's red gradient. */
+.fa-pc-demo-discount.is-dark { background: var(--fa-warn); color: var(--fa-primary-ink); box-shadow: 0 4px 10px -3px rgba(0,0,0,.4); }
+@keyframes faDemoBadgePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .fa-pc-demo-superbadge { animation: none; } }
+.fa-pc-demo-price {
+  font-family: 'Spline Sans Mono', ui-monospace, monospace; font-weight: 600; font-size: 16.5px;
+  color: var(--fa-ink);
+}
+.fa-pc-demo-price.is-discounted { color: var(--fa-success); font-size: 17.5px; }
+.fa-pc-demo-price-row { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.fa-pc-demo-price-was { font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--fa-ink-3); text-decoration: line-through; }
+/* "Comprar agora"/"Adicionar ao carrinho" — not in the demo (every `.card` there just opens the
+   product), added on top of it per explicit request. Same primary/ghost hierarchy already used
+   on the product page's own BuyBox (product-screen.jsx) for the same two actions. */
+.fa-pc-demo-actions { display: flex; flex-direction: column; gap: 6px; margin-top: auto; padding-top: 4px; }
+.fa-pc-demo-oos { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+.fa-pc-demo-oos-msg { font-size: 12px; font-weight: 700; color: var(--fa-ink-3); }
+.fa-pc-demo-oos-notify {
+  border: 1px solid var(--fa-mist); background: var(--fa-surface); color: var(--fa-primary);
+  font-weight: 700; font-size: 12.5px; padding: 9px 12px; border-radius: var(--fa-r-btn);
+  cursor: pointer; font-family: inherit; transition: background .15s, color .15s, border-color .15s;
+}
+.fa-pc-demo-oos-notify:hover { background: var(--fa-rose-soft); border-color: var(--fa-rose); }
+.fa-pc-demo-oos-notify[data-active="1"] { background: var(--fa-success-soft); border-color: var(--fa-success); color: var(--fa-success); cursor: default; }
+
+/* Superpromoção — the demo's one intentionally loud card treatment: the whole face goes dark
+   (not just a border), a gradient ring instead of a flat one, and every text swaps to white. The
+   thumb keeps a plain white fill (`.fa-ph`), which is what actually reads as "a border around
+   the image" once it sits on the dark card — there's no separate border rule for it, the
+   contrast IS the border. Combined selector (3 simple selectors) to outrank the older
+   `.fa-pc[data-superpromo="1"]` light-tint rule above regardless of source order. */
+.fa-pc.fa-pc-demo[data-superpromo="1"] {
+  border: 2px solid transparent; background:
+    linear-gradient(var(--fa-primary-ink), var(--fa-primary-ink)) padding-box,
+    linear-gradient(135deg, var(--fa-vital), var(--fa-primary)) border-box;
+  box-shadow: 0 12px 26px -12px var(--fa-vital);
+}
+.fa-pc.fa-pc-demo[data-superpromo="1"]:hover {
+  box-shadow: 0 16px 32px -12px var(--fa-vital), var(--fa-shadow-lg);
+}
+.fa-pc-demo[data-superpromo="1"] .fa-ph { background: #fff !important; }
+.fa-pc-demo[data-superpromo="1"] .fa-pc-brand { color: rgba(255,255,255,.68); }
+.fa-pc-demo[data-superpromo="1"] .fa-pc-name { color: #fff; }
+.fa-pc-demo[data-superpromo="1"] .fa-pc-demo-price,
+.fa-pc-demo[data-superpromo="1"] .fa-pc-demo-price.is-discounted { color: #fff; }
+.fa-pc-demo[data-superpromo="1"] .fa-pc-demo-price-was { color: rgba(255,255,255,.65); }
+/* Both card-footer buttons invert on this dark card — a solid dark-red primary button would
+   barely read at all here, and a plain white ghost read too close to the primary. Same identity
+   as everywhere else in the app (red = Comprar agora, white = Adicionar ao carrinho): "Comprar
+   agora" (.fa-btn-primary) keeps a red fill, already brighter than the card's own dark
+   `--fa-primary-ink` face; "Adicionar ao carrinho" (.fa-btn-ghost) flips to solid white, the
+   loudest option against this dark fill. Previously lightened further toward white for more
+   punch (`color-mix(... 80%, #fff)`), but that dropped white-text contrast to 3.5:1 — below the
+   4.5:1 AA floor. Plain `--fa-vital` already reads ~4.5:1 with white text and is still clearly
+   lighter than the card face, so the lightening wasn't needed for the differentiation it was
+   solving for. */
+.fa-pc-demo[data-superpromo="1"] .fa-pc-demo-actions .fa-btn-primary {
+  background: var(--fa-vital); color: #fff; box-shadow: none;
+}
+.fa-pc-demo[data-superpromo="1"] .fa-pc-demo-actions .fa-btn-primary:hover { filter: brightness(1.05); }
+.fa-pc-demo[data-superpromo="1"] .fa-pc-demo-actions .fa-btn-ghost { background: #fff; color: var(--fa-primary); border-color: #fff; }
+.fa-pc-demo[data-superpromo="1"] .fa-pc-demo-actions .fa-btn-ghost:hover { background: #fff; filter: brightness(.96); }
+/* At the 2-column mobile grid, the card is too narrow for "Adicionar ao carrinho" at the
+   standard .fa-btn-sm size — it clips instead of wrapping (buttons are nowrap by design). Tighten
+   padding/font just for these two card-footer buttons rather than loosening nowrap globally. */
+@media (max-width: 600px) {
+  .fa-pc-demo-actions .fa-btn { padding: 8px 8px; font-size: 11.5px; gap: 5px; }
+}
 
 .fa-rating { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--fa-ink-2); }
 .fa-rating svg { color: var(--fa-warn); }
+
+.fa-star-picker { display: inline-flex; gap: 6px; }
+.fa-star-picker-btn { border: none; background: none; padding: 2px; cursor: pointer; line-height: 0; transition: color .15s, transform .1s; }
+.fa-star-picker-btn:hover { transform: scale(1.08); }
 
 /* ===== Product card — style B (image-led, larger) ===== */
 .fa-pc[data-style="image"] { padding: 0; overflow: hidden; }
 .fa-pc[data-style="image"] .fa-ph { border-radius: 0; aspect-ratio: 4/3; }
 .fa-pc[data-style="image"] .fa-pc-body { padding: var(--fa-card-pad); display: flex; flex-direction: column; gap: 8px; flex: 1; }
-.fa-pc[data-style="image"] .fa-pc-flags { top: 12px; left: 12px; }
 .fa-pc[data-style="image"] .fa-pc-fav { top: 10px; right: 10px; }
+/* This variant is full-bleed (`padding:0; overflow:hidden`, image runs edge to edge) — a badge
+   floating OUTSIDE the card via negative top (`.fa-pc-demo-flags`'s normal -10px/-13px, meant to
+   overlap a padded card's own border) has nothing to float above here and gets clipped by that
+   overflow instead. Same fix already applied to `.fa-pc-flags`/`.fa-pc-fav` above: inset it just
+   inside the image's own top edge instead. */
+.fa-pc[data-style="image"] .fa-pc-demo-flags { top: 12px; }
+/* The demo never combines its badge row with a favorite button (it has none) — its `left:10px;
+   right:10px` row assumes the full width. With the heart added in the same top-right corner
+   here, "Leve 3 pague 1" + "-20%" together are wide enough to run into it — drop the heart below
+   the badge row for just this combination rather than cramping either element. */
+.fa-pc[data-style="image"][data-superpromo="1"] .fa-pc-fav { top: 50px; }
 
-/* ===== Product card — style C (list / horizontal) ===== */
-.fa-pc[data-style="list"] { flex-direction: row; align-items: stretch; gap: 16px; }
-.fa-pc[data-style="list"] .fa-ph { width: 110px; height: 110px; aspect-ratio: auto; flex: none; }
-.fa-pc[data-style="list"] .fa-pc-body { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.fa-pc[data-style="list"] .fa-pc-flags { position: static; flex-direction: row; }
-.fa-pc[data-style="list"] .fa-pc-fav { display: none; }
 .fa-pc[data-out="1"] { filter: grayscale(1); background: var(--fa-mist-2); }
 .fa-pc[data-out="1"] .fa-pc-name,
 .fa-pc[data-out="1"] .fa-pc-brand,
@@ -384,20 +767,89 @@ a { color: inherit; text-decoration: none; }
 .fa-qty span { min-width: 34px; text-align: center; font-weight: 700; font-size: 14px; }
 
 /* ---------- Header ---------- */
-.fa-header { position: sticky; top: 0; z-index: 400; background: rgba(250,247,245,.86); backdrop-filter: blur(14px) saturate(150%); border-bottom: 1px solid var(--fa-mist); }
-.fa-topbar { background: var(--fa-primary); color: #fff; font-size: 12.5px; }
-.fa-topbar .fa-wrap { display: flex; align-items: center; justify-content: space-between; height: 38px; gap: 16px; }
-.fa-topbar a { display: inline-flex; align-items: center; gap: 6px; opacity: .92; }
-.fa-topbar a:hover { opacity: 1; }
-.fa-header-main { display: flex; align-items: center; gap: 20px; height: 76px; }
-.fa-search { flex: 1; display: flex; align-items: center; gap: 10px; background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-pill); padding: 0 8px 0 16px; height: 48px; transition: border-color .15s, box-shadow .15s; }
+/* `.fa-header` itself is no longer the sticky element — it stays in normal flow so `.fa-topbar`
+   (the red utility bar) scrolls away with the page. Only `.fa-header-sticky` (logo/search/nav)
+   pins to the top, matching the demo's "the search/nav bar stays, the promo strip doesn't". */
+.fa-header-sticky { position: sticky; top: 0; z-index: 400; background: rgba(250,247,245,.86); backdrop-filter: blur(14px) saturate(150%); border-bottom: 1px solid var(--fa-mist); border-radius: 0 0 16px 16px; }
+/* Matches the demo's `.fa-utilitybar`/`.utility-item` exactly: no max-width wrap — each item is an
+   equal flex-1 column across the full bar width, centered, separated by a hairline divider —
+   instead of a `.fa-wrap`-capped bar split into a CEP-left / items-right pair. */
+.fa-topbar { background: var(--fa-primary); color: #fff; font-size: 11.5px; display: flex; }
+.fa-topbar-item {
+  position: relative; flex: 1; display: flex; align-items: center; justify-content: center;
+  gap: 7px; padding: 10px 14px; white-space: nowrap; color: #fff; opacity: .92; font-weight: 700;
+}
+.fa-topbar-item:not(:last-child)::after {
+  content: ""; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  width: 1px; height: 18px; background: rgba(255, 255, 255, .32);
+}
+a.fa-topbar-item:hover { opacity: 1; }
+.fa-topbar-item svg { flex: none; opacity: .9; }
+@media (max-width: 1280px) {
+  /* Below ~1232px the 6 items' natural content width no longer fits the viewport even at
+     flex:1 (each still refuses to shrink past its own text), which forced a page-wide
+     horizontal scrollbar in the 901-1231px gap this query used to leave uncovered. */
+  .fa-topbar { overflow-x: auto; }
+  .fa-topbar-item { flex: none; justify-content: flex-start; padding: 10px 16px; }
+}
+@media (max-width: 720px) { .fa-topbar { display: none; } }
+.fa-header-main { display: flex; align-items: center; justify-content: space-between; gap: 20px; height: 76px; }
+.fa-header-start { display: flex; align-items: center; gap: 14px; flex: none; }
+.fa-search { position: relative; flex: 1; max-width: 560px; margin: 0 auto; display: flex; align-items: center; gap: 10px; background: var(--fa-mist-2); border: 1px solid transparent; border-radius: var(--fa-r-pill); padding: 0 16px; height: 44px; transition: border-color .15s, box-shadow .15s; }
 .fa-search:focus-within { border-color: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
 .fa-search input { flex: 1; border: none; outline: none; background: transparent; font-size: 14.5px; color: var(--fa-ink); min-width: 0; }
 .fa-search input::placeholder { color: var(--fa-ink-3); }
+
+/* Live search suggestions dropdown (SearchSuggestions, core/marketplace-chrome.jsx) */
+.fa-search-suggest {
+  position: absolute; left: 0; right: 0; top: calc(100% + 8px); z-index: 60;
+  background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card);
+  box-shadow: var(--fa-shadow-lg); padding: 8px; display: flex; flex-direction: column; gap: 2px;
+  max-height: 70vh; overflow-y: auto;
+  animation: faPop .16s cubic-bezier(.4,0,.2,1);
+}
+.fa-search-suggest-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  border: none; background: transparent; padding: 8px; border-radius: var(--fa-r-btn); cursor: pointer;
+  font-family: var(--fa-font);
+}
+.fa-search-suggest-item:hover { background: var(--fa-mist-2); }
+.fa-search-suggest-thumb {
+  width: 40px; height: 40px; border-radius: 10px; flex: none; overflow: hidden;
+  background: var(--fa-mist-2); display: flex; align-items: center; justify-content: center; color: var(--fa-ink-3);
+}
+.fa-search-suggest-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.fa-search-suggest-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.fa-search-suggest-name { font-size: 13.5px; font-weight: 700; color: var(--fa-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fa-search-suggest-meta { font-size: 12px; color: var(--fa-ink-3); }
+.fa-search-suggest-price { font-size: 13px; font-weight: 800; color: var(--fa-ink); flex: none; }
+/* Matches the demo (`@media(max-width:720px){.fa-search{display:none}}`) — below that width the
+   mobile drawer's own search field (also `.fa-search`, scoped out of this rule) takes over. */
+@media (max-width: 720px) { .fa-header-main .fa-search { display: none; } }
 .fa-navrow { display: flex; align-items: center; gap: 4px; height: 50px; border-top: 1px solid var(--fa-mist); }
 .fa-navlink { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: var(--fa-r-btn); font-weight: 600; font-size: 13.5px; color: var(--fa-ink-2); transition: background .15s, color .15s; }
 .fa-navlink:hover { background: var(--fa-rose-soft); color: var(--fa-primary); }
 .fa-navlink[data-active="1"] { color: var(--fa-primary); background: var(--fa-rose-soft); }
+
+/* ---------- Mobile drawer (MobileDrawer, core/marketplace-chrome.jsx) — matches the demo's
+   .mobile-drawer exactly: colored icon tile per category row, section titles, scrollable panel. */
+.fa-drawer-panel {
+  position: absolute; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); background: var(--fa-bg);
+  box-shadow: var(--fa-shadow-lg); display: flex; flex-direction: column; overflow-y: auto;
+}
+.fa-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--fa-mist); flex: none; }
+/* .fa-search's own `flex: 1` (base rule) is meant for the header's *row* layout, where it's the
+   correct behavior (grow to fill the row's width). Reused verbatim inside this panel's *column*
+   layout, `flex: 1` instead means "shrinkable along the main/vertical axis" like every other flex
+   child here — but unlike its siblings (all explicitly `flex: none`), it was the one child left
+   without that guard, so it silently absorbed 100% of the shrink pressure whenever the drawer's
+   content ran taller than the viewport, squashing its 44px height down to a sliver. */
+.fa-drawer-panel .fa-search { flex: none; }
+.fa-drawer-section-title { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); padding: 16px 18px 8px; flex: none; }
+.fa-drawer-cats { display: flex; flex-direction: column; padding: 0 10px; gap: 2px; flex: none; }
+.fa-drawer-cat { display: flex; align-items: center; gap: 12px; padding: 11px 8px; border: none; background: none; border-radius: 12px; text-align: left; font-size: 14px; font-weight: 700; color: var(--fa-ink); cursor: pointer; font-family: var(--fa-font); }
+.fa-drawer-cat:hover { background: var(--fa-mist-2); }
+.fa-drawer-cat-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; flex: none; }
 
 .fa-logo { display: inline-flex; align-items: center; gap: 11px; flex: none; }
 .fa-logo-mark-img { height: 38px; width: auto; display: block; }
@@ -412,7 +864,14 @@ a { color: inherit; text-decoration: none; }
 .fa-logo-full-img { height: 38px; width: auto; display: block; }
 .fa-logo-mark-img-mobile { display: none; }
 
-.fa-cart-count { position: absolute; top: -6px; right: -6px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px; background: var(--fa-vital); color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; border: 2px solid var(--fa-bg); }
+.fa-cart-count { position: absolute; top: -6px; right: -9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--fa-vital); color: #fff; font-size: 9.5px; font-weight: 800; line-height: 1; display: grid; place-items: center; border: 1.5px solid var(--fa-bg); box-sizing: border-box; }
+
+/* Header cart trigger: bare icon+badge over a "Carrinho" caption, matching the demo's .hact —
+   not a bordered .fa-iconbtn square. */
+.fa-hact { display: flex; flex-direction: column; align-items: center; gap: 2px; border: none; background: none; padding: 0; cursor: pointer; color: var(--fa-ink-2); font-size: 11px; font-weight: 700; font-family: var(--fa-font); transition: color .15s; }
+.fa-hact:hover { color: var(--fa-primary); }
+.fa-hact-icon-wrap { position: relative; display: inline-flex; }
+@media (max-width: 480px) { .fa-hact-label { display: none; } }
 
 /* ---------- Aura decorations ---------- */
 .fa-aura-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; opacity: var(--fa-aura); z-index: 0; }
@@ -422,6 +881,15 @@ a { color: inherit; text-decoration: none; }
 .fa-footer { background: var(--fa-primary); color: #fff; margin-top: 64px; }
 .fa-footer a { opacity: .82; font-size: 14px; }
 .fa-footer a:hover { opacity: 1; }
+/* A screen ending in a full-bleed band (home's last band, product's "Quem viu, levou também")
+   already reserves 86px of bottom padding for wave clearance — see marketplace-bands.jsx. The
+   demo's own footer has no extra top margin beyond that, so the generic margin-top above (needed
+   for screens that end in plain .fa-wrap content) would double up into visible blank space here. */
+main:has(.fa-band:last-child) + .fa-footer { margin-top: 0; }
+/* Login's Auréola halo is full-bleed inside its own .fa-wrap, same reasoning as the .fa-band
+   case above: the generic footer margin would show as a flat gap between the halo's bottom edge
+   and the footer instead of a continuous wash. */
+main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 
 /* ---------- Misc layout ---------- */
 .fa-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
@@ -450,6 +918,18 @@ a { color: inherit; text-decoration: none; }
 @keyframes faFade { from { transform: translateY(10px); } to { transform: none; } }
 @media (prefers-reduced-motion: reduce) { .fa-fadein { animation: none; } }
 
+/* Mobile filter drawer — grows left-to-right on open, retreats right-to-left on close. clip-path
+   (not scaleX) so the panel's own content never gets horizontally squashed mid-animation; the
+   `right` inset is what moves, so the growing/retreating edge is always the panel's right edge
+   while it stays pinned to the left. */
+.fa-drawer-grow { animation: faDrawerReveal .22s cubic-bezier(.22,.8,.36,1) both; }
+.fa-drawer-grow[data-closing="1"] { animation: faDrawerHide .2s cubic-bezier(.4,0,1,1) both; }
+@keyframes faDrawerReveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes faDrawerHide { from { clip-path: inset(0 0 0 0); } to { clip-path: inset(0 100% 0 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .fa-drawer-grow, .fa-drawer-grow[data-closing="1"] { animation: none; }
+}
+
 /* checkbox / radio rows */
 .fa-check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; color: var(--fa-ink); padding: 7px 0; }
 .fa-check .box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--fa-mist); display: grid; place-items: center; color: #fff; flex: none; transition: all .14s; }
@@ -463,17 +943,77 @@ a { color: inherit; text-decoration: none; }
 .fa-input:focus { border-color: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
 .fa-input::placeholder { color: var(--fa-ink-3); }
 
+/* Category (catalog) page — crumb, masthead, category rail, filter sidebar. Mechanics and
+   proportions copied from the reference demo's `.cat-*` classes: a plain (uncolored) header
+   instead of the full-bleed band treatment other listing modes use, a two-tone category title
+   (first letter mixed toward ink, the rest in the category's own accent), and a horizontal rail
+   of every other category as the "submenu" the demo always keeps visible while browsing one. */
+.fa-cat-crumb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fa-ink-3); padding-top: 22px; margin-bottom: 10px; }
+.fa-cat-crumb a { cursor: pointer; }
+.fa-cat-crumb a:hover { color: var(--fa-primary); }
+.fa-cat-crumb-current { color: var(--fa-ink-2); font-weight: 600; }
+.fa-cat-masthead { padding: 2px 0 14px; }
+.fa-cat-title { font-size: clamp(26px,3vw,38px); font-weight: 800; letter-spacing: -.01em; margin: 0; }
+.fa-cat-title-mark { color: color-mix(in srgb, var(--acc) 55%, var(--fa-ink) 45%); }
+.fa-cat-title-rest { color: var(--acc); }
+.fa-cat-rail {
+  display: flex; gap: 30px; overflow-x: auto; padding-top: 8px; margin-bottom: 22px; border-bottom: 1px solid var(--fa-mist);
+  scrollbar-width: none; -ms-overflow-style: none;
+  /* Touch-swipe robustness: without an explicit touch-action hint, a diagonal swipe starting on
+     this row can get arbitrated to the page's vertical scroll instead of this row's horizontal
+     one on some mobile browsers; -webkit-overflow-scrolling restores momentum scrolling on older
+     iOS Safari; overscroll-behavior-x stops the swipe from chaining into a browser back-gesture
+     once it hits either end. */
+  touch-action: pan-x; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+}
+.fa-cat-rail::-webkit-scrollbar { display: none; }
+.fa-cat-rail-item { position: relative; display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; flex: none; border: none; background: none; padding: 4px 1px 15px; font-size: 14px; font-weight: 700; color: var(--fa-ink-3); cursor: pointer; transition: color .15s; }
+.fa-cat-rail-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); opacity: .5; transition: opacity .15s, transform .15s; flex: none; }
+.fa-cat-rail-item:hover { color: var(--fa-ink); }
+.fa-cat-rail-item[data-active="1"] { color: var(--fa-ink); }
+.fa-cat-rail-item[data-active="1"] .dot { opacity: 1; transform: scale(1.35); }
+.fa-cat-rail-item::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--acc); transform: scaleX(0); transform-origin: left; transition: transform .2s ease; }
+.fa-cat-rail-item[data-active="1"]::after { transform: scaleX(1); }
+.fa-cat-side-head { display: flex; align-items: center; justify-content: space-between; }
+.fa-cat-clear { border: none; background: none; color: var(--fa-primary); font-weight: 700; font-size: 12.5px; cursor: pointer; }
+.fa-cat-fgroup-title { font-weight: 800; font-size: 12.5px; margin-bottom: 9px; }
+.fa-cat-side .fa-check { font-size: 13px; padding: 6px 0; }
+.fa-cat-side .fa-check .box { width: 18px; height: 18px; }
+.fa-cat-price-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--fa-ink-2); font-weight: 600; margin-top: 2px; }
+.fa-cat-toolbar { display: flex; align-items: center; margin-bottom: 16px; }
+/* Narrow phones: drop the "Ordenar" label so the sort select can shrink to just itself, keeping
+   it on the same row as the mobile "Filtros" button instead of wrapping to a second line. */
+@media (max-width: 480px) { .fa-cat-sort-label { display: none; } }
+
+/* Serviços de saúde — a flat grid of "cat-service" cards, no sidebar (the demo's `.cat-wrap` is
+   forced to a single column here), copied verbatim from the reference demo. */
+.fa-cat-services-intro { color: var(--fa-ink-2); font-size: 14.5px; max-width: 640px; margin-bottom: 22px; }
+.fa-cat-services-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 880px) { .fa-cat-services-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .fa-cat-services-grid { grid-template-columns: 1fr; } }
+.fa-cat-service { display: block; width: 100%; text-align: left; background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 20px; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.fa-cat-service:hover { transform: translateY(-3px); box-shadow: var(--fa-shadow-md); border-color: var(--acc); }
+.fa-cat-service-icon { width: 42px; height: 42px; border-radius: 13px; background: color-mix(in srgb, var(--acc) 15%, var(--fa-surface)); color: var(--acc); display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+.fa-cat-service-name { font-weight: 800; font-size: 14.5px; margin-bottom: 6px; color: var(--fa-ink); }
+.fa-cat-service-desc { font-size: 12.5px; color: var(--fa-ink-2); line-height: 1.5; margin-bottom: 14px; }
+.fa-cat-service-cta { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800; color: var(--acc); }
+.fa-cat-service-cta svg { transition: transform .15s ease; }
+.fa-cat-service:hover .fa-cat-service-cta svg { transform: translateX(3px); }
+
 /* mobile nav drawer */
 .fa-burger { display: none; }
 @media (max-width: 880px) {
   .fa-navrow { display: none; }
-  .fa-topbar { display: none; }
   .fa-burger { display: inline-flex; }
 }
 @media (max-width: 560px) {
   .fa-header-main { height: 64px; gap: 12px; }
-  .fa-logo-full-img { display: none; }
-  .fa-logo-mark-img-mobile { display: block; }
+  /* Scoped to the real header specifically — it's competing for width with the burger, search,
+     account, and cart icons on the same short row. The mobile drawer's own logo row (.fa-drawer-
+     head) has no such competition and has room for the full wordmark even at this width; without
+     this scope the drawer inherited the header's cramped-space fallback for no reason. */
+  .fa-header-main .fa-logo-full-img { display: none; }
+  .fa-header-main .fa-logo-mark-img-mobile { display: block; }
 }
 
 /* ============ RESPONSIVE LAYOUTS ============ */
@@ -510,6 +1050,47 @@ a { color: inherit; text-decoration: none; }
   .fa-cart-summary, .fa-ck-grid > div:last-child { position: static !important; }
 }
 
+.fa-cart-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fa-cart-section-head h2 { font-size: 15px; font-weight: 800; color: var(--fa-ink); margin: 0; }
+.fa-cart-link-btn {
+  border: none; background: none; padding: 0; font-size: 12.5px; font-weight: 700; color: var(--fa-primary);
+  cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px;
+}
+.fa-cart-link-btn:hover { text-decoration: underline; }
+
+.fa-cart-item { display: grid; grid-template-columns: 96px 1fr auto; gap: 16px; align-items: start; }
+.fa-cart-item-media { width: 96px; height: 96px; flex: none; cursor: pointer; }
+.fa-cart-item-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fa-cart-item-badges { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 0; }
+.fa-cart-item-aside { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
+.fa-cart-item-remove {
+  border: none; background: none; padding: 0; color: var(--fa-ink-3); font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; transition: color .15s;
+}
+.fa-cart-item-remove:hover { color: var(--fa-error); }
+@media (max-width: 620px) {
+  .fa-cart-item { grid-template-columns: 64px 1fr; gap: 12px; }
+  .fa-cart-item-media { width: 64px; height: 64px; }
+  .fa-cart-item-aside { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
+}
+
+.fa-cart-coupon { display: flex; gap: 8px; margin: 14px 0; }
+.fa-cart-coupon .fa-input { flex: 1; }
+.fa-cart-coupon-btn.is-applied { background: var(--fa-success); color: #fff; animation: faCouponPop .4s ease; }
+@keyframes faCouponPop { 0% { transform: scale(1); } 35% { transform: scale(1.06); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .fa-cart-coupon-btn.is-applied { animation: none; } }
+
+.fa-cart-summary-row { display: flex; justify-content: space-between; font-size: 13.5px; color: var(--fa-ink-2); padding: 7px 0; }
+.fa-cart-summary-row.is-discount span:last-child { color: var(--fa-success); font-weight: 700; }
+.fa-cart-summary-total { display: flex; justify-content: space-between; align-items: baseline; padding-top: 14px; margin-top: 6px; border-top: 1px solid var(--fa-mist); font-size: 15px; font-weight: 800; color: var(--fa-ink); }
+.fa-cart-summary-total span:last-child { font-family: var(--fa-mono); font-size: 21px; color: var(--fa-primary); }
+.fa-cart-continue-link {
+  display: block; width: 100%; text-align: center; border: 1px solid var(--fa-mist); border-radius: var(--fa-r-btn);
+  background: none; padding: 10px; font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2); cursor: pointer;
+  font-family: inherit; transition: color .15s, border-color .15s;
+}
+.fa-cart-continue-link:hover { color: var(--fa-primary); border-color: var(--fa-primary); }
+
 /* Product page */
 @media (max-width: 1080px) {
   .fa-prod-split { grid-template-columns: 1fr 1fr !important; }
@@ -519,23 +1100,104 @@ a { color: inherit; text-decoration: none; }
   .fa-prod-split, .fa-prod-bandgrid { grid-template-columns: 1fr !important; }
 }
 
-/* Product card list view stays single-column comfortably */
-@media (max-width: 480px) {
-  .fa-pc[data-style="list"] { flex-direction: column !important; }
-  .fa-pc[data-style="list"] .fa-ph { width: 100% !important; height: auto !important; aspect-ratio: 16/10 !important; }
-  .fa-pc[data-style="list"] > div:last-child { align-items: stretch !important; }
+/* Login — Auréola dupla: halos cruzados de --fa-aura em tela cheia, atrás de um
+   cartão centralizado, com o isotipo da marca como marca d'água (ver DESIGN.md,
+   Aura Decorations). O halo rompe o max-width do .fa-wrap para cobrir toda a
+   largura da viewport — truque padrão de full-bleed dentro de um wrap centralizado. */
+.fa-login-aureola { position: relative; display: flex; align-items: center; min-height: 600px; }
+.fa-login-aureola-bg {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+  overflow: hidden; pointer-events: none; z-index: 0;
+  opacity: var(--fa-aura);
+  background:
+    radial-gradient(75% 90% at 6% 6%, var(--fa-rose) 0%, rgba(255,213,213,0) 78%),
+    radial-gradient(75% 90% at 94% 94%, var(--fa-primary) 0%, rgba(161,16,23,0) 75%);
+}
+.fa-login-aureola-mark {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 0; pointer-events: none; user-select: none;
+  width: min(82vw, 980px); height: auto;
+  opacity: calc(var(--fa-aura) * .4);
+}
+.fa-login-aureola-row { position: relative; z-index: 1; width: 100%; display: flex; justify-content: center; }
+.fa-login-aureola-card {
+  width: 100%; max-width: 440px;
+  background: rgba(255,255,255,.9);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
-/* Login split */
-@media (max-width: 760px) {
-  .fa-login-grid { grid-template-columns: 1fr !important; min-height: 0 !important; }
-  .fa-login-grid > div:first-child { min-height: 200px; }
+/* ============================================================
+   LEGAL — Termos de Uso / Política de Privacidade (leitura longa)
+   Vitral: mesmo halo de --fa-aura da tela de login, cartão de conteúdo em vidro fosco,
+   barras coloridas por seção em vez de ícone.
+   ============================================================ */
+.fa-legal-vitral { position: relative; }
+.fa-legal-vitral-bg {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+  overflow: hidden; pointer-events: none; z-index: 0;
+  opacity: var(--fa-aura);
+  background:
+    radial-gradient(560px 420px at 6% 0%, var(--fa-rose) 0%, rgba(255,213,213,0) 62%),
+    radial-gradient(560px 420px at 94% 100%, var(--fa-primary) 0%, rgba(161,16,23,0) 60%);
+}
+
+.fa-legal-hero { max-width: 720px; margin: 0 auto 34px; }
+.fa-legal-kicker {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--fa-rose-soft); color: var(--fa-primary-ink);
+  font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  padding: 7px 13px 7px 11px; border-radius: var(--fa-r-pill); margin-bottom: 16px;
+}
+.fa-legal-title { font-size: clamp(28px, 3.6vw, 42px); font-weight: 800; letter-spacing: -.02em; line-height: 1.06; margin: 0 0 14px; }
+.fa-legal-updated {
+  display: flex; align-items: center; gap: 6px; width: fit-content;
+  font-size: 12.5px; font-weight: 600; color: var(--fa-ink-3);
+  background: var(--fa-mist-2); padding: 6px 12px; border-radius: var(--fa-r-pill); margin-bottom: 22px;
+}
+.fa-legal-intro { font-size: 17px; line-height: 1.55; color: var(--fa-ink-2); margin: 20px 0 0; }
+
+.fa-legal-entity {
+  display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px 16px 22px; margin-bottom: 0;
+  position: relative; overflow: hidden;
+}
+.fa-legal-entity-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--fa-rose); }
+.fa-legal-entity-name { font-weight: 800; font-size: 14.5px; color: var(--fa-ink); }
+.fa-legal-entity-lines { font-size: 13px; color: var(--fa-ink-2); margin-top: 3px; line-height: 1.5; }
+
+.fa-legal-single { max-width: 760px; margin: 0 auto; }
+
+.fa-legal-glass {
+  background: rgba(255,255,255,.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,.6);
+  border-radius: var(--fa-r-card);
+  box-shadow: 0 26px 60px -18px rgba(124,12,18,.22);
+  padding: 30px 34px;
+}
+.fa-legal-content { min-width: 0; }
+.fa-legal-section { display: flex; gap: 16px; padding-bottom: 26px; margin-bottom: 26px; border-bottom: 1px solid var(--fa-mist); scroll-margin-top: 100px; }
+.fa-legal-section:last-of-type { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.fa-legal-bar { flex: none; width: 4px; border-radius: 3px; align-self: stretch; }
+.fa-legal-section-body { min-width: 0; }
+.fa-legal-section h2 { margin-bottom: 14px; }
+.fa-legal-section p { font-size: 14.5px; line-height: 1.65; color: var(--fa-ink-2); margin: 0 0 14px; max-width: 68ch; }
+.fa-legal-section p:last-child { margin-bottom: 0; }
+.fa-legal-section ul { margin: 0 0 14px; padding-left: 20px; max-width: 68ch; }
+.fa-legal-section li { font-size: 14.5px; line-height: 1.6; color: var(--fa-ink-2); margin-bottom: 8px; }
+.fa-legal-section li:last-child { margin-bottom: 0; }
+
+.fa-legal-contact { padding: 22px 24px; margin-top: 8px; }
+
+@media (max-width: 520px) {
+  .fa-legal-glass { padding: 22px 20px; }
 }
 
 /* ============================================================
    ACCOUNT AREA — sidebar shell, switches, rows, sections
    ============================================================ */
-.fa-acct-grid { display: grid; grid-template-columns: 256px 1fr; gap: 28px; align-items: start; }
+.fa-acct-grid { display: grid; grid-template-columns: 256px 1fr; gap: calc(var(--fa-gap) * 1.4); align-items: start; }
 .fa-acct-side { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 6px; }
 .fa-acct-userbox { display: flex; align-items: center; gap: 12px; padding: 16px; margin-bottom: 6px; }
 .fa-acct-nav { display: flex; flex-direction: column; gap: 3px; padding: 8px; }
@@ -554,7 +1216,7 @@ a { color: inherit; text-decoration: none; }
 .fa-acct-navchev { margin-left: auto; opacity: .5; }
 
 /* "Topo" nav variant (tweak) — horizontal tab bar above content */
-.fa-acct--top .fa-acct-grid { grid-template-columns: 1fr; gap: 20px; }
+.fa-acct--top .fa-acct-grid { grid-template-columns: 1fr; gap: var(--fa-gap); }
 .fa-acct--top .fa-acct-side { position: static; flex-direction: column; }
 .fa-acct--top .fa-acct-nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
 .fa-acct--top .fa-acct-navlink { white-space: nowrap; width: auto; }
@@ -632,6 +1294,105 @@ a { color: inherit; text-decoration: none; }
   .fa-row { flex-wrap: wrap; }
 }
 
+/* ---------- Meus pedidos (MyOrders, account-health-screen.jsx) — ported from the "Padrão
+   farmácia" demo's data-cat="orders" panel. The account sidebar/shell keeps this app's own
+   .fa-acct-* system (not the demo's account-shell) — only the content below the tab head is new. */
+.orders-hero { display: flex; align-items: center; gap: 28px; background: var(--fa-beige); border-radius: var(--fa-r-card); padding: 22px 26px; margin-bottom: 4px; flex-wrap: wrap; }
+.orders-hero-cashback { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.orders-hero-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fa-ink-2); }
+.orders-hero-value { font-family: var(--fa-mono); font-size: 26px; font-weight: 700; color: var(--fa-primary-ink); }
+.orders-hero-caption { font-size: 12px; color: var(--fa-ink-3); }
+.orders-hero-divider { width: 1px; align-self: stretch; background: var(--fa-mist); flex: none; }
+.orders-hero-recurrence { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 240px; }
+.orders-hero-recurrence-title { font-size: 14.5px; font-weight: 800; color: var(--fa-ink); }
+.orders-hero-recurrence-caption { font-size: 12.5px; color: var(--fa-ink-2); }
+.orders-hero-recurrence .fa-btn { align-self: flex-start; margin-top: 4px; }
+@media (max-width: 640px) { .orders-hero { flex-direction: column; align-items: flex-start; } .orders-hero-divider { display: none; } }
+
+/* review prompt: low-friction rating hook for recently delivered products */
+.review-prompt-section { margin: 4px 0 0; }
+.review-prompt-heading { font-size: 18px; font-weight: 800; margin: 0 0 14px; }
+.review-prompt-list { display: flex; flex-direction: column; gap: 10px; }
+.review-prompt-card { display: flex; align-items: center; gap: 14px; background: var(--fa-rose-soft); border: 1px solid var(--fa-rose); border-radius: var(--fa-r-card); padding: 14px 18px; }
+.review-prompt-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.review-prompt-title { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-prompt-sub { font-size: 12px; color: var(--fa-ink-3); }
+.review-prompt-action { flex: none; display: flex; align-items: center; }
+@media (max-width: 560px) { .review-prompt-card { flex-wrap: wrap; } .review-prompt-action { width: 100%; justify-content: flex-end; } }
+
+.orders-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.orders-count { font-size: 13px; font-weight: 700; color: var(--fa-ink-3); }
+.orders-list { display: flex; flex-direction: column; gap: 14px; }
+
+/* order card: collapsed summary by default, expands for full detail */
+.order-card { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); overflow: hidden; }
+.order-card-summary { width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px 20px; border: none; background: none; cursor: pointer; font-family: inherit; text-align: left; }
+.order-card-summary:hover { background: var(--fa-mist-2); }
+.order-summary-thumbs { display: flex; flex: none; }
+.order-summary-thumb { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: var(--fa-ink-3); border: 2px solid var(--fa-surface); margin-left: -10px; flex: none; overflow: hidden; }
+.order-summary-thumb:first-child { margin-left: 0; }
+.order-summary-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.order-summary-total { font-family: var(--fa-mono); font-weight: 700; font-size: 14px; color: var(--fa-ink); flex: none; }
+.order-summary-chevron { display: flex; color: var(--fa-ink-3); flex: none; transition: transform .2s; }
+.order-card-summary[aria-expanded="true"] .order-summary-chevron { transform: rotate(180deg); }
+.order-card-details { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 16px; border-top: 1px solid var(--fa-mist); }
+.order-card-code { font-family: var(--fa-mono); font-weight: 700; font-size: 14.5px; }
+.order-card-date { font-size: 12.5px; color: var(--fa-ink-3); margin-top: 3px; }
+.order-status { flex: none; font-size: 11.5px; font-weight: 800; letter-spacing: .01em; padding: 5px 12px; border-radius: 999px; white-space: nowrap; }
+.order-status.is-delivered { background: var(--fa-success-soft); color: var(--fa-success); }
+.order-status.is-transit { background: var(--fa-info-soft); color: var(--fa-info); }
+.order-status.is-preparing { background: var(--fa-warn-soft); color: var(--fa-warn-ink); }
+.order-status.is-canceled { background: var(--fa-mist-2); color: var(--fa-ink-3); }
+@media (max-width: 560px) { .order-card-summary { flex-wrap: wrap; padding: 14px 16px; } .order-summary-total { order: 3; margin-left: auto; } }
+
+/* in-card status rail (reuses OrderTracker's 4-step logic, restyled to the demo's compact rail) */
+.order-progress { display: flex; list-style: none; margin: 0; padding: 0; }
+.order-progress li { flex: 1; position: relative; padding-top: 20px; font-size: 11.5px; font-weight: 700; color: var(--fa-ink-3); text-align: center; }
+.order-progress li::before { content: ""; position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: var(--fa-mist); z-index: 0; }
+.order-progress li:first-child::before { display: none; }
+.order-progress-dot { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; background: var(--fa-mist); border: 2px solid var(--fa-surface); z-index: 1; }
+.order-progress li.is-done { color: var(--fa-ink-2); }
+.order-progress li.is-done .order-progress-dot { background: var(--fa-success); }
+.order-progress li.is-done::before { background: var(--fa-success); }
+.order-progress li.is-current { color: var(--fa-primary); }
+.order-progress li.is-current .order-progress-dot { background: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
+.order-canceled-note { display: flex; align-items: center; gap: 10px; background: var(--fa-mist-2); color: var(--fa-ink-2); border-radius: var(--fa-r-input); padding: 12px 14px; font-size: 13px; }
+
+.order-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 20px; }
+.order-meta-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.order-meta-item .k { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); }
+/* min-width: 0 above lets the grid track actually shrink to its column instead of growing to fit
+   an unbreakable value (a long e-mail was overflowing into the next column); break-word here is
+   the fallback for values still too long once the column is at minmax()'s floor. */
+.order-meta-item .v { font-size: 13.5px; font-weight: 600; color: var(--fa-ink); overflow-wrap: break-word; word-break: break-word; }
+
+.order-products { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--fa-mist); padding-top: 14px; }
+.order-product-row { display: flex; align-items: center; gap: 12px; }
+.order-product-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.order-product-name { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-product-qty { font-size: 12px; color: var(--fa-ink-3); }
+.order-product-total { font-family: var(--fa-mono); font-size: 13px; font-weight: 600; color: var(--fa-ink-2); flex: none; }
+.order-products-toggle { align-self: flex-start; border: none; background: none; padding: 0; font-size: 12.5px; font-weight: 700; color: var(--fa-primary); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 4px; }
+.order-products-toggle svg { transition: transform .15s; }
+.order-products-toggle.is-open svg { transform: rotate(180deg); }
+
+.order-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--fa-mist); }
+.order-card-total-wrap { display: flex; align-items: baseline; gap: 8px; }
+.order-card-total-wrap .k { font-size: 12px; font-weight: 700; color: var(--fa-ink-3); }
+.order-card-total { font-family: var(--fa-mono); font-size: 16px; font-weight: 700; color: var(--fa-ink); }
+.order-actions-row { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.order-action-btn { border: none; background: none; padding: 0; font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; text-decoration: none; }
+.order-action-btn:hover { color: var(--fa-primary); }
+@media (max-width: 560px) { .order-card-foot { flex-direction: column; align-items: stretch; } .order-card-foot .fa-btn { width: 100%; } .order-progress li { font-size: 10px; } }
+
+.orders-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 8px 0 4px; }
+.orders-page-nav { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--fa-mist); background: var(--fa-surface); color: var(--fa-ink-2); display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; transition: border-color .15s, color .15s; }
+.orders-page-nav:hover:not(:disabled) { border-color: var(--fa-primary); color: var(--fa-primary); }
+.orders-page-nav:disabled { opacity: .4; cursor: default; }
+.orders-page-nums { display: flex; gap: 6px; }
+.orders-page-btn { min-width: 34px; height: 34px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--fa-mist); background: var(--fa-surface); color: var(--fa-ink-2); font-weight: 700; font-size: 13px; cursor: pointer; font-family: inherit; }
+.orders-page-btn.is-active { background: var(--fa-primary); border-color: var(--fa-primary); color: #fff; }
+
 /* Modal */
 .fa-modal-overlay { position: fixed; inset: 0; z-index: 1200; isolation: isolate; background: rgba(43,26,26,.48); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; overflow-x: hidden; overflow-y: auto; padding: 20px; animation: faOverlay .18s ease both; }
@@ -663,11 +1424,6 @@ a { color: inherit; text-decoration: none; }
 .fa-choice[data-on="1"] .fa-choice-radio { border-color: var(--fa-primary); }
 .fa-choice[data-on="1"] .fa-choice-radio::after { content: ""; width: 10px; height: 10px; border-radius: 999px; background: var(--fa-primary); }
 
-/* Prescription dropzone */
-.fa-drop { border: 2px dashed var(--fa-mist); border-radius: var(--fa-r-card); padding: 24px; text-align: center;
-  cursor: pointer; transition: border-color .15s, background .15s; }
-.fa-drop:hover, .fa-drop.is-drag { border-color: var(--fa-primary); background: var(--fa-rose-soft); }
-
 /* Pharmacist chat */
 .fa-chat { display: flex; flex-direction: column; height: min(74vh, 560px); }
 .fa-chat-head { display: flex; align-items: center; gap: 12px; padding: 16px 56px 16px 18px; border-bottom: 1px solid var(--fa-mist); flex: none; }
@@ -685,41 +1441,44 @@ a { color: inherit; text-decoration: none; }
 .fa-typing i:nth-child(3) { animation-delay: .3s; }
 @keyframes faTyping { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-@media (max-width: 560px) { .fa-svc-cta { grid-template-columns: 1fr !important; } }
+/* ---------- Floating chat widget ("botão lateral") — proportions and mechanics copied from the
+   reference demo's `.chat-widget`/`.chat-bubble`/`.chat-panel`, recolored to the Farmaura token
+   set. Logged-out visitors get the same bubble as a plain WhatsApp link (see ChatWidget in
+   marketplace-care-actions.jsx); the panel below only ever renders for a signed-in customer. ---------- */
+.fa-chat-widget { position: fixed; right: 22px; bottom: 22px; z-index: 250; }
+.fa-chat-bubble {
+  width: 58px; height: 58px; border-radius: 999px; border: none; background: var(--fa-primary); color: #fff;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 10px 26px -8px rgba(43,26,26,.45); transition: transform .15s ease;
+}
+.fa-chat-bubble:hover { transform: translateY(-2px) scale(1.04); }
+.fa-chat-bubble[data-whatsapp="1"] { background: #25D366; }
+.fa-chat-panel {
+  width: 340px; max-width: calc(100vw - 44px); height: 460px; max-height: calc(100vh - 100px);
+  background: var(--fa-bg); border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-lg);
+  display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--fa-mist);
+}
+.fa-chat-panel .fa-chat { height: 100%; }
+.fa-chat-panel-head { background: var(--fa-primary); color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px; flex: none; }
+.fa-chat-panel-avatar { width: 34px; height: 34px; border-radius: 999px; background: rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex: none; }
+.fa-chat-panel-id { flex: 1; min-width: 0; }
+.fa-chat-panel-name { font-size: 13px; font-weight: 800; }
+.fa-chat-panel-status { font-size: 10.5px; color: rgba(255,255,255,.75); display: flex; align-items: center; gap: 5px; }
+.fa-chat-panel-status::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--fa-success); flex: none; }
+.fa-chat-panel-actions { display: flex; gap: 4px; flex: none; }
+.fa-chat-panel-actions a, .fa-chat-panel-actions button { width: 28px; height: 28px; border: none; background: rgba(255,255,255,.14); border-radius: 8px; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.fa-chat-panel-actions a:hover, .fa-chat-panel-actions button:hover { background: rgba(255,255,255,.24); }
+@media (max-width: 480px) { .fa-chat-widget { right: 14px; bottom: 14px; } .fa-chat-panel { width: calc(100vw - 28px); } }
+body.pd-sticky-bar-active .fa-chat-widget { bottom: calc(80px + env(safe-area-inset-bottom)); transition: bottom .22s ease; }
 
-/* ---------- Differentials (home benefits — colored rule to the left, no card) ---------- */
-.fa-diff-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 32px; }
-.fa-diff {
-  --acc: var(--fa-primary);
-  position: relative; overflow: hidden;
-  display: flex; flex-direction: column;
-  text-align: left; cursor: pointer;
-  background: none; border: none; padding: 2px 8px 2px 18px;
+.fa-chat-attachment {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 8px; padding: 8px 12px; border-radius: var(--fa-r-btn);
+  border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.12); color: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
 }
-.fa-diff::before {
-  content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 3px; border-radius: 2px;
-  background: var(--acc);
-}
-.fa-diff-glyph {
-  position: absolute; right: -10px; bottom: -14px;
-  color: var(--acc); opacity: .08; pointer-events: none;
-  transition: transform .25s ease, opacity .2s ease;
-}
-.fa-diff:hover .fa-diff-glyph { transform: scale(1.06); opacity: .12; }
-.fa-diff-icon { position: relative; color: var(--acc); margin-bottom: 18px; }
-.fa-diff-t { position: relative; font-weight: 800; font-size: 15.5px; line-height: 1.25; color: var(--fa-ink); letter-spacing: -.01em; margin: 0 0 7px; }
-.fa-diff-d { position: relative; margin: 0 0 16px; font-size: 13px; line-height: 1.45; color: var(--fa-ink-2); text-wrap: pretty; }
-.fa-diff-link {
-  position: relative; margin-top: auto;
-  display: inline-flex; align-items: center; gap: 6px;
-  font-weight: 700; font-size: 12.5px; color: var(--acc);
-  letter-spacing: .01em; width: fit-content;
-}
-.fa-diff-arrow { display: inline-flex; transition: transform .2s ease; }
-.fa-diff:hover .fa-diff-arrow { transform: translateX(4px); }
-@media (max-width: 1080px) { .fa-diff-grid { grid-template-columns: repeat(3, 1fr); row-gap: 32px; } }
-@media (max-width: 700px) { .fa-diff-grid { grid-template-columns: repeat(2, 1fr); row-gap: 32px; } }
-@media (max-width: 420px) { .fa-diff-grid { grid-template-columns: 1fr; } }
+.fa-chat-msg[data-from="pharm"] .fa-chat-attachment { border-color: var(--fa-mist); background: var(--fa-mist-2); color: var(--fa-ink); }
+.fa-chat-attachment:hover { filter: brightness(.97); }
+
+@media (max-width: 560px) { .fa-svc-cta { grid-template-columns: 1fr !important; } }
 
 /* ---------- Brand circles (admin-configured "marcas em destaque", each links to a brand-filtered shop) ---------- */
 /* Ponta a ponta como o menu de atalhos/categorias (.fa-quickcats) logo acima — mesma técnica
@@ -735,10 +1494,10 @@ a { color: inherit; text-decoration: none; }
   flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto;
   scroll-snap-type: x proximity; padding: 4px 6px;
 }
-.fa-brands-strip--scroll .fa-brand-circle { flex: 0 0 132px; scroll-snap-align: start; }
+.fa-brands-strip--scroll .fa-brand-circle { flex: 0 0 104px; scroll-snap-align: start; }
 .fa-brand-carousel { position: relative; }
 .fa-brand-carousel-arrow {
-  position: absolute; top: 62px; transform: translateY(-50%);
+  position: absolute; top: 46px; transform: translateY(-50%);
   width: 40px; height: 40px; border-radius: 999px;
   border: 1px solid var(--fa-mist); background: rgba(255,255,255,.96); color: var(--fa-primary);
   display: grid; place-items: center; z-index: 2; box-shadow: var(--fa-shadow-md); cursor: pointer;
@@ -749,12 +1508,12 @@ a { color: inherit; text-decoration: none; }
 .fa-brand-carousel-arrow[data-side="next"] { right: -14px; }
 @media (max-width: 640px) { .fa-brand-carousel-arrow { display: none; } }
 .fa-brand-circle {
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
   background: none; border: none; cursor: pointer; padding: 2px;
-  width: 132px;
+  width: 104px;
 }
 .fa-brand-circle-img {
-  width: 112px; height: 112px; border-radius: 50%;
+  width: 88px; height: 88px; border-radius: 50%;
   overflow: hidden; flex: none;
   box-shadow: 0 0 0 1px var(--fa-mist);
   background: #fff;
@@ -763,16 +1522,15 @@ a { color: inherit; text-decoration: none; }
 .fa-brand-circle-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .fa-brand-circle:hover .fa-brand-circle-img { box-shadow: 0 0 0 2px var(--fa-primary); transform: translateY(-3px); }
 .fa-brand-circle-label {
-  font-size: 13.5px; font-weight: 700; color: var(--fa-ink-2);
-  text-align: center; line-height: 1.25;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  font-size: 11px; font-weight: 700; color: var(--fa-ink-2);
+  text-align: center; line-height: 1.25; max-width: 100%;
 }
 .fa-brand-circle:hover .fa-brand-circle-label { color: var(--fa-primary); }
 @media (max-width: 420px) {
   .fa-brands-strip { gap: 18px 16px; }
-  .fa-brands-strip--scroll .fa-brand-circle { flex: 0 0 104px; }
-  .fa-brand-circle { width: 104px; }
-  .fa-brand-circle-img { width: 84px; height: 84px; }
+  .fa-brands-strip--scroll .fa-brand-circle { flex: 0 0 88px; }
+  .fa-brand-circle { width: 88px; }
+  .fa-brand-circle-img { width: 68px; height: 68px; }
 }
 
 /* ---------- Cashback hero ---------- */
@@ -798,69 +1556,83 @@ a { color: inherit; text-decoration: none; }
 .fa-cb-balance { font-size: clamp(34px, 5vw, 46px); font-weight: 800; line-height: 1.05; margin-top: 6px; letter-spacing: -.02em; }
 .fa-cb-note { margin: 8px 0 0; font-size: 14px; line-height: 1.45; color: rgba(255,255,255,.86); max-width: 460px; }
 
-/* ---------- Account menu dropdown panel (opened by .fa-accmenu-trigger) ---------- */
+/* ---------- Account menu dropdown panel (opened by .fa-accmenu-trigger) — mirrors the demo's
+   .profile/.profile-panel: gradient-ring avatar, flat icon+label(+chip) rows, distinct sign-out
+   button, instead of a bordered-pill trigger and icon+description rows. ---------- */
 .fa-caremenu-pop {
   position: absolute; right: 0; top: calc(100% + 10px); z-index: 70;
-  width: 308px; background: var(--fa-surface); border: 1px solid var(--fa-mist);
-  border-radius: var(--fa-r-card); box-shadow: var(--fa-shadow-lg);
-  padding: 8px; display: flex; flex-direction: column; gap: 2px;
+  width: max-content; min-width: 280px; max-width: min(92vw, 400px);
+  background: var(--fa-surface); border: 1px solid var(--fa-mist);
+  border-radius: 16px; box-shadow: var(--fa-shadow-lg);
+  padding: 10px; display: flex; flex-direction: column; gap: 3px;
   animation: faPop .16s cubic-bezier(.4,0,.2,1);
 }
 @keyframes faPop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .fa-caremenu-head {
-  display: flex; align-items: center; gap: 11px;
-  padding: 10px 10px 12px; margin: 2px 2px 4px;
-  border-bottom: 1px solid var(--fa-mist);
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 10px 14px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--fa-mist-2);
 }
-.fa-cm-avatar {
-  width: 40px; height: 40px; border-radius: 12px; flex: none;
-  display: grid; place-items: center; font-weight: 800; font-size: 14px;
-  background: var(--fa-rose-soft); color: var(--fa-primary);
-  overflow: hidden;
+.fa-cm-avatar, .fa-am-avatar {
+  border-radius: 50%; flex: none; padding: 2px;
+  background: linear-gradient(135deg, var(--fa-primary), var(--fa-vital));
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
-.fa-cm-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.fa-cm-avatar { width: 48px; height: 48px; }
+.fa-am-avatar { width: 36px; height: 36px; }
+.fa-cm-avatar-inner, .fa-am-avatar-inner {
+  width: 100%; height: 100%; border-radius: 50%;
+  background: var(--fa-beige); color: var(--fa-primary-ink);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; overflow: hidden;
+}
+.fa-cm-avatar-inner { font-size: 15px; }
+.fa-am-avatar-inner { font-size: 12.5px; }
+.fa-cm-avatar-inner img, .fa-am-avatar-inner img { width: 100%; height: 100%; object-fit: cover; }
+.fa-cm-l { font-size: 15px; font-weight: 800; color: var(--fa-ink); line-height: 1.25; flex: 1; }
+/* Panel width grows to content (min 280px, capped at 92vw/400px) specifically so the email never
+   has to wrap or get clipped — nowrap here is safe because the panel itself can grow instead. */
+.fa-cm-email { font-size: 12.5px; color: var(--fa-ink-2); white-space: nowrap; }
 .fa-caremenu-item {
   display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 9px 10px; border: none; background: transparent;
-  border-radius: var(--fa-r-btn); cursor: pointer; text-align: left;
+  padding: 12px 10px; border: none; background: transparent;
+  border-radius: 10px; cursor: pointer; text-align: left;
   transition: background .14s;
 }
-.fa-caremenu-item:hover { background: var(--fa-rose-soft); }
-.fa-cm-ic {
-  width: 38px; height: 38px; border-radius: 11px; flex: none;
-  display: grid; place-items: center;
-  background: var(--fa-rose-soft); color: var(--fa-primary);
-  transition: background .14s;
+.fa-caremenu-item:hover { background: var(--fa-mist-2); }
+.fa-caremenu-item svg { width: 19px; height: 19px; color: var(--fa-ink-2); flex: none; }
+.fa-caremenu-item .fa-cm-l { font-size: 14.5px; font-weight: 700; white-space: nowrap; }
+.fa-cm-chip { font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--fa-rose-soft); color: var(--fa-primary-ink); flex: none; }
+.fa-caremenu-sep { height: 1px; background: var(--fa-mist-2); margin: 6px 4px; }
+.fa-caremenu-signout {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  border: none; background: var(--fa-rose-soft); color: var(--fa-primary);
+  border-radius: 10px; padding: 12px 10px; font-weight: 800; font-size: 14.5px; cursor: pointer;
+  font-family: var(--fa-font);
 }
-.fa-caremenu-item:hover .fa-cm-ic { background: #fff; }
-.fa-cm-l { font-weight: 700; font-size: 14px; color: var(--fa-ink); }
-.fa-cm-d { font-size: 12px; color: var(--fa-ink-3); margin-top: 1px; }
+.fa-caremenu-signout svg { width: 19px; height: 19px; }
+.fa-caremenu-signout:hover { background: var(--fa-rose); }
 
-/* Account trigger in the top header bar (merges former "Minha Farmaura" link + user icon; always visible) */
+/* Account trigger in the top header bar: bare avatar+chevron when logged in (matches the demo's
+   .profile-trigger exactly); a clear primary-colored CTA pill when logged out (state the demo,
+   whose persona is always logged in, never had to design). */
 .fa-accmenu { display: inline-flex; }
 .fa-accmenu-trigger {
   display: inline-flex; align-items: center; gap: 8px;
-  height: 44px; padding: 0 14px 0 10px; border: 1px solid var(--fa-mist); border-radius: var(--fa-r-pill);
-  background: var(--fa-surface); color: var(--fa-ink-2); font-weight: 700; font-size: 13.5px;
-  white-space: nowrap; cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+  border: none; background: transparent; padding: 2px; border-radius: 999px; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
 }
-.fa-accmenu-trigger:hover,
-.fa-accmenu-trigger[data-active="1"] {
-  background: var(--fa-rose-soft); color: var(--fa-primary); border-color: var(--fa-rose);
+.fa-accmenu-trigger[data-logged="0"] {
+  height: 44px; padding: 0 14px; border: 1px solid var(--fa-primary); border-radius: var(--fa-r-pill);
+  background: var(--fa-primary); color: #fff; font-weight: 700; font-size: 13.5px; white-space: nowrap;
 }
-/* Logged out: styled as a clear call-to-action to sign in or create an account, not a neutral icon */
-.fa-accmenu-trigger[data-logged="0"] { background: var(--fa-primary); color: #fff; border-color: var(--fa-primary); }
 .fa-accmenu-trigger[data-logged="0"]:hover,
-.fa-accmenu-trigger[data-logged="0"][data-active="1"] { background: #6a0b13; border-color: #6a0b13; color: #fff; }
-.fa-am-avatar {
-  width: 26px; height: 26px; border-radius: 999px; flex: none; overflow: hidden;
-  display: grid; place-items: center; font-weight: 800; font-size: 11px;
-  background: var(--fa-rose-soft); color: var(--fa-primary);
-}
-.fa-am-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.fa-accmenu-trigger[data-logged="0"][data-active="1"] { background: #890e14; border-color: #890e14; }
+.fa-am-chevron { width: 13px; height: 13px; color: var(--fa-ink-3); flex: none; transition: transform .2s ease; }
 @media (max-width: 640px) {
-  .fa-am-label { display: none; }
-  .fa-accmenu-trigger { padding: 0 10px; gap: 4px; }
+  .fa-accmenu-trigger[data-logged="0"] { width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .fa-accmenu-trigger[data-logged="0"] .fa-am-label,
+  .fa-accmenu-trigger[data-logged="0"] .fa-am-chevron { display: none; }
 }
 
 /* ---------- "Entregar em" delivery CEP popover ---------- */
@@ -884,7 +1656,7 @@ a { color: inherit; text-decoration: none; }
    abstract graphic; `.cd-scrim` on top veils it just enough that the card in front is
    unambiguously the focal point, without hiding that a real page is under there. */
 .cd-mock-site { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
-.cd-mock-site .fa-header { position: static; backdrop-filter: none; }
+.cd-mock-site .fa-header-sticky { position: static; backdrop-filter: none; }
 .cd-mock-search-text { color: var(--fa-ink-3); font-size: 14.5px; }
 .cd-mock-body { padding: 28px 24px 0; }
 .cd-mock-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
@@ -914,16 +1686,11 @@ a { color: inherit; text-decoration: none; }
   display: flex; flex-direction: column;
 }
 /* Same box-art placeholder the real catalog shows for a product with no custom photo yet
-   (ProductVisual) — contain + padding, never cropped, same as the real product card. The tinted
-   background (cycling per item below) is what actually carries the "colorful assortment" look,
-   since every placeholder box looks the same. */
-.cd-shop-thumb { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+   (ProductVisual) — contain + padding, never cropped, same as the real product card. The image
+   box stays plain white to match the white-background placeholder art; the per-item colour now
+   lives only on the card/badge, not behind the image. */
+.cd-shop-thumb { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; }
 .cd-shop-thumb img { width: 100%; height: 100%; object-fit: contain; padding: 10px; display: block; }
-.cd-shop-tone-rose .cd-shop-thumb { background: var(--fa-rose-soft); }
-.cd-shop-tone-success .cd-shop-thumb { background: var(--fa-success-soft); }
-.cd-shop-tone-info .cd-shop-thumb { background: var(--fa-info-soft); }
-.cd-shop-tone-warn .cd-shop-thumb { background: var(--fa-warn-soft); }
-.cd-shop-tone-mist .cd-shop-thumb { background: var(--fa-mist-2); }
 .cd-shop-name {
   padding: 8px 10px 0; font-size: 11.5px; font-weight: 700; color: var(--fa-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -1065,3 +1832,614 @@ a { color: inherit; text-decoration: none; }
 .fa-form-grid { }
 @media (max-width: 900px) { .fa-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
 @media (max-width: 560px) { .fa-form-grid { grid-template-columns: 1fr !important; } }
+
+/* ============================================================================
+   Conta: shell/sidebar compartilhados + telas de perfil, configurações,
+   assinaturas, cashback, pagamentos e mensagens — ported from the "Padrão
+   farmácia" demo (data-cat="profile"/"settings"/"subscriptions"/"cashback"/
+   "payments"/"saved"/"messages"), same source as .order-card etc. above.
+   ============================================================================ */
+@media (prefers-reduced-motion: reduce) { .super-badge, .card-badges .super-badge { animation: none; } }
+
+.profile-avatar { width: 36px; height: 36px; flex: none; border-radius: 50%; padding: 2px; background: linear-gradient(135deg, var(--fa-primary), var(--fa-vital)); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+
+.profile-avatar-inner { width: 100%; height: 100%; border-radius: 50%; background: var(--fa-beige); color: var(--fa-primary-ink); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12.5px; overflow: hidden; }
+
+.profile-avatar-inner img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+
+.cat-crumb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fa-ink-3); padding-top: 22px; margin-bottom: 10px; }
+
+.cat-crumb-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 20px; margin-bottom: 20px; }
+
+.cat-crumb-row .cat-crumb { padding-top: 0; margin-bottom: 0; }
+
+.cat-crumb-home { border: none; background: none; padding: 0; font: inherit; color: var(--fa-ink-3); cursor: pointer; font-family: var(--fa-font); }
+
+.cat-crumb-home:hover { color: var(--fa-primary); }
+
+.cat-crumb-sep { opacity: .6; }
+
+.cat-crumb-current { color: var(--fa-ink-2); font-weight: 600; }
+
+.bk-title { font-size: 18px; font-weight: 800; color: var(--fa-ink); margin: 0 0 6px; }
+
+.bk-sub { font-size: 13.5px; color: var(--fa-ink-2); margin: 0 0 20px; line-height: 1.5; }
+
+.bk-step[hidden] { display: none; }
+
+.bk-step-center { text-align: center; }
+
+.bk-confirm-icon { position: relative; width: 84px; height: 84px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; }
+
+.bk-spinner {
+  position: relative; width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--fa-surface); box-shadow: var(--fa-shadow-sm); color: var(--fa-success);
+}
+
+.bk-spinner::before {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 3px solid transparent;
+  border-top-color: var(--fa-success); border-right-color: color-mix(in srgb, var(--fa-success) 25%, transparent);
+  animation: bkSpin 1s linear infinite;
+}
+
+.bk-spinner svg { width: 30px; height: 30px; }
+
+.bk-check { width: 84px; height: 84px; }
+
+.bk-check-circle { fill: none; stroke: var(--fa-success); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: bkDraw .9s cubic-bezier(.22,1,.36,1) forwards; }
+
+.bk-check-mark { fill: none; stroke: var(--fa-success); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: bkDraw .6s cubic-bezier(.22,1,.36,1) .35s forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bk-spinner::before { animation: none; }
+  .bk-check-circle, .bk-check-mark { animation: none; stroke-dashoffset: 0; }
+}
+
+.bk-code {
+  font-family: var(--fa-mono); font-weight: 700; font-size: 15px; color: var(--fa-ink); text-align: center;
+  background: var(--fa-mist-2); border-radius: 999px; padding: 10px 20px; margin: 4px auto 0; width: fit-content; letter-spacing: .02em;
+}
+
+/* ---------- meus pedidos: account shell + sidebar ---------- */
+.account-shell { display: grid; grid-template-columns: 260px 1fr; gap: 26px; align-items: start; margin-top: 20px; position: relative; }
+
+.account-main { min-width: 0; }
+
+@media (max-width: 880px) { .account-shell { grid-template-columns: 1fr; } .account-nav { position: static; } }
+
+.account-nav { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 18px; position: sticky; top: 20px; display: flex; flex-direction: column; gap: 4px; }
+
+/* JS toggles these two when the stage's own clipping ancestor breaks native position:sticky */
+.account-nav.is-pinned { position: fixed; z-index: 25; margin: 0; }
+
+.account-nav-user { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; margin-bottom: 8px; border-bottom: 1px solid var(--fa-mist-2); }
+
+.account-nav-user-info { min-width: 0; }
+
+.account-nav-name, .account-nav-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.account-nav-name { font-size: 13.5px; font-weight: 800; color: var(--fa-ink); line-height: 1.25; }
+
+.account-nav-email { font-size: 11.5px; color: var(--fa-ink-2); }
+
+.account-nav-links { display: flex; flex-direction: column; gap: 2px; }
+
+.account-nav-link {
+  display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 10px; text-decoration: none;
+  color: var(--fa-ink); font-size: 13.5px; font-weight: 700; font-family: var(--fa-font);
+}
+
+.account-nav-link svg { width: 17px; height: 17px; color: var(--fa-ink-2); flex: none; }
+
+.account-nav-link:hover { background: var(--fa-mist-2); }
+
+.account-nav-link.is-active { background: var(--fa-rose-soft); color: var(--fa-primary); }
+
+.account-nav-link.is-active svg { color: var(--fa-primary); }
+
+.account-nav-link .chip { margin-left: auto; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--fa-mist-2); color: var(--fa-ink-2); }
+
+.account-nav-signout {
+  margin-top: 10px; display: flex; align-items: center; gap: 10px; width: 100%; border: none; background: var(--fa-rose-soft);
+  color: var(--fa-primary); border-radius: 10px; padding: 10px 8px; font-weight: 800; font-size: 13px; cursor: pointer; font-family: var(--fa-font);
+}
+
+.account-nav-signout svg { width: 16px; height: 16px; }
+
+.account-nav-signout:hover { background: var(--fa-rose); }
+
+/* ---------- messages ---------- */
+.msg-list { display: flex; flex-direction: column; gap: 12px; }
+
+.msg-in { align-self: flex-start; background: var(--fa-surface); border: 1px solid var(--fa-mist); color: var(--fa-ink); border-bottom-left-radius: 4px; }
+
+.msg-out { align-self: flex-end; background: var(--fa-primary); color: #fff; border-bottom-right-radius: 4px; }
+
+.msg-file { display: flex; align-items: center; gap: 8px; }
+
+.msg-file svg { width: 18px; height: 18px; flex: none; }
+
+.msg-time { font-size: 10px; opacity: .6; margin-top: 3px; display: block; }
+
+/* ============================ Subscriptions screen ============================ */
+.subs-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 2px 0 22px; }
+
+.subs-toolbar-hint { font-size: 13px; color: var(--fa-ink-2); max-width: 48ch; }
+
+.subs-toolbar .btn svg { width: 15px; height: 15px; }
+
+.subs-list { display: flex; flex-direction: column; gap: 16px; }
+
+.sub-card {
+  background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card);
+  padding: 20px 22px; display: flex; flex-direction: column; gap: 16px;
+  transition: opacity .22s ease, transform .22s ease;
+}
+
+.sub-card.is-removing { opacity: 0; transform: scale(.97) translateY(4px); }
+
+.sub-card-main { display: flex; align-items: flex-start; gap: 14px; }
+
+.sub-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+.subs-empty { text-align: center; padding: 54px 20px; color: var(--fa-ink-3); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+
+.subs-empty[hidden] { display: none; }
+
+.subs-empty svg { width: 34px; height: 34px; color: var(--fa-mist); }
+
+.subs-empty p { margin: 0; font-size: 13.5px; max-width: 34ch; }
+
+@media (max-width: 560px) {
+  .sub-card { padding: 16px 16px 18px; }
+  .sub-card-main { flex-wrap: wrap; }
+  .sub-price { align-items: flex-start; text-align: left; margin-left: 66px; }
+}
+
+/* ============================ Profile & Settings screens ============================ */
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+.sec-title { font-size: 15px; font-weight: 800; color: var(--fa-ink); }
+
+.ghost-btn {
+  border: 1px solid var(--fa-mist); background: var(--fa-surface); cursor: pointer; font-family: var(--fa-font);
+  font-weight: 700; font-size: 12.5px; color: var(--fa-ink-2); padding: 8px 14px; border-radius: var(--fa-r-btn);
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  transition: color .15s, border-color .15s, background .15s;
+}
+
+.ghost-btn svg { width: 14px; height: 14px; }
+
+.ghost-btn:hover { color: var(--fa-primary); border-color: var(--fa-rose); background: var(--fa-rose-soft); }
+
+.ghost-btn.is-danger:hover { color: var(--fa-vital); border-color: var(--fa-vital); background: var(--fa-rose-soft); }
+
+.ghost-btn.is-done { color: var(--fa-success); border-color: var(--fa-success); background: var(--fa-success-soft); cursor: default; }
+
+/* -- identity strip -- */
+.prof-identity { display: flex; align-items: center; gap: 16px; margin: 2px 0 4px; }
+
+.prof-avatar-lg {
+  width: 64px; height: 64px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: var(--fa-rose-soft); color: var(--fa-primary); font-size: 21px; font-weight: 800;
+  border: 2px solid var(--fa-rose); font-family: var(--fa-font);
+}
+
+.prof-identity-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+.prof-identity-name { font-size: 17px; font-weight: 800; color: var(--fa-ink); }
+
+.prof-identity-email { font-size: 13px; color: var(--fa-ink-3); }
+
+/* -- generic label/value row list (settings rows, session rows) -- */
+.set-list { display: flex; flex-direction: column; }
+
+.set-row { display: flex; align-items: center; gap: 14px; padding-top: 0; }
+
+.set-list .set-row + .set-row { border-top: 1px solid var(--fa-mist-2); margin-top: 14px; padding-top: 14px; }
+
+.set-row-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--fa-mist-2); color: var(--fa-ink-2); display: grid; place-items: center; flex: none; }
+
+.set-row-icon svg { width: 17px; height: 17px; }
+
+.set-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+
+.set-row-title { font-size: 13.5px; font-weight: 700; color: var(--fa-ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.set-row-sub { font-size: 12px; color: var(--fa-ink-3); line-height: 1.5; }
+
+.set-row-action { flex: none; }
+
+.set-badge { font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 2px 8px; border-radius: 999px; background: var(--fa-mist-2); color: var(--fa-ink-2); }
+
+.set-badge.is-on { background: var(--fa-success-soft); color: var(--fa-success); }
+
+/* -- address cards -- */
+.prof-addr-list { display: flex; flex-direction: column; }
+
+.prof-addr-list .prof-addr-card + .prof-addr-card { border-top: 1px solid var(--fa-mist-2); margin-top: 14px; padding-top: 14px; }
+
+.prof-addr-card { display: flex; align-items: flex-start; gap: 14px; border-radius: var(--fa-r-card); }
+
+/* Default delivery address: visually called out, not just a small label next to the nickname —
+   rose-tinted card + accent icon + a solid badge, so "which address is primary" reads at a
+   glance instead of blending into the row text (user-reported: looked like part of the name). */
+.prof-addr-card.is-primary { background: var(--fa-rose-soft); border-radius: var(--fa-r-card); padding: 12px; }
+
+.prof-addr-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--fa-rose-soft); color: var(--fa-primary-ink); display: grid; place-items: center; flex: none; }
+
+.prof-addr-card.is-primary .prof-addr-icon { background: var(--fa-primary); color: #fff; }
+
+.prof-addr-icon svg { width: 17px; height: 17px; }
+
+.prof-addr-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.prof-addr-label { font-size: 13.5px; font-weight: 700; color: var(--fa-ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.prof-addr-badge { flex: none; }
+
+.prof-addr-text { font-size: 12.5px; color: var(--fa-ink-2); line-height: 1.5; max-width: 46ch; }
+
+.prof-addr-actions { flex: none; display: flex; gap: 8px; flex-wrap: wrap; }
+
+.prof-addr-empty { text-align: center; padding: 30px 10px; color: var(--fa-ink-3); font-size: 13px; }
+
+.prof-addr-empty[hidden] { display: none; }
+
+@media (max-width: 620px) {
+  .prof-addr-card { flex-wrap: wrap; }
+  .prof-addr-actions { flex-basis: 100%; margin-left: 52px; margin-top: 2px; }
+  .set-row { flex-wrap: wrap; }
+  .set-row-action { flex-basis: 100%; margin-left: 52px; margin-top: 2px; }
+  .sec-head { align-items: flex-start; }
+}
+
+/* ============================ Saved products screen ============================ */
+.saved-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+
+.saved-empty { grid-column: 1 / -1; text-align: center; padding: 54px 20px; color: var(--fa-ink-3); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+
+.saved-empty svg { width: 34px; height: 34px; color: var(--fa-mist); }
+
+.saved-empty p { margin: 0; font-size: 13.5px; max-width: 36ch; }
+
+.saved-empty[hidden] { display: none; }
+
+@media (max-width: 480px) {
+  .saved-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ============================ Cashback screen ============================ */
+.cb-layout { display: flex; flex-direction: column; gap: 24px; margin-top: 2px; }
+
+/* --- balance card --- */
+.cb-balance {
+  position: relative; overflow: hidden; border-radius: var(--fa-r-card); color: #fff;
+  padding: 26px 28px;
+  background:
+    radial-gradient(130% 150% at 10% -10%, rgba(255,255,255,.18), transparent 55%),
+    linear-gradient(152deg, var(--fa-primary) 0%, var(--fa-primary-ink) 82%);
+  display: grid; grid-template-columns: 1fr auto; gap: 20px 32px; align-items: end;
+  box-shadow: var(--fa-shadow-md);
+}
+
+.cb-balance-coin {
+  position: absolute; right: -52px; top: -52px; width: 196px; height: 196px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.16); box-shadow: inset 0 0 0 13px rgba(255,255,255,.05);
+  pointer-events: none;
+}
+
+.cb-balance-coin::after {
+  content: "\211E"; position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--fa-mono); font-weight: 700; font-size: 68px; color: rgba(255,255,255,.12);
+}
+
+.cb-balance-info { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.cb-balance-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.82); }
+
+.cb-balance-value { font-family: var(--fa-mono); font-size: clamp(34px, 6vw, 46px); font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+
+.cb-balance-sub { font-size: 12.5px; color: rgba(255,255,255,.86); max-width: 34ch; }
+
+.cb-balance-flows { display: flex; gap: 24px; margin-top: 8px; }
+
+.cb-balance-flow { display: flex; flex-direction: column; gap: 2px; }
+
+.cb-balance-flow .n { font-family: var(--fa-mono); font-size: 15px; font-weight: 700; }
+
+.cb-balance-flow .n.pos { color: #B9EFD3; }
+
+.cb-balance-flow .n.neg { color: #FFCFCF; }
+
+.cb-balance-flow .l { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: rgba(255,255,255,.66); }
+
+.cb-balance-cta { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+
+.cb-balance-btn {
+  border: none; background: #fff; color: var(--fa-primary-ink); cursor: pointer;
+  font-family: var(--fa-font); font-weight: 800; font-size: 13.5px; padding: 12px 20px;
+  border-radius: var(--fa-r-btn); display: inline-flex; align-items: center; gap: 8px;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.cb-balance-btn svg { width: 16px; height: 16px; }
+
+.cb-balance-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 26px -12px rgba(0,0,0,.5); }
+
+.cb-balance-fineprint { font-size: 11px; color: rgba(255,255,255,.78); text-align: right; }
+
+@media (max-width: 640px) {
+  .cb-balance { grid-template-columns: 1fr; align-items: start; }
+  .cb-balance-cta { align-items: flex-start; }
+  .cb-balance-fineprint { text-align: left; }
+  .cb-balance-coin { right: -78px; top: -60px; }
+}
+
+/* --- expiry card --- */
+.cb-expiry {
+  background: var(--fa-warn-soft); border: 1px solid #F1DCB8; border-radius: var(--fa-r-card);
+  padding: 20px 22px; display: flex; flex-direction: column; gap: 15px;
+}
+
+.cb-expiry-head { display: flex; align-items: flex-start; gap: 12px; }
+
+.cb-expiry-head > svg { width: 20px; height: 20px; color: var(--fa-warn-ink); flex: none; margin-top: 1px; }
+
+.cb-expiry-title { font-size: 14.5px; font-weight: 800; color: var(--fa-warn-ink); }
+
+.cb-expiry-note { font-size: 12.5px; line-height: 1.5; color: #8A6636; margin-top: 3px; }
+
+.cb-expiry-meter { display: flex; gap: 3px; height: 8px; }
+
+.cb-expiry-meter span { display: block; height: 100%; border-radius: 999px; min-width: 8px; transform-origin: left; }
+
+.cb-expiry-meter .s1 { background: var(--fa-warn); }
+
+.cb-expiry-meter .s2 { background: #E8BE81; }
+
+.cb-expiry-meter .s3 { background: #DFC8A8; }
+
+.cat-panel[data-cat="cashback"].active .cb-expiry-meter span { animation: cbMeterGrow .6s cubic-bezier(.22,.8,.36,1) both; }
+
+.cb-expiry-meter .s2 { animation-delay: .06s; }
+
+.cb-expiry-meter .s3 { animation-delay: .12s; }
+
+.cb-expiry-list { display: flex; flex-direction: column; gap: 1px; background: #F1DCB8; border-radius: 10px; overflow: hidden; }
+
+.cb-expiry-row { display: flex; align-items: baseline; gap: 10px; background: var(--fa-warn-soft); padding: 10px 13px; }
+
+.cb-expiry-row .amt { font-family: var(--fa-mono); font-weight: 700; font-size: 13.5px; color: var(--fa-warn-ink); }
+
+.cb-expiry-row .when { flex: 1; font-size: 12px; color: #8A6636; }
+
+.cb-expiry-row .days { font-size: 10.5px; font-weight: 700; color: var(--fa-warn-ink); background: #F1DCB8; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+
+.cb-expiry-row.is-soon .days { background: var(--fa-warn); color: #fff; }
+
+/* --- extract --- */
+.cb-extract { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 20px 22px; }
+
+.cb-extract-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+
+.cb-extract-title { font-size: 16px; font-weight: 800; color: var(--fa-ink); }
+
+.cb-extract-count { font-size: 12.5px; font-weight: 700; color: var(--fa-ink-3); }
+
+.cb-filters { display: flex; gap: 6px; margin-bottom: 4px; }
+
+.cb-filter {
+  border: 1px solid var(--fa-mist); background: var(--fa-surface); color: var(--fa-ink-2); cursor: pointer;
+  font-family: var(--fa-font); font-weight: 700; font-size: 12px; padding: 6px 13px; border-radius: 999px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+.cb-filter:hover { background: var(--fa-mist-2); }
+
+.cb-filter.is-on { background: var(--fa-primary); border-color: var(--fa-primary); color: #fff; }
+
+.cb-month { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); padding: 18px 0 6px; }
+
+.cb-month-group:first-child .cb-month { padding-top: 8px; }
+
+.cb-entry { display: flex; align-items: center; gap: 14px; padding: 13px 0; }
+
+.cb-entry + .cb-entry { border-top: 1px solid var(--fa-mist-2); }
+
+.cb-entry.is-hidden { display: none; }
+
+.cb-entry.is-hidden + .cb-entry { border-top-color: transparent; }
+
+.cb-entry-icon { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; flex: none; }
+
+.cb-entry-icon svg { width: 17px; height: 17px; }
+
+.cb-entry-icon.in { background: var(--fa-success-soft); color: var(--fa-success); }
+
+.cb-entry-icon.out { background: var(--fa-mist-2); color: var(--fa-ink-2); }
+
+.cb-entry-icon.exp { background: var(--fa-warn-soft); color: var(--fa-warn-ink); }
+
+.cb-entry-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.cb-entry-title { font-size: 13.5px; font-weight: 700; color: var(--fa-ink); }
+
+.cb-entry.exp .cb-entry-title { color: var(--fa-ink-2); }
+
+.cb-entry-sub { font-size: 12px; color: var(--fa-ink-3); }
+
+.cb-entry-tag { align-self: flex-start; margin-top: 4px; font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 2px 8px; border-radius: 999px; background: var(--fa-mist-2); color: var(--fa-ink-2); }
+
+.cb-entry-amt { flex: none; display: flex; flex-direction: column; gap: 2px; text-align: right; }
+
+.cb-entry-amt .v { font-family: var(--fa-mono); font-size: 14px; font-weight: 700; }
+
+.cb-entry-amt .v.pos { color: var(--fa-success); }
+
+.cb-entry-amt .v.neg { color: var(--fa-ink); }
+
+.cb-entry-amt .bal { font-size: 11px; color: var(--fa-ink-3); }
+
+.cb-empty { text-align: center; padding: 36px 20px; color: var(--fa-ink-3); font-size: 13px; }
+
+.cb-empty[hidden] { display: none; }
+
+/* --- how it works --- */
+.cb-howto { background: var(--fa-beige); border-radius: var(--fa-r-card); padding: 20px 22px; }
+
+.cb-howto-title { font-size: 14px; font-weight: 800; color: var(--fa-ink); margin-bottom: 13px; }
+
+.cb-howto-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 13px 24px; }
+
+.cb-howto-item { display: flex; gap: 10px; font-size: 12.5px; line-height: 1.5; color: var(--fa-ink-2); }
+
+.cb-howto-item svg { width: 16px; height: 16px; color: var(--fa-primary); flex: none; margin-top: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-panel[data-cat="cashback"].active .cb-expiry-meter span { animation: none; }
+  .cb-balance-btn { transition: none; }
+}
+
+@media (max-width: 720px) {
+  .cb-balance { padding: 22px 20px; }
+  .cb-entry-sub { font-size: 11.5px; }
+}
+
+.sub-thumb { width: 52px; height: 52px; border-radius: 12px; display: grid; place-items: center; flex: none; color: var(--fa-primary-ink); }
+
+.sub-thumb svg { width: 22px; height: 22px; }
+
+.sub-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.sub-brand { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fa-ink-3); }
+
+.sub-name { font-size: 14.5px; font-weight: 800; color: var(--fa-ink); line-height: 1.32; }
+
+.sub-rx-badge {
+  align-self: flex-start; margin-top: 2px; font-size: 10px; font-weight: 700; letter-spacing: .02em;
+  padding: 2px 8px; border-radius: 999px; background: var(--fa-rose-soft); color: var(--fa-primary-ink);
+}
+
+.sub-price { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
+
+.sub-price-caption { font-size: 11px; color: var(--fa-ink-3); }
+
+.sub-meta-grid { padding-top: 15px; border-top: 1px solid var(--fa-mist-2); }
+
+.sub-meta-grid .v .icon-repeat { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; color: var(--fa-ink-3); }
+
+.sub-countdown {
+  display: inline-block; margin-left: 8px; font-size: 10.5px; font-weight: 700; padding: 2px 8px;
+  border-radius: 999px; background: var(--fa-info-soft); color: var(--fa-info); vertical-align: 1px; white-space: nowrap;
+}
+
+.sub-savings { font-family: var(--fa-mono); color: var(--fa-success); font-weight: 700; }
+
+.sub-savings-line { display: flex; align-items: baseline; gap: 8px; }
+
+.sub-savings-line .k { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); }
+
+.sub-savings-line .v.sub-savings { font-family: var(--fa-mono); font-size: 15px; font-weight: 700; color: var(--fa-success); }
+
+.sub-remove-btn {
+  border: 1px solid var(--fa-mist); background: var(--fa-surface); cursor: pointer; font-family: var(--fa-font);
+  font-weight: 700; font-size: 12.5px; color: var(--fa-ink-2); padding: 8px 14px; border-radius: var(--fa-r-btn);
+  transition: color .15s, border-color .15s, background .15s;
+}
+
+.sub-remove-btn:hover { color: var(--fa-vital); border-color: var(--fa-vital); background: var(--fa-rose-soft); }
+
+.sub-confirm {
+  background: var(--fa-rose-soft); border: 1px solid var(--fa-rose); border-radius: 12px;
+  padding: 15px 16px; display: flex; flex-direction: column; gap: 12px;
+}
+
+.sub-confirm-text { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--fa-primary-ink); }
+
+.sub-confirm-text b { color: var(--fa-primary); }
+
+.sub-confirm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.sub-confirm-actions .btn { flex: 1; min-width: 150px; padding: 10px 16px; font-size: 12.5px; }
+
+@media (max-width: 560px) {
+  .sub-card { padding: 16px 16px 18px; }
+  .sub-card-main { flex-wrap: wrap; }
+  .sub-price { align-items: flex-start; text-align: left; margin-left: 66px; }
+}
+
+/* ============================ Messages (chat history) screen ============================ */
+.msgs-shell {
+  display: grid; grid-template-columns: 280px 1fr; background: var(--fa-surface);
+  border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); overflow: hidden;
+  min-height: 560px; box-shadow: var(--fa-shadow-sm);
+}
+
+.msgs-list { border-right: 1px solid var(--fa-mist); display: flex; flex-direction: column; background: var(--fa-beige); min-width: 0; }
+
+.msgs-list-head { padding: 18px 18px 10px; }
+
+.msgs-list-items { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+.msgs-item {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border: none; background: none;
+  cursor: pointer; text-align: left; font-family: var(--fa-font); border-bottom: 1px solid var(--fa-mist-2);
+  transition: background .12s;
+}
+
+.msgs-item:hover { background: var(--fa-mist-2); }
+
+.msgs-item.is-active { background: var(--fa-rose-soft); }
+
+.msgs-item-avatar {
+  width: 36px; height: 36px; border-radius: 50%; background: var(--fa-primary); color: #fff;
+  display: grid; place-items: center; font-size: 12px; font-weight: 800; flex: none;
+}
+
+.msgs-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.msgs-item-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+
+.msgs-item-name { font-size: 12.5px; font-weight: 700; color: var(--fa-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.msgs-item-time { font-size: 10.5px; color: var(--fa-ink-3); flex: none; }
+
+.msgs-item-preview { font-size: 12px; color: var(--fa-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.msgs-item-badge { align-self: flex-start; margin-top: 2px; font-size: 9.5px; font-weight: 700; letter-spacing: .02em; padding: 2px 7px; border-radius: 999px; background: var(--fa-mist-2); color: var(--fa-ink-2); flex: none; }
+
+.msgs-item-badge.is-live { background: var(--fa-success-soft); color: var(--fa-success); }
+
+.msgs-thread { display: flex; flex-direction: column; min-width: 0; }
+
+.msgs-thread-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--fa-mist); }
+
+.msgs-thread-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--fa-primary); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 800; flex: none; }
+
+.msgs-thread-id { min-width: 0; }
+
+.msgs-thread-name { font-size: 14px; font-weight: 800; color: var(--fa-ink); }
+
+.msgs-thread-status { font-size: 12px; color: var(--fa-ink-3); margin-top: 2px; }
+
+.msgs-thread-body { flex: 1; overflow-y: auto; padding: 20px; background: var(--fa-bg); }
+
+.msgs-thread-foot { padding: 14px 18px 18px; border-top: 1px solid var(--fa-mist); }
+
+.msgs-thread-foot[hidden] { display: none; }
+
+.msgs-closed-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 14px 18px; background: var(--fa-warn-soft); border-top: 1px solid #F1DCB8; font-size: 13px; font-weight: 700; color: var(--fa-warn-ink);
+}
+
+.msgs-closed-banner[hidden] { display: none; }
+
+.msgs-closed-banner .btn { padding: 8px 16px; font-size: 12.5px; }
+
+@media (max-width: 780px) {
+  .msgs-shell { grid-template-columns: 1fr; min-height: 0; }
+  .msgs-list { border-right: none; border-bottom: 1px solid var(--fa-mist); max-height: 240px; }
+  .msgs-thread-body { min-height: 320px; }
+}

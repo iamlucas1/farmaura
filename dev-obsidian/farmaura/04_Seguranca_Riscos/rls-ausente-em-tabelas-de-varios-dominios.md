@@ -11,7 +11,7 @@ Levantamento cruzado ao documentar os módulos de negócio (`02_Documentacao/Mod
 
 Tabelas identificadas sem RLS, por domínio:
 - **Catálogo**: `brands`, `categories`, `therapeutic_classes`, `brand_suppliers`, `product_reviews` — ver [[../02_Documentacao/Modulo_Catalogo|Modulo_Catalogo]].
-- **CRM**: `coupon_campaigns`, `cashback_transaction_lines`, `customer_cashback_wallets` — ver [[../02_Documentacao/Modulo_CRM|Modulo_CRM]].
+- **CRM**: `coupon_campaigns` — ver [[../02_Documentacao/Modulo_CRM|Modulo_CRM]]. ~~`cashback_transaction_lines`, `customer_cashback_wallets`~~ — **RLS adicionada em 2026-09-04** (ver atualização abaixo), removidas desta lista.
 - **Estoque**: `inventory_invoice_records` — ver [[../02_Documentacao/Modulo_Estoque|Modulo_Estoque]].
 - **Entrega/Portal**: `portal_settings` (config de `delivery_pricing`/`delivery_areas` e as demais 5 chaves de settings) — ver [[../02_Documentacao/Modulo_Entrega|Modulo_Entrega]] e [[../02_Documentacao/Modulo_Portal|Modulo_Portal]].
 - **Pedidos**: `order_status_events` tem RLS configurada mas nunca é escrita por nenhum código — caso à parte, não é gap de segurança em si (ver pendência [[../06_Pendencias/order-status-events-nunca-escrita|order-status-events-nunca-escrita]]).
@@ -30,6 +30,16 @@ Baseline de RLS: `farmaura-api/app/core/row_level_security.py` (aplicado via boo
 
 ## Atualizações
 
+- 2026-09-04: `customer_cashback_wallets` e `cashback_transaction_lines` ganharam `tenant_id`
+  (migration `20260903_01_marketplace_cashback`, com backfill a partir de `customers`) e entraram
+  na malha genérica de RLS (`row_level_security.py::tenant_tables`), como pré-requisito de
+  segurança para estender cashback ao marketplace — ver
+  [[../00_Decisoes/2026-09-04-cashback-real-no-marketplace|ADR]] e
+  [[cashback-wallet-vazamento-cross-tenant-via-pdv|achado crítico relacionado, também corrigido]].
+  As demais tabelas desta lista (`brands`, `categories`, `therapeutic_classes`,
+  `brand_suppliers`, `product_reviews`, `coupon_campaigns`, `inventory_invoice_records`,
+  `portal_settings`) continuam sem RLS — gap real, não tratado nesta leva.
+- 2026-08-26: novo endpoint público `GET /brands/public/{brand_name}` (Fase 4 do [[../09_Design_Visual/Roadmap_Composicao_Visual_Padrao_Farmacia|roadmap de composição visual]], página de marca do marketplace) toca `brands` sem RLS pela primeira vez a partir de uma rota **anônima**. Mitigado no nível da aplicação, não da tabela: `BrandService.get_public_brand` resolve o tenant via a mesma função `SECURITY DEFINER` (`resolve_public_marketplace_tenant_id`) já usada pelo bootstrap público, e filtra por `tenant_id` explicitamente na query — não depende de RLS nem de contexto de sessão (que nem existe pra um visitante anônimo). O gap de RLS em `brands` em si **continua aberto** — isso só evita que essa rota nova especificamente dependa dele.
 - 2026-07-30: confirmado via `pg_class.relrowsecurity` que `coupon_campaigns` **continua sem RLS**
   (`f`/`f`) — o CRUD do cupom (`portal_service.py`) ganhou nesta data a reaplicação de
   `apply_tenant_context` após `commit()` (mesmo padrão já usado por `pricing_promotions`), mas isso é

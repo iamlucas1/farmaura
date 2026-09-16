@@ -34,6 +34,16 @@ class CatalogReviewSummary(StrictModel):
     comments: list[PortalProductReviewResponse] = Field(default_factory=list)
 
 
+class ProductVariantSummary(StrictModel):
+    """Represent one dosage/size sibling of a catalog product, including itself."""
+
+    id: str
+    label: str
+    price: Decimal
+    old_price: Decimal | None = None
+    in_stock: bool = True
+
+
 class PublicCatalogItem(StrictModel):
     """Represent one public marketplace product projection."""
 
@@ -54,6 +64,12 @@ class PublicCatalogItem(StrictModel):
     stock: int
     tags: list[str]
     info: str
+    short_description: str = ""
+    bula_markdown: str = ""
+    marketing_highlights: list[str] = Field(default_factory=list)
+    variant_group_id: str = ""
+    variant_label: str = ""
+    variants: list[ProductVariantSummary] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
     inventory_ids: list[str] = Field(default_factory=list)
     promotion_highlight: str = ""
@@ -85,6 +101,19 @@ class MostSearchedProductsResponse(StrictModel):
     items: list[MostSearchedProductResponse] = Field(default_factory=list)
 
 
+class AlsoBoughtProductResponse(StrictModel):
+    """Represent one product's real co-purchase rank for a given product's "also bought" rail."""
+
+    product_id: str
+    order_count: int
+
+
+class AlsoBoughtProductsResponse(StrictModel):
+    """Represent the ranked "outros clientes também compraram" product list for one product."""
+
+    items: list[AlsoBoughtProductResponse] = Field(default_factory=list)
+
+
 class CatalogItem(StrictModel):
     """Represent one authenticated marketplace product."""
 
@@ -108,6 +137,12 @@ class CatalogItem(StrictModel):
     is_available: bool
     tags: list[str]
     info: str
+    short_description: str = ""
+    bula_markdown: str = ""
+    marketing_highlights: list[str] = Field(default_factory=list)
+    variant_group_id: str = ""
+    variant_label: str = ""
+    variants: list[ProductVariantSummary] = Field(default_factory=list)
     aliases: list[str]
     inventory_ids: list[str]
     promotion_highlight: str = ""
