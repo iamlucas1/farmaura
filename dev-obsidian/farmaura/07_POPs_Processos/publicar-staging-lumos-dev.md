@@ -9,9 +9,11 @@ vez de dado de produção — sem tocar em `lumos-prd`. Ver [[../05_Integracoes_
 ## Passos (primeira publicação)
 
 1. Criar/atualizar a branch `staging/lumos-dev` a partir do estado local (`git checkout -b
-   staging/lumos-dev`, `git add` só os arquivos de código relevantes — nunca scratch/pessoal como
-   `.claude/`, `.vite/`, `exemplo/` — `git commit`, `git push -u origin staging/lumos-dev`), depois
-   `git checkout main` de volta.
+   staging/lumos-dev`, `git add` só os arquivos de código relevantes — por padrão, nunca scratch/pessoal
+   como `.claude/`, `.vite/`, `exemplo/` — `git commit`, `git push -u origin staging/lumos-dev`), depois
+   `git checkout main` de volta. Ver [[../../_Compartilhado/POPs_Processos/topologia-git-repositorios-e-branches|topologia-git-repositorios-e-branches]]
+   para a convenção completa de branches/repositórios de todos os projetos, incluindo a exceção decidida
+   em 2026-09-16 para incluir `exemplo/` num backup específico.
 2. No servidor: `git clone --branch staging/lumos-dev --single-branch
    git@github.com:iamlucas1/farmaura.git /opt/farmaura` (lumos-dev já autentica como `iamlucas1` no
    GitHub — testar com `git ls-remote` se algum dia parar de funcionar).
@@ -89,4 +91,5 @@ containers que servem outros clientes.
 
 ## Atualizações
 
+- 2026-09-16: linkada à nova nota de topologia de repositórios/branches (`_Compartilhado`); registrada a exceção pontual que incluiu `exemplo/` num backup de sessão.
 - 2026-08-04: nota criada, junto com a primeira publicação deste ambiente.
