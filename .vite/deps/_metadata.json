@@ -1,0 +1,49 @@
+{
+  "hash": "88c7e836",
+  "configHash": "98ad7b93",
+  "lockfileHash": "e3b0c442",
+  "browserHash": "2af58a39",
+  "optimized": {
+    "qrcode": {
+      "src": "../../farmaura/node_modules/qrcode/lib/browser.js",
+      "file": "qrcode.js",
+      "fileHash": "0bb6a105",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../farmaura/node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "4a278ae9",
+      "needsInterop": true
+    },
+    "react-dom": {
+      "src": "../../farmaura/node_modules/react-dom/index.js",
+      "file": "react-dom.js",
+      "fileHash": "862f1afb",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../farmaura/node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "3afc8e78",
+      "needsInterop": true
+    },
+    "react-router-dom": {
+      "src": "../../farmaura/node_modules/react-router-dom/dist/index.js",
+      "file": "react-router-dom.js",
+      "fileHash": "a81d31e8",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-O5T5OZB3": {
+      "file": "chunk-O5T5OZB3.js"
+    },
+    "chunk-TJIDXHGQ": {
+      "file": "chunk-TJIDXHGQ.js"
+    },
+    "chunk-YLJ4XMA6": {
+      "file": "chunk-YLJ4XMA6.js"
+    }
+  }
+}

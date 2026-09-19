@@ -1,0 +1,362 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [
+      "farmaura/react/internal/internal.css",
+      "farmaura/react/internal/internal-legacy.css"
+    ],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "farmaura/react/internal/screens/quotes-screen.jsx"
+        ],
+        "createdAt": "2026-08-23T10:21:30.024Z",
+        "reason": "pre-existing error-import card border, not introduced this session; not part of the critique's priority list"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "farmaura/react/internal/screens/inventory-screen.jsx"
+        ],
+        "createdAt": "2026-08-23T10:21:30.073Z",
+        "reason": "pre-existing action-color-coded draft-item card border, not introduced this session; not part of the critique's priority list"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:21:30.117Z",
+        "reason": "pre-existing carousel-dot width transition (8px-24px active dot), already triaged as low-impact by critique Assessment B"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:21:30.159Z",
+        "reason": "pre-existing .fa-diff differentiators stripe, already triaged as borderline/not-slop by critique Assessment B"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:21:30.201Z",
+        "reason": "pre-existing sidebar-collapse width transition + progress-bar fill-width transitions (rank/flow/price bars), not introduced this session"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:21:54.114Z",
+        "reason": "pre-existing event-type color-coded card border (.inv-event-card, Movimentacoes/Armazenamentos), legitimate categorization pattern, not introduced this session"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "11px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:48.996Z",
+        "reason": "proportional icon-tile radius (~38px squares), documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "9px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.044Z",
+        "reason": "proportional small-control radius (20-32px elements), documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "7px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.090Z",
+        "reason": "proportional small-control radius, documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "8px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.134Z",
+        "reason": "proportional small-control radius, documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "6px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.178Z",
+        "reason": "proportional small-control radius (checkbox/progress-track), documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "13px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.219Z",
+        "reason": "proportional icon-tile radius (44px .fin-sec-band icon), documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "3px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.263Z",
+        "reason": "micro-decorative radius on 10-11px dots/swatches, effectively a rounded square at that size"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "2px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.304Z",
+        "reason": "micro-decorative radius on 2-18px ticks/marks, effectively a rounded square at that size"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "4px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:49:49.348Z",
+        "reason": "micro-decorative radius on a chart-bar top corner"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "6px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:27.879Z",
+        "reason": "proportional small-control radius (fa-check box, fa-code corners), documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "7px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:27.934Z",
+        "reason": "proportional small-control radius (fa-code top/bottom corners), documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "8px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:27.982Z",
+        "reason": "proportional small-control radius, documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "13px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:28.026Z",
+        "reason": "proportional icon-tile radius (fa-logo-mark, 42px), documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "2px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:28.071Z",
+        "reason": "micro-decorative radius on .fa-diff side accent stripe"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "11px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:28.116Z",
+        "reason": "proportional icon-tile radius, documented as The Proportional Icon-Tile Rule in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "24px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:28.159Z",
+        "reason": "hero-scale launch-countdown preview card (.cd-card), documented as a confirmed exception in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "28px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:50:28.202Z",
+        "reason": "hero-scale home banner decorative art frame (.fa-slide-art-box), documented as a confirmed exception in DESIGN.md Shapes"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "3px)",
+        "files": [
+          "farmaura/react/marketplace/screens/account-health-screen.jsx"
+        ],
+        "createdAt": "2026-08-23T10:51:18.016Z",
+        "reason": "false positive: calc(var(--fa-r-btn) - 3px) already references the documented token, detector is flagging the calc() offset literal"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "6px)",
+        "files": [
+          "farmaura/react/marketplace/screens/cart-screen.jsx"
+        ],
+        "createdAt": "2026-08-23T10:51:18.064Z",
+        "reason": "false positive: calc(var(--fa-r-card) - 6px) already references the documented token, detector is flagging the calc() offset literal"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#3a2230",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:51:18.110Z",
+        "reason": "Mastercard-brand payment card mockup gradient — deliberately not the app palette, documented as a confirmed exception in DESIGN.md Colors"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#2b2b2b",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:51:18.155Z",
+        "reason": "Elo-brand payment card mockup gradient — deliberately not the app palette, documented as a confirmed exception in DESIGN.md Colors"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#111",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:51:18.200Z",
+        "reason": "Elo-brand payment card mockup gradient — deliberately not the app palette, documented as a confirmed exception in DESIGN.md Colors"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#eef2ec",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:51:18.243Z",
+        "reason": "map canvas background behind Leaflet tiles, not a UI surface — documented as a confirmed exception in DESIGN.md Colors"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#93131f",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:51:18.288Z",
+        "reason": "single banner gradient endpoint close to Vinho Aura — documented as a confirmed exception in DESIGN.md Colors"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "16px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:59:20.685Z",
+        "reason": "16px is a deliberate iOS Safari input font-size floor (.pdv-search input) to prevent auto-zoom on focus, plus one compact-card stat value; not drift"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "20px",
+        "files": [
+          "farmaura/react/internal/internal.css"
+        ],
+        "createdAt": "2026-08-23T10:59:20.734Z",
+        "reason": "deliberate reduced stat-value size for the dense 6-card Painel de Compras KPI row, already explained in a code comment (.inv-kpis.pa-kpis)"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "16px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:59:20.779Z",
+        "reason": "compact block-title size for account settings page cards, consistent single-purpose use"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "34px",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T10:59:20.825Z",
+        "reason": "hero cashback-balance display (clamp(34px,5vw,46px)), a singular emphasis moment sharing Display's own 46px ceiling"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "4px)",
+        "files": [
+          "farmaura/react/marketplace/marketplace.css"
+        ],
+        "createdAt": "2026-08-23T11:01:02.975Z",
+        "reason": "false positive: calc(var(--fa-r-card) - 4px) already references the documented token, detector is flagging the calc() offset literal"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "farmaura/react/marketplace/screens/cart-screen.jsx"
+        ],
+        "createdAt": "2026-08-23T11:01:03.022Z",
+        "reason": "free-shipping progress-bar fill animation, same accepted category as the rank/flow/price bars already reviewed in internal.css and marketplace.css"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "farmaura/react/internal/screens/dashboard-screen.jsx"
+        ],
+        "createdAt": "2026-08-23T11:01:03.066Z",
+        "reason": "bar-chart column fill animation, same accepted category as the rank/flow/price bars already reviewed in internal.css and marketplace.css"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "farmaura/react/internal/internal-legacy.css"
+        ],
+        "createdAt": "2026-09-10T19:34:13.755Z",
+        "reason": "user confirmed: verbatim copy of the pre-migration internal.css, quarantined as a transitional layer and deleted screen-by-screen during the visual migration; not a new design choice"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "farmaura/react/internal/internal-legacy.css"
+        ],
+        "createdAt": "2026-09-10T19:34:13.820Z",
+        "reason": "user confirmed: same legacy internal.css copy, being removed batch-by-batch in the migration"
+      }
+    ]
+  }
+}

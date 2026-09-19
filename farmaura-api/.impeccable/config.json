@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-color",
+        "value": "rgba(0,0,0,.14)",
+        "createdAt": "2026-08-30T21:21:53.221Z",
+        "reason": "Claude: copied verbatim from the existing dropdown shadow in account-health-screen.jsx:342 (ConversationsInbox's order picker) for visual consistency between the two chat-history surfaces, not new drift"
+      }
+    ]
+  }
+}
