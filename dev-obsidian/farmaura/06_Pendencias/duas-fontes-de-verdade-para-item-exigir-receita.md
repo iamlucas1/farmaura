@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Duas fontes de verdade divergentes para "item exige receita"
 
 **Status:** Aberto

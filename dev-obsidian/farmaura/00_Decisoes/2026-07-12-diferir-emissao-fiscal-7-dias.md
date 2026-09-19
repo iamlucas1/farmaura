@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-12 — Diferir emissão de nota fiscal em 7 dias após o pagamento
 
 ## Contexto

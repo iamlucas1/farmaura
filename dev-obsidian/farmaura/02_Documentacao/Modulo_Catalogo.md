@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo Catálogo (produtos, marcas, categorias, classes terapêuticas, precificação e promoções)
 
 ## O que é

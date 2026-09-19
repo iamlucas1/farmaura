@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão: travamento de versão e supply chain em todas as stacks do ecossistema
 
 **Tipo:** Padrão técnico genérico
@@ -18,7 +22,7 @@ Qualquer stack deste ecossistema (Python/uv, npm, **Composer**, imagens Docker) 
   - versão exata (não `^`/`~`) para qualquer pacote que toque autenticação, criptografia ou cliente HTTP;
   - revisar o pacote antes de rodar `composer require`, nunca instalar de registry não oficial;
   - nenhum script Composer (`post-install-cmd`, `post-update-cmd`) sem revisão.
-- **Docker** (todas as stacks): pin de imagem base por tag específica (idealmente por digest), sem `latest`, build reprodutível, sem segredo de build embutido em imagem/layer — mesmo princípio já aplicado ao `lumos-gateway` (`certbot`, `fail2ban` com tag revisada, não `latest`).
+- **Docker** (todas as stacks): pin de imagem base por tag específica (idealmente por digest), sem `latest`, build reprodutível, sem segredo de build embutido em imagem/layer. **Não totalmente aplicado ainda**: `lumos-gateway/docker-compose.yml` usa `certbot/certbot:latest` e `crazymax/fail2ban:latest` sem pin — achado confirmado e registrado em [[../../lumos-gateway/04_Seguranca_Riscos/supply-chain-e-hardening-diversos|supply-chain-e-hardening-diversos]] (severidade MÉDIA para o fail2ban, por rodar com `network_mode: host` + `cap_add: NET_ADMIN/NET_RAW`).
 
 ## Motivo
 
@@ -36,4 +40,5 @@ Nenhuma até 2026-07-20. Se uma stack nova adotar um gerenciador de pacote difer
 
 ## Atualizações
 
+- 2026-09-18: corrigida afirmação errada sobre `lumos-gateway` — `certbot`/`fail2ban` continuam em `:latest`, não estavam com "tag revisada" como esta nota dizia antes; ver achado já registrado em [[../../lumos-gateway/04_Seguranca_Riscos/supply-chain-e-hardening-diversos|supply-chain-e-hardening-diversos]].
 - 2026-07-20: nota criada.

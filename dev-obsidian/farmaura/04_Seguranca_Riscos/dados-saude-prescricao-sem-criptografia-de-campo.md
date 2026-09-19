@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Dados de saúde/PII de prescrição em texto plano, sem proteção adicional além de RLS por tenant
 
 **Tipo:** Risco identificado (proteção de dado sensível / conformidade LGPD)

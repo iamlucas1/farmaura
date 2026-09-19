@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Revisão de acesso anônimo (marketplace exposto à internet)
 
 **Tipo:** Vulnerabilidade + Risco identificado

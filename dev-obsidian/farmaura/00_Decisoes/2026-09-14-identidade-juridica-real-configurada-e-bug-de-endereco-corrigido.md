@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-14 — Identidade jurídica real configurada + bug que escondia o endereço da loja em qualquer tela
 
 ## Contexto

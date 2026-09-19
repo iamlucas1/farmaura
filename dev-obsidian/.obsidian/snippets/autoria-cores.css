@@ -1,0 +1,41 @@
+/* Separação visual por autoria: laranja = criado/editado pela IA, azul = criado pelo usuário.
+   Ativa via `.obsidian/appearance.json` (enabledCssSnippets). Ver convenção em CLAUDE.md. */
+
+:root {
+  --autoria-ia: #e8821a;
+  --autoria-usuario: #3b82f6;
+}
+
+/* Nota inteira marcada no frontmatter com `cssclasses: ia-nota` */
+.markdown-source-view.ia-nota,
+.markdown-reading-view.ia-nota,
+.markdown-preview-view.ia-nota {
+  border-left: 4px solid var(--autoria-ia);
+}
+
+/* Nota inteira marcada no frontmatter com `cssclasses: usuario-nota` */
+.markdown-source-view.usuario-nota,
+.markdown-reading-view.usuario-nota,
+.markdown-preview-view.usuario-nota {
+  border-left: 4px solid var(--autoria-usuario);
+}
+
+.markdown-source-view.ia-nota .cm-sizer,
+.markdown-reading-view.ia-nota .markdown-preview-sizer,
+.markdown-source-view.usuario-nota .cm-sizer,
+.markdown-reading-view.usuario-nota .markdown-preview-sizer {
+  padding-left: 16px;
+}
+
+/* Callouts para marcar trechos dentro de uma mesma nota de autoria mista:
+   > [!ia] texto escrito/gerado pela IA
+   > [!usuario] texto escrito pelo usuário */
+.callout[data-callout="ia"] {
+  --callout-color: 232, 130, 26;
+  --callout-icon: lucide-bot;
+}
+
+.callout[data-callout="usuario"] {
+  --callout-color: 59, 130, 246;
+  --callout-icon: lucide-user;
+}

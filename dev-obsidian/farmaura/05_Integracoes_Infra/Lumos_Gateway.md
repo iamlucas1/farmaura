@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # lumos-gateway (integração)
 
 **Tipo:** Infraestrutura / integração interna
@@ -8,7 +12,7 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 
 ## Contrato
 
-- `farmaura-api/docker-compose.gateway.yml` (overlay) conecta apenas o serviço `farmaura-api` à rede Docker externa `lumos_gateway`.
+- `farmaura-api/docker-compose.gateway.yml` (overlay) conecta apenas o serviço `farmaura` (web/nginx) à rede Docker externa `lumos_gateway` — não `farmaura-api` diretamente, que permanece só em `farmaura_private` e é alcançado via proxy interno feito pelo próprio `farmaura` (`docker/web/nginx.conf`, `proxy_pass` para `farmaura_api:8080`).
 - `app/main.py`, `api/middleware/security_headers.py` e `api/middleware/body_limits.py` documentam explicitamente a suposição de rodar atrás do gateway (headers e limites de corpo alinhados, não duplicados).
 - Histórico do próprio `lumos-gateway` confirma a extensão recente: commit `8a4d85c` ("adjustment to start farmaura development") — o gateway passou a também rotear para `farmaura-api`.
 
@@ -56,12 +60,13 @@ Farmaura-api roda atrás do gateway Nginx compartilhado `lumos-gateway`, que tam
 
 - [[Lumos_Gateway_Roteamento]] — mesmo gateway, documentado do lado LumosMed (roteamento detalhado por template Nginx).
 - [[chaves-privadas-tls-expostas-no-historico-git]] — vulnerabilidade crítica encontrada neste mesmo repositório de gateway, relevante para ambos os produtos.
-- [[Docker_Compose]] — overlay que conecta o `farmaura-api` a esta rede.
+- [[Docker_Compose]] — overlay que conecta o `farmaura` (web/nginx) a esta rede.
 - [[Ambiente_Staging_Lumos_Dev]] — mesma integração `FARMAURA_*`, replicada num segundo servidor
   (`lumos-dev`) para um ambiente de teste com link próprio (`dev.drogariafarmaura.com.br`).
 
 ## Atualizações
 
+- 2026-09-18: corrigido erro nesta nota — quem entra na rede `lumos_gateway` é o serviço `farmaura` (web/nginx), não `farmaura-api` diretamente.
 - 2026-08-04: a mesma integração `FARMAURA_*` (vars de `.env`, `domain_context.sh`, `entrypoint.sh`,
   `10-http-redirect.conf.template`, `90-farmaura.conf.template`) foi replicada no gateway de
   `lumos-dev` (servidor compartilhado, separado deste), para um ambiente de staging com link próprio —

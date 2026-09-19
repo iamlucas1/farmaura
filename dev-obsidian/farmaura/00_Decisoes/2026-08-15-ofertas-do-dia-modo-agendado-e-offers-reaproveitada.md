@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-15 — "Ofertas do dia" ganha modo agendado (calendário) + `/offers` reaproveitada como extensão da faixa da home
 
 ## Contexto

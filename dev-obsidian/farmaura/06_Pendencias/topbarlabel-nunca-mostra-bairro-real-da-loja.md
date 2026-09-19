@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # `resolveStoreMeta.topbarLabel` nunca mostra bairro/CEP reais da loja
 
 **Status:** Aberto

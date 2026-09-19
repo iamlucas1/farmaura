@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Política: Termos, Privacidade e Retenção de Dados devem acompanhar toda mudança real de dados/regras
 
 **Tipo:** Política

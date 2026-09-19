@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Resetar e re-semear dados de desenvolvimento local
 
 ## Quando usar

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 	# Skill: secure-file-upload
 
 **Arquivo fonte:** `dev-obsidian/_Compartilhado/Skills/secure-file-upload/SKILL.md`

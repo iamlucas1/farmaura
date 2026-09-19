@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-31 — PDP: bula em Markdown, dosagens/tamanhos e parcelamento configurável
 
 ## Contexto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Sem equivalente a "desconto direto de produto" para serviços de saúde
 
 **Status:** Aberto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # _Compartilhado
 
 Biblioteca de conteúdo genérico e reutilizável, sem vínculo a nenhum projeto deste cofre. Serve para o usuário copiar manualmente (arquivo ou pasta) para outro repositório ou vault quando começar/mantiver outro projeto — a IA não grava fora deste repositório automaticamente, então a cópia em si é sempre uma ação manual do usuário.

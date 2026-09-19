@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Nome da skill / agente / prompt específico deste projeto
 
 > Como usar: esta pasta é opcional e só deve ter conteúdo quando a skill/agente/prompt for genuinamente específica deste projeto — o que for genérico o suficiente para outros projetos deve ir em `../../_Compartilhado/` em vez de aqui.

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Armazenamento de arquivos (filesystem privado)
 
 **Tipo:** Infraestrutura

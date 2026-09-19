@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-13 — RLS bloqueava conclusão do primeiro acesso (e 2FA login) por contexto aplicado tarde demais
 
 ## Contexto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Marca não tem campo de logo no console interno, apesar do backend suportar
 
 **Status:** Aberto

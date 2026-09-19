@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-14 — Telas de Termos de Uso, Política de Privacidade e Exclusão/Retenção de Dados
 
 ## Contexto

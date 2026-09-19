@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão confirmado: services do domínio lumosmed são módulos de função, não classes
 
 **Tipo:** Padrão técnico (documentação de convenção real)

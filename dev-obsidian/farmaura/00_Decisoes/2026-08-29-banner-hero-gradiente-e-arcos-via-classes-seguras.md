@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-29 — Correção: gradiente e arcos decorativos do hero SÃO possíveis, via classes seguras
 
 ## Contexto

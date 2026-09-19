@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # `order_status_events` existe (com RLS) mas nunca é escrita
 
 **Status:** Aberto

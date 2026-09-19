@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Confirmar Compra cruza orçamentos e estoque, por ação explícita e reaproveitando o pipeline de nota fiscal
 
 **Status:** Aceita

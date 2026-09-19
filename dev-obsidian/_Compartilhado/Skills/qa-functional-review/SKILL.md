@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: qa-functional-review
 description: Use for a functional QA pass over a UI feature — finding dead buttons/handlers, duplicated functions implementing the same behavior twice, missing loading/empty/error states, and orphaned routes. This tests what's built, it does not write it.
 ---

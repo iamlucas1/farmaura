@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-31 — Atalhos da home com lógica real; Serviços de Saúde ganha CRUD e cupom/promoção próprios
 
 ## Contexto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão: como adicionar uma nova página/rota autenticada do portal
 
 **Tipo:** Padrão técnico

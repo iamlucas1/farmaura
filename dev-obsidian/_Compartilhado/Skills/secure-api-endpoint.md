@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Skill: secure-api-endpoint
 
 **Arquivo fonte:** `dev-obsidian/_Compartilhado/Skills/secure-api-endpoint/SKILL.md`

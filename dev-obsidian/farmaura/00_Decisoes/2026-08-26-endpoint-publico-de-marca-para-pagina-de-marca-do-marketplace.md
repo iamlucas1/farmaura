@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-26 — Endpoint público de marca, escopado por tenant explicitamente (não por RLS)
 
 ## Contexto

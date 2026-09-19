@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: prompt-teste-geral-feature
 description: Use when verifying a new feature end to end before reporting it complete.
 ---

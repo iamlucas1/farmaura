@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-31 — Página de produto (PDP) redesenhada conforme o demo "Padrão farmácia"
 
 ## Contexto

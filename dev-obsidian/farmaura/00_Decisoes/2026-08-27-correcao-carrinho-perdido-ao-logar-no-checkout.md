@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-27 — Correção: carrinho era perdido ao logar durante o checkout
 
 ## Contexto

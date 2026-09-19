@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Página de "bula" (informações regulatórias do medicamento) não existe — sem model de conteúdo
 
 **Status:** Aberto

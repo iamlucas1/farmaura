@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Gate de receita no checkout não verifica item específico do carrinho
 
 **Status:** Aberto

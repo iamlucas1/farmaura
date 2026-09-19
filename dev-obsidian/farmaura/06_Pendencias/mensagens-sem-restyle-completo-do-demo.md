@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Aba "Mensagens" sem restyle completo para o layout `.msgs-shell` do demo
 
 **Status:** Aberto

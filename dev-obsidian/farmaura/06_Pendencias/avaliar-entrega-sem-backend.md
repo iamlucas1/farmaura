@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Avaliação de entrega/retirada não tem model nem endpoint
 
 **Status:** Aberto

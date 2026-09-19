@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # `lumosmed_upstream` ainda usa bloco `upstream{}` clássico, resolvido estaticamente
 
 **Status:** Aberto

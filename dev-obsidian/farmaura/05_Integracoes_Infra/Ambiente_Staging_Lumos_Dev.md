@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Ambiente de staging/teste em lumos-dev
 
 **Tipo:** Infraestrutura (hospedagem)

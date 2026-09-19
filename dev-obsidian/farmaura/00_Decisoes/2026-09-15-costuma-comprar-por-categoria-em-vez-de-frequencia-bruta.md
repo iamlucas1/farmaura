@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-15 — "Costuma comprar" no PDV passa a refletir categoria, não só frequência bruta
 
 ## Contexto

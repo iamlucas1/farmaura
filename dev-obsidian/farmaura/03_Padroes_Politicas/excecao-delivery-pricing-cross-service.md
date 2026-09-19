@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Exceção: delivery_pricing_service acessa repositórios e compõe outro serviço diretamente
 
 **Tipo:** Padrão técnico (exceção deliberada)

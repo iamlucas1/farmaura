@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: prompt-qa-funcional
 description: Use when performing a functional QA pass on a changed UI screen, form, route, or interactive feature.
 ---

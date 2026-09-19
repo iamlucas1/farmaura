@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Skill: secure-python-backend
 
 **Arquivo fonte:** `dev-obsidian/_Compartilhado/Skills/secure-python-backend/SKILL.md` (+ `references/security-baseline.md`, `references/versions-and-supply-chain.md`)

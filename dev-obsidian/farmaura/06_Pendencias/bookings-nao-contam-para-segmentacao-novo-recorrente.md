@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Agendamentos de serviço não contam para segmentação "novo cliente"/"recorrente"
 
 **Status:** Aberto

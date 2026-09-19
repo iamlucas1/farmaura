@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-15 — "Oportunidades de venda": 5 direto no painel + modal "ver mais" com até 15
 
 ## Contexto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-02 — Pagamento do checkout bloqueado até validação farmacêutica da receita
 
 ## Contexto

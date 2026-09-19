@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Logout não limpa o cache de portal (`FA_PORTAL_CACHE`) — PII de vendas PDV, chat e dado financeiro seguem no `localStorage`
 
 **Tipo:** Vulnerabilidade (exposição de dado residual em dispositivo compartilhado)

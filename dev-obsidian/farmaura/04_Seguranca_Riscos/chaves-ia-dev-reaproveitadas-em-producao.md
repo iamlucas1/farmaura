@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Chaves de API de IA (Gemini/OpenAI) de dev reaproveitadas em produção
 
 **Tipo:** Exceção aceita conscientemente

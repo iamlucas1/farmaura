@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-03-22 — Adotar Laravel como BFF, navegador nunca fala direto com a API Python
 
 ## Contexto

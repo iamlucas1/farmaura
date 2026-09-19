@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Migration `20260830_01` (chat spam-guard) pendente em produção
 
 **Status:** Aberto

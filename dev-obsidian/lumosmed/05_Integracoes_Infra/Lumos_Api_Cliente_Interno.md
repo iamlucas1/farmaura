@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # lumos-api (integração interna Laravel → Python)
 
 **Tipo:** Integração interna

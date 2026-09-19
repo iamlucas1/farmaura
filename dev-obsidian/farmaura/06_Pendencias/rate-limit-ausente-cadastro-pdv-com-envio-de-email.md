@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Rate limit ausente em `POST /crm/customers`, agora que o cadastro dispara e-mail real
 
 **Status:** Aberto

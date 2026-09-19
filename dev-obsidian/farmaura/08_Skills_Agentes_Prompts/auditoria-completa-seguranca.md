@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Auditoria completa de segurança (Farmaura / Farmaura API)
 
 **Arquivo operacional:** `dev-obsidian/farmaura/08_Skills_Agentes_Prompts/auditoria-completa-seguranca/PROMPT.md`

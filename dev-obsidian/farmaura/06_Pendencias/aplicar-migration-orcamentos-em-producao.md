@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Aplicar migration Alembic do módulo Orçamentos em produção
 
 **Status:** Resolvido em 2026-07-23

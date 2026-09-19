@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão confirmado: camadas + injeção de dependência no backend
 
 **Tipo:** Padrão técnico (documentação de convenção real, não aspiracional)

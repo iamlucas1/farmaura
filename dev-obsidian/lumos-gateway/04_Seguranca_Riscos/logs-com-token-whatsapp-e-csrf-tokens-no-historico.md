@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Logs de acesso/erro commitados no primeiro commit contêm token real de verificação do webhook WhatsApp + tokens CSRF de sessões reais
 
 **Tipo:** Vulnerabilidade (exposição de segredo em histórico Git)

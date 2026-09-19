@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: prompt-varredura-vulnerabilidades
 description: Use when performing a security review of a completed change involving authentication, payments, uploads, tenant data, or abuse-sensitive behavior.
 ---

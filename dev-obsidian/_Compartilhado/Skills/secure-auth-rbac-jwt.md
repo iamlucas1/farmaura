@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Skill: secure-auth-rbac-jwt
 
 **Arquivo fonte:** `dev-obsidian/_Compartilhado/Skills/secure-auth-rbac-jwt/SKILL.md`

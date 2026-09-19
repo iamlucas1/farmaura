@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-15 — "Oportunidades de venda" analisa o cliente identificado mesmo com carrinho vazio
 
 ## Contexto

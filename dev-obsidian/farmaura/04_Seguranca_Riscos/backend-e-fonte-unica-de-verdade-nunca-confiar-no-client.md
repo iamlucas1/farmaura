@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Backend é sempre a fonte única de verdade — nunca confiar em validação/cálculo feito no client
 
 **Tipo:** Diretriz de segurança (princípio arquitetural)

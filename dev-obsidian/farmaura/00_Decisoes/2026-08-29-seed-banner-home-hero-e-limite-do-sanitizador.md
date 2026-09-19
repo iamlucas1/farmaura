@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-29 — Banner da home passa a nascer no seed determinístico; limite real do sanitizador documentado
 
 ## Contexto

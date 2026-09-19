@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Validação de input: arrays/campos numéricos sem `max_length`/limite superior em alguns schemas
 
 **Tipo:** Vulnerabilidade/inconsistência (validação de input incompleta)

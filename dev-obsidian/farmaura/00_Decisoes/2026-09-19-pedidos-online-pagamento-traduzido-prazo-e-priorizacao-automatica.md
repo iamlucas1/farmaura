@@ -1,0 +1,29 @@
+---
+cssclasses: ia-nota
+---
+
+# 2026-09-19 — Pedidos Online: pagamento traduzido, prazo em contagem regressiva e priorização automática
+
+## Contexto
+
+Sequência da sessão anterior ([[2026-09-18-pedidos-online-redesenhado-conforme-artifact-mantendo-funcionalidade-real]]). Pedido do usuário (dono do negócio): remover a coluna "Origem" da tabela (é dado só para análise dele, não para o operador); traduzir a coluna "Pagamento" para português e diferenciar se já foi pago ou se vai pagar na entrega/retirada; adicionar uma coluna com contador em contagem regressiva; diferenciar entrega expressa de normal na prioridade; e fazer a lista se reordenar sozinha conforme o prazo vai vencendo, sem o operador precisar recarregar a página.
+
+## Decisão
+
+- **Origem removida**: coluna `channel` tirada da tabela de `orders-screen.jsx` (segue existindo no dado, só não é mais exibida nessa tela operacional).
+- **Pagamento**: o board interno (`InternalOrderResponse`/`_serialize_internal_order`, `farmaura-api/app/schemas/orders.py` + `app/services/order_service.py`) passou a expor `order.payment_status` (já existia no model `Order`, já usado pelo schema do marketplace, mas nunca tinha sido propagado para o console interno). O frontend (`normalizeOrdersPayload`, `internal-app.jsx`) mapeia para `paymentStatus`; a coluna agora mostra um badge de status (Pago/Aguardando pagamento/A pagar na retirada ou entrega — mapeado de `pending_pickup`/A pagar/Pagamento atrasado/Estornado) mais o método traduzido embaixo (`PAYMENT_METHOD_LABELS`, mesmo texto que `_build_payment_label` já usa no backend real — necessário porque o seed grava método bruto tipo `"debit_card"` em vez do label já traduzido).
+- **Prioridade (expressa vs normal)**: não foi inventada do zero — o backend já calculava um SLA por pedido mais curto para entrega expressa (`sla_target_minutes = 60 if method == "express" else 180`, ver `_build_order_fulfillment` em `order_service.py`), só que o frontend ignorava esse valor e usava um alvo fixo (`SLA_TARGET = {delivery:90, pickup:45}` em `internal-shell.jsx`). Agora `slaTargetMinutes(o)` usa `o.sla` (o valor real do pedido) com esse fixo só como fallback. Um badge "Expressa" (`ExpressBadge`, reaproveitando o mesmo badge que já existia no Kanban antigo mas tinha ficado de fora do redesenho de ontem) aparece ao lado do tipo de entrega, na tabela e no cabeçalho do drawer.
+- **Coluna "Prazo"**: contagem regressiva ao vivo (`useNowTicker`, `setInterval` de 1s local ao componente `OrdersScreen`) até o prazo (`placed + slaTargetMinutes`), formatada como `Xd Yh` / `Xh YYmin` / `MM:SS` conforme a distância, virando `+MM:SS` (vermelho) quando atrasado. Só aparece para pedidos ativos (`new`/`separating`/`ready`); pedidos finalizados mostram "—".
+- **Priorização automática**: `sortOrders(list, now)` ordena pedidos ativos pelo tempo restante (mais urgente primeiro, ou seja, conforme o prazo vai vencendo o pedido sobe sozinho), com expressa como desempate; pedidos finalizados vão para o fim, ordenados por mais recente. Como a lista é recalculada a cada tick do relógio local (armazenado em estado React, sem round-trip ao servidor), o operador vê a fila se reorganizar sozinha sem precisar recarregar a página.
+- **Bug real encontrado e corrigido de passagem**: `dispatched` (saiu para entrega/retirado no balcão) e `delivered` (confirmação posterior de entrega) são dois status terminais distintos no backend (`OC_STATUS` já tinha os dois definidos em `internal-shell.jsx`), mas o redesenho de ontem só tratava `dispatched` como "pedido concluído" — pedidos com status `delivered` apareciam com "NaNh em aberto"/"atrasado" no drawer, stepper todo como pendente (nenhum passo marcado), sem o card "Pedido finalizado", e ficavam de fora da aba "Finalizados". Corrigido com um helper `isFinishedStatus()` que trata os dois como concluídos.
+- **Formato de data de `placed` (dois formatos coexistindo)**: ao testar a nova coluna Prazo contra o Docker real, ela vinha em branco para todo pedido ativo. Causa: `o.placed` no dado de seed vem como `"DD/MM/AAAA HH:MM UTC"` (função `label()` em `scripts/seed.py`), enquanto o backend real em produção grava só `"HH:MM"` (`order_service.py`, `strftime('%H:%M')`) — exatamente a mesma causa raiz já registrada em [[../06_Pendencias/sla-nanh-em-pedidos-formato-de-hora-incompativel|sla-nanh-em-pedidos-formato-de-hora-incompativel]] (que recomendava investigar do lado do seed antes de mexer no helper compartilhado). Meu parser novo (`placedToDate`, só usado pela coluna Prazo e pela ordenação) aceita os dois formatos; **não** mexi no helper compartilhado `minsSince()`/`_hm()` em `internal-shell.jsx` — o card de SLA do drawer continua com o bug antigo "NaNh em aberto" para pedidos de seed antigos, exatamente como a pendência já descrevia. Corrigir isso de vez (no seed ou no helper compartilhado) fica para quando essa pendência for endereçada diretamente.
+
+## Consequências
+
+- Testado via Playwright headless contra o build Docker real: coluna Prazo mostra contagem em `+100d Xh` (vermelho, atrasado) para os pedidos de seed antigos — datas de semanas/meses atrás, então o valor extremo é esperado do dado de demonstração, não um bug; sorting bate com o esperado (mais atrasado no topo); aba "Finalizados" agora inclui os pedidos com status `delivered` (contagem foi de 6 para 38 pedidos).
+- Mudança de contrato com o backend: `InternalOrderResponse` ganhou o campo `payment_status` (aditivo, não quebra consumidores existentes).
+
+## Ver também
+
+- [[2026-09-18-pedidos-online-redesenhado-conforme-artifact-mantendo-funcionalidade-real]] — redesenho de layout desta mesma tela, um dia antes.
+- [[../06_Pendencias/sla-nanh-em-pedidos-formato-de-hora-incompativel|sla-nanh-em-pedidos-formato-de-hora-incompativel]] — pendência pré-existente cuja causa raiz foi confirmada nesta sessão; segue aberta para o card de SLA do drawer.

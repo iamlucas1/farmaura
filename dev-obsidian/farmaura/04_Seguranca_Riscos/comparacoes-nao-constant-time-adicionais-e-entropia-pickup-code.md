@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Comparação não constant-time do hash de refresh token; entropia pequena no código de retirada de pedido
 
 **Tipo:** Vulnerabilidade (timing attack teórico + entropia insuficiente)

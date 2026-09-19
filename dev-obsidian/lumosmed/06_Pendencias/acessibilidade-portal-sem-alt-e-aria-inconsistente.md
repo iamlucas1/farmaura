@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Zero atributo `alt=` no portal; `aria-*` presente só em metade das páginas
 
 **Status:** Aberto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-14 — Indexação seletiva: home/catálogo indexáveis, telas privadas e legais com `noindex`
 
 ## Contexto

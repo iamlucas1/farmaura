@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-11 — Migração visual completa do console interno para o design "Farmaura Operações"
 
 ## Contexto

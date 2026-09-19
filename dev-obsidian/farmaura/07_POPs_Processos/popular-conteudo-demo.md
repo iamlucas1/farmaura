@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Popular conteúdo de demo (banner, marcas em destaque, ofertas do dia)
 
 ## Quando usar

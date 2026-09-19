@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Título da pendência
 
 > Como usar: itens em aberto, débito técnico conhecido ou follow-ups combinados que ainda não viraram trabalho ativo. Quando resolvida, apagar a nota (ou registrar a resolução e arquivar) — não deixar pendência resolvida acumulando aqui.

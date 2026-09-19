@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Google Analytics (gtag.js)
 
 **Tipo:** API de terceiro

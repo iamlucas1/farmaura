@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # lumos-gateway (roteamento específico do LumosMed)
 
 **Tipo:** Infraestrutura / integração interna

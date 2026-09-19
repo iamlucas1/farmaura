@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-12 — Processar pagamentos Pix e cartão de verdade via Asaas
 
 ## Contexto

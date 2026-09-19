@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: secure-file-upload
 description: Use when implementing uploads, downloads, file storage, OCR intake, document processing, image processing, or any file endpoint that must validate MIME, magic bytes, quotas, path safety, authorization, and resource-exhaustion limits.
 ---

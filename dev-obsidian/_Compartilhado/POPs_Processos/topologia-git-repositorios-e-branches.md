@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Topologia de repositórios Git e convenção de branches (todos os projetos)
 
 > Como usar: referência de "onde cada pasta versiona e para qual branch subir" — antes de commitar ou dar push em qualquer parte do ecossistema, confirmar aqui qual repositório real aquela pasta pertence e qual branch é a convencionada. Se um projeto novo entrar no ecossistema, adicionar uma seção aqui e, se relevante, um link a partir do `Hub.md` do projeto.

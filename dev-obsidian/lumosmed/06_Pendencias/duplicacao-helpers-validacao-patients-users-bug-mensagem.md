@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Helpers de validação duplicados entre `portal_patients.py` e `portal_users.py` — um com bug de mensagem
 
 **Status:** Aberto

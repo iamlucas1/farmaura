@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Hidratação de settings no console interno pode sobrescrever edição em andamento
 
 Telas de configuração do console interno que hidratam estado local a partir de

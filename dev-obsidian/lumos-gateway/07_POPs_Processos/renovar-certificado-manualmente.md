@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Renovar certificado TLS manualmente
 
 ## Quando usar

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Nome da API / integração / banco de dados / peça de infra
 
 > Como usar: uma nota por peça de integração relevante — API própria, API de terceiro, banco de dados, fila, cache, storage, hospedagem. **Nunca** gravar credenciais, chaves, tokens ou valores reais de `.env` aqui — só o propósito e o contrato.

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Asaas desabilitado localmente impede testar cobrança de verdade ponta a ponta
 
 **Status:** Aberto

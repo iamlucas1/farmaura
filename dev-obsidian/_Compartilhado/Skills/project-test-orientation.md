@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Skill: project-test-orientation
 
 **Arquivo fonte:** `dev-obsidian/_Compartilhado/Skills/project-test-orientation/SKILL.md`

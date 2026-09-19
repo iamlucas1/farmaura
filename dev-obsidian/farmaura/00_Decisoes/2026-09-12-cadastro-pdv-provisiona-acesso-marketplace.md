@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-12 — Cadastro de cliente pelo PDV passa a provisionar acesso ao marketplace
 
 ## Contexto

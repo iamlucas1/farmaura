@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-03-27 — Autenticação interna Laravel↔lumos-api via JWT RS256 assinado por request
 
 ## Contexto

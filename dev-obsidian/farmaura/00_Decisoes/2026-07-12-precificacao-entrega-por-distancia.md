@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-12 — Precificação de entrega configurável por distância + mapa real da loja
 
 ## Contexto

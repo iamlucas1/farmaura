@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Regra de negócio: nota fiscal só é emitida 7 dias após o pagamento
 
 **Tipo:** Regra de negócio (formalizada pela IA a partir da decisão em `00_Decisoes`)

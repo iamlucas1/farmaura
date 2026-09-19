@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Revisão jurídica dos Termos de Uso, Política de Privacidade e Exclusão/Retenção de Dados
 
 **Status:** Aberto

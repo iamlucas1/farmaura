@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Kit de UI compartilhado vive em `marketplace/core`, não em `react/shared/`
 
 **Status:** Aberto

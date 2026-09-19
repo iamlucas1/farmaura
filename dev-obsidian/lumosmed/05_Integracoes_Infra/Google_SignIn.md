@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Google Sign-In
 
 **Tipo:** API de terceiro

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Título do achado / risco / vulnerabilidade
 
 > Como usar: uma nota por achado de segurança, vulnerabilidade, risco identificado ou runbook de incidente. Não repetir o baseline de segurança genérico já documentado no repositório do projeto (`claude.md`/`agent.md`) — só o que é específico deste achado. Isto também é o registro de riscos do projeto: não há pasta separada para "registro de riscos", todos os riscos identificados entram aqui.

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Formatador de moeda (`brl`) reimplementado em 3 telas em vez de reutilizado
 
 **Status:** Aberto

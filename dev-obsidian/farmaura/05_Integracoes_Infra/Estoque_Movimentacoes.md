@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Estoque — movimentações internas por loja
 
 **Tipo:** API interna

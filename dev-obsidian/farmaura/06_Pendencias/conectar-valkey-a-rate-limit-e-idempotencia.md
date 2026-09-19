@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Conectar Valkey ao rate limiting e à idempotência
 
 **Status:** Parcialmente resolvido — 2026-07-20

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Teste geral ponta a ponta de uma feature nova
 
 **Arquivo operacional:** `dev-obsidian/_Compartilhado/Prompts/prompt-teste-geral-feature/PROMPT.md`

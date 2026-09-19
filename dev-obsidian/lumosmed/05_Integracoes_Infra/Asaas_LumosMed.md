@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Asaas (faturamento/billing do LumosMed)
 
 **Tipo:** API de terceiro

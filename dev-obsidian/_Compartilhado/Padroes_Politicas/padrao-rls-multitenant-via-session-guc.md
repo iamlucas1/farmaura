@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão: isolamento multi-tenant via RLS + GUCs de sessão Postgres
 
 **Tipo:** Padrão técnico genérico

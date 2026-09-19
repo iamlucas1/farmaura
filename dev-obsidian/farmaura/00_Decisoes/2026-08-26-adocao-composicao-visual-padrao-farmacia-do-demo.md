@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-26 — Adoção da composição visual "padrão farmácia" do demo em todo o marketplace
 
 ## Contexto

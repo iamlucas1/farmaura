@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Regra de negócio: placeholders por controle regulatório
 
 **Tipo:** Conformidade sanitária e regra de negócio

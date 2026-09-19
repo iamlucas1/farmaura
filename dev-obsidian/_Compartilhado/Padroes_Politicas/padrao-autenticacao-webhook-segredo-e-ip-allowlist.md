@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão: autenticação de webhook externo via segredo compartilhado + allowlist de IP
 
 **Tipo:** Padrão técnico genérico

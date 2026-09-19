@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Importação de orçamento (XLSX/DOCX) roda síncrona dentro do event loop, sem limite de descompressão — DoS de processo inteiro
 
 **Tipo:** Vulnerabilidade (Denial of Service / recurso não limitado)

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # fail2ban — banimento automático de IP por comportamento abusivo
 
 **Tipo:** Infraestrutura (segurança de borda)

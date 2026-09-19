@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo Prescrições
 
 ## O que é

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Auditoria de segurança do lumos-gateway 2026-08-19 — resumo consolidado
 
 **Tipo:** Índice / visão consolidada de auditoria (não é, em si, um achado)

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo Estoque
 
 ## O que é

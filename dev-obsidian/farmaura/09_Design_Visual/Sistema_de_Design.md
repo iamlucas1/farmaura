@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Sistema de Design: Farmaura
 
 Documentação viva do sistema visual real (não planejado) que já está implementado em `farmaura/react/marketplace/` e `farmaura/react/internal/`, extraída diretamente do CSS de produção. A especificação machine-readable canônica (frontmatter YAML + tokens) vive em `farmaura/DESIGN.md`, com o sidecar `farmaura/.impeccable/design.json` (ramps tonais, componentes HTML/CSS prontos, narrativa) — gerados via `/impeccable document`. Esta nota é a versão de leitura humana, em português, cruzada com o resto do cofre.

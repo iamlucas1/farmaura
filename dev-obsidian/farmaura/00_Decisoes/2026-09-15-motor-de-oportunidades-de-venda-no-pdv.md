@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-15 — "O cliente costuma comprar" vira "Oportunidades de venda", com recomendação real de cross-sell
 
 ## Contexto

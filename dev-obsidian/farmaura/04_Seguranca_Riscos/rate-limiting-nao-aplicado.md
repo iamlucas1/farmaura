@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Rate limiting definido mas não aplicado
 
 **Tipo:** Risco identificado

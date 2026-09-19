@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: auditoria-completa-seguranca
 description: Use for a full, periodic, strictly read-only security/vulnerability/supply-chain/git-history audit of the whole Farmaura product (farmaura + farmaura-api + associated Docker/Nginx infra) — not for a scan of a single change (use prompt-varredura-vulnerabilidades for that).
 ---

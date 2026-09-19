@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Geocoding — Nominatim/OpenStreetMap
 
 **Tipo:** API de terceiro

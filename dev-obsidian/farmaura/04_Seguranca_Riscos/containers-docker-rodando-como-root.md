@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Containers `farmaura-api` e `farmaura` (nginx) rodam como root — sem diretiva `USER`
 
 **Tipo:** Vulnerabilidade (hardening de imagem Docker ausente)

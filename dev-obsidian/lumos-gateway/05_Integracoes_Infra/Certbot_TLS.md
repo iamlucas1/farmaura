@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Certbot — emissão e renovação de certificados TLS (Let's Encrypt)
 
 **Tipo:** Infraestrutura (TLS)

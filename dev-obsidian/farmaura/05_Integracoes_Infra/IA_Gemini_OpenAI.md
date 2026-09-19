@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # IA — Gemini e OpenAI (análise de estoque)
 
 **Tipo:** API de terceiro

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Review pública de produto expõe o e-mail do cliente como "nome do avaliador" quando o cadastro não tem nome preenchido
 
 **Tipo:** Vulnerabilidade (exposição indevida de PII)

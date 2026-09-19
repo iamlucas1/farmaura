@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Sem cancelamento genérico de pedido (nem cliente nem operador interno)
 
 **Status:** Aberto

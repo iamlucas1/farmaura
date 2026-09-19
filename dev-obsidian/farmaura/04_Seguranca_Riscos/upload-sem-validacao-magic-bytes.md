@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Upload de arquivos confia em extensão/content-type declarado, sem checagem de magic bytes
 
 **Tipo:** Vulnerabilidade

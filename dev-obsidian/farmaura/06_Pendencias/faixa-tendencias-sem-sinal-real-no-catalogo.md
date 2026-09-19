@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Faixa "Tendências" da home (demo) sem sinal real de tendência no catálogo
 
 **Status:** Resolvido em 2026-08-29 — ver [[../00_Decisoes/2026-08-29-faixa-tendencias-curadoria-manual|ADR]]

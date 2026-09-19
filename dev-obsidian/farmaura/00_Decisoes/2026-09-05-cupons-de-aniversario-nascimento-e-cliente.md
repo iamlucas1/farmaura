@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-05 — Cupons de aniversário (nascimento e cliente), configuráveis pelo admin
 
 ## Contexto

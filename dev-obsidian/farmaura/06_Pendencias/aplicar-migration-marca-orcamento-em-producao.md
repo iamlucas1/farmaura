@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Aplicar migration `20260727_01` (brand_id em purchase_quote_items) em produção
 
 **Status:** Resolvido em 2026-07-28

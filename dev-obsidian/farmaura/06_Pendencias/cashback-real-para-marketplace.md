@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Cashback só existe no canal PDV — tile do marketplace é estimativa, não saldo real
 
 **Status:** Resolvido em 2026-09-04

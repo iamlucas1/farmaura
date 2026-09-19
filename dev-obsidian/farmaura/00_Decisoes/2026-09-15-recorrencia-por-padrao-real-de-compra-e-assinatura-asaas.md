@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-15 — Recorrência: padrão real de compra (não mês calendário) + assinatura Asaas de verdade + uso contínuo
 
 ## Contexto

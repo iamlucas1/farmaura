@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Chamadas ao banco em loop, por item, em checkout e PDV
 
 **Status:** Aberto

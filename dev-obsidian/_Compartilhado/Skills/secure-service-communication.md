@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Skill: secure-service-communication
 
 **Arquivo fonte:** `dev-obsidian/_Compartilhado/Skills/secure-service-communication/SKILL.md`

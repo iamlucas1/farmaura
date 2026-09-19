@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # CSP forte aplicada só às respostas JSON da API — páginas HTML reais (marketplace/internal) não recebem nenhuma CSP em produção
 
 **Tipo:** Vulnerabilidade (ausência de security header / defesa contra XSS)

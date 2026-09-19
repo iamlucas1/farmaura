@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Estados de loading/vazio/erro por convenção informal, não por componente compartilhado
 
 **Status:** Aberto

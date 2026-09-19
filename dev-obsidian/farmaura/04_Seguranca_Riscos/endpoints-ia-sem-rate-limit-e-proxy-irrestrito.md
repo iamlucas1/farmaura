@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Endpoints de IA sem rate limiting; `/ai/execute` é um proxy de LLM quase irrestrito para ADMIN/PHARMACIST
 
 **Tipo:** Vulnerabilidade (abuso de custo / DoS financeiro, amplifica risco já aceito de chaves compartilhadas)

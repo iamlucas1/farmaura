@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Visão Geral: lumos-gateway
 
 ## Missão
@@ -27,6 +31,16 @@ Zona global `req_limit` (`limit_req_zone $binary_remote_addr zone=req_limit:20m 
 - `chain = DOCKER-USER` no fail2ban é o ponto de inserção correto para que o banimento afete tráfego chegando via portas publicadas/DNAT (que não passa pela chain `INPUT` normal).
 - `envsubst` usa whitelist explícita de variáveis (`$VARS` em `entrypoint.sh`) ao renderizar os templates — evita vazar env vars não relacionadas (ex.: `GEOIP_LICENSE_KEY`) para dentro dos arquivos de config gerados.
 
+## Host (`lumos-prd`/`lumos-dev`) — confirmado via auditoria de 2026-09-18
+
+Além do container do gateway em si, os dois servidores físicos que hospedam todo o ecossistema têm:
+
+- **fail2ban nativo do host** (fora do container `lumos_gateway_fail2ban`, que só cobre Nginx) com um jail `sshd` ativo (5 tentativas/10min → 12h de banimento, configuração default do Ubuntu) — nunca documentado antes desta auditoria.
+- **Nenhum firewall de host real** — `ufw` tem chains criadas no kernel mas todas vazias/sem regra; a única coisa que limita o que fica exposto é o que cada `docker-compose.yml` publica explicitamente. Ver achado [[../04_Seguranca_Riscos/sem-firewall-de-host-alem-do-docker-e-fail2ban|sem-firewall-de-host-alem-do-docker-e-fail2ban]].
+- **SSH com `PermitRootLogin yes` + `PasswordAuthentication yes`**, exposto a `0.0.0.0:22` — ver achado crítico [[../04_Seguranca_Riscos/ssh-root-login-por-senha-exposto-nos-dois-servidores|ssh-root-login-por-senha-exposto-nos-dois-servidores]].
+
+Ver [[../04_Seguranca_Riscos/auditoria-servidores-2026-09-18-resumo-consolidado|auditoria completa de servidores 2026-09-18]] para o levantamento completo (portas, kernel, versões, segredos esquecidos em disco).
+
 ## Stack
 
 - Nginx sobre `debian:bookworm-slim` (build próprio via `Dockerfile`, não imagem `nginx:` oficial) — inclui `libnginx-mod-http-geoip2` para o módulo de geolocalização.
@@ -49,4 +63,5 @@ Repositório git próprio (`git@github.com:iamlucas1/lumos-gateway.git`), presen
 
 ## Atualizações
 
+- 2026-09-18: adicionada seção "Host (`lumos-prd`/`lumos-dev`)" com achados de auditoria real via SSH aos dois servidores (fail2ban nativo, ausência de firewall de host, SSH root+senha exposto) — ver [[../04_Seguranca_Riscos/auditoria-servidores-2026-09-18-resumo-consolidado|auditoria completa]].
 - 2026-08-19: nota criada, a partir da auditoria completa de segurança que também cobriu este repositório (arquitetura documentada por leitura direta do código, não por decisão de sessão registrada).

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Cupom vira ponto de controle único no servidor, via CouponService compartilhado entre canais
 
 **Status:** Aceita

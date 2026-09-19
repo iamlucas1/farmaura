@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo CRM (clientes, cashback, cupons, assinaturas)
 
 ## O que é

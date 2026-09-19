@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-01 — Modo de lançamento: página de "em breve"/contador substitui a vitrine inteira, sem bypass
 
 ## Contexto

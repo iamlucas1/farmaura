@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Supply chain e hardening diversos — imagens sem pin, GeoIP mmdb commitado, inconsistências menores
 
 **Tipo:** Vulnerabilidade/hardening (múltiplos achados de severidade baixa/média, agrupados por afinidade)

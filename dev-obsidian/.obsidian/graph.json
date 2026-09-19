@@ -6,7 +6,22 @@
   "hideUnresolved": false,
   "showOrphans": true,
   "collapse-color-groups": true,
-  "colorGroups": [],
+  "colorGroups": [
+    {
+      "query": "[cssclasses:ia-nota]",
+      "color": {
+        "a": 1,
+        "rgb": 15237658
+      }
+    },
+    {
+      "query": "[cssclasses:usuario-nota]",
+      "color": {
+        "a": 1,
+        "rgb": 3900150
+      }
+    }
+  ],
   "collapse-display": true,
   "showArrow": false,
   "textFadeMultiplier": 0,
@@ -17,6 +32,6 @@
   "repelStrength": 10,
   "linkStrength": 1,
   "linkDistance": 250,
-  "scale": 0.6058541511639899,
+  "scale": 0.17951234108562655,
   "close": true
 }

@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: secure-python-backend
 description: Use when creating or refactoring a Python backend for Farmaura or similar systems that require FastAPI, strict version pinning, secure defaults, tenant isolation, JWT auth, file upload protections, abuse controls, and supply-chain-safe dependency management.
 ---

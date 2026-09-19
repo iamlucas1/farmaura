@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Paginação implementada de forma ad-hoc, sem padrão compartilhado
 
 **Status:** Aberto

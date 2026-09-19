@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-05 — Conteúdo de demo via chamadas HTTP reais (não DB direto) + Farmaura integrado ao `reset_v2.sh` do lumos-dev
 
 ## Contexto

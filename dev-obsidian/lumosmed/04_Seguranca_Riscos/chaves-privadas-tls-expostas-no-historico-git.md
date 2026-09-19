@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Chaves privadas TLS expostas no histórico git do lumos-gateway
 
 **Tipo:** Vulnerabilidade

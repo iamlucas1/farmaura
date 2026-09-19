@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Hub: Skills
 
 Não é uma chave de projeto — não é código de produto de ninguém. Esta é a biblioteca canônica de skills que codificam requisitos de segurança e qualidade para todas as stacks (`farmaura`, `farmaura-api`, `lumos-api`, `lumosmed`), não só para uma. Está em `_Compartilhado/` porque, por definição, já é conteúdo transversal — e é candidata natural a ser copiada para outros repositórios que precisem do mesmo baseline (ver [[../README|_Compartilhado/README]] para as demais subpastas: Agentes, Prompts, Padrões/Políticas, POPs/Processos).

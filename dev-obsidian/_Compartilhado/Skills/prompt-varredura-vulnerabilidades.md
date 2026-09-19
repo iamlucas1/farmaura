@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Varredura de vulnerabilidades numa feature/PR
 
 **Arquivo operacional:** `dev-obsidian/_Compartilhado/Prompts/prompt-varredura-vulnerabilidades/PROMPT.md`

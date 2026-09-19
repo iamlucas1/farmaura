@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Hub Central: Farmaura
 
 Chave de projeto neste cofre: `farmaura` — cobre o produto Farmaura como um todo (frontend `farmaura/`, backend `farmaura-api/`, infra própria `docker/`), hospedado no repositório git `dev`. A biblioteca de skills do repositório vive em `_Compartilhado/Skills/` (não é uma chave de projeto) — ver [[../_Compartilhado/Skills/Hub|Skills/Hub]]. O outro produto deste repositório, LumosMed, tem chave própria — ver [[../lumosmed/Hub|lumosmed/Hub]].

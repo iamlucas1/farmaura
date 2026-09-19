@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-30 — Remover desconto manual do Precificador; `PricingPromotion.kind` segrega campanha de desconto direto
 
 **Status:** Aceita

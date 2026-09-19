@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Bootstrap autenticado vaza comissão/taxa/margem para qualquer cliente logado; bootstrap interno vaza financeiro/cupons/promoções para CASHIER
 
 **Tipo:** Vulnerabilidade (Broken Object Property Level Authorization / excessive data exposure)

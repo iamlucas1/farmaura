@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-26 — Nota fiscal: acesso do cliente escopado por pedido, não por `fiscal_document_id`
 
 ## Contexto

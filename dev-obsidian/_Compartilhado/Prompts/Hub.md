@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Hub: Prompts
 
 Biblioteca canônica de prompts reutilizáveis. Cada prompt possui uma nota `<prompt-name>.md` para leitura humana e um arquivo `<prompt-name>/PROMPT.md` para execução por agentes.

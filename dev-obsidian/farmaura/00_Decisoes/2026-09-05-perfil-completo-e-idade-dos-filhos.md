@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-05 — "Dados pessoais" mostra todos os campos cadastrados + idade dos filhos
 
 ## Contexto

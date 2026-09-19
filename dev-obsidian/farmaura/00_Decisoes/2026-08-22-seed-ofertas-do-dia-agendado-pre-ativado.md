@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-22 — Seed determinístico e `populate_demo_content.py` passam a ativar "ofertas do dia" (modo agendado) por padrão
 
 ## Contexto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-03 (2) — "Ofertas do dia" ganha modo automático: reset configurável + sorteio por categoria/marca/fonte
 
 ## Contexto

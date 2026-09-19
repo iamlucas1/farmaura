@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Mapas no frontend — Leaflet
 
 **Tipo:** API de terceiro

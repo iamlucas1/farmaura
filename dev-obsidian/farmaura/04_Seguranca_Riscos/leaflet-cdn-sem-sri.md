@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Leaflet carregado via CDN (unpkg) sem Subresource Integrity — combinado com token em `localStorage` e CSP ausente
 
 **Tipo:** Vulnerabilidade (supply-chain de dependência client-side)

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Promoção: eixos de segmentação deliberadamente não implementados (VPN, limiares de selo configuráveis)
 
 **Status:** Aberto

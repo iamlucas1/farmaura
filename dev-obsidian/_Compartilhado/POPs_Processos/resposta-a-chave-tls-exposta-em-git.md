@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # POP: resposta a chave privada TLS exposta no histórico git
 
 **Fonte real:** `lumos-gateway/RUNBOOK-TLS-ROTATION.md` — runbook escrito para um incidente real já ocorrido nesse repositório (ver achado em [[../../lumosmed/04_Seguranca_Riscos/chaves-privadas-tls-expostas-no-historico-git|chaves-privadas-tls-expostas-no-historico-git]]). Generalizado aqui para qualquer repositório deste ecossistema que precise do mesmo procedimento.

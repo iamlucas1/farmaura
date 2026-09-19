@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Chaves privadas TLS (e chaves de conta ACME) commitadas e enviadas ao GitHub — duas vezes — recuperáveis do histórico
 
 **Tipo:** Vulnerabilidade (exposição de segredo crítico / material criptográfico privado)

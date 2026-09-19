@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Bootstrap e seed do banco do lumos-api
 
 ## Quando usar

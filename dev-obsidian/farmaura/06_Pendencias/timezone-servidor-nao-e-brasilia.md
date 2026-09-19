@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Container `farmaura-api` roda em UTC, não Brasília — vários cálculos de "horário local" ficam errados
 
 **Status:** Parcialmente resolvido (só "ofertas do dia")

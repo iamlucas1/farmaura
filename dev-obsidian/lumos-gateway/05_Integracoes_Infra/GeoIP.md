@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # GeoIP — bloqueio por país (MaxMind GeoLite2)
 
 **Tipo:** Infraestrutura (segurança de borda)

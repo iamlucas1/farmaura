@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: project-test-orientation
 description: Use before testing any feature that spans multiple stacks in this repository — tells you which docker-compose file, container, port, and health-check endpoint each stack uses, so you don't guess or hit the wrong target.
 ---
@@ -17,7 +18,7 @@ Reference, not a checklist — read this before deciding what to start or hit wh
 | `lumos-api` | `lumos-api/docker-compose.yml` | `lumos-api` | `${API_PORT:-8000}` | `GET /health` |
 | `lumos-api-postgres` / `lumos-api-redis` | `lumos-api/docker-compose.yml` | `lumos-api-postgres`, `lumos-api-redis` | internal only (`api_internal` network) | — |
 | `lumos-gateway` | `lumos-gateway/docker-compose.yml` | `lumos_gateway_nginx`, `lumos_gateway_certbot`, `lumos_gateway_fail2ban` | `80`/`443` — real public edge, treat as sensitive | — |
-| `lumosmed` | no `docker-compose.yml` found in this repository | — | unknown — check `lumosmed/README.md` before assuming how to start it | — |
+| `lumosmed` | `lumosmed/compose.yaml` (modern Compose filename, not `docker-compose.yml`) | `lumosmed-app`, `lumosmed-web`, `lumosmed-queue`, `lumosmed-scheduler`, `lumosmed-redis` | build depends on `../infra/laravel/Dockerfile.base`, outside this repository — not verified to build standalone from here | — |
 
 ## Rules
 
@@ -28,3 +29,7 @@ Reference, not a checklist — read this before deciding what to start or hit wh
 ## Complements, Doesn't Replace
 
 General-purpose "run the app" or "verify the change works" workflows drive a single app end-to-end; use this table to tell them which stack/port/container is the right target instead of guessing. Vulnerability testing and QA functional review both assume this table for "where do I point the test".
+
+## Atualizações
+
+- 2026-09-18: corrigida a linha de `lumosmed` — o repositório tem `compose.yaml` (nome moderno do Compose), não "nenhum docker-compose.yml" como a linha dizia antes; build depende de `../infra/laravel/Dockerfile.base`, fora deste repositório, não verificado se builda isoladamente a partir daqui.

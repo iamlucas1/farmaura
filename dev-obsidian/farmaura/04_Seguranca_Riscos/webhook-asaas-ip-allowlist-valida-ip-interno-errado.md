@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Allowlist de IP do webhook Asaas valida o IP interno do proxy, não o IP real do Asaas
 
 **Tipo:** Vulnerabilidade (controle de segurança quebrado / trust boundary de proxy)

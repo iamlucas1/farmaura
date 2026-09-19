@@ -1,11 +1,15 @@
+---
+cssclasses: ia-nota
+---
+
 # Hardening de baixa severidade — Docker, gateway e superfície de API (achados diversos)
 
-**Tipo:** Vulnerabilidade/hardening (múltiplos achados de severidade BAIXA, agrupados por afinidade)
+**Tipo:** Vulnerabilidade/hardening (múltiplos achados agrupados por afinidade, severidade BAIXA exceto item 4)
 **Status:** CONFIRMADO (todos os itens abaixo)
-**Severidade:** BAIXO
+**Severidade:** BAIXO (itens 1-3, 5-6) / MÉDIO (item 4, revisado em 2026-09-18)
 **Sistema afetado:** infraestrutura (`farmaura-api`, `docker/`, `lumos-gateway`)
 **Categoria:** Hardening de imagem / headers / rate limit
-**Data de identificação:** 2026-08-17 (auditoria completa de segurança)
+**Data de identificação:** 2026-08-17 (auditoria completa de segurança), item 4 revisado 2026-09-18
 
 Nota consolidada — cada item é de severidade baixa isoladamente, mas vale registrar todos para acompanhamento futuro sem criar uma nota separada por item.
 
@@ -27,12 +31,14 @@ Nota consolidada — cada item é de severidade baixa isoladamente, mas vale reg
 **Impacto:** se a imagem for rodada fora deste `docker-compose.yml` (outro orquestrador, `docker run` isolado), perde o healthcheck.
 **Correção sugerida:** opcional — duplicar o healthcheck no Dockerfile para portabilidade.
 
-## 4. `/docs`, `/redoc`, `/openapi.json` do FastAPI não desabilitados explicitamente
+## 4. `/docs`, `/redoc`, `/openapi.json` do FastAPI não desabilitados explicitamente — **ATUALIZADO 2026-09-18: achado deixou de ser teórico, confirmado ativamente explorável**
+
+**Severidade revisada: MÉDIO** (era tratado como baixo/incidental).
 
 **Localização:** `app/main.py` — `FastAPI(...)` sem `docs_url`/`redoc_url`/`openapi_url` sobrescritos.
-**Por que não é explorável hoje:** `docker/web/nginx.conf` só faz `proxy_pass` para `/api/v1/`/`/static/`; qualquer outro caminho cai no fallback SPA e nunca chega ao backend. A proteção existe, mas é **incidental** (efeito colateral do roteamento do nginx), não uma decisão explícita no FastAPI.
-**Cenário de risco:** se o roteamento nginx (interno ou do gateway) ganhar uma rota "catch-all" que proxy tudo para o backend, ou o backend for exposto por outro caminho, o schema completo da API ficaria público.
-**Correção sugerida:** desabilitar explicitamente em produção (`docs_url=None, redoc_url=None, openapi_url=None` quando `settings.environment == "production"`), em vez de depender só do roteamento do nginx.
+**Proteção via nginx, mas insuficiente:** `docker/web/nginx.conf` só faz `proxy_pass` para `/api/v1/`/`/static/`; qualquer outro caminho cai no fallback SPA e nunca chega ao backend **por esse caminho**. Mas essa não é a única forma de alcançar `farmaura-api` — ver próximo parágrafo.
+**Confirmado por teste de intrusão em 2026-09-18** (não mais um "cenário de risco" hipotético): a porta `127.0.0.1:8080` publicada pelo compose é alcançável **por qualquer outro container do mesmo host Docker**, de qualquer rede, sem passar pelo nginx — testado e reproduzido, `/docs`, `/redoc` e `/openapi.json` retornam `HTTP 200` diretamente. Ver achado completo, causa raiz e tentativa de correção testada em [[../../docker/04_Seguranca_Riscos/teste-intrusao-2026-09-18-bypass-rede-entre-containers|docker/teste-intrusao-2026-09-18-bypass-rede-entre-containers]].
+**Correção sugerida:** desabilitar explicitamente em produção (`docs_url=None, redoc_url=None, openapi_url=None` quando `settings.environment == "production"`) — agora mais urgente, já que a exposição não depende de nenhuma reconfiguração do nginx, só de outro container existir no mesmo host. Independente disso, considerar remover a publicação de `127.0.0.1:8080` em ambientes com múltiplos tenants (produção/staging) — ver correção detalhada na nota linkada.
 
 ## 5. ~~`Strict-Transport-Security` (HSTS) ausente~~ — CORRIGIDO: falso positivo, HSTS está presente
 
@@ -52,7 +58,9 @@ Observação complementar: o cache de geocodificação (`_CACHE` em `geocoding_c
 - [[csp-ausente-nas-paginas-html-de-producao]] — mesmo template de gateway, achado de severidade maior (MÉDIO).
 - [[../04_Seguranca_Riscos/rate-limiting-nao-aplicado|rate-limiting-nao-aplicado]] — mesma família de lacuna (item 6).
 - [[auditoria-2026-08-17-resumo-consolidado]] — visão consolidada desta auditoria.
+- [[../../docker/04_Seguranca_Riscos/teste-intrusao-2026-09-18-bypass-rede-entre-containers|docker/teste-intrusao-2026-09-18-bypass-rede-entre-containers]] — teste ativo que confirmou e elevou a severidade do item 4.
 
 ## Atualizações
 
+- 2026-09-18: item 4 atualizado — deixou de ser risco teórico, confirmado ativamente explorável por teste de intrusão; severidade revisada de BAIXO (implícito) para MÉDIO.
 - 2026-08-17: nota criada, consolidando 6 achados de baixa severidade da auditoria completa de segurança.

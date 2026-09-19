@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Nome do POP / processo
 
 > Como usar: procedimento operacional padrão ou processo específico do projeto — algo que se repete e vale a pena documentar o passo a passo (deploy, migration manual, checklist de release, etc.).

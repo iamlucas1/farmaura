@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-03 — "Ofertas do dia": curadoria manual no console + motor de sugestões (mais vendidos, margem, promoção, desconto, cupom)
 
 ## Contexto

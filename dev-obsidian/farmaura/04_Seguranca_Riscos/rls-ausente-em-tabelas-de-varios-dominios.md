@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # RLS (Row-Level Security) ausente em tabelas de vários domínios
 
 **Tipo:** Risco identificado

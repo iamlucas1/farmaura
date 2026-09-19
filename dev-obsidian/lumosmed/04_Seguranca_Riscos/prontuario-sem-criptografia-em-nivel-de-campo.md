@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Dado de prontuário armazenado em texto plano no nível de campo (sem criptografia de campo confirmada)
 
 **Tipo:** Risco identificado

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-31 — Banner da home: corte/ajuste de imagem para manter um tamanho padrão entre slides
 
 ## Contexto

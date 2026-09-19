@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Banco de dados
 
 **Tipo:** Banco de dados

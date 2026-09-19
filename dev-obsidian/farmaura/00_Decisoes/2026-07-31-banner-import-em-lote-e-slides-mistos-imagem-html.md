@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-31 — Banner da home: import de imagens em lote e slides mistos (imagem + HTML) no mesmo carrossel
 
 ## Contexto

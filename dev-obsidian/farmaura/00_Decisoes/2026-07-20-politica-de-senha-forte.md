@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-20 — Política de senha forte no cadastro e reset
 
 ## Contexto

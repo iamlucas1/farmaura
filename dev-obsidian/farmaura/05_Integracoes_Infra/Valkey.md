@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Valkey
 
 **Tipo:** Infraestrutura (cache/fila)

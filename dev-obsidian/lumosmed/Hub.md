@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Hub Central: LumosMed
 
 Chave de projeto neste cofre: `lumosmed` — cobre o produto LumosMed. O repositório `lumosmed/` (aninhado dentro deste repositório `dev`, com git remoto próprio: `git@github.com:iamlucas1/lumosmed.git`) é o site institucional + portal autenticado (BFF); a lógica de negócio real do domínio LumosMed vive em `lumos-api/domains/lumosmed/`, um serviço Python separado.

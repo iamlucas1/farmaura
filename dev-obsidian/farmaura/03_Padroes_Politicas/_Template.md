@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Título do padrão / política / premissa / regra de negócio
 
 > Como usar: esta categoria cobre 4 tipos de conteúdo. Preencha o campo **Tipo** abaixo e apague os que não usar. Só documentar aqui o que **não** está coberto pelo `claude.md`/`agent.md` do repositório do projeto — não duplicar regra estática que já vive lá.

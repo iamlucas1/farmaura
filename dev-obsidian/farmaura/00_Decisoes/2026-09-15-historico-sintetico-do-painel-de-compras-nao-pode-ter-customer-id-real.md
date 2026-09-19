@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-15 — Histórico sintético do Painel de Compras não pode ter customer_id de cliente real
 
 ## Contexto

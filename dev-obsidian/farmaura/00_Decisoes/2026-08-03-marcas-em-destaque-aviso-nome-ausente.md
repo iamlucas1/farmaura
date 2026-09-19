@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-03 — Marcas em destaque: aviso visual para logo salvo sem nome (causa raiz de "salvei mas não apareceu")
 
 ## Contexto

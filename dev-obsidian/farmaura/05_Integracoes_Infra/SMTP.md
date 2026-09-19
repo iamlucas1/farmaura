@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # SMTP (e-mail transacional)
 
 **Tipo:** Infraestrutura

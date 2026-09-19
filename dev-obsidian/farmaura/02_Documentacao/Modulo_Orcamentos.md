@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo Orçamentos (cotações de compra)
 
 ## O que é

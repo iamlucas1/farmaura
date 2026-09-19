@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Resolução de tenant público falha com catálogo vazio (pré-lançamento) — mascarava mudanças de admin em `launch_mode`/`home_banner`/`home_brands`/etc.
 
 **Tipo:** Vulnerabilidade funcional + Runbook de incidente

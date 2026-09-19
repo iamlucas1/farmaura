@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Sem biblioteca de componentes Blade; CSS do blog diverge dos design tokens
 
 **Status:** Aberto

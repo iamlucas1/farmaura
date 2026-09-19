@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo Fiscal (documentos fiscais / NFC-e)
 
 ## O que é

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Skill: qa-functional-review
 
 **Arquivo fonte:** `dev-obsidian/_Compartilhado/Skills/qa-functional-review/SKILL.md`

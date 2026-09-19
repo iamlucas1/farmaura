@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-14 — Tela de login/criar conta/recuperação de senha redesenhada: halo "Auréola Dupla" full-bleed
 
 ## Contexto

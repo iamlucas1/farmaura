@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Security Baseline
 
 Apply these controls by default when generating backend code.

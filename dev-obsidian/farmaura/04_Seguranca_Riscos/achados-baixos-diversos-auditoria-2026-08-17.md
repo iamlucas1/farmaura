@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Achados diversos de baixa severidade — auditoria completa de segurança 2026-08-17
 
 **Tipo:** Vulnerabilidade/robustez (múltiplos achados de severidade BAIXA/INFORMATIVA, agrupados por afinidade)

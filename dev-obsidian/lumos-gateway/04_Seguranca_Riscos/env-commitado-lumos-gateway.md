@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # `.env` do gateway está commitado no Git (despite `.gitignore`) — conteúdo atual é de baixa sensibilidade, mas o padrão é arriscado
 
 **Tipo:** Vulnerabilidade (higiene de repositório / gitignore não retroativo)

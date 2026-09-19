@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Nome do padrão / política genérica
 
 > Como usar: padrões técnicos e políticas aplicáveis a qualquer projeto novo — baseline de segurança, convenção de commit, política de dependências, etc. Se for específico de um produto, vai em `<projeto>/03_Padroes_Politicas/` em vez de aqui.

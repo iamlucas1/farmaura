@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Sem como saber se o cliente já avaliou um produto (e sem trava contra avaliação duplicada)
 
 **Status:** Aberto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # RLS bloqueava login com 2FA e conclusão de primeiro acesso (contexto aplicado tarde demais)
 
 **Tipo:** Risco identificado (correção de disponibilidade/autenticação)

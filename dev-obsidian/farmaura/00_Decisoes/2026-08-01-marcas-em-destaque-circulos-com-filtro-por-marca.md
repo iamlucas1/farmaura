@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-01 — Nova seção "Marcas em destaque" (círculos clicáveis) entre os diferenciais e a vitrine de ofertas
 
 ## Contexto

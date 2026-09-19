@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-31 — PDP v3: fonte mono corrigida, bula em página própria, descrição real, recomendações reais
 
 ## Contexto

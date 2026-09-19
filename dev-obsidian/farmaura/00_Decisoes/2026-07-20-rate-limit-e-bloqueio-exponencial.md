@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-20 — Rate limit por IP e bloqueio exponencial por conta no login
 
 ## Contexto

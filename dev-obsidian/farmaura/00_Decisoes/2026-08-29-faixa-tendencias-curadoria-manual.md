@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-29 — Faixa "Tendências" da home: curadoria manual, mesmo padrão de Ofertas do dia/Marcas em destaque
 
 ## Contexto

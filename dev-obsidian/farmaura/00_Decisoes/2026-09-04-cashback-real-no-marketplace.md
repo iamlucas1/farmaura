@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-04 — Cashback real no canal marketplace (ganho pendente→liberado, resgate abate o pagamento real, teto configurável)
 
 ## Contexto

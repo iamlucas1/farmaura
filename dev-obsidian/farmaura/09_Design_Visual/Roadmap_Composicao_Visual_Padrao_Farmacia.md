@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Roadmap de composição visual "padrão farmácia" (do demo para o marketplace real)
 
 > **Status geral (2026-08-27): roadmap completo, com correção de fidelidade aplicada em 2026-08-27.** Todas as fases implementadas (Fase 1 já vinha pronta; Fase 7 fica fora por decisão de design, não por implementar) — ver [[../00_Decisoes/2026-08-26-adocao-composicao-visual-padrao-farmacia-do-demo|ADR da decisão]] para o contexto completo. **Importante:** a implementação inicial (2026-08-26, texto original das fases abaixo) foi feita de memória do demo, sem reler o HTML real dele — o resultado divergia do demo em vários pontos concretos (mecânica da onda, paleta de cores, agrupamento de seções na Home). Corrigido em 2026-08-27 recuperando o HTML publicado do demo e comparando literalmente; ver seção "Correção de fidelidade (2026-08-27)" abaixo antes de confiar nos detalhes técnicos das fases originais.

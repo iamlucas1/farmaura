@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-31 — Seção "Entrega/Cashback/Retirada/Receita" da home vira sem-card (Direção D); Direção E documentada para depois
 
 ## Contexto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Webhook Asaas: comparação do token de autenticação não é constant-time
 
 **Tipo:** Vulnerabilidade (timing attack teórico)

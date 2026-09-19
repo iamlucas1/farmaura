@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-27 — Correção: ranking real de "Mais buscados/procurados" nunca batia com nenhum produto
 
 ## Contexto

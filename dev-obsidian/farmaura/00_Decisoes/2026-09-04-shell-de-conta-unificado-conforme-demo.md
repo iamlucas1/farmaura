@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-04 — Shell de conta unificado (`AccountNavShell`) e re-skin das 8 telas de "Minha conta" conforme o demo
 
 ## Contexto

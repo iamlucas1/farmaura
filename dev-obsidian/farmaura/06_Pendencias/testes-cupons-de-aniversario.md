@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Sem suíte de teste para o resgate de cupons de aniversário
 
 **Status:** Aberto

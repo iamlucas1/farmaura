@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Chave de agrupamento de produto duplica quando a marca vem vazia em algumas transações
 
 **Status:** Aberto

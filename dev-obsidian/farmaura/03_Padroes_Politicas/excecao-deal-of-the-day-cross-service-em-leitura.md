@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Exceção: PortalService chama DealSuggestionService de dentro de um método de leitura do bootstrap
 
 **Tipo:** Padrão técnico (exceção deliberada)

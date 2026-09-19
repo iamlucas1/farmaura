@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo Carrinho e Pedidos
 
 ## O que é

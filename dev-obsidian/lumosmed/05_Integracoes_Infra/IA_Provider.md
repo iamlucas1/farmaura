@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # IA — provedor configurável (Gemini / OpenAI)
 
 **Tipo:** API de terceiro

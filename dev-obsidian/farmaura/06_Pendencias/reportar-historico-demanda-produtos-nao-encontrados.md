@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Tornar consultável o histórico de "produto que o cliente queria e não encontramos"
 
 **Status:** Aberto

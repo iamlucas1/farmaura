@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # CSP ausente em todos os 10 templates de vhost (HSTS está presente e correto, CSP não)
 
 **Tipo:** Vulnerabilidade (ausência de security header / defesa contra XSS)

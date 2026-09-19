@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Aplicar uma migration Alembic pendente em produção
 
 ## Quando usar

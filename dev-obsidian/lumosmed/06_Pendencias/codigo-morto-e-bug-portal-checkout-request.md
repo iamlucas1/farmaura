@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # `PortalCheckoutRequest.php`: métodos de validação duplicados, e um deles morto
 
 **Status:** Aberto

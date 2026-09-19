@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: secure-api-endpoint
 description: Use when adding or changing FastAPI endpoints that must enforce strict input validation, ownership checks, tenant scope, abuse limits, idempotency, response minimization, and consistent error handling.
 ---

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Regra de negócio: ocultação no precificador mantém o produto indisponível no marketplace
 
 **Tipo:** Regra de negócio

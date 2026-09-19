@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-31 — Banner da home do marketplace vira 100% configurável pelo admin (sem banner / imagens / HTML próprio)
 
 ## Contexto

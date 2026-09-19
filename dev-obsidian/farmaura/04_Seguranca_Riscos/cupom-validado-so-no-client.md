@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Cupom de desconto validado só no client, sem revalidação server-side no checkout
 
 **Tipo:** Risco identificado

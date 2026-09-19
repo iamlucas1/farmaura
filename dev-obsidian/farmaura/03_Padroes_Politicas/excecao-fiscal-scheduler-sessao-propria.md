@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Exceção: fiscal_scheduler gerencia sua própria sessão de banco fora do DI por request
 
 **Tipo:** Padrão técnico (exceção deliberada)

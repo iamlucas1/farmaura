@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Verificar certificados TLS ativos
 
 ## Quando usar

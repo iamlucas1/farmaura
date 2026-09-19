@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Importação de orçamento/nota fiscal por IA: sem checagem de sanidade server-side pós-confirmação humana (vetor de prompt injection indireta)
 
 **Tipo:** Risco identificado (prompt injection indireta + ausência de defesa em profundidade)

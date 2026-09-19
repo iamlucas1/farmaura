@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Método `handle()` idêntico copiado em 6 controllers do portal
 
 **Status:** Aberto

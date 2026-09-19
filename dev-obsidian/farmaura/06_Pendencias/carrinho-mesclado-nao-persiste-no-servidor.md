@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Carrinho mesclado no login não é persistido de volta no servidor
 
 **Status:** Aberto

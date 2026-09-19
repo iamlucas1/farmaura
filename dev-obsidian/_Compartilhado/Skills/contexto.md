@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Skill: contexto
 
 **Arquivo fonte:** `.claude/skills/contexto/SKILL.md` (raiz do repositório — não em `_Compartilhado/Skills/contexto/`, ao contrário do padrão das demais skills desta pasta).

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-22 — Fallback para `users` na resolução de tenant público quando não há inventário (estado pré-lançamento)
 
 ## Contexto

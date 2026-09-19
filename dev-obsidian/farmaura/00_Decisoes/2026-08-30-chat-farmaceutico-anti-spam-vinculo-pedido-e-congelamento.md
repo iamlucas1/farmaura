@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-30 — Chat com farmacêutico: substitui "Receita digital", ganha guarda anti-spam, vínculo a pedido e congelamento automático
 
 ## Contexto

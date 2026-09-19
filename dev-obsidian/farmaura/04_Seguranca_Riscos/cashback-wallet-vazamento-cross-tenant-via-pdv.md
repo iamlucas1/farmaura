@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Wallet de cashback sem isolamento por tenant — leitura e escrita cross-tenant via PDV
 
 **Tipo:** Vulnerabilidade (Broken Access Control / IDOR + falha de isolamento multi-tenant)

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Criação de conta de equipe (Team) sem convite/e-mail e sem forçar troca de senha
 
 **Tipo:** Risco identificado

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Asaas (pagamentos + emissão fiscal)
 
 **Tipo:** API de terceiro

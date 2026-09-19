@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # fail2ban: regex incompleta em um filtro + falso-positivo em outro
 
 **Tipo:** Vulnerabilidade/robustez (regras de detecção de abuso)

@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: secure-auth-rbac-jwt
 description: Use when implementing or refactoring authentication, JWT, refresh tokens, RBAC, ownership checks, tenant isolation, CSRF-sensitive session flows, or password hashing in a Python backend.
 ---

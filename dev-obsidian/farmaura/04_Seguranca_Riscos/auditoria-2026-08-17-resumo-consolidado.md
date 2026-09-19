@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Auditoria completa de segurança 2026-08-17 — resumo consolidado
 
 **Tipo:** Índice / visão consolidada de auditoria (não é, em si, um achado)

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Páginas de Prontuário são mockups não-funcionais com dados fabricados, sem sinalização de "em construção"
 
 **Status:** Aberto

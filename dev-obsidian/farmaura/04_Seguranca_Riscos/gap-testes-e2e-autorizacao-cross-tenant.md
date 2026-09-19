@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Gap de testes: sem cobertura de API E2E para isolamento cross-tenant; sem CI/CD para pegar isso automaticamente
 
 **Tipo:** Risco identificado (gap de processo/qualidade, não uma vulnerabilidade ativa)

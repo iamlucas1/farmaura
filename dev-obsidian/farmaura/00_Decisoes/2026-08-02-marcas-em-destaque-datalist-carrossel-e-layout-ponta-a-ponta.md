@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-02 — Marcas em destaque: sugestão de marca real (datalist), carrossel acima de 7 e layout ponta a ponta
 
 ## Contexto

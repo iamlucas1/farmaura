@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Promoção dinâmica por perfil só valia na vitrine, nunca era reaplicada no checkout
 
 **Tipo:** Risco identificado

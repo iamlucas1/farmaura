@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão histórico: design tokens via CSS custom properties, antes compartilhados entre marketplace e internal
 
 **Tipo:** Padrão técnico (documentação de convenção real — **parcialmente superado, ver Atualizações 2026-09-11**)

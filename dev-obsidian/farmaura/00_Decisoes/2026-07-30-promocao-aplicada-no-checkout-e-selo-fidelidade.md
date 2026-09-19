@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-30 — Promoção dinâmica reaplicada no checkout + selo de fidelidade real
 
 **Status:** Aceita

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Docker / docker-compose (farmaura)
 
 **Tipo:** Infraestrutura
@@ -11,7 +15,7 @@ Empacotamento e orquestração local/deploy dos serviços do produto Farmaura.
 - `docker/web/Dockerfile`: build multi-stage — Node 22.17.1-alpine builda o frontend Vite (`npm ci && npm run build`), depois copia `dist/` + `docker/web/nginx.conf` para runtime `nginx:1.29.1-alpine`. Só assets compilados vão para produção.
 - `docker/web/nginx.conf`: serve `/marketplace` e `/internal` (SPA fallback via `try_files` para `marketplace.html`/`internal.html`), proxy reverso de `/api/v1/` para `http://farmaura_api:8080/api/v1/`, `/healthz` para healthcheck do container.
 - `farmaura-api/docker-compose.yml` (projeto `backend`): rede privada `farmaura_private` com 4 serviços — `farmaura` (web/nginx, porta 3000), `farmaura-api` (porta 8080, healthcheck em `/api/v1/health`), `farmaura-postgres` (Postgres 17.10), `farmaura-valkey` (Valkey `9.1-trixie`, migrado de Redis 8.2.6 em 2026-07-20).
-- `farmaura-api/docker-compose.gateway.yml`: overlay que conecta só `farmaura-api` à rede externa `lumos_gateway` (ver [[Lumos_Gateway]]).
+- `farmaura-api/docker-compose.gateway.yml`: overlay que conecta só o serviço `farmaura` (o container web/nginx, não `farmaura-api` diretamente) à rede externa `lumos_gateway` — consistente com `FARMAURA_UPSTREAM=farmaura` em `lumos-gateway/docker-compose.yml`. `farmaura-api` fica só em `farmaura_private`; o `farmaura` (nginx) é quem faz proxy interno para ele (ver [[Lumos_Gateway]]).
 - `farmaura-api/docker-compose.staging.yml`: overlay para ambiente de teste com seed (não produção) —
   só sobrescreve `APP_ENV`/`APP_BASE_URL`/`APP_MARKETPLACE_BASE_URL`/`APP_ALLOWED_ORIGINS`; usado hoje
   em `lumos-dev` — ver [[Ambiente_Staging_Lumos_Dev]].
@@ -30,6 +34,7 @@ Empacotamento e orquestração local/deploy dos serviços do produto Farmaura.
 
 ## Atualizações
 
+- 2026-09-18: corrigido erro nesta nota — `docker-compose.gateway.yml` conecta o serviço `farmaura` (web/nginx) à rede `lumos_gateway`, não `farmaura-api` como estava descrito antes (`farmaura-api` nunca sai de `farmaura_private`).
 - 2026-09-01: imagem da API passou a instalar o grupo `dev`; `pytest` ficou disponível para a suíte de testes no Docker — ver [[executar-testes-python-no-docker]].
 
 - 2026-08-04: novo overlay `docker-compose.staging.yml` (commitado), usado para publicar um ambiente

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-20 — Migração Redis → Valkey e cache de listagem de catálogo
 
 ## Contexto

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo Lojas, Fornecedores e Equipe
 
 ## O que é

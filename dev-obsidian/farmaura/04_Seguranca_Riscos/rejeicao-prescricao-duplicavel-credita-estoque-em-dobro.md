@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Rejeição de receita médica pode ser executada duas vezes, creditando estoque em dobro
 
 **Tipo:** Risco identificado (máquina de estados / dupla execução, sem guarda de idempotência)

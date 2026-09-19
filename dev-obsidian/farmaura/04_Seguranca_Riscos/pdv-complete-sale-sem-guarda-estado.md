@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # PDV: `complete_sale`/`claim_order` sem guarda de estado — dupla finalização duplica venda, cashback, cupom e documento fiscal
 
 **Tipo:** Risco identificado (máquina de estados / dupla execução)

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # AAAA-MM-DD — Título curto da decisão
 
 > Como usar este template: copie este arquivo, renomeie para `AAAA-MM-DD-titulo-curto.md` (data real + título curto em kebab-case) e preencha as seções abaixo. Uma ADR por decisão relevante de arquitetura ou trade-off — não é para decisões triviais do dia a dia.

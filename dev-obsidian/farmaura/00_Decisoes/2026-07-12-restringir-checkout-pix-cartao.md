@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-12 — Restringir checkout do marketplace a Pix, crédito e débito
 
 ## Contexto

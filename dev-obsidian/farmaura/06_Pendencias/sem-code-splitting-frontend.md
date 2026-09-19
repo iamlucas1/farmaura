@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Frontend sem code-splitting por tela (só split por portal)
 
 **Status:** Aberto

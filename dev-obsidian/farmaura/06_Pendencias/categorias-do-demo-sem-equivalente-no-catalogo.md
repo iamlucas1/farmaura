@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Duas categorias do demo sem equivalente real no catálogo ("Vitaminas e Suplementos", "Higiene e Cuidados")
 
 **Status:** Aberto

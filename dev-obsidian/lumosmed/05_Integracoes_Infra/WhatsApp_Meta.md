@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # WhatsApp (Meta Graph API)
 
 **Tipo:** API de terceiro

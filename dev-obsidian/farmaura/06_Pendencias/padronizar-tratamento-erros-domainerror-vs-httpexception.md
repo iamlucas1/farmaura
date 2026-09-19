@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Dois idiomas concorrentes para levantar erro nos services (DomainError vs HTTPException)
 
 **Status:** Aberto

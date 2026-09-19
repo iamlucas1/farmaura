@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-14 — Nome dos filhos ponta a ponta + reorganização do card de cliente no PDV
 
 ## Contexto

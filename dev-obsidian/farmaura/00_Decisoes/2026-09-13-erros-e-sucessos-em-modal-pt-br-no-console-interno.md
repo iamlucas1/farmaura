@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-13 — Erros e sucessos do console interno sempre em modal, em português, sem vazar detalhe sensível
 
 ## Contexto

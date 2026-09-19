@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # RLS de `prescription_checks` bloqueava todo pedido de marketplace com item de receita — RESOLVIDO
 
 **Tipo:** Vulnerabilidade (falha funcional/disponibilidade — RLS falha fechado, sem vazamento cross-tenant)

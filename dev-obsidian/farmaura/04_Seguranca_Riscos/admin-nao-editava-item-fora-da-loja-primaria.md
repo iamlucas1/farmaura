@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Admin não conseguia ocultar/ajustar item de estoque fora da "loja primária" — falha silenciosa
 
 **Tipo:** Vulnerabilidade

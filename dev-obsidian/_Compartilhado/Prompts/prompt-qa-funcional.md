@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Passada de QA funcional numa tela/feature
 
 **Arquivo operacional:** `dev-obsidian/_Compartilhado/Prompts/prompt-qa-funcional/PROMPT.md`

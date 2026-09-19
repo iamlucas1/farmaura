@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Postgres de dev local nunca teve `alembic_version` — schema só existe via `create_all`
 
 **Status:** Aberto
@@ -40,6 +44,8 @@ Postgres local especificamente não retém `alembic_version` de forma confiável
 terceira vez, vale investigar a fundo (checar se algum script/teste roda contra o mesmo banco e faz
 algo tipo `Base.metadata.drop_all`, ou algum teste de integração abre uma transação que acaba
 revertendo o `stamp`) em vez de só contornar de novo.
+
+**Reincidência (2026-09-19) e causa raiz identificada**: ao gerar `20260919_01_order_item_pick_locations`, `alembic_version` de novo não existia (`relation "alembic_version" does not exist"`) — mas desta vez sem nenhum `stamp` anterior nesta sessão para "sumir": o container `farmaura_postgres` estava de pé havia só ~30 min (reinício/seed recente do stack local), e nada nesta sessão rodou `alembic stamp`/`upgrade` antes disso. Ou seja, a causa não é algo revertendo um `stamp` já feito — é que **`bootstrap_database.py` nunca estampa `alembic_version` depois do `Base.metadata.create_all` num volume novo**: o `create_all` monta o schema inteiro direto dos models atuais (que já refletem todas as migrations até aquele ponto), mas ninguém nunca chama `alembic stamp head` depois, então a tabela de controle simplesmente nunca chega a existir num Postgres local recém-criado — não é a tabela sendo apagada, é ela nunca tendo sido criada. Contornado de novo com `stamp 20260918_02` (revisão anterior à nova, schema conferido batendo) + `upgrade head`. Correção definitiva ficaria em `bootstrap_database.py`: depois do `create_all`, se `alembic_version` não existir, estampar para o head real do repositório — só em ambiente não-produção (produção sempre aplica migration de verdade, nunca via `create_all`).
 
 ## Contexto
 

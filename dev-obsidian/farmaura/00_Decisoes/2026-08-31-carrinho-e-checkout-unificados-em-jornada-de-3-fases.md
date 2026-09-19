@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-31 — Carrinho e checkout redesenhados conforme o demo, unificados numa jornada de 3 fases
 
 ## Contexto

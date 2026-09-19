@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-23 — Adoção de migrations Alembic agora que farmaura-api está em produção
 
 ## Contexto

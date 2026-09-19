@@ -1,4 +1,5 @@
 ---
+cssclasses: ia-nota
 name: secure-service-communication
 description: Use when wiring or reviewing any network call between two parts of this repository — farmaura (React) to farmaura-api, lumosmed (Laravel) to lumos-api, any service to another service, or any of them through lumos-gateway. Covers transport security, CORS, token transport/storage, CSRF, service-to-service request signing, and gateway wiring integrity.
 ---

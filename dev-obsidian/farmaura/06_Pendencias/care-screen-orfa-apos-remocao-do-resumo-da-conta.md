@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # `CareScreen` órfã após remoção do "Resumo da conta"
 
 **Status:** Aberto

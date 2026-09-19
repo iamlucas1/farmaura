@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-07-31 — Banner da home: remove o modo "HTML próprio" de página inteira, fica só "slides"
 
 ## Contexto

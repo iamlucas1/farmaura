@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Cupom no PDV: `usage_limit`/`per_customer_limit` checados na criação do pedido, nunca revalidados na finalização (fluxo em duas fases)
 
 **Tipo:** Risco identificado (regra de negócio / bypass de limite, determinístico — não é uma corrida rara)

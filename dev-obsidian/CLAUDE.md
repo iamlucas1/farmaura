@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # dev-obsidian — Guia de Governança
 
 Este cofre Obsidian é a base de conhecimento viva para **qualquer projeto de desenvolvimento** do usuário — não é exclusivo de um produto. Vive dentro do repositório git `~/Documentos/desenvolvimento/dev` (não é um repositório separado), na pasta `dev-obsidian/`, porque esse repositório já hospeda várias pastas/stacks (`farmaura/`, `farmaura-api/`, `docker/`, etc.).
@@ -70,6 +74,16 @@ Ficam de fora desta convenção `00_Decisoes/` (ADR já é um registro pontual, 
 ## Regra de Segurança do Cofre
 
 **Nunca** gravar segredos, chaves, tokens ou valores reais de `.env` em nenhuma nota. Documentar apenas o propósito/contrato de uma configuração, nunca seu valor.
+
+## Separação visual por autoria (IA vs usuário)
+
+O cofre usa um snippet CSS nativo (`.obsidian/snippets/autoria-cores.css`, habilitado em `appearance.json`) para colorir notas por quem escreveu: **laranja = IA**, **azul = usuário**. Não depende de plugin de comunidade — usa a propriedade reservada `cssclasses` do frontmatter, que o Obsidian já injeta como classe CSS na nota.
+
+- Ao **criar** uma nota inteira ou **editá-la de forma material**, a IA adiciona/mantém `cssclasses: ia-nota` no frontmatter.
+- O usuário pode marcar uma nota própria com `cssclasses: usuario-nota` no frontmatter para o realce azul (opcional — sem marcação, a nota fica sem cor, tratada como "não classificada").
+- Para notas de autoria mista (ex.: usuário escreve uma pergunta/decisão e a IA comenta dentro da mesma nota), usar callouts em vez de marcar a nota inteira: `> [!ia]` (laranja) e `> [!usuario]` (azul).
+- `01_Contexto_Usuario/` nunca recebe `cssclasses: ia-nota` (a IA não escreve lá — ver "Regras de Acesso e Escrita").
+- Notas já existentes antes desta convenção não foram marcadas retroativamente; marcar sob demanda ao revisitar uma nota antiga.
 
 ## Regras Operacionais Gerais
 

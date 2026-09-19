@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Webhook do Asaas não trata os ciclos futuros de uma assinatura recorrente
 
 **Status:** Aberto

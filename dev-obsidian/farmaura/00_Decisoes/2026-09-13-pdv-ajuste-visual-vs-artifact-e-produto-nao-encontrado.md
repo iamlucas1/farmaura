@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-13 — PDV: ajuste visual contra o artifact "Farmaura Operações" + caixa de produto não encontrado
 
 ## Contexto

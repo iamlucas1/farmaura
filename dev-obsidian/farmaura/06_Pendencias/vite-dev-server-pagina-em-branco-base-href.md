@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # `npm run dev` (vite) serve página em branco — conflito entre `<base href="/">` e `root` do repo
 
 **Status:** Aberto

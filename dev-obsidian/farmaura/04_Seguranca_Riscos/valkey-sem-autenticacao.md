@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Valkey sem senha (`requirepass`) em nenhum ambiente — depende 100% de isolamento de rede
 
 **Tipo:** Vulnerabilidade (defesa em profundidade ausente / rede interna)

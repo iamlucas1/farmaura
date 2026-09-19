@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Cupom não pode ser aplicado direto na página do produto (só no carrinho/checkout)
 
 **Status:** Aberto

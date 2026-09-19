@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Idempotência valida só o formato da chave, sem proteção real contra replay
 
 **Tipo:** Risco identificado

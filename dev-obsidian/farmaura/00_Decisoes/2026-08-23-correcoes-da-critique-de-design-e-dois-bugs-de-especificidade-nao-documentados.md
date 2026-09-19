@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-08-23 — Correções da critique de design (2026-08-22) e dois bugs de especificidade/containing-block não documentados
 
 ## Contexto

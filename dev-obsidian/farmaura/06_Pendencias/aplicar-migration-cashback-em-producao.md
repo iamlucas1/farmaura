@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Aplicar migrations `20260903_01`→`20260905_02` (cashback, idade dos filhos, cupons de aniversário) em produção
 
 **Status:** Aberto

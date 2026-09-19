@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Rate limit do gateway: `burst=10` ainda não corrigido em 7 dos 8 tenants (mesmo padrão que já causou incidente real no Farmaura)
 
 **Tipo:** Risco identificado (disponibilidade / configuração inconsistente entre vhosts)

@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # 2026-09-14 — `--accent` do console interno deixa de ser teal e volta a ser vermelho, igual ao marketplace
 
 ## Contexto

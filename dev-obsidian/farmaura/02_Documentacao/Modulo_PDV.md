@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Módulo PDV (ponto de venda / balcão)
 
 ## O que é
@@ -63,5 +67,6 @@ Fluxo de venda presencial no balcão da farmácia, com handoff explícito farmac
 
 ## Atualizações
 
+- 2026-09-17: pagamento no caixa (Pix/débito/crédito) passou a integrar de verdade com a maquininha Itaú via `farmaura-pdv-bridge` (agente local, USB) — driver ainda simulado, aguardando SDK da Itaú. Sale ganhou `payment_terminal_reference` (NSU/authCode). Ver [[../00_Decisoes/2026-09-17-integracao-maquininha-itau-via-agente-usb-local|ADR]] e [[../06_Pendencias/sdk-itau-maquininha-pendente|pendência do SDK real]].
 - 2026-07-30: PDV passou a suportar cupom (antes só tinha desconto manual) — mutuamente exclusivo com o desconto manual, exige cliente identificado, respeita o mesmo teto de margem, `usage_count` incrementa só em `complete_sale`. Ver [[Modulo_CRM|Módulo CRM]] e [[../00_Decisoes/2026-07-30-cupom-validado-no-servidor-com-service-compartilhado|ADR]].
 - 2026-07-25: nota criada — documentação do estado atual do módulo.

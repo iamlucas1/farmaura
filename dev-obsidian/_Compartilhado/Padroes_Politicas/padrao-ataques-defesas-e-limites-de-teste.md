@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão: ataques comuns a defender, controles defensivos obrigatórios e limites seguros de teste
 
 **Tipo:** Padrão técnico genérico (política de segurança)
@@ -48,7 +52,7 @@ Sem uma lista explícita, fica implícito demais o que testar e como testar com 
 
 ## Exceções conhecidas
 
-Nenhuma até 2026-07-20.
+- **2026-09-18** — usuário pediu explicitamente um "ataque mais agressivo" contra `lumos-gateway` especificamente ("não ajuste nada, só documente"), sobrepondo a regra padrão de "cuidado redobrado" desta nota para essa sessão pontual. Mantido dentro de limites ainda seguros mesmo sob a exceção: só contra instância local (build própria, rede/volumes/certificados **self-signed** de teste, nunca contra domínio público real), sem tocar `/etc/letsencrypt` real, sem alterar nenhum arquivo do projeto (só documentação). Rendeu o achado mais significativo das duas rodadas de teste — ver [[../../lumos-gateway/04_Seguranca_Riscos/fail2ban-timezone-quebra-deteccao-rate-limit|lumos-gateway/fail2ban-timezone-quebra-deteccao-rate-limit]]. Não é uma mudança permanente da política — a regra de cuidado redobrado volta a valer por padrão na próxima sessão, salvo novo pedido explícito.
 
 ## Ver também
 
@@ -58,4 +62,5 @@ Nenhuma até 2026-07-20.
 
 ## Atualizações
 
+- 2026-09-18: registrada exceção pontual — teste mais agressivo contra `lumos-gateway`, pedido explicitamente pelo usuário (ver seção "Exceções conhecidas").
 - 2026-07-20: nota criada.

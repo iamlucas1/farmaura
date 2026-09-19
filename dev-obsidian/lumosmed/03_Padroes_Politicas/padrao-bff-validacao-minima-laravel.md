@@ -1,3 +1,7 @@
+---
+cssclasses: ia-nota
+---
+
 # Padrão confirmado: Laravel valida pouco de propósito, Python é a fonte de verdade
 
 **Tipo:** Padrão técnico (documentação de convenção real)
