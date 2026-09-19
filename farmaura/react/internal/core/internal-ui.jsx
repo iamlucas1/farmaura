@@ -255,8 +255,8 @@ function Avatar({ initials, size = 32 }) {
 
 /* ---------- stat card ---------- */
 function StatCard({ icon, label, value, delta, deltaTone = "flat", tone = "accent" }) {
-  const bg = { accent: "var(--accent-soft)", good: "var(--good-soft)", warning: "var(--warning-soft)", critical: "var(--critical-soft)" }[tone] || "var(--accent-soft)";
-  const fg = { accent: "var(--accent)", good: "var(--good)", warning: "var(--warning)", critical: "var(--critical)" }[tone] || "var(--accent)";
+  const bg = { accent: "var(--accent-soft)", good: "var(--good-soft)", warning: "var(--warning-soft)", serious: "var(--serious-soft)", critical: "var(--critical-soft)" }[tone] || "var(--accent-soft)";
+  const fg = { accent: "var(--accent)", good: "var(--good)", warning: "var(--warning)", serious: "var(--serious)", critical: "var(--critical)" }[tone] || "var(--accent)";
   return (
     <div className="stat-card">
       <div className="stat-top">

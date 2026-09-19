@@ -56,6 +56,7 @@ class PdvOrderItem(Base, UuidModel, TimestampedModel):
     brand_name_snapshot: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     ean_code_snapshot: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     storage_location_snapshot: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    location_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)

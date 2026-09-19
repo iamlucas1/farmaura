@@ -64,6 +64,7 @@ from app.models.prescription_item import PrescriptionItem
 from app.models.pricing_promotion import PricingPromotion
 from app.models.product_availability_alert import ProductAvailabilityAlert
 from app.models.product_review import ProductReview
+from app.models.product_view_event import ProductViewEvent
 from app.models.purchase_quote import PurchaseQuote
 from app.models.purchase_quote_item import PurchaseQuoteItem
 from app.models.purchase_quote_payment_term import PurchaseQuotePaymentTerm
@@ -127,6 +128,7 @@ __all__ = [
     "PrescriptionFile",
     "PrescriptionItem",
     "ProductReview",
+    "ProductViewEvent",
     "PurchaseQuote",
     "PurchaseQuoteItem",
     "PurchaseQuotePaymentTerm",

@@ -948,6 +948,7 @@ function PharmApp() {
       priority: item.priority || 'normal',
       placed: item.placed || '',
       payment: item.payment || '',
+      paymentStatus: item.payment_status || 'pending',
       channel: item.channel || '',
       total: Number(item.total || 0),
       address: item.address || '',
@@ -973,13 +974,55 @@ function PharmApp() {
       nfce: normalizeFiscalDocument(item.fiscal_document),
       items: Array.isArray(item.items) ? item.items.map((line) => ({
         id: line.id,
+        inventoryItemId: line.inventory_item_id || '',
         name: line.name || '',
         qty: Number(line.qty || 0),
         loc: line.loc || '',
+        pickLocations: Array.isArray(line.pick_locations) ? line.pick_locations.map((entry) => ({
+          locationCode: entry.location_code || '',
+          locationName: entry.location_name || '',
+          quantity: Number(entry.quantity || 0),
+        })) : [],
         rx: !!line.rx,
         picked: !!line.picked,
       })) : [],
   })) : [];
+  const normalizeDeliveryRouteStop = (item) => ({
+    id: item.id,
+    orderId: item.order_id || '',
+    orderCode: item.order_code || '',
+    customer: item.customer || '',
+    address: item.address || '',
+    district: item.district || '',
+    cep: item.cep || '',
+    status: item.status || 'planned',
+    lat: item.lat != null ? Number(item.lat) : null,
+    lng: item.lng != null ? Number(item.lng) : null,
+    dist: item.dist != null ? Number(item.dist) : null,
+    navigationUrl: item.navigation_url || '',
+  });
+  // Uma loja pode ter várias rotas ativas ao mesmo tempo — uma por entregador em campo agora.
+  const normalizeDeliveryRoute = (item) => ({
+    id: item.id || '',
+    code: item.code || '',
+    status: item.status || 'planned',
+    driver: item.driver || '',
+    driverUserId: item.driver_user_id || '',
+    vehicle: item.vehicle || '',
+    totalKm: Number(item.total_km || 0),
+    totalMin: Number(item.total_min || 0),
+    savedKm: Number(item.saved_km || 0),
+    stops: Array.isArray(item.stops) ? item.stops.map(normalizeDeliveryRouteStop) : [],
+  });
+  const normalizeDeliveryRoutesPayload = (payload) => ({
+    hub: {
+      name: (payload && payload.hub_name) || '',
+      addr: (payload && payload.hub_address) || '',
+      lat: payload && payload.hub_lat != null ? Number(payload.hub_lat) : null,
+      lng: payload && payload.hub_lng != null ? Number(payload.hub_lng) : null,
+    },
+    routes: Array.isArray(payload && payload.items) ? payload.items.map(normalizeDeliveryRoute) : [],
+  });
   const normalizePrescriptionQueue = (payload) => Array.isArray(payload && payload.items) ? payload.items.map((item) => ({
     id: item.id,
     order: item.order || '—',
@@ -1754,8 +1797,8 @@ function PharmApp() {
   const [chartSeed, setChartSeed] = useState({});
   const [todaySummary, setTodaySummary] = useState({});
   const [hub, setHub] = useState(null);
-  const [deliveryRoute, setDeliveryRoute] = useState(null);
-  const [driverLivePosition, setDriverLivePosition] = useState(null);
+  const [deliveryRoutes, setDeliveryRoutes] = useState([]); // uma por entregador em rota simultânea
+  const [driverLivePositions, setDriverLivePositions] = useState({}); // por routeId: {lat,lng,updatedLabel}
   const [myDeliveryRoutes, setMyDeliveryRoutes] = useState([]);
   const [locationSharing, setLocationSharing] = useState(false);
   const [financialSettings, setFinancialSettingsState] = useState(null);
@@ -2627,6 +2670,8 @@ function PharmApp() {
       discountPercent: Number(response.discount_percent || 0),
       chargeStatus: response.charge_status || '',
       totalCharged: Number(response.total_charged || 0),
+      scheduledPendingCard: !!response.scheduled_pending_card,
+      nextChargeDueLabel: response.next_charge_due_label || '',
     };
   };
   // Reserva estoque de outra loja para o cliente retirar lá (trava o estoque com validade de 48h).
@@ -2700,6 +2745,7 @@ function PharmApp() {
         brand: item.brand,
         category: item.category,
         price: Number(item.price || 0),
+        controlled: !!item.is_controlled,
       })) : [];
     } catch (error) {
       return [];
@@ -2717,13 +2763,14 @@ function PharmApp() {
         prescriptionId: item.prescription_id || null,
         status: item.status || 'missing',
         deliveryMethod: item.delivery_method || '',
+        validatedQty: item.validated_quantity ?? null,
       })) : [];
     } catch (error) {
       return [];
     }
   };
   // Registra a validação de uma receita física, ou envia o link de uma receita digital para validação via chat.
-  const createPdvPrescription = async ({ customerId, inventoryItemId, medicationName, deliveryMethod, digitalReferenceUrl, decision, pharmacistNotes, rejectionReason }) => {
+  const createPdvPrescription = async ({ customerId, inventoryItemId, medicationName, deliveryMethod, digitalReferenceUrl, decision, pharmacistNotes, rejectionReason, quantity }) => {
     try {
       const response = await authClient.request('/pdv/prescriptions', {
         method: 'POST',
@@ -2736,12 +2783,13 @@ function PharmApp() {
           decision: decision || null,
           pharmacist_notes: pharmacistNotes || '',
           rejection_reason: rejectionReason || '',
+          quantity: Number(quantity || 1),
         }),
       });
       return {
         id: response.id, inventoryItemId: response.inventory_item_id, status: response.status,
         deliveryMethod: response.delivery_method, digitalReferenceUrl: response.digital_reference_url,
-        requiresRetention: !!response.requires_retention,
+        requiresRetention: !!response.requires_retention, validatedQty: response.validated_quantity ?? null,
       };
     } catch (error) {
       showToast(error && error.message ? error.message : 'Não foi possível registrar a validação da receita.', 'warn');
@@ -2776,9 +2824,9 @@ function PharmApp() {
           customer_id: customerId || null,
         }),
       });
-      return { maxDiscountPercent: Number(response.max_discount_percent ?? 100) };
+      return { maxDiscountPercent: Number(response.max_discount_percent ?? 100), cashbackEarnedPreview: Number(response.cashback_earned_preview ?? 0) };
     } catch (error) {
-      return { maxDiscountPercent: 100 };
+      return { maxDiscountPercent: 100, cashbackEarnedPreview: 0 };
     }
   };
   const _deliveryToBackend = (delivery) => delivery && delivery.fulfillmentType === 'delivery' ? {
@@ -2964,6 +3012,7 @@ function PharmApp() {
         payment_method: sale.pay || 'pix',
         include_cpf_on_invoice: sale.cpfNota !== false,
         cashback_applied: Number(sale.cashApplied || 0),
+        payment_terminal_reference: sale.terminalReference || '',
       }),
     });
     const customerMap = Object.fromEntries((customers || []).map((item) => [item.name, item]));
@@ -3244,16 +3293,10 @@ function PharmApp() {
         setPromotions((Array.isArray(bootstrap.pricing_promotions) ? bootstrap.pricing_promotions : []).map(normalizePricingPromotion));
         setFinancialSettingsState(bootstrap.financial_settings || bootstrap.financialSettings || { months: {} });
         setFinancialSettingsError('');
-        const routePayload = bootstrap.delivery_route || bootstrap.deliveryRoute || null;
-        setDeliveryRoute(routePayload);
-        const hubLat = routePayload ? (routePayload.hub_lat != null ? routePayload.hub_lat : routePayload.hubLat) : null;
-        const hubLng = routePayload ? (routePayload.hub_lng != null ? routePayload.hub_lng : routePayload.hubLng) : null;
-        setHub(routePayload ? {
-          name: routePayload.hub_name || routePayload.hubName || '',
-          addr: routePayload.hub_address || routePayload.hubAddress || '',
-          lat: hubLat != null ? Number(hubLat) : null,
-          lng: hubLng != null ? Number(hubLng) : null,
-        } : null);
+        const routesPayload = bootstrap.delivery_routes || bootstrap.deliveryRoutes || null;
+        const normalizedRoutes = normalizeDeliveryRoutesPayload(routesPayload);
+        setDeliveryRoutes(normalizedRoutes.routes);
+        setHub(normalizedRoutes.hub.name || normalizedRoutes.hub.addr || normalizedRoutes.hub.lat != null ? normalizedRoutes.hub : null);
       } else {
         setFinancialSettingsError('Não foi possível carregar os dados do painel interno.');
       }
@@ -3421,13 +3464,20 @@ function PharmApp() {
     let timer = null;
     async function pollDriverPosition() {
       try {
-        const response = await authClient.request('/deliveries/routes/live', { method: 'GET' });
+        const response = await authClient.request(withStoreParam('/deliveries/routes/live'), { method: 'GET' });
         if (active && response) {
-          setDriverLivePosition(response.driver_lat != null && response.driver_lng != null ? {
-            lat: Number(response.driver_lat),
-            lng: Number(response.driver_lng),
-            updatedLabel: response.driver_updated_label || '',
-          } : null);
+          const items = Array.isArray(response.items) ? response.items : [];
+          const next = {};
+          for (const item of items) {
+            if (item.driver_lat != null && item.driver_lng != null) {
+              next[item.route_id] = {
+                lat: Number(item.driver_lat),
+                lng: Number(item.driver_lng),
+                updatedLabel: item.driver_updated_label || '',
+              };
+            }
+          }
+          setDriverLivePositions(next);
         }
       } catch {}
       if (active) {
@@ -3452,10 +3502,46 @@ function PharmApp() {
         method: 'PATCH',
         body: JSON.stringify({ driver_user_id: driverUserId || null }),
       });
-      setDeliveryRoute((prev) => prev ? { ...prev, driver: response.driver_name || '', driver_user_id: response.driver_user_id || '' } : prev);
+      setDeliveryRoutes((prev) => prev.map((route) => route.id === routeId
+        ? { ...route, driver: response.driver_name || '', driverUserId: response.driver_user_id || '' }
+        : route));
       showToast(response.driver_user_id ? 'Entregador atribuído' : 'Entregador removido da rota', 'success');
     } catch (error) {
       showToast(error && error.message ? error.message : 'Não foi possível atribuir o entregador', 'warn');
+    }
+  };
+
+  // Lista só os entregadores da loja em uso (rota própria, liberada pra farmacêutico/gerente
+  // também — não é o roster completo de equipe, que continua admin-only via /team/members).
+  const fetchDeliveryDrivers = async () => {
+    if (isFilePreview || !user) return [];
+    try {
+      const response = await authClient.request(withStoreParam('/deliveries/drivers'), { method: 'GET' });
+      return Array.isArray(response.items) ? response.items.map((item) => ({ id: item.id, name: item.name || '' })) : [];
+    } catch (error) {
+      return [];
+    }
+  };
+
+  // Divide toda entrega pendente da loja em uma rota por entregador informado (sweep +
+  // bidirectional Dijkstra no backend, ver app/domain/geo.py) — permite despachar 1, 2, 3 ou
+  // mais entregadores simultaneamente em vez de forçar tudo numa rota só.
+  const planDeliveryRoutes = async (driverUserIds) => {
+    const ids = (driverUserIds || []).filter(Boolean);
+    if (!ids.length) return;
+    try {
+      const response = await authClient.request(withStoreParam('/deliveries/routes/plan'), {
+        method: 'POST',
+        body: JSON.stringify({ driver_user_ids: ids }),
+      });
+      const normalized = normalizeDeliveryRoutesPayload(response);
+      setDeliveryRoutes(normalized.routes);
+      if (normalized.hub.name || normalized.hub.addr || normalized.hub.lat != null) setHub(normalized.hub);
+      showToast(normalized.routes.length + ' rota(s) planejada(s)', 'success');
+      return normalized.routes;
+    } catch (error) {
+      showToast(error && error.message ? error.message : 'Não foi possível planejar as rotas', 'warn');
+      throw error;
     }
   };
 
@@ -3745,15 +3831,18 @@ function PharmApp() {
     }
   };
 
-  const updateOrderItemLocation = async (orderRecordId, itemId, locationCode) => {
-    if (!orderRecordId || !itemId || !locationCode) {
+  // locations: [{ locationCode, quantity }, ...] — mais de uma entrada quando o item foi
+  // conferido em duas prateleiras diferentes porque a primeira não tinha a quantidade toda.
+  const updateOrderItemLocation = async (orderRecordId, itemId, locations) => {
+    const entries = (locations || []).filter((entry) => entry && entry.locationCode && entry.quantity > 0);
+    if (!orderRecordId || !itemId || !entries.length) {
       return;
     }
     if (!isFilePreview && user) {
       try {
         const response = await authClient.request('/orders/' + orderRecordId + '/items/' + itemId + '/location', {
           method: 'POST',
-          body: JSON.stringify({ location_code: locationCode }),
+          body: JSON.stringify({ locations: entries.map((entry) => ({ location_code: entry.locationCode, quantity: entry.quantity })) }),
         });
         const normalized = normalizeOrdersPayload({ items: [response] })[0];
         if (normalized) {
@@ -3763,12 +3852,16 @@ function PharmApp() {
         return;
       } catch (error) {
         showToast(error && error.message ? error.message : 'Nao foi possivel atualizar a origem do item', 'warn');
-        return;
+        throw error;
       }
     }
+    const pickLocations = entries.map((entry) => ({ locationCode: entry.locationCode, locationName: entry.locationName || '', quantity: entry.quantity }));
+    const loc = pickLocations.length > 1
+      ? pickLocations.map((entry) => `${entry.locationCode} (${entry.quantity})`).join(' + ')
+      : pickLocations[0].locationCode;
     setOrders((prev) => prev.map((order) => order.recordId !== orderRecordId ? order : {
       ...order,
-      items: order.items.map((item) => item.id === itemId ? { ...item, loc: locationCode } : item),
+      items: order.items.map((item) => item.id === itemId ? { ...item, loc, pickLocations } : item),
     }));
     showToast('Origem do item atualizada', 'success');
   };
@@ -4641,7 +4734,7 @@ function PharmApp() {
     customers, customerByName, createPdvCustomer,
     nowLabel, todayIso, todayLabel,
     pharmacistProfile, storeFiscal, chartSeed, todaySummary,
-    hub, deliveryRoute, driverLivePosition, assignRouteDriver,
+    hub, deliveryRoutes, driverLivePositions, assignRouteDriver, planDeliveryRoutes, fetchDeliveryDrivers,
     myDeliveryRoutes, deliverRouteStop, locationSharing, toggleLocationSharing,
     financialMonths: financialSettings ? financialSettings.months || {} : null,
     financialSettingsBusy, financialSettingsError, saveFinancialMonth, retryFinancialSettings,

@@ -736,6 +736,20 @@ def build_users(password_hash: str) -> dict[str, User]:
             session_version=1,
             is_active=True,
         ),
+        # Cliente de teste real do desenvolvedor (ver customers["lucas_matheus"]).
+        "customer_lucas_matheus": User(
+            id=seed_uuid("user-customer-lucas-matheus"),
+            tenant_id=TENANT_ID,
+            email="lucas.matheus0899@gmail.com",
+            password_hash=password_hash,
+            full_name="Lucas Matheus",
+            role=UserRole.CUSTOMER.value,
+            access_scope=AccessScope.MARKETPLACE.value,
+            two_factor_enabled=False,
+            two_factor_secret="",
+            session_version=1,
+            is_active=True,
+        ),
     }
 
 
@@ -983,6 +997,44 @@ def build_customers() -> dict[str, Customer]:
             monthly_orders_snapshot=[2, 1, 2, 2, 2, 2],
             marketing_program_preferences=[{"name": "Programa crônicos", "enabled": True}],
             communication_channel_preferences=[{"channel": "whatsapp", "enabled": True}, {"channel": "email", "enabled": True}],
+            is_active=True,
+        ),
+        # Cliente de teste real do desenvolvedor — sem cartão salvo de propósito, para
+        # testar o fluxo de recorrência agendada (PDV + lembretes por e-mail reais).
+        "lucas_matheus": Customer(
+            id=seed_uuid("customer-lucas-matheus"),
+            tenant_id=TENANT_ID,
+            external_code="CRM-0099",
+            full_name="Lucas Matheus",
+            email="lucas.matheus0899@gmail.com",
+            phone="+55 61 99899-0899",
+            cpf="111.222.333-44",
+            birth_date="1998-08-09",
+            gender="Masculino",
+            avatar_url="",
+            loyalty_tier="Novo",
+            is_recurring=False,
+            two_factor_enabled=False,
+            member_since_label="setembro de 2026",
+            city_label="Brasilia",
+            district_label="Ponte Alta Norte",
+            cashback_balance=money("0.00"),
+            orders_count=0,
+            total_spent=money("0.00"),
+            average_ticket=money("0.00"),
+            last_purchase_days_ago=1,
+            purchase_frequency_days=None,
+            tenure_months=0,
+            active_subscriptions=[],
+            favorite_items=[],
+            top_products_snapshot=[
+                {"name": "Losartana 50mg", "quantity": 1, "category": "Medicamentos", "continuous_use": True},
+            ],
+            interest_tags=[],
+            category_mix_snapshot=[],
+            monthly_orders_snapshot=[],
+            marketing_program_preferences=[],
+            communication_channel_preferences=[],
             is_active=True,
         ),
     }
@@ -2141,6 +2193,7 @@ def build_coupon_redemption_history(
         ("bemvindo10-pdv", "bem-vindo", "camila", "paracetamol", 2, "credit", "delivery", 3),
         ("vitc10-pdv", "vitamina-c", "mariana", "vitamin_c", 2, "cash", "pickup", 2),
         ("fiel5-pdv", "cliente-fiel", "lucas", "losartan", 1, "pix", "pickup", 1),
+        ("fiel-lm-pdv", "cliente-fiel", "lucas_matheus", "losartan", 1, "pix", "pickup", 1),
     ]
     for slug, coupon_key, customer_key, product_key, qty, payment_method, fulfillment_type, days_ago in pdv_plan:
         campaign = coupon_campaigns[coupon_key]

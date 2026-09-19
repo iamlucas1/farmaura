@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { fetchViaCepAddress, formatCep } from "../../marketplace/core/marketplace-address.js";
 import { resolveMarketplaceCoupon } from "../../marketplace/screens/cart-screen.jsx";
 import { RecurringBadge } from "../core/internal-shell.jsx";
 import { Icon, PageHead, Badge, PillNav, EmptyState, Field, Modal, QtyStepper, KV, SwitchToggle, Avatar, SearchInput } from "../core/internal-ui.jsx";
+import { getBridgeConfig, setBridgeConfig, pdvBridgeHealth, pdvBridgeCharge, pdvBridgeGetCharge, pdvBridgeCancelCharge } from "../core/pdv-bridge-client.js";
 
 /* FARMAURA Console — Balcão / PDV: venda no momento + emissão de nota fiscal (NFC-e).
    Visão compartilhada entre farmacêutico e caixa. */
@@ -59,6 +61,17 @@ function maskPhone(v) {
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+/* Traduz erro cru de rede (fetch falhando por completo, sem nem chegar no agente local da maquininha —
+   "Failed to fetch"/"NetworkError"/"Load failed", cada navegador usa um texto diferente, sempre em
+   inglês) para uma mensagem em português. Erros já formatados pelo backend do bridge passam direto. */
+function friendlyBridgeError(error) {
+  const msg = (error && error.message) || "";
+  if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+    return "Não foi possível conectar com a maquininha — confira se o agente local (farmaura-pdv-bridge) está rodando neste computador.";
+  }
+  return msg || "Não foi possível falar com a maquininha.";
+}
+
 /* Formata "YYYY-MM-DD" como "DD/MM" para exibição no card do cliente. */
 function fmtBirthday(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
@@ -99,18 +112,6 @@ function creditCashback(customer, earned, ticket, applied) {
 
 /* Sugestões: o que o cliente mais compra de verdade (histórico real via /purchase-insights),
    casado com o estoque atual, para oferecer no balcão. */
-/* Remove itens com o mesmo nome (o mesmo produto cadastrado em mais de uma loja aparece como
-   uma linha de estoque por loja) — mantém só a primeira ocorrência, para listas de navegação
-   onde o usuário só quer ver o produto uma vez, não uma vez por loja. */
-function dedupeByName(items) {
-  const seen = new Set();
-  return items.filter((it) => {
-    const key = it.name.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
 
 /* Retrato de "o que o cliente costuma comprar" para o card do PDV: em vez de ordenar tudo por
    quantidade de compras (o que deixa a lista dominada por um único item muito recorrente, ex.:
@@ -217,23 +218,22 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
   const type = delivery.fulfillmentType || "pickup";
   const [cepStatus, setCepStatus] = useState({ loading: false, hint: "", error: "" });
   const [coverage, setCoverage] = useState({ configured: false, covered: true });
-  const [mode, setMode] = useState(savedAddresses.length ? "pick" : "new"); // pick | new
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState("");
   const [saveNewAddress, setSaveNewAddress] = useState(true);
   const [savingAddress, setSavingAddress] = useState(false);
   const lastCepRef = React.useRef("");
   const knownAddressIdsRef = React.useRef(new Set());
 
-  // Quando os endereços salvos do cliente chegam (identificação concluída), volta para o modo de escolha.
+  // Quando os endereços salvos do cliente chegam (identificação concluída), desmarca qualquer seleção antiga.
   useEffect(() => {
     knownAddressIdsRef.current = new Set(savedAddresses.map((a) => a.id));
-    if (savedAddresses.length === 0) { setMode("new"); return; }
-    setMode("pick");
     setSelectedAddressId("");
   }, [savedAddresses]);
 
   const pickAddress = (address) => {
     setSelectedAddressId(address.id);
+    setAddressModalOpen(false);
     setDelivery({
       ...delivery,
       fulfillmentType: "delivery",
@@ -250,16 +250,20 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
     });
   };
 
-  const startNewAddress = () => {
+  // Abre a modal de cadastro — só limpa os campos se vier de um endereço salvo (novo endereço de verdade);
+  // se já havia um endereço avulso digitado (não salvo), reabre para edição em vez de perder o que foi digitado.
+  const openAddressModal = () => {
+    if (selectedAddressId) {
+      lastCepRef.current = "";
+      setDelivery({ ...delivery, fulfillmentType: "delivery", addressId: "", postalCode: "", addressLine: "", addressNumber: "", district: "", city: "", stateCode: "" });
+    }
     setSelectedAddressId("");
-    setMode("new");
-    lastCepRef.current = "";
-    setDelivery({ ...delivery, fulfillmentType: "delivery", addressId: "", postalCode: "", addressLine: "", addressNumber: "", district: "", city: "", stateCode: "" });
+    setAddressModalOpen(true);
   };
 
   useEffect(() => {
     const digits = String(delivery.postalCode || "").replace(/\D/g, "");
-    if (digits.length !== 8 || type !== "delivery" || mode !== "new" || digits === lastCepRef.current) return;
+    if (digits.length !== 8 || !addressModalOpen || digits === lastCepRef.current) return;
     let active = true;
     (async () => {
       setCepStatus({ loading: true, hint: "", error: "" });
@@ -277,7 +281,7 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
       }
     })();
     return () => { active = false; };
-  }, [delivery.postalCode, type, mode]);
+  }, [delivery.postalCode, addressModalOpen]);
 
   const blocked = coverage.configured && !coverage.covered;
 
@@ -288,41 +292,55 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
       const updated = await onSaveAddress({ ...delivery, isPrimary: savedAddresses.length === 0 });
       if (updated) {
         const created = updated.find((a) => !knownAddressIdsRef.current.has(a.id)) || updated[updated.length - 1];
-        if (created) { pickAddress(created); setMode("pick"); }
+        if (created) pickAddress(created);
       }
     } finally {
       setSavingAddress(false);
     }
   };
 
+  const hasAdHocAddress = type === "delivery" && !selectedAddressId && !!delivery.addressLine;
+
   return (
-    <div className="card card-pad">
-      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Retirada ou entrega</div>
-      <div style={{ display: "flex", gap: 6, marginBottom: type === "delivery" ? 12 : 0 }}>
-        <button type="button" className="btn btn-sm" style={{ flex: 1, background: type === "pickup" ? "var(--accent)" : "var(--surface-2)", color: type === "pickup" ? "var(--accent-contrast)" : "var(--text-secondary)" }} onClick={() => setDelivery({ ...delivery, fulfillmentType: "pickup" })}>
+    <div style={{ margin: "12px 0" }}>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Retirada ou entrega</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: type === "delivery" ? 12 : 0 }}>
+        <button type="button" className="btn btn-sm" style={{ flex: "1 1 120px", justifyContent: "center", background: type === "pickup" ? "var(--accent)" : "var(--surface-2)", color: type === "pickup" ? "var(--accent-contrast)" : "var(--text-secondary)" }} onClick={() => setDelivery({ ...delivery, fulfillmentType: "pickup" })}>
           <Icon name="store" size={13} />Retirar na loja
         </button>
-        <button type="button" className="btn btn-sm" style={{ flex: 1, background: type === "delivery" ? "var(--accent)" : "var(--surface-2)", color: type === "delivery" ? "var(--accent-contrast)" : "var(--text-secondary)" }} onClick={() => setDelivery({ ...delivery, fulfillmentType: "delivery" })}>
+        <button type="button" className="btn btn-sm" style={{ flex: "1 1 120px", justifyContent: "center", background: type === "delivery" ? "var(--accent)" : "var(--surface-2)", color: type === "delivery" ? "var(--accent-contrast)" : "var(--text-secondary)" }} onClick={() => setDelivery({ ...delivery, fulfillmentType: "delivery" })}>
           <Icon name="truck" size={13} />Entregar em casa
         </button>
       </div>
 
-      {type === "delivery" && mode === "pick" && (
+      {type === "delivery" && (
         <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-            {savedAddresses.map((address) => (
-              <ChoiceCard key={address.id} on={selectedAddressId === address.id} onClick={() => pickAddress(address)} icon="pin">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-                    {address.label}
-                    {address.isPrimary && <Badge tone="neutral">Principal</Badge>}
+          {savedAddresses.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+              {savedAddresses.map((address) => (
+                <ChoiceCard key={address.id} on={selectedAddressId === address.id} onClick={() => pickAddress(address)} icon="pin">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                      {address.label}
+                      {address.isPrimary && <Badge tone="neutral">Principal</Badge>}
+                    </div>
+                    <div className="cell-muted">{[address.addressLine, address.district, address.city].filter(Boolean).join(" · ")}</div>
                   </div>
-                  <div className="cell-muted">{[address.addressLine, address.district, address.city].filter(Boolean).join(" · ")}</div>
-                </div>
-              </ChoiceCard>
-            ))}
-          </div>
-          <button className="btn btn-secondary btn-sm" style={{ width: "100%", justifyContent: "center" }} onClick={startNewAddress}><Icon name="plus" size={14} />Adicionar novo endereço</button>
+                </ChoiceCard>
+              ))}
+            </div>
+          )}
+          {hasAdHocAddress && (
+            <ChoiceCard on onClick={openAddressModal} icon="pin">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{delivery.recipientName || "Endereço avulso desta venda"}</div>
+                <div className="cell-muted">{[delivery.addressLine, delivery.district, delivery.city].filter(Boolean).join(" · ")}</div>
+              </div>
+            </ChoiceCard>
+          )}
+          <button className="btn btn-secondary btn-sm" style={{ width: "100%", justifyContent: "center", marginTop: (savedAddresses.length > 0 || hasAdHocAddress) ? 8 : 0 }} onClick={openAddressModal}>
+            <Icon name={hasAdHocAddress ? "pencil" : "plus"} size={14} />{hasAdHocAddress ? "Editar endereço" : "Adicionar novo endereço"}
+          </button>
           {selectedAddressId && (
             <div style={{ marginTop: 10 }}><Field label="Nome de quem recebe"><input className="input" value={delivery.recipientName || ""} onChange={(e) => setDelivery({ ...delivery, recipientName: e.target.value })} /></Field></div>
           )}
@@ -330,11 +348,8 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
         </>
       )}
 
-      {type === "delivery" && mode === "new" && (
-        <>
-          {savedAddresses.length > 0 && (
-            <button className="btn btn-ghost btn-sm" style={{ marginBottom: 10 }} onClick={() => setMode("pick")}><Icon name="chevL" size={14} />Usar um endereço salvo</button>
-          )}
+      {addressModalOpen && (
+        <Modal open onClose={() => setAddressModalOpen(false)} title="Cadastrar endereço de entrega">
           <div style={{ marginBottom: 8 }}>
             <Field label="CEP">
               <input className="input mono" inputMode="numeric" maxLength={9} placeholder="00000-000" value={delivery.postalCode || ""} onChange={(e) => setDelivery({ ...delivery, postalCode: formatCep(e.target.value) })} />
@@ -350,21 +365,23 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
             <Field label="Número"><input className="input" value={delivery.addressNumber || ""} onChange={(e) => setDelivery({ ...delivery, addressNumber: e.target.value })} /></Field>
             <Field label="Bairro"><input className="input" value={delivery.district || ""} onChange={(e) => setDelivery({ ...delivery, district: e.target.value })} /></Field>
           </div>
-          <div style={{ marginBottom: 8 }}><Field label="Nome de quem recebe"><input className="input" value={delivery.recipientName || ""} onChange={(e) => setDelivery({ ...delivery, recipientName: e.target.value })} /></Field></div>
+          <div style={{ marginBottom: 12 }}><Field label="Nome de quem recebe"><input className="input" value={delivery.recipientName || ""} onChange={(e) => setDelivery({ ...delivery, recipientName: e.target.value })} /></Field></div>
           {onSaveAddress && (
-            <>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginBottom: 10 }} onClick={() => setSaveNewAddress((v) => !v)}>
-                <span style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", background: saveNewAddress ? "var(--accent)" : "transparent", borderColor: saveNewAddress ? "var(--accent)" : "var(--border-strong)", color: "#fff" }}>{saveNewAddress && <Icon name="check" size={12} />}</span>
-                Salvar este endereço para o cliente
-              </label>
-              {saveNewAddress && (
-                <button className="btn btn-primary btn-sm" style={{ width: "100%", justifyContent: "center" }} disabled={savingAddress || !delivery.addressLine} onClick={handleSaveAddress}>
-                  <Icon name="check" size={14} />{savingAddress ? "Salvando…" : "Salvar endereço"}
-                </button>
-              )}
-            </>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginBottom: 12 }} onClick={() => setSaveNewAddress((v) => !v)}>
+              <span style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", background: saveNewAddress ? "var(--accent)" : "transparent", borderColor: saveNewAddress ? "var(--accent)" : "var(--border-strong)", color: "#fff" }}>{saveNewAddress && <Icon name="check" size={12} />}</span>
+              Salvar este endereço para o cliente
+            </label>
           )}
-        </>
+          {onSaveAddress && saveNewAddress ? (
+            <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={savingAddress || !delivery.addressLine} onClick={handleSaveAddress}>
+              <Icon name="check" size={15} />{savingAddress ? "Salvando…" : "Salvar endereço"}
+            </button>
+          ) : (
+            <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={!delivery.addressLine} onClick={() => setAddressModalOpen(false)}>
+              <Icon name="check" size={15} />Usar este endereço
+            </button>
+          )}
+        </Modal>
       )}
     </div>
   );
@@ -438,101 +455,101 @@ function PdvRecurrenceSuggestions({ candidates, onConfigure }) {
   );
 }
 
-/* "Produto que o cliente queria e não encontramos" — igual ao MissingProductBox do artifact,
-   mas com dados reais: busca em todas as lojas via /pdv/products/search e reaproveita a mesma
-   reserva entre lojas já usada no catálogo (onReserve = openReservation do PdvScreen). Quando o
-   produto não existe em nenhuma loja (ou nem está cadastrado no catálogo), registra a demanda
-   via pdvLogDemand em vez de reservar — não há estoque real para travar. */
+/* "Não encontrou o produto?" — visualmente distinto da busca do catálogo logo acima (fundo
+   âmbar, ícone e frase próprios) para não ser confundido com o campo que bipa/adiciona ao
+   carrinho: aqui a busca é só para descobrir se o item existe em outra loja da rede ou
+   registrar que o cliente pediu, nunca para vender. Busca ao vivo (debounce), como o campo
+   principal — mostra cada correspondência já com o que fazer com ela (reservar em outra loja,
+   ou registrar a falta), sem precisar apertar Enter/clicar num botão de busca separado. */
 function PdvMissingProductBox({ pdvSearchProducts, pdvLogDemand, customer, onReserve }) {
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
-  const [phase, setPhase] = useState("idle"); // idle | elsewhere | noStock | notFound | registered
-  const [otherStoreMatches, setOtherStoreMatches] = useState([]);
-  const [matchedItemId, setMatchedItemId] = useState(null);
-  const [matchedName, setMatchedName] = useState("");
+  const [searched, setSearched] = useState(false);
+  const [results, setResults] = useState([]);
+  const [registeredKey, setRegisteredKey] = useState("");
 
-  const reset = () => { setQ(""); setSearching(false); setPhase("idle"); setOtherStoreMatches([]); setMatchedItemId(null); setMatchedName(""); };
-
-  const runSearch = async () => {
+  useEffect(() => {
     const term = q.trim();
-    if (!term || !pdvSearchProducts) return;
+    setRegisteredKey("");
+    if (term.length < 2 || !pdvSearchProducts) { setResults([]); setSearched(false); setSearching(false); return; }
+    let active = true;
     setSearching(true);
-    const found = await pdvSearchProducts(term);
-    setSearching(false);
-    if (!found || found.length === 0) { setMatchedItemId(null); setMatchedName(""); setOtherStoreMatches([]); setPhase("notFound"); return; }
-    const withStock = found.find((it) => it.totalStock > 0);
-    if (withStock) {
-      setMatchedItemId(withStock.id); setMatchedName(withStock.name);
-      setOtherStoreMatches(withStock.components.filter((c) => c.qty > 0));
-      setPhase("elsewhere");
-    } else {
-      setMatchedItemId(found[0].id); setMatchedName(found[0].name); setOtherStoreMatches([]);
-      setPhase("noStock");
-    }
+    const handle = setTimeout(async () => {
+      const found = await pdvSearchProducts(term);
+      if (!active) return;
+      setResults(found || []);
+      setSearching(false);
+      setSearched(true);
+    }, 300);
+    return () => { active = false; clearTimeout(handle); };
+  }, [q]);
+
+  const registerItem = async (itemId) => {
+    if (!pdvLogDemand) return;
+    const key = itemId || "avulso:" + q.trim();
+    const ok = await pdvLogDemand({ query: q.trim(), matchedItemId: itemId || null, customer });
+    if (ok) setRegisteredKey(key);
   };
 
-  const registerDemand = async () => {
-    if (!pdvLogDemand) return;
-    const ok = await pdvLogDemand({ query: q.trim(), matchedItemId, customer });
-    if (ok) setPhase("registered");
-  };
+  const term = q.trim();
+  const showEmpty = searched && !searching && results.length === 0 && term.length >= 2;
 
   return (
-    <div className="card card-pad" style={{ marginBottom: 14 }}>
-      <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 8 }}>Produto que o cliente queria e não encontramos</div>
-      {phase === "idle" && (
-        <div style={{ display: "flex", gap: 8 }}>
-          <input className="input" placeholder="Nome do medicamento/produto..." value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runSearch()} />
-          <button className="btn btn-secondary btn-sm" disabled={!q.trim() || searching} onClick={runSearch}>
-            <Icon name="search" size={13} />{searching ? "Buscando…" : "Buscar em outras lojas"}
-          </button>
-        </div>
-      )}
-      {phase === "elsewhere" && (
-        <div>
-          <div className="cell-muted" style={{ fontSize: 12, marginBottom: 8 }}>Encontramos <b style={{ color: "var(--text-primary)" }}>{matchedName}</b> em outra(s) loja(s):</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-            {otherStoreMatches.map((c) => (
-              <button type="button" key={c.id} className="identify-result" style={{ border: "1px solid var(--border)", borderRadius: 10 }} onClick={() => { onReserve(c); reset(); }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{c.storeName || "Loja"}</div>
-                  <div className="cell-muted" style={{ fontSize: 11 }}>{c.loc} · {brl(c.price)}</div>
+    <div className="card card-pad" style={{ marginBottom: 14, background: "var(--warning-soft)", border: "none" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 2 }}>
+        <Icon name="search" size={14} style={{ color: "var(--warning)" }} />
+        <div style={{ fontWeight: 800, fontSize: 13 }}>Não encontrou o produto?</div>
+      </div>
+      <div className="cell-muted" style={{ fontSize: 11.5, marginBottom: 10 }}>
+        Digite o nome — mostramos na hora se tem em outra loja da rede, ou registramos o pedido do cliente.
+      </div>
+      <input className="input" placeholder="Nome do medicamento ou produto que o cliente pediu..." value={q} onChange={(e) => setQ(e.target.value)} />
+      {searching && <div className="cell-muted" style={{ fontSize: 11.5, marginTop: 8 }}>Buscando…</div>}
+      {results.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+          {results.slice(0, 6).map((item) => {
+            const stocked = (item.components || []).filter((c) => c.qty > 0);
+            const isRegistered = registeredKey === item.id;
+            return (
+              <div key={item.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 10px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{item.name}</div>
+                  {isRegistered ? (
+                    <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--good)", fontWeight: 700, fontSize: 11 }}><Icon name="check" size={12} />Registrado</span>
+                  ) : stocked.length > 0 ? (
+                    <Badge tone="neutral">Em outra loja</Badge>
+                  ) : (
+                    <Badge tone="warning">Sem estoque</Badge>
+                  )}
                 </div>
-                <Badge tone="neutral">Reservar</Badge>
-              </button>
-            ))}
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={reset}>Cancelar</button>
+                {stocked.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                    {stocked.map((c) => (
+                      <button type="button" key={c.id} className="identify-result" style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "6px 8px" }} onClick={() => { onReserve(c); setQ(""); }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 11.5 }}>{c.storeName || "Loja"}</div>
+                          <div className="cell-muted" style={{ fontSize: 10.5 }}>{c.loc} · {brl(c.price)}</div>
+                        </div>
+                        <Badge tone="neutral">Reservar</Badge>
+                      </button>
+                    ))}
+                  </div>
+                ) : !isRegistered ? (
+                  <button className="btn btn-secondary btn-sm" style={{ marginTop: 6, width: "100%", justifyContent: "center" }} onClick={() => registerItem(item.id)}>Registrar que o cliente quis</button>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
-      {phase === "noStock" && (
-        <div>
-          <div className="cell-muted" style={{ fontSize: 12, marginBottom: 10 }}>
-            <b style={{ color: "var(--text-primary)" }}>{matchedName}</b> está cadastrado no sistema, mas sem estoque disponível em nenhuma loja da rede no momento.
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-secondary btn-sm" onClick={reset}>Cancelar</button>
-            <button className="btn btn-primary btn-sm" onClick={registerDemand}>Registrar que o cliente quis</button>
-          </div>
-        </div>
-      )}
-      {phase === "notFound" && (
-        <div>
-          <div className="cell-muted" style={{ fontSize: 12, marginBottom: 10 }}>
-            <b style={{ color: "var(--text-primary)" }}>{q.trim()}</b> não está cadastrado no sistema. É possível registrar o nome avulso para consulta posterior.
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-secondary btn-sm" onClick={reset}>Cancelar</button>
-            <button className="btn btn-primary btn-sm" onClick={registerDemand}>Registrar nome avulso</button>
-          </div>
-        </div>
-      )}
-      {phase === "registered" && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--good)", fontWeight: 700, fontSize: 12.5 }}>
-            <Icon name="check" size={14} />Registrado — obrigado por avisar
-          </span>
-          <button className="btn btn-ghost btn-sm" onClick={reset}>Buscar outro</button>
+      {showEmpty && (
+        <div style={{ marginTop: 10 }}>
+          <div className="cell-muted" style={{ fontSize: 11.5, marginBottom: 6 }}>"{term}" não está no catálogo.</div>
+          {registeredKey === "avulso:" + term ? (
+            <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--good)", fontWeight: 700, fontSize: 11 }}><Icon name="check" size={12} />Registrado — obrigado por avisar</span>
+          ) : (
+            <button className="btn btn-secondary btn-sm" onClick={() => registerItem(null)}>Registrar pedido avulso</button>
+          )}
         </div>
       )}
     </div>
@@ -697,7 +714,10 @@ const PRESCRIPTION_STATUS_META = {
 };
 
 function PdvScreen({ ctx }) {
-  const { inventory, coupons = [], pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, pdvLogDemand, pdvFetchUpsellSuggestions, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
+  const { user, inventory, coupons = [], pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, pdvLogDemand, pdvFetchUpsellSuggestions, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
+  // Só admin/gerente escolhem a visão livremente — farmacêutico e caixa ficam travados na própria,
+  // sem o seletor (que nunca fazia sentido pra eles: um farmacêutico não deveria conseguir "virar" caixa).
+  const canSwitchOperator = !!user && (user.role === "admin" || user.role === "manager");
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [expandedResultId, setExpandedResultId] = useState(null);
@@ -707,7 +727,14 @@ function PdvScreen({ ctx }) {
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponError, setCouponError] = useState("");
   const [cpfNota, setCpfNota] = useState(true);
-  const [operator, setOperator] = useState("pharm");
+  const [operator, setOperator] = useState(() => (user && user.role === "cashier" ? "caixa" : "pharm"));
+  // Corrige a visão se `user` ainda não tinha carregado na primeira renderização, ou se por algum
+  // caminho (ex.: estado antigo salvo) um farmacêutico/caixa tiver acabado na visão errada.
+  useEffect(() => {
+    if (!user || canSwitchOperator) return;
+    const forced = user.role === "cashier" ? "caixa" : "pharm";
+    if (operator !== forced) setOperator(forced);
+  }, [user && user.role, canSwitchOperator]);
   const [caixaReady, setCaixaReady] = useState(false); // paciente confirmado — atendimento iniciado
   const [idOpen, setIdOpen] = useState(false);
   const [nota, setNota] = useState(null);
@@ -725,6 +752,35 @@ function PdvScreen({ ctx }) {
   const [prescriptionStatus, setPrescriptionStatus] = useState({}); // por inventoryItemId: { status, deliveryMethod, prescriptionId }
   const [prescriptionTarget, setPrescriptionTarget] = useState(null); // linha do carrinho aberta no modal de validação de receita
   const [itemLocations, setItemLocations] = useState({}); // por inventoryItemId: [{ locationId, locationCode, locationName, locationType, qty }]
+
+  // Maquininha Itaú (via farmaura-pdv-bridge, agente local no PC do caixa) — status de conexão e da cobrança em andamento.
+  const [bridgeOk, setBridgeOk] = useState(null); // null = ainda não checou, true/false = resultado do último /health
+  const [bridgeSettingsOpen, setBridgeSettingsOpen] = useState(false);
+  const [terminalCharge, setTerminalCharge] = useState(null); // { chargeId, status, qrCodeText, nsu, authCode, errorMessage }
+
+  useEffect(() => {
+    if (operator !== "caixa") return;
+    let cancelled = false;
+    const check = async () => { const r = await pdvBridgeHealth(); if (!cancelled) setBridgeOk(!!r.ok); };
+    check();
+    const t = setInterval(check, 5000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [operator]);
+
+  useEffect(() => {
+    if (!terminalCharge || !terminalCharge.chargeId) return;
+    if (["approved", "declined", "cancelled", "error"].includes(terminalCharge.status)) return;
+    let cancelled = false;
+    const t = setInterval(async () => {
+      try {
+        const state = await pdvBridgeGetCharge(terminalCharge.chargeId);
+        if (!cancelled) setTerminalCharge((prev) => (prev && prev.chargeId === terminalCharge.chargeId ? { ...prev, ...state } : prev));
+      } catch (error) {
+        if (!cancelled) setTerminalCharge((prev) => (prev && prev.chargeId === terminalCharge.chargeId ? { ...prev, status: "error", errorMessage: friendlyBridgeError(error) } : prev));
+      }
+    }, 1000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [terminalCharge && terminalCharge.chargeId, terminalCharge && terminalCharge.status]);
 
   // Para cada item novo no carrinho, busca de onde ele pode ser retirado (prateleira/estoque/gôndola)
   // e pré-seleciona o primeiro local — o operador continua livre para trocar antes de enviar ao caixa.
@@ -842,15 +898,18 @@ function PdvScreen({ ctx }) {
 
   // Consulta (com debounce) o desconto máximo que o carrinho atual comporta sem furar a margem mínima do produto,
   // já reservando espaço para o cashback disponível do cliente — reduz automaticamente o desconto já escolhido se ele ultrapassar o novo teto.
+  // A mesma chamada já traz o cashback que o carrinho vai gerar (mesmo cálculo por regra usado na emissão real da nota).
+  const [cashbackPreview, setCashbackPreview] = useState(0);
   useEffect(() => {
     const cartLines = pdvCart.filter((l) => l.id);
-    if (!cartLines.length) { setDiscountLimit(100); return; }
+    if (!cartLines.length) { setDiscountLimit(100); setCashbackPreview(0); return; }
     let cancelled = false;
     const t = setTimeout(async () => {
-      const result = fetchPdvDiscountLimit ? await fetchPdvDiscountLimit({ items: cartLines, customerId: pdvCustomer && pdvCustomer.id }) : { maxDiscountPercent: 100 };
+      const result = fetchPdvDiscountLimit ? await fetchPdvDiscountLimit({ items: cartLines, customerId: pdvCustomer && pdvCustomer.id }) : { maxDiscountPercent: 100, cashbackEarnedPreview: 0 };
       if (cancelled) return;
       setDiscountLimit(result.maxDiscountPercent);
       setDiscount((current) => Math.min(current, result.maxDiscountPercent));
+      setCashbackPreview(result.cashbackEarnedPreview || 0);
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
   }, [pdvCart, pdvCustomer && pdvCustomer.id]);
@@ -961,9 +1020,30 @@ function PdvScreen({ ctx }) {
   const cashApplied = Math.max(0, Math.min(cashWanted, cashAvailable, afterDisc));
   const total = Math.max(0, afterDisc - cashApplied);
   const hasControlled = lines.some((l) => l.controlled);
+  const pendingRxLines = lines.filter((l) => l.controlled && (prescriptionStatus[l.id] || { status: "missing" }).status !== "approved");
+
+  // Painel do carrinho: mostra ~5 produtos antes de rolar, medindo a altura real das linhas (que variam com local de retirada/receita).
+  const cartItemsRef = useRef(null);
+  const [cartListMaxHeight, setCartListMaxHeight] = useState(null);
+  useLayoutEffect(() => {
+    const container = cartItemsRef.current;
+    if (!container || lines.length <= 5) { setCartListMaxHeight(null); return; }
+    const rows = Array.from(container.children).slice(0, 5);
+    const total = rows.reduce((sum, el) => sum + el.getBoundingClientRect().height, 0);
+    if (total > 0) setCartListMaxHeight(Math.ceil(total));
+  });
 
   // Adiciona um componente de loja específico ao carrinho.
-  const addComponent = (component) => { pdvAdd(component); setQ(""); setResults([]); setExpandedResultId(null); };
+  // Bloqueia adicionar mais unidades do que a loja atual tem — o componente já traz o estoque real dessa loja (component.qty).
+  const addComponent = (component) => {
+    const already = pdvCart.find((c) => c.id === component.id);
+    const currentQty = already ? already.qty : 0;
+    if (currentQty >= component.qty) {
+      notify && notify("Estoque máximo desta loja já está no carrinho (" + component.qty + " un.). Para mais unidades, reserve em outra loja.", "warn");
+      return;
+    }
+    pdvAdd(component); setQ(""); setResults([]); setExpandedResultId(null);
+  };
 
   // Reserva de produto disponível em outra loja — o cliente retira lá, não entra no carrinho desta venda.
   const [reservationTarget, setReservationTarget] = useState(null); // componente de outra loja escolhido para reservar
@@ -971,6 +1051,18 @@ function PdvScreen({ ctx }) {
   const [reservationQty, setReservationQty] = useState(1);
   const [reservationBusy, setReservationBusy] = useState(false);
   const openReservation = (component) => { setReservationTarget(component); setReservationQty(1); setQ(""); setResults([]); setExpandedResultId(null); };
+
+  // Item no carrinho já bateu no teto de estoque desta loja — busca outras lojas com o mesmo produto
+  // para reservar o excedente (o cliente leva o que a loja atual tem e retira o resto na outra loja).
+  const [restockPicker, setRestockPicker] = useState(null); // { line, options: [componentes de outras lojas] }
+  const openExtraReservation = async (line) => {
+    const found = pdvSearchProducts ? await pdvSearchProducts(line.name) : [];
+    const match = (found || []).find((it) => (it.components || []).some((c) => c.id === line.id));
+    const options = match ? match.components.filter((c) => c.id !== line.id && c.qty > 0) : [];
+    if (options.length === 0) { notify && notify("Nenhuma outra loja com estoque deste produto no momento.", "warn"); return; }
+    if (options.length === 1) { openReservation(options[0]); return; }
+    setRestockPicker({ line, options });
+  };
   const confirmReservation = async () => {
     if (!reservationTarget || !pdvCreateReservation) return;
     setReservationBusy(true);
@@ -983,9 +1075,9 @@ function PdvScreen({ ctx }) {
     setReservationConfirmed({ ...result, productName: reservationTarget.name });
   };
 
-  const emit = async () => {
+  const emit = async (terminalReference) => {
     try {
-      const synced = recordSale && await recordSale({ pay, items: lines, customer: pdvCustomer, cpfNota, cashApplied, discVal });
+      const synced = recordSale && await recordSale({ pay, items: lines, customer: pdvCustomer, cpfNota, cashApplied, discVal, terminalReference });
       if (!synced) {
         notify && notify("Não foi possível emitir a nota fiscal agora. Tente novamente.", "warn");
         return;
@@ -993,17 +1085,41 @@ function PdvScreen({ ctx }) {
       // O servidor é a fonte da verdade para o cashback — aplica o saldo resultante no cliente em tela.
       if (pdvCustomer) creditCashback(pdvCustomer, synced.cashback, total, synced.cashApplied);
       setNota({ ...synced, cpfNota, discVal });
+      setTerminalCharge(null);
     } catch (error) {
       notify && notify(error && error.message ? error.message : "Não foi possível concluir a venda.", "warn");
     }
   };
+
+  // Dispara a cobrança na maquininha (pix/débito/crédito) — dinheiro nunca passa por aqui, emite direto.
+  const startTerminalCharge = async () => {
+    setTerminalCharge({ status: "starting" });
+    try {
+      const amountCents = Math.round(total * 100);
+      const { chargeId } = await pdvBridgeCharge({ method: pay, amountCents, reference: draftId || "" });
+      setTerminalCharge({ chargeId, status: "pending" });
+    } catch (error) {
+      setTerminalCharge({ status: "error", errorMessage: friendlyBridgeError(error) });
+    }
+  };
+  const cancelTerminalCharge = async () => {
+    const current = terminalCharge;
+    setTerminalCharge(null);
+    if (current && current.chargeId) { try { await pdvBridgeCancelCharge(current.chargeId); } catch (error) { /* já saímos da tela de cobrança, sem mais o que fazer */ } }
+  };
+  // Assim que a maquininha aprova, emite a nota automaticamente com a referência (NSU) presa à venda.
+  useEffect(() => {
+    if (terminalCharge && terminalCharge.status === "approved" && terminalCharge.chargeId) {
+      emit(terminalCharge.nsu || terminalCharge.authCode || terminalCharge.chargeId);
+    }
+  }, [terminalCharge && terminalCharge.status]);
 
   return (
     <div className="route-fade">
       <PageHead
         eyebrow="Atendimento" title="Balcão · Venda no momento"
         desc={operator === "pharm" ? "Visão do farmacêutico — monte o pedido e oriente o cliente" : "Visão do caixa — receba o pagamento e emita a nota"}
-        actions={<PillNav options={[{ key: "pharm", label: "Tela do farmacêutico" }, { key: "caixa", label: "Tela do caixa" }]} active={operator} onChange={switchOperator} />}
+        actions={canSwitchOperator ? <PillNav options={[{ key: "pharm", label: "Tela do farmacêutico" }, { key: "caixa", label: "Tela do caixa" }]} active={operator} onChange={switchOperator} /> : null}
       />
 
       {(operator === "caixa" ? !caixaReady : (!pdvCustomer && !caixaReady)) ? (
@@ -1035,6 +1151,39 @@ function PdvScreen({ ctx }) {
           )
       ) : (
       <>
+        {pendingRxLines.length > 0 && (
+          <div className="pdv-rx-banner">
+            <div className="pdv-rx-banner-head">
+              <Icon name="alert" size={16} />
+              {pendingRxLines.length === 1 ? "1 item precisa de validação de receita antes de finalizar" : pendingRxLines.length + " itens precisam de validação de receita antes de finalizar"}
+            </div>
+            <div className="pdv-rx-banner-items">
+              {pendingRxLines.map((l) => {
+                const rx = prescriptionStatus[l.id] || { status: "missing" };
+                const rxMeta = PRESCRIPTION_STATUS_META[rx.status] || PRESCRIPTION_STATUS_META.missing;
+                // Só farmacêutico/gerente/admin podem validar receita no servidor (POST /pdv/prescriptions) —
+                // no caixa isso é só informativo, para não parecer que o clique "não faz nada".
+                if (operator !== "pharm") {
+                  return (
+                    <div key={l.id} className="pdv-rx-banner-item" style={{ cursor: "default" }}>
+                      <Icon name={rxMeta.icon} size={13} />
+                      <span className="pdv-rx-banner-item-name">{l.name}</span>
+                      <span className="pdv-rx-banner-item-status">{rxMeta.label} · aguardando o farmacêutico</span>
+                    </div>
+                  );
+                }
+                return (
+                  <button key={l.id} type="button" className="pdv-rx-banner-item" onClick={() => setPrescriptionTarget(l)}>
+                    <Icon name={rxMeta.icon} size={13} />
+                    <span className="pdv-rx-banner-item-name">{l.name}</span>
+                    <span className="pdv-rx-banner-item-status">{rxMeta.label}</span>
+                    <Icon name="chevR" size={12} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 10 }}>
           {lines.length > 0 && (
             <button className="btn btn-ghost btn-sm" style={{ color: "var(--critical)" }} onClick={pdvClear}><Icon name="trash" size={13} />Limpar carrinho</button>
@@ -1125,46 +1274,31 @@ function PdvScreen({ ctx }) {
             </div>
           )}
 
-          {/* ===== Visão do FARMACÊUTICO: sugestões do que o cliente mais compra + recorrência ===== */}
-          {operator === "pharm" && <PdvUpsell items={upsellSuggestions} loading={upsellLoading} hasContext={lines.length > 0 || !!upsellCustomerId} onAdd={pdvAdd} />}
+          {/* Oportunidades de venda: também no caixa (ele também pode oferecer mais um item), mas sem
+              produto controlado — o caixa não valida receita, então nunca deveria estar sugerindo
+              justamente o tipo de item que exige essa validação. */}
+          <PdvUpsell
+            items={operator === "caixa" ? upsellSuggestions.filter((it) => !it.controlled) : upsellSuggestions}
+            loading={upsellLoading} hasContext={lines.length > 0 || !!upsellCustomerId} onAdd={pdvAdd}
+          />
           {operator === "pharm" && pdvCustomer && <PdvRecurrenceSuggestions candidates={insights.recurrenceCandidates} onConfigure={setRecurrenceCandidate} />}
-
-          {/* Retirada na loja ou entrega (visão do farmacêutico, com cliente identificado) */}
-          {operator === "pharm" && pdvCustomer && (
-            <div style={{ marginBottom: 14 }}><PdvFulfillmentPicker delivery={delivery} setDelivery={setDelivery} checkPdvDeliveryCoverage={checkPdvDeliveryCoverage} savedAddresses={savedAddresses} onSaveAddress={saveCustomerAddress} /></div>
-          )}
 
           {/* Produto que o cliente queria e não encontramos — busca em outras lojas da rede, reserva ou registra a demanda */}
           {operator === "pharm" && (
             <PdvMissingProductBox pdvSearchProducts={pdvSearchProducts} pdvLogDemand={pdvLogDemand} customer={pdvCustomer} onReserve={openReservation} />
           )}
 
-          {/* Catálogo de produtos — cartão persistente com a lista abaixo da busca, igual ao artifact */}
+          {/* Catálogo de produtos — cartão minimalista voltado à pesquisa: sem lista de
+              navegação por padrão (a busca é sempre o ponto de entrada), resultado enxuto
+              (sem ícone por linha), e o mesmo card de reserva-em-outra-loja de antes. */}
           <div className="card" style={{ overflow: "hidden" }}>
-            <div style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
+            <div style={{ padding: 14, borderBottom: q.trim() ? "1px solid var(--border)" : "none" }}>
               <SearchInput value={q} onChange={setQ} placeholder="Buscar produto, marca ou EAN — ou bipar o código de barras" />
             </div>
             {q.trim() === "" ? (
-              dedupeByName(inventory.filter((it) => it.qty > 0)).length === 0 ? (
-                <div className="cell-muted" style={{ padding: "22px 14px", fontSize: 12.5, textAlign: "center" }}>Nenhum produto em estoque nesta loja.</div>
-              ) : (
-                <div>
-                  {dedupeByName(inventory.filter((it) => it.qty > 0)).slice(0, 30).map((it) => (
-                    <button type="button" key={it.id} className="identify-result" onClick={() => pdvAdd(it.id)}>
-                      <div className="prod-row-icon"><Icon name={it.controlled ? "lock" : "box"} size={16} /></div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{it.name}</div>
-                        <div className="cell-muted mono" style={{ fontSize: 10.5 }}>{it.sku || it.ean}</div>
-                      </div>
-                      {it.controlled && <Badge tone="warning">Controlado</Badge>}
-                      <span style={{ fontWeight: 800, fontFamily: "var(--font-display)", fontSize: 13 }}>{brl(it.price)}</span>
-                      <Icon name="plus" size={14} style={{ color: "var(--text-muted)", flex: "none" }} />
-                    </button>
-                  ))}
-                </div>
-              )
+              <EmptyState icon="search" title="Busque um produto para começar" desc="Digite o nome, a marca, o EAN — ou bipe o código de barras do produto." />
             ) : results.length === 0 ? (
-              <div className="cell-muted" style={{ padding: "22px 14px", fontSize: 12.5, textAlign: "center" }}>Nenhum produto encontrado.</div>
+              <EmptyState icon="search" title="Nenhum produto encontrado" desc={`Não encontramos nada para "${q.trim()}".`} />
             ) : (
               <div>
                 {results.map((it) => {
@@ -1185,20 +1319,21 @@ function PdvScreen({ ctx }) {
                         }}
                         disabled={outOfStock || (!availableHere && !canReserveElsewhere)}
                       >
-                        <div className="prod-row-icon"><Icon name={it.controlled ? "lock" : "box"} size={16} /></div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: 12.5 }}>{it.name}</div>
-                          <div className="cell-muted mono" style={{ fontSize: 10.5 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5 }}>
+                            {it.name}
+                            {it.controlled && <Badge tone="warning">Controlado</Badge>}
+                          </div>
+                          <div className="cell-muted mono" style={{ fontSize: 10.5, marginTop: 1 }}>
                             {it.ean}
                             {availableHere ? " · " + own.loc : canReserveElsewhere ? " · em outra loja" : outOfStock ? " · esgotado" : ""}
                           </div>
                         </div>
-                        {it.controlled && <Badge tone="warning">Controlado</Badge>}
                         <span style={{ fontWeight: 800, fontFamily: "var(--font-display)", fontSize: 13 }}>{brl(availableHere ? own.price : (otherComponents[0] ? otherComponents[0].price : 0))}</span>
                         <Icon name={availableHere ? "plus" : (canReserveElsewhere ? "chevD" : "x")} size={14} style={{ color: "var(--text-muted)", flex: "none", transform: !availableHere && canReserveElsewhere && expanded ? "rotate(180deg)" : "none" }} />
                       </button>
                       {!availableHere && canReserveElsewhere && expanded && (
-                        <div style={{ padding: "4px 10px 8px 56px", display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ padding: "4px 10px 8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
                           {otherComponents.map((component) => (
                             <button key={component.id} type="button" className="identify-result" style={{ border: "1px solid var(--border)", borderRadius: 10 }} onClick={() => openReservation(component)}>
                               <div style={{ flex: 1, minWidth: 0 }}>
@@ -1221,72 +1356,113 @@ function PdvScreen({ ctx }) {
 
         {/* Coluna: carrinho + pagamento + total — painel fixo, só a lista de itens rola */}
         <div className="pdv-cart">
-          <div className="pdv-cart-items scrollbar-thin" style={lines.length > 6 ? { maxHeight: 340 } : undefined}>
+          <div className="pdv-cart-items scrollbar-thin" ref={cartItemsRef} style={cartListMaxHeight != null ? { maxHeight: cartListMaxHeight, overflowY: "auto" } : undefined}>
             {lines.length === 0 ? (
               <EmptyState icon="scan" title="Comece a registrar a venda" desc="Busque ou bipe um produto para adicioná-lo." />
             ) : lines.map((l) => {
               const rx = l.controlled ? (prescriptionStatus[l.id] || { status: "missing" }) : null;
               const rxMeta = rx ? (PRESCRIPTION_STATUS_META[rx.status] || PRESCRIPTION_STATUS_META.missing) : null;
+              const locs = itemLocations[l.id];
+              const hasLocationChoice = (locs || []).length > 0;
+              // Teto de estoque desta loja para o item — soma dos locais já carregados; null enquanto não carregou (não bloqueia à toa).
+              const currentStock = locs ? locs.reduce((sum, entry) => sum + entry.qty, 0) : null;
+              const atStockCap = currentStock !== null && l.qty >= currentStock;
+              // Na tela do caixa, item controlado não pode ter a quantidade aumentada além do que a receita já validou
+              // (o farmacêutico segue livre para reajustar e revalidar antes de enviar; o servidor também barra no envio à fila).
+              const rxQtyCap = (operator === "caixa" && l.controlled && rx && rx.status === "approved" && typeof rx.validatedQty === "number") ? rx.validatedQty : null;
+              const atRxQtyCap = rxQtyCap !== null && l.qty >= rxQtyCap;
+              const disablePlus = atStockCap || atRxQtyCap;
               return (
               <div key={l.id} className="pdv-cart-line">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                    {l.name}
+                <div className="pdv-cart-line-main">
+                  <div style={{ fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
                     {l.controlled && <Badge tone="critical"><Icon name="lock" size={10} />Tarja</Badge>}
-                    {rx && (
-                      <button
-                        style={{ border: "none", cursor: "pointer", padding: 0, background: "transparent" }}
-                        onClick={() => setPrescriptionTarget(l)}
-                      >
-                        <Badge tone={rxMeta.tone}><Icon name={rxMeta.icon} size={10} />{rxMeta.label}</Badge>
-                      </button>
-                    )}
                   </div>
-                  <div className="cell-muted" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span>{brl(l.price)} un · {l.brand}{l.storeName ? " · " + l.storeName : ""}</span>
-                    {(itemLocations[l.id] || []).length > 0 ? (
-                      <select
-                        className="input"
-                        style={{ width: "auto", minWidth: 140, height: 24, padding: "0 6px", fontSize: 11 }}
-                        value={l.locationId || ""}
-                        onChange={(e) => {
-                          const picked = (itemLocations[l.id] || []).find((entry) => entry.locationId === e.target.value);
-                          pdvSetLocation(l.id, e.target.value, picked ? picked.locationCode : "");
-                        }}
-                      >
-                        <option value="" disabled>Escolha o local de retirada</option>
-                        {(itemLocations[l.id] || []).map((entry) => (
-                          <option key={entry.locationId} value={entry.locationId}>
-                            {entry.locationCode} · {entry.locationName} ({entry.qty} un)
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span>· {l.loc || "sem local cadastrado"}</span>
-                    )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="cell-muted" style={{ fontSize: 11, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {brl(l.price)} un · {l.brand}
+                    </div>
+                    <button className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => pdvSetQty(l.id, l.qty - 1)}><Icon name="minus" size={11} /></button>
+                    <span className="mono" style={{ width: 18, textAlign: "center", fontSize: 12 }}>{l.qty}</span>
+                    <button className="icon-btn" style={{ width: 26, height: 26 }} disabled={disablePlus} onClick={() => { if (!disablePlus) pdvSetQty(l.id, l.qty + 1); }}><Icon name="plus" size={11} /></button>
+                    <span className="tnum" style={{ width: 64, textAlign: "right", fontWeight: 700, fontSize: 12 }}>{brl(l.price * l.qty)}</span>
+                    <button className="icon-btn" style={{ width: 26, height: 26 }} aria-label="remover" onClick={() => pdvRemove(l.id)}><Icon name="x" size={11} /></button>
                   </div>
                 </div>
-                <button className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => pdvSetQty(l.id, l.qty - 1)}><Icon name="minus" size={11} /></button>
-                <span className="mono" style={{ width: 18, textAlign: "center", fontSize: 12 }}>{l.qty}</span>
-                <button className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => pdvSetQty(l.id, l.qty + 1)}><Icon name="plus" size={11} /></button>
-                <span className="tnum" style={{ width: 64, textAlign: "right", fontWeight: 700, fontSize: 12 }}>{brl(l.price * l.qty)}</span>
-                <button className="icon-btn" style={{ width: 26, height: 26 }} aria-label="remover" onClick={() => pdvRemove(l.id)}><Icon name="x" size={11} /></button>
+
+                {atRxQtyCap ? (
+                  <div className="pdv-cart-line-stock-hint">
+                    <Icon name="lock" size={12} />
+                    <span>Quantidade validada na receita: {rxQtyCap} un. — para mais, o farmacêutico precisa revalidar.</span>
+                  </div>
+                ) : atStockCap && (
+                  <div className="pdv-cart-line-stock-hint">
+                    <Icon name="alert" size={12} />
+                    <span>Estoque máximo desta loja: {currentStock} un.</span>
+                    <button type="button" onClick={() => openExtraReservation(l)}>Reservar mais em outra loja</button>
+                  </div>
+                )}
+
+                {hasLocationChoice && (
+                  <label className="pdv-cart-line-location">
+                    <Icon name="pin" size={12} />
+                    <select
+                      className="input"
+                      value={l.locationId || ""}
+                      onChange={(e) => {
+                        const picked = (itemLocations[l.id] || []).find((entry) => entry.locationId === e.target.value);
+                        pdvSetLocation(l.id, e.target.value, picked ? picked.locationCode : "");
+                      }}
+                    >
+                      <option value="" disabled>Escolha o local de retirada</option>
+                      {(itemLocations[l.id] || []).map((entry) => (
+                        <option key={entry.locationId} value={entry.locationId}>
+                          {entry.locationCode} · {entry.locationName} ({entry.qty} un)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {rx && (operator === "pharm" ? (
+                  <button type="button" className={"pdv-rx-row pdv-rx-row-" + rxMeta.tone} onClick={() => setPrescriptionTarget(l)}>
+                    <Icon name={rxMeta.icon} size={13} />
+                    <span style={{ flex: 1, textAlign: "left" }}>
+                      {rxMeta.label}
+                      {rx.status !== "approved" && <span className="pdv-rx-row-hint"> · toque para validar</span>}
+                    </span>
+                    <Icon name="chevR" size={12} />
+                  </button>
+                ) : (
+                  // Só farmacêutico/gerente/admin podem validar/recusar receita no servidor — no caixa
+                  // esta linha é só informativa (clicar não abriria a modal de validação de verdade).
+                  <div className={"pdv-rx-row pdv-rx-row-" + rxMeta.tone} style={{ cursor: "default" }}>
+                    <Icon name={rxMeta.icon} size={13} />
+                    <span style={{ flex: 1, textAlign: "left" }}>
+                      {rxMeta.label}
+                      {rx.status !== "approved" && <span className="pdv-rx-row-hint"> · só o farmacêutico pode validar</span>}
+                    </span>
+                  </div>
+                ))}
               </div>
               );
             })}
           </div>
 
-          {hasControlled && (
-            <div className="pdv-rx-blocked-note">
-              <Icon name="lock" size={12} />
-              Há item <b>controlado (tarja)</b> na venda — toque no selo de receita do item para validar antes de {operator === "pharm" ? "enviar ao caixa" : "finalizar"}.
-            </div>
-          )}
-
-          <div style={{ padding: 14, borderTop: "1px solid var(--border)" }}>
+          <div className="pdv-cart-footer">
             {/* ===== Visão do CAIXA: pagamento + CPF na nota ===== */}
             {operator === "caixa" && (
-              <>
+              <div className="pdv-cart-section">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div className="pdv-cart-section-label" style={{ margin: 0 }}>Pagamento</div>
+                  {pay !== "cash" && (
+                    <button type="button" className={"pdv-bridge-pill pdv-bridge-pill-" + (bridgeOk ? "ok" : "off")} onClick={() => setBridgeSettingsOpen(true)}>
+                      <Icon name={bridgeOk ? "check" : "alert"} size={11} />
+                      {bridgeOk ? "Maquininha conectada" : "Maquininha não encontrada"}
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                   {PAY_METHODS.map((m) => (
                     <button
@@ -1297,71 +1473,90 @@ function PdvScreen({ ctx }) {
                     </button>
                   ))}
                 </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginBottom: 14 }} onClick={() => setCpfNota(!cpfNota)}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }} onClick={() => setCpfNota(!cpfNota)}>
                   <span style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", background: cpfNota ? "var(--accent)" : "transparent", borderColor: cpfNota ? "var(--accent)" : "var(--border-strong)", color: "#fff" }}>{cpfNota && <Icon name="check" size={12} />}</span>
                   Incluir CPF na nota fiscal
                 </label>
-              </>
-            )}
-
-            {/* Retirada/entrega (visão do farmacêutico) — resumo; a escolha em si fica na coluna da esquerda */}
-            {operator === "pharm" && pdvCustomer && (
-              <div className="cell-muted" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <Icon name={delivery.fulfillmentType === "delivery" ? "truck" : "bag"} size={12} />
-                {delivery.fulfillmentType === "delivery" ? "Entrega" + (delivery.addressLine ? " · " + delivery.addressLine : "") : "Retirada na loja"}
               </div>
             )}
 
-            <Field label="Desconto adicional (%)" hint={discountLimit < 100 ? `Máximo permitido: ${discountLimit}% — limite de margem do produto${cashAvailable > 0 ? " e cashback do cliente" : ""}` : undefined}>
-              <input className="input" type="number" min="0" max={discountLimit} value={discount} disabled={!!appliedCoupon} onChange={(e) => setDiscount(Math.max(0, Math.min(discountLimit, +e.target.value)))} />
-            </Field>
-
-            {/* Cashback do cliente (visão do caixa) — aplicar saldo além do desconto, logo abaixo dele */}
-            {operator === "caixa" && pdvCustomer && cashAvailable > 0 && (
-              <div style={{ margin: "10px 0" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 12 }}>
-                  <span>Usar cashback disponível ({brl(cashAvailable)})</span>
-                  <SwitchToggle on={cashWanted > 0} onChange={(on) => setCashWanted(on ? Math.min(cashAvailable, afterDisc) : 0)} />
-                </div>
-                {cashWanted > 0 && (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input className="input" type="number" min="0" step="0.01" max={Math.min(cashAvailable, afterDisc)} value={cashWanted} onChange={(e) => setCashWanted(Math.max(0, +e.target.value || 0))} placeholder="0,00" style={{ flex: 1, fontSize: 11.5 }} />
-                  </div>
-                )}
-              </div>
-            )}
-            <div style={{ margin: "10px 0" }}>
-              <Field label="Cupom">
-                {appliedCoupon ? (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "8px 12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Icon name="tag" size={13} />{appliedCoupon.code}</span>
-                    <button type="button" className="icon-btn" style={{ width: 22, height: 22 }} onClick={removeCoupon}><Icon name="close" size={13} /></button>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input className="input" style={{ textTransform: "uppercase" }} disabled={discount > 0} value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} placeholder="Código do cupom" />
-                    <button type="button" className="btn btn-secondary" disabled={discount > 0 || !couponCode.trim()} onClick={applyCoupon}>Aplicar</button>
-                  </div>
-                )}
+            <div className="pdv-cart-section">
+              <div className="pdv-cart-section-label">Desconto e cupom</div>
+              <Field label="Desconto adicional (%)" hint={discountLimit < 100 ? `Máximo permitido: ${discountLimit}% — limite de margem do produto${cashAvailable > 0 ? " e cashback do cliente" : ""}` : undefined}>
+                <input className="input" type="number" min="0" max={discountLimit} value={discount} disabled={!!appliedCoupon} onChange={(e) => setDiscount(Math.max(0, Math.min(discountLimit, +e.target.value)))} />
               </Field>
-              {discount > 0 && <div className="cell-muted" style={{ marginTop: 4 }}>Zere o desconto manual para aplicar um cupom.</div>}
-              {couponError && <div className="cell-muted" style={{ marginTop: 4, color: "var(--critical)" }}>{couponError}</div>}
+
+              {/* Cashback do cliente (visão do caixa) — aplicar saldo além do desconto, logo abaixo dele */}
+              {operator === "caixa" && pdvCustomer && cashAvailable > 0 && (
+                <div style={{ margin: "12px 0 0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 12 }}>
+                    <span>Usar cashback disponível ({brl(cashAvailable)})</span>
+                    <SwitchToggle on={cashWanted > 0} onChange={(on) => setCashWanted(on ? Math.min(cashAvailable, afterDisc) : 0)} />
+                  </div>
+                  {cashWanted > 0 && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input className="input" type="number" min="0" step="0.01" max={Math.min(cashAvailable, afterDisc)} value={cashWanted} onChange={(e) => setCashWanted(Math.max(0, +e.target.value || 0))} placeholder="0,00" style={{ flex: 1, fontSize: 11.5 }} />
+                    </div>
+                  )}
+                </div>
+              )}
+              <div style={{ marginTop: 12 }}>
+                <Field label="Cupom">
+                  {appliedCoupon ? (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "8px 12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Icon name="tag" size={13} />{appliedCoupon.code}</span>
+                      <button type="button" className="icon-btn" style={{ width: 22, height: 22 }} onClick={removeCoupon}><Icon name="close" size={13} /></button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input className="input" style={{ textTransform: "uppercase" }} disabled={discount > 0} value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} placeholder="Código do cupom" />
+                      <button type="button" className="btn btn-secondary" disabled={discount > 0 || !couponCode.trim()} onClick={applyCoupon}>Aplicar</button>
+                    </div>
+                  )}
+                </Field>
+                {discount > 0 && <div className="cell-muted" style={{ marginTop: 4 }}>Zere o desconto manual para aplicar um cupom.</div>}
+                {couponError && <div className="cell-muted" style={{ marginTop: 4, color: "var(--critical)" }}>{couponError}</div>}
+              </div>
             </div>
 
-            <KV label="Subtotal" value={brl(subtotal)} />
-            {discVal > 0 && <KV label={appliedCoupon ? "Cupom aplicado" : "Desconto aplicado"} value={"− " + brl(discVal)} />}
-            {cashApplied > 0 && <KV label="Cashback aplicado" value={"− " + brl(cashApplied)} />}
-            <KV label="Itens" value={count} />
-            <KV label="Total" value={<span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16 }}>{brl(total)}</span>} />
-            {pdvCustomer && lines.length > 0 && <div className="cell-muted" style={{ textAlign: "right", marginTop: 2, marginBottom: 8 }}>O cashback ganho é calculado ao emitir a nota</div>}
+            <div className="pdv-cart-summary">
+              <div className="pdv-cart-section-label">Resumo</div>
+              <KV label="Subtotal" value={brl(subtotal)} />
+              {discVal > 0 && <KV label={appliedCoupon ? "Cupom aplicado" : "Desconto aplicado"} value={"− " + brl(discVal)} />}
+              {cashApplied > 0 && <KV label="Cashback aplicado" value={"− " + brl(cashApplied)} />}
+              <KV label="Itens" value={count} />
+              <KV label="Total" value={<span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16 }}>{brl(total)}</span>} />
+              {pdvCustomer && lines.length > 0 && cashbackPreview > 0 && <KV label="Cashback a ganhar" value={<span style={{ color: "var(--good)" }}>+ {brl(cashbackPreview)}</span>} />}
+            </div>
+
+            {/* Retirada/entrega (visão do farmacêutico) — controle completo, logo abaixo do total */}
+            {operator === "pharm" && pdvCustomer && (
+              <div className="pdv-cart-section">
+                <PdvFulfillmentPicker delivery={delivery} setDelivery={setDelivery} checkPdvDeliveryCoverage={checkPdvDeliveryCoverage} savedAddresses={savedAddresses} onSaveAddress={saveCustomerAddress} />
+              </div>
+            )}
 
             {operator === "pharm" ? (
-              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }} disabled={lines.length === 0} onClick={async () => { const ok = await pdvSendToCashier({ customer: pdvCustomer, items: pdvCart, discount, couponCode: appliedCoupon ? appliedCoupon.code : "", delivery, draftId }); if (ok) { setDraftId(null); finalizeSale && finalizeSale("Pedido enviado ao caixa"); setSentModal(true); } }}>
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }} disabled={lines.length === 0} onClick={async () => { const ok = await pdvSendToCashier({ customer: pdvCustomer, items: pdvCart, discount, couponCode: appliedCoupon ? appliedCoupon.code : "", delivery, draftId }); if (ok) { setDraftId(null); setSentModal(true); } }}>
                 <Icon name="send" size={15} />Enviar para o caixa
               </button>
             ) : (
-              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }} disabled={lines.length === 0} onClick={emit}>
-                <Icon name="receipt" size={15} />Gerar nota fiscal
+              <button
+                className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }} disabled={lines.length === 0}
+                onClick={() => {
+                  if (pendingRxLines.length > 0) {
+                    notify && notify(
+                      pendingRxLines.length === 1
+                        ? "Ainda falta validar a receita de " + pendingRxLines[0].name + ". Peça para o farmacêutico validar antes de finalizar."
+                        : "Ainda faltam " + pendingRxLines.length + " receitas para validar. Peça para o farmacêutico validar antes de finalizar.",
+                      "warn"
+                    );
+                    return;
+                  }
+                  pay === "cash" ? emit() : startTerminalCharge();
+                }}
+              >
+                {pay === "cash" ? (<><Icon name="receipt" size={15} />Gerar nota fiscal</>) : (<><Icon name="card" size={15} />Cobrar na maquininha</>)}
               </button>
             )}
           </div>
@@ -1371,6 +1566,12 @@ function PdvScreen({ ctx }) {
       )}
 
       {nota && <NotaFiscalModal nota={nota} storeFiscal={storeFiscal} pharmacistProfile={pharmacistProfile} onSendEmail={sendFiscalDocumentEmail} onClose={() => setNota(null)} onDone={() => { setNota(null); resetAtendimento(); finalizeSale && finalizeSale(); }} />}
+      {terminalCharge && (
+        <PdvTerminalChargeModal charge={terminalCharge} amount={total} method={pay} onCancel={cancelTerminalCharge} onRetry={startTerminalCharge} />
+      )}
+      {bridgeSettingsOpen && (
+        <PdvBridgeSettingsModal onClose={() => setBridgeSettingsOpen(false)} onSaved={async () => { setBridgeSettingsOpen(false); const r = await pdvBridgeHealth(); setBridgeOk(!!r.ok); }} />
+      )}
       {recurrenceCandidate && pdvCustomer && (
         <RecurrenceConfirmModal
           candidate={recurrenceCandidate}
@@ -1411,6 +1612,28 @@ function PdvScreen({ ctx }) {
               <button className="btn btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={() => setDiscardTarget(null)}>Cancelar</button>
               <button className="btn btn-danger-solid" style={{ flex: 1, justifyContent: "center" }} onClick={confirmDiscardDraft}><Icon name="trash" size={15} />Descartar</button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Escolher em qual outra loja reservar o excedente, quando mais de uma tem estoque */}
+      {restockPicker && (
+        <Modal open onClose={() => setRestockPicker(null)} title={"Reservar mais " + restockPicker.line.name}>
+          <p className="page-desc" style={{ marginBottom: 12 }}>A loja atual não tem mais unidades. Escolha onde reservar o restante para o cliente retirar.</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {restockPicker.options.map((component) => (
+              <button
+                key={component.id} type="button" className="identify-result"
+                style={{ border: "1px solid var(--border)", borderRadius: 10 }}
+                onClick={() => { setRestockPicker(null); openReservation(component); }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{component.storeName || "Loja"}</div>
+                  <div className="cell-muted" style={{ fontSize: 11 }}>{component.loc} · {brl(component.price)} · {component.qty} un.</div>
+                </div>
+                <Badge tone="neutral">Reservar</Badge>
+              </button>
+            ))}
           </div>
         </Modal>
       )}
@@ -1459,7 +1682,7 @@ function PdvScreen({ ctx }) {
           createPdvPrescription={createPdvPrescription}
           onClose={() => setPrescriptionTarget(null)}
           onSaved={(result) => {
-            setPrescriptionStatus((prev) => ({ ...prev, [prescriptionTarget.id]: { inventoryItemId: prescriptionTarget.id, status: result.status, deliveryMethod: result.deliveryMethod, prescriptionId: result.id } }));
+            setPrescriptionStatus((prev) => ({ ...prev, [prescriptionTarget.id]: { inventoryItemId: prescriptionTarget.id, status: result.status, deliveryMethod: result.deliveryMethod, prescriptionId: result.id, validatedQty: result.validatedQty } }));
             setPrescriptionTarget(null);
           }}
         />
@@ -1481,6 +1704,7 @@ function PdvPrescriptionModal({ line, customer, createPdvPrescription, onClose, 
     const result = await createPdvPrescription({
       customerId: customer && customer.id, inventoryItemId: line.id, medicationName: line.name,
       deliveryMethod: "physical", decision, rejectionReason: decision === "rejected" ? rejectionReason.trim() || "Recusada pelo farmacêutico." : "",
+      quantity: line.qty,
     });
     setBusy(false);
     if (result) onSaved(result);
@@ -1491,7 +1715,7 @@ function PdvPrescriptionModal({ line, customer, createPdvPrescription, onClose, 
     setBusy(true);
     const result = await createPdvPrescription({
       customerId: customer && customer.id, inventoryItemId: line.id, medicationName: line.name,
-      deliveryMethod: "digital", digitalReferenceUrl: digitalUrl.trim(),
+      deliveryMethod: "digital", digitalReferenceUrl: digitalUrl.trim(), quantity: line.qty,
     });
     setBusy(false);
     if (result) onSaved(result);
@@ -1587,6 +1811,104 @@ function RegisterCustomerModal({ onClose, onCreate, onCreated }) {
   );
 }
 
+/* ---------- Modal: cobrança em andamento na maquininha (pix/débito/crédito) ---------- */
+function PdvTerminalChargeModal({ charge, amount, method, onCancel, onRetry }) {
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const methodLabel = method === "pix" ? "Pix" : method === "debit" ? "débito" : "crédito";
+  const title = method === "pix" ? "Cobrança via Pix" : "Cobrança no cartão (" + methodLabel + ")";
+  const isFinalError = charge.status === "declined" || charge.status === "error";
+  const isCancelled = charge.status === "cancelled";
+
+  useEffect(() => {
+    if (charge.status !== "qr_ready" || !charge.qrCodeText) return;
+    let active = true;
+    QRCode.toDataURL(charge.qrCodeText, { errorCorrectionLevel: "M", margin: 2, width: 208 })
+      .then((url) => { if (active) setQrDataUrl(url); })
+      .catch(() => { if (active) setQrDataUrl(""); });
+    return () => { active = false; };
+  }, [charge.status, charge.qrCodeText]);
+
+  return (
+    <Modal open onClose={onCancel} title={title}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 22, marginBottom: 14 }}>{brl(amount)}</div>
+
+        {(charge.status === "starting" || charge.status === "pending") && (
+          <p className="page-desc">Conectando com a maquininha...</p>
+        )}
+
+        {charge.status === "awaiting_card" && (
+          <p className="page-desc" style={{ lineHeight: 1.55 }}>Insira, aproxime ou passe o cartão do cliente na maquininha.</p>
+        )}
+
+        {charge.status === "qr_ready" && (
+          <>
+            {qrDataUrl ? <img src={qrDataUrl} alt="QR Code Pix" width={208} height={208} style={{ borderRadius: 8, border: "1px solid var(--border)" }} /> : <div style={{ width: 208, height: 208, margin: "0 auto" }} />}
+            <p className="page-desc" style={{ marginTop: 12 }}>Peça para o cliente escanear o QR acima, ou use o código abaixo (copia e cola).</p>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <input className="input mono" readOnly value={charge.qrCodeText || ""} style={{ fontSize: 10.5 }} onFocus={(e) => e.target.select()} />
+              <button type="button" className="btn btn-secondary" onClick={() => navigator.clipboard && navigator.clipboard.writeText(charge.qrCodeText || "")}>Copiar</button>
+            </div>
+            <p className="cell-muted" style={{ marginTop: 10 }}>Aguardando o pagamento...</p>
+          </>
+        )}
+
+        {charge.status === "approved" && (
+          <>
+            <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 14px", background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={28} /></span>
+            <p className="page-desc">Pagamento aprovado — emitindo a nota fiscal...</p>
+          </>
+        )}
+
+        {(isFinalError || isCancelled) && (
+          <>
+            <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 14px", background: "var(--critical-soft)", color: "var(--critical)" }}><Icon name="close" size={28} /></span>
+            <p className="page-desc">{charge.errorMessage || (isCancelled ? "Cobrança cancelada." : "Não foi possível concluir o pagamento.")}</p>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+          {(isFinalError || isCancelled) ? (
+            <>
+              <button type="button" className="btn btn-secondary" style={{ flex: 1, justifyContent: "center" }} onClick={onCancel}>Fechar</button>
+              <button type="button" className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={onRetry}>Tentar novamente</button>
+            </>
+          ) : charge.status !== "approved" ? (
+            <button type="button" className="btn btn-secondary" style={{ width: "100%", justifyContent: "center" }} onClick={onCancel}>Cancelar cobrança</button>
+          ) : null}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- Modal: configurar o agente local (farmaura-pdv-bridge) deste PC ---------- */
+function PdvBridgeSettingsModal({ onClose, onSaved }) {
+  const current = getBridgeConfig();
+  const [baseUrl, setBaseUrl] = useState(current.baseUrl);
+  const [token, setToken] = useState(current.token);
+
+  const handleSave = () => {
+    setBridgeConfig({ baseUrl: baseUrl.trim(), token: token.trim() });
+    onSaved && onSaved();
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Maquininha (Itaú via USB)">
+      <p className="page-desc" style={{ marginBottom: 14, lineHeight: 1.55 }}>
+        Aponte para o agente local (farmaura-pdv-bridge) rodando neste computador — ele que fala com a maquininha pelo cabo USB. O endereço e o token aparecem no terminal ao iniciar o agente.
+      </p>
+      <div style={{ marginBottom: 12 }}>
+        <Field label="Endereço do agente"><input className="input mono" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://127.0.0.1:8734" /></Field>
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <Field label="Token"><input className="input mono" value={token} onChange={(e) => setToken(e.target.value)} placeholder="token gerado pelo agente" /></Field>
+      </div>
+      <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleSave}>Salvar</button>
+    </Modal>
+  );
+}
+
 /* ---------- Modal: confirmar recorrência e cobrar no cartão salvo ---------- */
 function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetchCustomerPaymentMethods, confirmPdvRecurrence, onClose, onConfirmed }) {
   const [loading, setLoading] = useState(true);
@@ -1618,8 +1940,10 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
     return () => { cancelled = true; };
   }, []);
 
+  const hasCard = paymentMethods.length > 0;
+
   const handleConfirm = async () => {
-    if (!resolvedItem || !paymentMethodId) return;
+    if (!resolvedItem || (hasCard && !paymentMethodId)) return;
     try {
       setSaving(true);
       setError("");
@@ -1640,11 +1964,14 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
 
   if (result) {
     return (
-      <Modal open onClose={() => onConfirmed(result)} title="Assinatura confirmada">
-        <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14, background: "var(--good-soft)", color: "var(--good)" }}><Icon name="check" size={26} /></span>
+      <Modal open onClose={() => onConfirmed(result)} title={result.scheduledPendingCard ? "Assinatura agendada" : "Assinatura confirmada"}>
+        <span className="stat-icon" style={{ width: 52, height: 52, marginBottom: 14, background: result.scheduledPendingCard ? "var(--warning-soft)" : "var(--good-soft)", color: result.scheduledPendingCard ? "var(--warning)" : "var(--good)" }}>
+          <Icon name={result.scheduledPendingCard ? "mail" : "check"} size={26} />
+        </span>
         <p className="page-desc" style={{ marginBottom: 16 }}>
-          Primeira cobrança de {brl(result.totalCharged)} realizada no cartão salvo, com {result.discountPercent}% de desconto aplicado.
-          A partir de agora, o Asaas cobra o mesmo valor automaticamente no cartão todos os meses — sem precisar confirmar de novo.
+          {result.scheduledPendingCard
+            ? <>Sem cartão salvo por enquanto — pedimos por e-mail para o cliente cadastrar um até <b>{result.nextChargeDueLabel}</b>. Cadastrando a tempo, cobramos automaticamente com {result.discountPercent}% off; se não, a assinatura é cancelada.</>
+            : <><b>{brl(result.totalCharged)}</b> cobrado agora ({result.discountPercent}% off) — o mesmo valor será cobrado todo mês, automaticamente.</>}
         </p>
         <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => onConfirmed(result)}>Fechar</button>
       </Modal>
@@ -1652,35 +1979,20 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
   }
 
   return (
-    <Modal
-      open onClose={onClose} title="Configurar recorrência"
-      subtitle={
-        candidate.name + " · " + (
-          candidate.intervalDetected
-            ? `padrão identificado: comprado a cada ${candidate.frequencyDays} dias, ${candidate.occurrences}× seguindo esse ritmo.`
-            : "medicamento de uso contínuo — sugestão de assinatura mesmo sem 3 compras seguidas ainda."
-        ) + " Assinatura no Asaas, cobrada automaticamente no cartão todo mês, com 15% de desconto."
-      }
-    >
+    <Modal open onClose={onClose} title="Configurar recorrência" subtitle={candidate.name}>
       {loading ? (
         <div className="cell-muted" style={{ padding: "12px 0" }}>Carregando estoque e cartões salvos...</div>
       ) : !resolvedItem ? (
         <div style={{ color: "var(--critical)", fontSize: 13, marginBottom: 12 }}>Este produto não foi encontrado no estoque atual — não é possível confirmar a recorrência agora.</div>
       ) : (
         <>
-          <div style={{ marginBottom: 10 }}>
-            <Field label="Quantidade por ciclo"><QtyStepper value={quantity} onChange={setQuantity} min={1} max={20} /></Field>
-          </div>
-          <div style={{ marginBottom: 10 }}>
-            <Field label="Ciclo de recompra do cliente (dias)" hint="Usado só para calcular a economia por ciclo — a cobrança no Asaas é sempre mensal, para ficar previsível.">
-              <input className="input" type="number" min="7" max="365" value={frequencyDays} onChange={(e) => setFrequencyDays(Math.max(7, +e.target.value || 30))} />
-            </Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <Field label="Quantidade"><QtyStepper value={quantity} onChange={setQuantity} min={1} max={20} /></Field>
+            <Field label="Ciclo (dias)"><input className="input" type="number" min="7" max="365" value={frequencyDays} onChange={(e) => setFrequencyDays(Math.max(7, +e.target.value || 30))} /></Field>
           </div>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Cartão a cobrar</div>
-            {paymentMethods.length === 0 ? (
-              <div style={{ color: "var(--critical)", fontSize: 12.5 }}>O cliente não tem cartão salvo — não é possível cobrar a recorrência agora.</div>
-            ) : (
+            {hasCard ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {paymentMethods.map((m) => (
                   <ChoiceCard key={m.id} on={paymentMethodId === m.id} radio onClick={() => setPaymentMethodId(m.id)} style={{ padding: "8px 10px" }}>
@@ -1688,13 +2000,22 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
                   </ChoiceCard>
                 ))}
               </div>
+            ) : (
+              <div style={{ color: "var(--warning)", fontSize: 12.5 }}>
+                Sem cartão salvo — a assinatura fica agendada e o cliente recebe e-mails para cadastrar um cartão até o vencimento.
+              </div>
             )}
           </div>
-          <div className="cell-muted" style={{ marginBottom: 4 }}>Primeira cobrança agora, e todo mês a partir daí: <b>{brl((resolvedItem.price * (1 - 0.15)) * quantity)}</b></div>
-          <div className="cell-muted" style={{ marginBottom: 12 }}>Economia por ciclo: <b style={{ color: "var(--good)" }}>{brl(resolvedItem.price * 0.15 * quantity)}</b></div>
+          <div className="cell-muted" style={{ marginBottom: 12, fontSize: 13 }}>
+            {hasCard ? (
+              <><span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16, color: "var(--text-primary)" }}>{brl((resolvedItem.price * (1 - 0.15)) * quantity)}</span> agora, e todo mês — 15% off já aplicado</>
+            ) : (
+              <>Sem cobrança agora — cobra <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16, color: "var(--text-primary)" }}>{brl((resolvedItem.price * (1 - 0.15)) * quantity)}</span> assim que o cliente cadastrar um cartão, em até {frequencyDays} dias</>
+            )}
+          </div>
           {error ? <div style={{ marginBottom: 10, color: "var(--critical)", fontSize: 12.5 }}>{error}</div> : null}
-          <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={saving || !paymentMethodId} onClick={handleConfirm}>
-            <Icon name="repeat" size={16} />{saving ? "Assinando..." : "Confirmar assinatura e cobrar agora"}
+          <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={saving || (hasCard && !paymentMethodId)} onClick={handleConfirm}>
+            <Icon name={hasCard ? "repeat" : "mail"} size={16} />{saving ? "Confirmando..." : hasCard ? "Confirmar e cobrar agora" : "Agendar assinatura"}
           </button>
         </>
       )}

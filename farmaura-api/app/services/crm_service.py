@@ -20,6 +20,7 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.tenant_context import apply_tenant_context
 from app.domain.validators import is_valid_cpf, is_valid_email, normalize_cpf
 from app.models.customer import Customer
 from app.models.customer_address import CustomerAddress
@@ -114,6 +115,10 @@ class CrmService:
         )
         await address_repository.add(address)
         await self.session.commit()
+        # commit() ends the transaction and clears the transaction-local RLS session
+        # variables set by apply_tenant_context() — re-apply before this post-commit
+        # query, or RLS silently filters the freshly-committed row(s) back out.
+        await apply_tenant_context(self.session, self.subject)
         return await self.list_addresses(customer_id)
 
     def _serialize_address(self, address: CustomerAddress) -> CrmAddressResponse:

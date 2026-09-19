@@ -173,7 +173,9 @@ async def log_pdv_product_demand(
 @router.post("/upsell-suggestions", response_model=PdvUpsellSuggestionResponse)
 async def get_pdv_upsell_suggestions(
     payload: PdvUpsellSuggestionRequest,
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    # Read-only recommendation — o caixa também pode oferecer mais um item (ver "Tela do caixa
+    # também sugere oportunidades de venda, sem produto controlado" no frontend).
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST, UserRole.CASHIER)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> PdvUpsellSuggestionResponse:
     """Recommend real, in-stock products to offer alongside the current cart."""
@@ -198,7 +200,10 @@ async def create_pdv_prescription(
 async def get_pdv_prescription_status(
     customer_id: str = Query(default=""),
     inventory_item_ids: list[str] = Query(default_factory=list),
-    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    # Read-only, so cashier is included too — the "Tela do caixa" cart also needs this status
+    # (e.g. to cap a controlled line's quantity at what was validated); only /prescriptions (the
+    # POST that records a decision) stays restricted to admin/manager/pharmacist.
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST, UserRole.CASHIER)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> PdvPrescriptionStatusResponse:
     """Return the current prescription validation state for each controlled cart line."""

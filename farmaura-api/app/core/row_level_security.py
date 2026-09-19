@@ -466,6 +466,19 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
     """,
     """
+    -- Mesmo motivo da policy irmã em inventory_items: PdvService.search_products monta o nome de
+    -- cada loja (store_names) para todas as lojas que aparecem nos componentes do produto, não só
+    -- a própria — sem isso o nome cai no fallback genérico "Loja" para farmacêutico/gerente.
+    DROP POLICY IF EXISTS stores_cross_store_read_policy ON stores;
+    CREATE POLICY stores_cross_store_read_policy
+            ON stores
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
     DROP POLICY IF EXISTS tenant_isolation_policy ON customers
     """,
     """
@@ -566,6 +579,23 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
     """,
     """
+    -- can_access_prescription_row() (used above for both USING and WITH CHECK) excludes cashier
+    -- entirely, so GET /pdv/prescriptions/status always came back empty for that role — the "Tela do
+    -- caixa" cart never knew a controlled line's receita was already validated. Editing the shared
+    -- function would also grant cashier WRITE on prescriptions, which they should never have (only
+    -- POST /pdv/prescriptions, restricted to admin/manager/pharmacist, records a decision) — so this
+    -- is a separate, read-only, tenant-wide additive policy instead (no store_id column to scope by,
+    -- same as the branch above).
+    DROP POLICY IF EXISTS prescriptions_cashier_read_policy ON prescriptions;
+    CREATE POLICY prescriptions_cashier_read_policy
+            ON prescriptions
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() = 'cashier'
+            )
+    """,
+    """
     DROP POLICY IF EXISTS tenant_isolation_policy ON chat_threads
     """,
     """
@@ -617,6 +647,20 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
     """,
     """
+    -- Cashier was never granted any read access to the catalog at all, so PdvService.search_products
+    -- (the cashier's own product search bar, and the "reserve elsewhere" lookup) always came back
+    -- empty for that role — the pharmacist/manager/admin branch above never included it. Read-only,
+    -- tenant-wide like the existing branch (inventory_products carries no store_id to scope by).
+    DROP POLICY IF EXISTS inventory_products_cashier_read_policy ON inventory_products;
+    CREATE POLICY inventory_products_cashier_read_policy
+            ON inventory_products
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() = 'cashier'
+            )
+    """,
+    """
     DROP POLICY IF EXISTS tenant_isolation_policy ON inventory_items
     """,
     """
@@ -642,6 +686,56 @@ RLS_STATEMENTS: tuple[str, ...] = (
                         AND app_private.can_access_store_row(store_id)
                     )
                 )
+            )
+    """,
+    """
+    -- Complementa a policy acima: PDV.search_products (fluxo "reservar em outra loja", usado por
+    -- farmacêutico/gerente) precisa enxergar estoque de TODAS as lojas do tenant, não só a própria
+    -- store — sem isso a busca cross-loja sempre volta vazia para quem não é admin. Policies
+    -- permissivas do mesmo tipo de comando se combinam com OR, então isso só amplia leitura
+    -- (SELECT); INSERT/UPDATE/DELETE continuam restritos à própria loja pela policy original.
+    DROP POLICY IF EXISTS inventory_items_cross_store_read_policy ON inventory_items;
+    CREATE POLICY inventory_items_cross_store_read_policy
+            ON inventory_items
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
+    -- PdvService._prepare_lines locks (SELECT ... FOR UPDATE) and decrements stock at whichever
+    -- store actually has it, by design (a sale or a reservation can source a line from another
+    -- branch) — but FOR UPDATE also requires satisfying an UPDATE policy, not just SELECT, so the
+    -- read-only policy above isn't enough on its own. Grants UPDATE (never INSERT/DELETE) tenant-wide
+    -- for the same two roles, mirroring inventory_products' existing unrestricted staff write access.
+    DROP POLICY IF EXISTS inventory_items_cross_store_fulfillment_policy ON inventory_items;
+    CREATE POLICY inventory_items_cross_store_fulfillment_policy
+            ON inventory_items
+            FOR UPDATE
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
+    -- Cashier was never in the role list on inventory_items_access_policy at all (only
+    -- admin/manager/pharmacist) — so a cashier couldn't see even their OWN store's stock, breaking
+    -- product search and the cart's location/stock-cap displays on the "Tela do caixa". Read-only,
+    -- scoped to their own store (unlike the pharmacist/manager grants above, cashier never needs
+    -- cross-store — they don't create reservations; that route excludes cashier already).
+    DROP POLICY IF EXISTS inventory_items_cashier_read_policy ON inventory_items;
+    CREATE POLICY inventory_items_cashier_read_policy
+            ON inventory_items
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() = 'cashier'
+                AND app_private.can_access_store_row(store_id)
             )
     """,
     """
@@ -697,6 +791,36 @@ RLS_STATEMENTS: tuple[str, ...] = (
                         )
                     )
                 )
+            )
+    """,
+    """
+    -- PdvService.create_reservation intentionally queues the PdvOrder at the DESTINATION store
+    -- (where the stock actually lives), not the requesting pharmacist/manager's own store, so
+    -- that store's staff see it in their own queue when the customer shows up — see the docstring
+    -- on create_reservation. Without this, the INSERT itself is rejected before that can happen.
+    -- Scoped to is_reservation rows only: a pharmacist still can't queue a normal sale elsewhere.
+    DROP POLICY IF EXISTS pdv_orders_cross_store_reservation_policy ON pdv_orders;
+    CREATE POLICY pdv_orders_cross_store_reservation_policy
+            ON pdv_orders
+            FOR INSERT
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND is_reservation = true
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
+    -- Companion SELECT: ORM's session.refresh() right after the INSERT above re-reads the row, and
+    -- the requesting pharmacist/manager also gets PdvReservationResponse back from the same request
+    -- — both need read access to the reservation they just created at the destination store.
+    DROP POLICY IF EXISTS pdv_orders_cross_store_reservation_read_policy ON pdv_orders;
+    CREATE POLICY pdv_orders_cross_store_reservation_read_policy
+            ON pdv_orders
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND is_reservation = true
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
             )
     """,
     """
@@ -841,12 +965,18 @@ RLS_STATEMENTS: tuple[str, ...] = (
     CREATE POLICY subscriptions_access_policy
             ON subscriptions
             USING (
-                tenant_id = app_private.current_tenant_id()
-                AND app_private.can_access_customer_row(customer_id)
+                (
+                    tenant_id = app_private.current_tenant_id()
+                    AND app_private.can_access_customer_row(customer_id)
+                )
+                OR app_private.is_system_job()
             )
             WITH CHECK (
-                tenant_id = app_private.current_tenant_id()
-                AND app_private.can_access_customer_row(customer_id)
+                (
+                    tenant_id = app_private.current_tenant_id()
+                    AND app_private.can_access_customer_row(customer_id)
+                )
+                OR app_private.is_system_job()
             )
     """,
     """
@@ -910,6 +1040,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                       AND customers.tenant_id = app_private.current_tenant_id()
                       AND app_private.can_access_customer_row(customers.id)
                 )
+                OR app_private.is_system_job()
             )
             WITH CHECK (
                 EXISTS (
@@ -919,6 +1050,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
                       AND customers.tenant_id = app_private.current_tenant_id()
                       AND app_private.can_access_customer_row(customers.id)
                 )
+                OR app_private.is_system_job()
             );
     """,
     """
@@ -990,6 +1122,41 @@ RLS_STATEMENTS: tuple[str, ...] = (
                       )
                 )
             );
+    """,
+    """
+    -- Companion to pdv_orders_cross_store_reservation_policy: the reservation's single order item
+    -- is inserted right after its (cross-store) parent order, same is_reservation-scoped carve-out.
+    DROP POLICY IF EXISTS pdv_order_items_cross_store_reservation_policy ON pdv_order_items;
+    CREATE POLICY pdv_order_items_cross_store_reservation_policy
+            ON pdv_order_items
+            FOR INSERT
+            WITH CHECK (
+                EXISTS (
+                    SELECT 1
+                    FROM pdv_orders
+                    WHERE pdv_orders.id = pdv_order_items.pdv_order_id
+                      AND pdv_orders.tenant_id = app_private.current_tenant_id()
+                      AND pdv_orders.is_reservation = true
+                      AND app_private.current_user_role() IN ('manager', 'pharmacist')
+                )
+            )
+    """,
+    """
+    -- Companion SELECT: session.refresh() right after the INSERT above re-reads the item row.
+    DROP POLICY IF EXISTS pdv_order_items_cross_store_reservation_read_policy ON pdv_order_items;
+    CREATE POLICY pdv_order_items_cross_store_reservation_read_policy
+            ON pdv_order_items
+            FOR SELECT
+            USING (
+                EXISTS (
+                    SELECT 1
+                    FROM pdv_orders
+                    WHERE pdv_orders.id = pdv_order_items.pdv_order_id
+                      AND pdv_orders.tenant_id = app_private.current_tenant_id()
+                      AND pdv_orders.is_reservation = true
+                      AND app_private.current_user_role() IN ('manager', 'pharmacist')
+                )
+            )
     """,
     """
     ALTER TABLE pdv_sale_items ENABLE ROW LEVEL SECURITY;
@@ -1164,6 +1331,23 @@ RLS_STATEMENTS: tuple[str, ...] = (
             );
     """,
     """
+    -- Companion to prescriptions_cashier_read_policy: get_status_for_cart's query joins through this
+    -- table (PrescriptionItem.inventory_item_id) to match a cart line to its prescription.
+    DROP POLICY IF EXISTS prescription_items_cashier_read_policy ON prescription_items;
+    CREATE POLICY prescription_items_cashier_read_policy
+            ON prescription_items
+            FOR SELECT
+            USING (
+                EXISTS (
+                    SELECT 1
+                    FROM prescriptions
+                    WHERE prescriptions.id = prescription_items.prescription_id
+                      AND prescriptions.tenant_id = app_private.current_tenant_id()
+                )
+                AND app_private.current_user_role() = 'cashier'
+            )
+    """,
+    """
     ALTER TABLE prescription_checks ENABLE ROW LEVEL SECURITY;
             ALTER TABLE prescription_checks FORCE ROW LEVEL SECURITY;
             DROP POLICY IF EXISTS prescription_checks_access_policy ON prescription_checks;
@@ -1311,6 +1495,21 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
     """,
     """
+    -- Same gap as inventory_items_cashier_read_policy: PdvService.list_item_locations resolves each
+    -- stock lot's location via this table — without cashier read access here, every location came
+    -- back None and got silently skipped, so the cart's location dropdown was always empty for a
+    -- cashier even after the inventory_items/inventory_stock_lots fixes above. Read-only, own store.
+    DROP POLICY IF EXISTS inventory_locations_cashier_read_policy ON inventory_locations;
+    CREATE POLICY inventory_locations_cashier_read_policy
+            ON inventory_locations
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() = 'cashier'
+                AND app_private.can_access_store_row(store_id)
+            )
+    """,
+    """
     ALTER TABLE inventory_movements ENABLE ROW LEVEL SECURITY
     """,
     """
@@ -1339,6 +1538,29 @@ RLS_STATEMENTS: tuple[str, ...] = (
                         AND app_private.can_access_store_row(store_id)
                     )
                 )
+            )
+    """,
+    """
+    -- PDV cross-store fulfillment (see inventory_items_cross_store_fulfillment_policy) also logs an
+    -- audit movement row at the destination store — same additive, tenant-wide INSERT carve-out.
+    DROP POLICY IF EXISTS inventory_movements_cross_store_write_policy ON inventory_movements;
+    CREATE POLICY inventory_movements_cross_store_write_policy
+            ON inventory_movements
+            FOR INSERT
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
+    -- Companion SELECT: session.refresh() right after the INSERT above re-reads the movement row.
+    DROP POLICY IF EXISTS inventory_movements_cross_store_read_policy ON inventory_movements;
+    CREATE POLICY inventory_movements_cross_store_read_policy
+            ON inventory_movements
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
             )
     """,
     """
@@ -1413,6 +1635,48 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
     """,
     """
+    -- Same reasoning as inventory_items: decrement_lot_fefo (called from the PDV cross-store
+    -- fulfillment path) needs to read AND decrement lots at the destination store, not just the
+    -- requesting pharmacist/manager's own. FOR UPDATE locking also needs the UPDATE-side policy
+    -- (see inventory_items_cross_store_fulfillment_policy's comment), so both are granted here.
+    DROP POLICY IF EXISTS inventory_stock_lots_cross_store_read_policy ON inventory_stock_lots;
+    CREATE POLICY inventory_stock_lots_cross_store_read_policy
+            ON inventory_stock_lots
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
+    DROP POLICY IF EXISTS inventory_stock_lots_cross_store_write_policy ON inventory_stock_lots;
+    CREATE POLICY inventory_stock_lots_cross_store_write_policy
+            ON inventory_stock_lots
+            FOR UPDATE
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
+    -- Same gap as inventory_items_cashier_read_policy: cashier couldn't see stock lots at their own
+    -- store either, so list_item_locations (the cart's location dropdown) always came back empty for
+    -- that role. Read-only, own store only.
+    DROP POLICY IF EXISTS inventory_stock_lots_cashier_read_policy ON inventory_stock_lots;
+    CREATE POLICY inventory_stock_lots_cashier_read_policy
+            ON inventory_stock_lots
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() = 'cashier'
+                AND app_private.can_access_store_row(store_id)
+            )
+    """,
+    """
     ALTER TABLE inventory_lot_movements ENABLE ROW LEVEL SECURITY
     """,
     """
@@ -1444,6 +1708,29 @@ RLS_STATEMENTS: tuple[str, ...] = (
             )
     """,
     """
+    -- Companion to inventory_stock_lots_cross_store_write_policy: decrement_lot_fefo logs one lot
+    -- movement row per lot touched, at the same destination store.
+    DROP POLICY IF EXISTS inventory_lot_movements_cross_store_write_policy ON inventory_lot_movements;
+    CREATE POLICY inventory_lot_movements_cross_store_write_policy
+            ON inventory_lot_movements
+            FOR INSERT
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
+    -- Companion SELECT: session.refresh() right after the INSERT above re-reads the movement row.
+    DROP POLICY IF EXISTS inventory_lot_movements_cross_store_read_policy ON inventory_lot_movements;
+    CREATE POLICY inventory_lot_movements_cross_store_read_policy
+            ON inventory_lot_movements
+            FOR SELECT
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.current_user_role() IN ('manager', 'pharmacist')
+            )
+    """,
+    """
     ALTER TABLE cart_items ENABLE ROW LEVEL SECURITY
     """,
     """
@@ -1468,6 +1755,21 @@ RLS_STATEMENTS: tuple[str, ...] = (
             DROP POLICY IF EXISTS product_availability_alerts_access_policy ON product_availability_alerts;
             CREATE POLICY product_availability_alerts_access_policy
             ON product_availability_alerts
+            USING (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_customer_row(customer_id)
+            )
+            WITH CHECK (
+                tenant_id = app_private.current_tenant_id()
+                AND app_private.can_access_customer_row(customer_id)
+            )
+    """,
+    """
+    ALTER TABLE product_view_events ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE product_view_events FORCE ROW LEVEL SECURITY;
+            DROP POLICY IF EXISTS product_view_events_access_policy ON product_view_events;
+            CREATE POLICY product_view_events_access_policy
+            ON product_view_events
             USING (
                 tenant_id = app_private.current_tenant_id()
                 AND app_private.can_access_customer_row(customer_id)

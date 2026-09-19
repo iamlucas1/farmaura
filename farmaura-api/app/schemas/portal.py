@@ -22,6 +22,7 @@ from pydantic import Field, field_validator
 
 from app.domain.validators import is_strong_password
 from app.schemas.common import StrictModel
+from app.schemas.deliveries import DeliveryRouteListResponse
 
 
 # ============================================================================
@@ -819,43 +820,6 @@ class PortalConstructionCostsUpdateRequest(StrictModel):
     stores: dict[str, PortalStoreConstructionCostsInput] = Field(default_factory=dict, max_length=200)
 
 
-class PortalDeliveryRouteStopResponse(StrictModel):
-    """Represent one ordered stop inside the active delivery route."""
-
-    id: str
-    order_id: str
-    order_code: str = ""
-    customer: str = ""
-    address: str = ""
-    district: str = ""
-    cep: str = ""
-    status: str = "planned"
-    lat: Decimal | None = None
-    lng: Decimal | None = None
-    dist: Decimal | None = None
-    navigation_url: str = ""
-
-
-class PortalDeliveryRouteResponse(StrictModel):
-    """Represent the active internal delivery route payload."""
-
-    id: str = ""
-    code: str = ""
-    status: str = "planned"
-    driver: str = ""
-    driver_user_id: str = ""
-    vehicle: str = ""
-    total_km: Decimal = Decimal("0.00")
-    total_min: int = 0
-    saved_km: Decimal = Decimal("0.00")
-    provider: str = ""
-    hub_name: str = ""
-    hub_address: str = ""
-    hub_lat: Decimal | None = None
-    hub_lng: Decimal | None = None
-    stops: list[PortalDeliveryRouteStopResponse] = Field(default_factory=list)
-
-
 class PortalTodaySummaryResponse(StrictModel):
     """Real revenue/orders/prescription counts for today vs. yesterday, for the internal Painel's
     "hoje vs. ontem" comparisons — a companion to `chart_seed`'s byHour/week series (which only
@@ -889,7 +853,7 @@ class PortalInternalBootstrapResponse(StrictModel):
     coupon_campaigns: list[PortalCouponResponse] = Field(default_factory=list)
     pricing_promotions: list[PortalPricingPromotionResponse] = Field(default_factory=list)
     financial_settings: PortalFinancialSettingsResponse = Field(default_factory=PortalFinancialSettingsResponse)
-    delivery_route: PortalDeliveryRouteResponse = Field(default_factory=PortalDeliveryRouteResponse)
+    delivery_routes: DeliveryRouteListResponse = Field(default_factory=DeliveryRouteListResponse)
     delivery_pricing: PortalDeliveryPricingResponse = Field(default_factory=PortalDeliveryPricingResponse)
     delivery_areas: PortalDeliveryAreasResponse = Field(default_factory=PortalDeliveryAreasResponse)
     pdv_discount_settings: PortalPdvDiscountSettingsResponse = Field(default_factory=PortalPdvDiscountSettingsResponse)
@@ -996,6 +960,17 @@ class PortalSubscriptionResponse(StrictModel):
     is_paused: bool
     next_cycle_in_days: int
     started_at_label: str = ""
+    # "active" | "paused" | "pending_card" (PDV-scheduled, no saved card yet) | "cancelled".
+    status: str = "active"
+    # Only meaningful for pending_card/cancelled — when the first charge is/was due.
+    due_date_label: str = ""
+    # Only meaningful for status == "cancelled" — e.g. "no_card_by_due_date", "charge_failed".
+    cancel_reason: str = ""
+    # PDV-created subscriptions reference an inventory item ("inv-...") that has no
+    # catalog "mkt-..." id, so the frontend can't always resolve product_ref against its
+    # own product list — these two let it render the row anyway without that lookup.
+    product_name: str = ""
+    unit_price: Decimal = Decimal("0.00")
 
 
 class PortalMarketplaceDeliveryEstimateResponse(StrictModel):

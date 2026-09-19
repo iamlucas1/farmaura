@@ -184,6 +184,75 @@ class NotificationService:
             html_body=self._wrap_email_html(content),
         )
 
+    def send_subscription_card_reminder_email(
+        self, *, email: str, full_name: str, product_name: str, due_date_label: str, days_until_due: int, add_card_url: str
+    ) -> tuple[bool, str]:
+        """Remind a customer to add a card for a recurrence scheduled without one.
+
+        Sent at D-15/10/5/2/1 by SubscriptionCardReminderScheduler; urgency tone escalates
+        as days_until_due drops so the last reminders read as more time-sensitive.
+        """
+
+        urgent = days_until_due <= 2
+        days_phrase = "amanhã" if days_until_due == 1 else f"em {days_until_due} dias"
+        return self._dispatch(
+            email=email,
+            subject=f"Farmaura · Cadastre um cartão para sua recorrência de {product_name}",
+            preheader=f"Faltam {days_until_due} dia(s) para a primeira cobrança da sua recorrência.",
+            text_body=self._build_subscription_card_reminder_text_body(
+                full_name=full_name, product_name=product_name, due_date_label=due_date_label,
+                days_until_due=days_until_due, add_card_url=add_card_url,
+            ),
+            html_body=self._wrap_email_html(
+                "".join(
+                    [
+                        self._eyebrow("Recorrência pendente", tone="urgent" if urgent else "brand"),
+                        self._heading(self._greeting(full_name)),
+                        self._paragraph(
+                            f"Sua recorrência de <strong>{product_name}</strong> está agendada, mas ainda não tem um cartão "
+                            "cadastrado para a cobrança."
+                        ),
+                        self._paragraph(
+                            f"Cadastre um cartão até <strong>{due_date_label}</strong> ({days_phrase}) para garantir o desconto "
+                            "e não perder a recorrência."
+                        ),
+                        self._button("Cadastrar cartão", add_card_url),
+                        self._paragraph(
+                            "Se nenhum cartão for cadastrado até lá, essa recorrência será cancelada automaticamente.", faint=True
+                        ),
+                    ]
+                )
+            ),
+        )
+
+    def send_subscription_cancelled_no_card_email(
+        self, *, email: str, full_name: str, product_name: str
+    ) -> tuple[bool, str]:
+        """Notify a customer that a card-less scheduled recurrence was cancelled at its due date."""
+
+        return self._dispatch(
+            email=email,
+            subject=f"Farmaura · Recorrência de {product_name} cancelada",
+            preheader="Nenhum cartão foi cadastrado até o vencimento, então cancelamos a recorrência.",
+            text_body=self._build_subscription_cancelled_no_card_text_body(full_name=full_name, product_name=product_name),
+            html_body=self._wrap_email_html(
+                "".join(
+                    [
+                        self._eyebrow("Recorrência cancelada", tone="urgent"),
+                        self._heading(self._greeting(full_name)),
+                        self._paragraph(
+                            f"Sua recorrência de <strong>{product_name}</strong> foi cancelada: nenhum cartão foi cadastrado "
+                            "até a data prevista para a primeira cobrança."
+                        ),
+                        self._paragraph(
+                            "Você pode configurar essa recorrência novamente quando quiser, na próxima compra desse produto.",
+                            faint=True,
+                        ),
+                    ]
+                )
+            ),
+        )
+
     def render_fiscal_document_html(self, *, document: FiscalDocument) -> str:
         """Return one standalone printable HTML view for a fiscal document."""
 
@@ -468,5 +537,37 @@ class NotificationService:
                 "",
                 f"O produto {product_name} que você pediu para ser avisado já está disponível no marketplace Farmaura.",
                 "Corra antes que acabe de novo!",
+            ]
+        )
+
+    def _build_subscription_card_reminder_text_body(
+        self, *, full_name: str, product_name: str, due_date_label: str, days_until_due: int, add_card_url: str
+    ) -> str:
+        """Build the plain-text body for one subscription card-reminder e-mail."""
+
+        return "\n".join(
+            [
+                f"Olá, {full_name}!" if full_name else "Olá!",
+                "",
+                f"Sua recorrência de {product_name} está agendada, mas ainda não tem um cartão cadastrado para a cobrança.",
+                f"Cadastre um cartão até {due_date_label} (faltam {days_until_due} dia(s)) para garantir o desconto e não perder a recorrência.",
+                "",
+                add_card_url,
+                "",
+                "Se nenhum cartão for cadastrado até lá, essa recorrência será cancelada automaticamente.",
+            ]
+        )
+
+    def _build_subscription_cancelled_no_card_text_body(self, *, full_name: str, product_name: str) -> str:
+        """Build the plain-text body for one card-less subscription cancellation e-mail."""
+
+        return "\n".join(
+            [
+                f"Olá, {full_name}!" if full_name else "Olá!",
+                "",
+                f"Sua recorrência de {product_name} foi cancelada: nenhum cartão foi cadastrado até a data prevista",
+                "para a primeira cobrança.",
+                "",
+                "Você pode configurar essa recorrência novamente quando quiser, na próxima compra desse produto.",
             ]
         )

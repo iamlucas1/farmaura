@@ -33,6 +33,18 @@ const OC_STATUS = {
 };
 const OC_FLOW = ['new', 'separating', 'ready', 'dispatched'];
 
+/* Still needs work (not yet dispatched, not finished). Any screen that lists "pending" orders
+   (Pedidos Online, Entregas & rota) should filter through this, not just `!== 'dispatched'` —
+   that alone lets delivered/cancelled orders linger on a "pending" list forever. */
+function isActiveOrderStatus(status) {
+  return status === 'new' || status === 'separating' || status === 'ready';
+}
+/* "dispatched" (left the store) and "delivered" (confirmed in the customer's hands) are two
+   distinct terminal statuses — both count as done for a driver/order-progress UI. */
+function isFinishedOrderStatus(status) {
+  return status === 'dispatched' || status === 'delivered';
+}
+
 function normalizeOrderStatusValue(status) {
   const raw = String(status || '').trim().toLowerCase();
   if (!raw) return 'new';
@@ -712,5 +724,6 @@ export {
   AppShell, Rail, Sidebar, Topbar, AccountModal, PharmLogin, CommandPalette,
   MobileNavContext, NAV_GROUPS,
   OC_STATUS, OC_FLOW, normalizeOrderStatusValue, orderStatusMeta, FulfillBadge,
+  isActiveOrderStatus, isFinishedOrderStatus,
   stockState, minsSince, fmtDur, slaState, SLA_TARGET, customerOf, RecurringBadge,
 };

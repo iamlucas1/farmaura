@@ -655,6 +655,18 @@ async def list_favorites(
     return await service.list_favorites(subject)
 
 
+@router.post("/marketplace/products/{inventory_product_id}/view", status_code=204)
+async def log_product_view(
+    inventory_product_id: str,
+    subject: TokenSubject = Depends(require_marketplace_subject()),
+    session=Depends(get_subject_session),
+) -> None:
+    """Log the authenticated customer's view of one product's detail page."""
+
+    service = PortalService(session)
+    await service.log_product_view(subject, inventory_product_id)
+
+
 @router.post("/marketplace/favorites", response_model=list[PortalFavoriteResponse])
 async def save_favorite(
     payload: PortalFavoriteMutationRequest,

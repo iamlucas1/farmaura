@@ -558,14 +558,31 @@ class OrderService:
         item = await self.repository.get_item_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, item_id=item_id, store_id=store_id)
         if item is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order item not found.')
-        location = await self.inventory_repository.get_location_by_code(
-            tenant_id=str(subject.tenant_id),
-            store_id=store_id,
-            code=payload.location_code.strip(),
+
+        codes_seen: set[str] = set()
+        pick_locations: list[dict[str, int | str]] = []
+        total_picked = 0
+        for entry in payload.locations:
+            code = entry.location_code.strip()
+            if code in codes_seen:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Duplicate storage location in the same update.')
+            codes_seen.add(code)
+            location = await self.inventory_repository.get_location_by_code(tenant_id=str(subject.tenant_id), store_id=store_id, code=code)
+            if location is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Storage location "{code}" not found.')
+            pick_locations.append({'location_code': location.code, 'location_name': location.name, 'quantity': entry.quantity})
+            total_picked += entry.quantity
+        if total_picked != item.quantity:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f'Picked quantity ({total_picked}) must match the line quantity ({item.quantity}).',
+            )
+
+        item.pick_locations = pick_locations
+        item.storage_location_snapshot = ' + '.join(
+            f"{entry['location_code']} ({entry['quantity']})" if len(pick_locations) > 1 else str(entry['location_code'])
+            for entry in pick_locations
         )
-        if location is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Storage location not found.')
-        item.storage_location_snapshot = location.code
         order.updated_at = datetime.now(UTC)
         await self.session.commit()
         return await self._load_internal_order(order)
@@ -842,6 +859,7 @@ class OrderService:
             priority=order.priority,
             placed=order.placed_at_label,
             payment=order.payment_method_label,
+            payment_status=order.payment_status,
             channel=order.channel,
             total=order.total_amount,
             address=fulfillment.address_line if fulfillment else '',
@@ -902,9 +920,11 @@ class OrderService:
             item_map.setdefault(item.order_id, []).append(
                 InternalOrderItemResponse(
                     id=item.id,
+                    inventory_item_id=item.inventory_item_id or '',
                     name=item.item_name_snapshot,
                     qty=item.quantity,
                     loc=item.storage_location_snapshot,
+                    pick_locations=item.pick_locations or [],
                     rx=item.requires_prescription_upload,
                     picked=item.picked_for_fulfillment,
                 )
@@ -932,9 +952,11 @@ class OrderService:
             [
                 InternalOrderItemResponse(
                     id=item.id,
+                    inventory_item_id=item.inventory_item_id or '',
                     name=item.item_name_snapshot,
                     qty=item.quantity,
                     loc=item.storage_location_snapshot,
+                    pick_locations=item.pick_locations or [],
                     rx=item.requires_prescription_upload,
                     picked=item.picked_for_fulfillment,
                 )

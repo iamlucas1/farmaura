@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import invalidate_cache_scope
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.tenant_context import apply_tenant_context
 from app.domain.enums import UserRole
@@ -90,6 +91,7 @@ from app.services.delivery_pricing_service import DeliveryPricingService
 from app.services.fiscal_service import FiscalService
 from app.services.inventory_stock_sync import decrement_lot_fefo
 from app.services.marketplace_projection import build_marketplace_catalog_groups, resolve_marketplace_category_id
+from app.services.notification_service import NotificationService
 from app.services.payment_service import PaymentService
 from app.services.portal_service import PortalService
 from app.services.purchase_history_service import DEFAULT_RECURRENCE_DISCOUNT_PERCENT, PurchaseHistoryService
@@ -243,6 +245,7 @@ class PdvService:
                 continue
             active_orders.append(order)
         orders = active_orders
+        orders_by_id = {order.id: order for order in orders}
         items = await self.repository.list_order_items(order_ids=[order.id for order in orders])
         item_map: dict[str, list[PdvLineResponse]] = {}
         for item in items:
@@ -253,10 +256,16 @@ class PdvService:
                     name=item.item_name_snapshot,
                     brand=item.brand_name_snapshot,
                     loc=item.storage_location_snapshot,
+                    location_id=item.location_id,
                     qty=item.quantity,
                     unit_price=item.unit_price,
                     line_total=item.line_total,
-                    controlled=False,
+                    # Same order-wide simplification already used for PdvSaleItem.is_controlled — an
+                    # order-level flag, not computed per line — since PdvOrderItem has no controlled
+                    # column of its own. Was hardcoded False here, so the "Tela do caixa" queue/claim
+                    # view never showed a controlled line as controlled (Tarja badge, rx-row, or the
+                    # receita-quantity cap) at all.
+                    controlled=orders_by_id[item.pdv_order_id].includes_controlled_items if item.pdv_order_id in orders_by_id else False,
                 )
             )
         return PdvQueueResponse(items=[self._serialize_order(order, item_map.get(order.id, [])) for order in orders])
@@ -442,6 +451,7 @@ class PdvService:
                 brand_name_snapshot=line["brand"],
                 ean_code_snapshot=line["ean"],
                 storage_location_snapshot=line["loc"],
+                location_id=str(line.get("location_id", "") or ""),
                 quantity=line["qty"],
                 unit_price=line["unit_price"],
                 line_total=line["line_total"],
@@ -609,6 +619,7 @@ class PdvService:
                     brand=suggestion.brand,
                     category=suggestion.category,
                     price=suggestion.price,
+                    is_controlled=suggestion.is_controlled,
                 )
                 for suggestion in suggestions
             ],
@@ -643,10 +654,11 @@ class PdvService:
                         name=item.item_name_snapshot,
                         brand=item.brand_name_snapshot,
                         loc=item.storage_location_snapshot,
+                        location_id=item.location_id,
                         qty=item.quantity,
                         unit_price=item.unit_price,
                         line_total=item.line_total,
-                        controlled=False,
+                        controlled=order.includes_controlled_items,
                     )
                     for item in items
                 ],
@@ -702,10 +714,11 @@ class PdvService:
                     name=item.item_name_snapshot,
                     brand=item.brand_name_snapshot,
                     loc=item.storage_location_snapshot,
+                    location_id=item.location_id,
                     qty=item.quantity,
                     unit_price=item.unit_price,
                     line_total=item.line_total,
-                    controlled=False,
+                    controlled=order.includes_controlled_items,
                 )
             )
         order.order_status = "cancelled"
@@ -714,7 +727,7 @@ class PdvService:
         return response_items
 
     async def confirm_recurrence(self, payload: PdvRecurrenceConfirmRequest) -> PdvRecurrenceConfirmResponse:
-        """Confirm a pharmacist-detected recurrence: create a real Asaas subscription, charged monthly.
+        """Confirm a pharmacist-detected recurrence: charge now, or schedule pending a saved card.
 
         This is independent of any PdvOrder — the pharmacist confirms this while
         still building the cart, before an order is ever sent to the cashier queue,
@@ -724,6 +737,12 @@ class PdvService:
         here is our durable record of the agreement (and keeps this product from being
         suggested again by the recurrence detector); Subscription.provider_subscription_id
         links it to the Asaas side.
+
+        When the customer has no saved card, `payload.payment_method_id` comes in empty:
+        instead of blocking, the subscription is created as "pending_card" with a real
+        due date (today + frequency_days) — SubscriptionCardReminderScheduler e-mails the
+        customer to add a card (D-15/10/5/2/1/0) and, on the due date, either charges the
+        card they added by then (if any is marked primary) or auto-cancels the subscription.
         """
 
         cashback_repository = CashbackRepository(self.session)
@@ -731,12 +750,14 @@ class PdvService:
         if customer is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado.")
 
-        payment_method = await CustomerPaymentMethodRepository(self.session).get_for_customer(
-            customer_id=payload.customer_id,
-            payment_method_id=payload.payment_method_id,
-        )
-        if payment_method is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cartão salvo não encontrado para este cliente.")
+        payment_method = None
+        if payload.payment_method_id:
+            payment_method = await CustomerPaymentMethodRepository(self.session).get_for_customer(
+                customer_id=payload.customer_id,
+                payment_method_id=payload.payment_method_id,
+            )
+            if payment_method is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cartão salvo não encontrado para este cliente.")
 
         inventory_item = await self.inventory_repository.get_item_by_id(
             tenant_id=str(self.subject.tenant_id),
@@ -752,6 +773,54 @@ class PdvService:
         discounted_total = discounted_unit_price * payload.quantity
 
         subscription_code = "SUB-" + uuid4().hex[:8].upper()
+        due_at = datetime.now(UTC) + timedelta(days=payload.frequency_days)
+
+        if payment_method is None:
+            subscription = Subscription(
+                id=str(uuid4()),
+                tenant_id=str(self.subject.tenant_id),
+                customer_id=payload.customer_id,
+                marketplace_listing_id=None,
+                inventory_item_id=inventory_item.id,
+                subscription_code=subscription_code,
+                subscription_status="pending_card",
+                provider_subscription_id="",
+                product_name_snapshot=inventory_item.name,
+                quantity=payload.quantity,
+                frequency_days=payload.frequency_days,
+                next_cycle_in_days=payload.frequency_days,
+                next_cycle_date_label="",
+                started_at_label="agendado",
+                paused_at_label="",
+                cancelled_at_label="",
+                unit_price_snapshot=unit_price,
+                discount_percent=discount_percent,
+                is_paused=False,
+                next_charge_due_at=due_at,
+                cancel_reason="",
+                card_reminder_last_threshold_days=-1,
+            )
+            await self.subscription_repository.add(subscription)
+            await self.session.commit()
+            notification_service = NotificationService()
+            if customer.email:
+                notification_service.send_subscription_card_reminder_email(
+                    email=customer.email,
+                    full_name=customer.full_name,
+                    product_name=inventory_item.name,
+                    due_date_label=due_at.strftime("%d/%m/%Y"),
+                    days_until_due=payload.frequency_days,
+                    add_card_url=f"{get_settings().marketplace_base_url.rstrip('/')}/account",
+                )
+            return PdvRecurrenceConfirmResponse(
+                subscription_id=subscription.id,
+                discount_percent=discount_percent,
+                charge_status="pending_card",
+                total_charged=Decimal("0.00"),
+                scheduled_pending_card=True,
+                next_charge_due_label=due_at.strftime("%d/%m/%Y"),
+            )
+
         payment_service = PaymentService(self.session)
         # A real Asaas subscription, not a one-off charge: Asaas itself generates and
         # charges a new payment every month against this same card token from here on —
@@ -787,6 +856,7 @@ class PdvService:
             unit_price_snapshot=unit_price,
             discount_percent=discount_percent,
             is_paused=False,
+            next_charge_due_at=due_at,
         )
         await self.subscription_repository.add(subscription)
         await self.session.commit()
@@ -822,6 +892,7 @@ class PdvService:
             pharmacist_user_id=order.pharmacist_user_id,
             payment_method=payload.payment_method,
             payment_status="paid",
+            payment_terminal_reference=payload.payment_terminal_reference,
             sale_status="completed",
             include_cpf_on_invoice=payload.include_cpf_on_invoice,
             customer_display_name=order.customer_display_name,
@@ -867,6 +938,7 @@ class PdvService:
                     name=sale_item.item_name_snapshot,
                     brand=sale_item.brand_name_snapshot,
                     loc=sale_item.storage_location_snapshot,
+                    location_id=item.location_id,
                     qty=sale_item.quantity,
                     unit_price=sale_item.unit_price,
                     line_total=sale_item.line_total,
@@ -914,6 +986,7 @@ class PdvService:
             id=sale.id,
             sale_code=sale.sale_code,
             payment_method=sale.payment_method,
+            payment_terminal_reference=sale.payment_terminal_reference,
             total=sale.total_amount,
             cashback_applied=sale.cashback_applied_amount,
             cashback_earned=sale.cashback_earned_amount,
@@ -955,6 +1028,7 @@ class PdvService:
                     id=sale.id,
                     sale_code=sale.sale_code,
                     payment_method=sale.payment_method,
+                    payment_terminal_reference=sale.payment_terminal_reference,
                     total=sale.total_amount,
                     cashback_applied=sale.cashback_applied_amount,
                     cashback_earned=sale.cashback_earned_amount,
@@ -1217,12 +1291,34 @@ class PdvService:
                 continue
             lines.append(
                 {
+                    "inventory_item_id": inventory_item.id,
                     "line_total": Decimal(inventory_item.sale_price) * item.qty,
                     "unit_cost_snapshot": inventory_item.acquisition_cost,
                     "qty": item.qty,
                 }
             )
         return lines
+
+    async def _cashback_earned_preview(self, *, lines: list[dict[str, object]], store_id: str) -> Decimal:
+        """Preview the cashback a cart would earn, mirroring `_compute_cashback`'s rule-matching loop against cart lines instead of a persisted order."""
+
+        if not lines:
+            return Decimal("0.00")
+        subtotal = sum((Decimal(line["line_total"]) for line in lines), start=Decimal("0.00"))
+        item_ids = [str(line["inventory_item_id"]) for line in lines if line.get("inventory_item_id")]
+        rules = await CashbackRepository(self.session).resolve_rules_for_items(
+            tenant_id=str(self.subject.tenant_id), store_id=store_id, inventory_item_ids=item_ids,
+        )
+        cashback_earned = Decimal("0.00")
+        for line in lines:
+            rule = rules.get(str(line["inventory_item_id"])) if line.get("inventory_item_id") else None
+            if rule is None or subtotal < rule.minimum_order_amount:
+                continue
+            line_earn = (Decimal(line["line_total"]) * rule.cashback_percent / Decimal("100.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if rule.maximum_cashback_amount > Decimal("0.00"):
+                line_earn = min(line_earn, rule.maximum_cashback_amount)
+            cashback_earned += max(Decimal("0.00"), line_earn)
+        return cashback_earned
 
     async def get_discount_limit(self, payload: PdvDiscountLimitRequest) -> PdvDiscountLimitResponse:
         """Return the maximum discount percent the current cart can absorb, given its average margin and the customer's cashback."""
@@ -1231,7 +1327,9 @@ class PdvService:
         potential_cashback = await self._resolve_potential_cashback(payload.customer_id)
         minimum_margin_percent = await self._resolve_discount_minimum_margin_percent()
         max_discount_percent = self._discount_ceiling(lines, potential_cashback, minimum_margin_percent) if lines else Decimal("0.00")
-        return PdvDiscountLimitResponse(max_discount_percent=max_discount_percent)
+        store_id = await self._get_store_id()
+        cashback_earned_preview = await self._cashback_earned_preview(lines=lines, store_id=store_id)
+        return PdvDiscountLimitResponse(max_discount_percent=max_discount_percent, cashback_earned_preview=cashback_earned_preview)
 
     async def _enforce_prescription_gate(self, prepared: list[dict[str, object]], customer_id: str | None) -> list[Prescription]:
         """Block queue-order creation when any controlled line lacks an approved PDV prescription.
@@ -1257,11 +1355,18 @@ class PdvService:
         )
         matched: list[Prescription] = []
         for line in controlled_lines:
-            prescription = latest.get(str(line["inventory_item_id"]))
+            entry = latest.get(str(line["inventory_item_id"]))
+            prescription, validated_quantity = entry if entry is not None else (None, None)
             if prescription is None or prescription.status != "approved":
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Receita pendente de validação para " + str(line["name"]) + ".",
+                )
+            if validated_quantity is not None and int(line["qty"]) > validated_quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Receita de " + str(line["name"]) + " validada para " + str(validated_quantity)
+                    + " un., mas " + str(line["qty"]) + " foram solicitadas. Revalide a receita para a quantidade certa.",
                 )
             matched.append(prescription)
         return matched

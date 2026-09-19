@@ -32,6 +32,7 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.services.fiscal_scheduler import run_fiscal_scheduler_forever
+from app.services.subscription_card_reminder_scheduler import run_subscription_card_reminder_scheduler_forever
 
 
 # ============================================================================
@@ -44,13 +45,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Initialize application resources."""
 
     configure_logging()
-    scheduler_task = asyncio.create_task(run_fiscal_scheduler_forever())
+    scheduler_tasks = [
+        asyncio.create_task(run_fiscal_scheduler_forever()),
+        asyncio.create_task(run_subscription_card_reminder_scheduler_forever()),
+    ]
     try:
         yield
     finally:
-        scheduler_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await scheduler_task
+        for scheduler_task in scheduler_tasks:
+            scheduler_task.cancel()
+        for scheduler_task in scheduler_tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
 
 
 # ============================================================================

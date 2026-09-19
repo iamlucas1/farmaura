@@ -133,13 +133,13 @@ class PrescriptionRepository:
 
     async def get_latest_for_items(
         self, *, tenant_id: str, customer_id: str, inventory_item_ids: list[str], source_channel: str = "pdv",
-    ) -> dict[str, Prescription]:
-        """Return the most recent prescription per inventory item for one customer, scoped to one channel."""
+    ) -> dict[str, tuple[Prescription, int | None]]:
+        """Return the most recent prescription (and the quantity it was validated for) per inventory item, scoped to one channel."""
 
         if not inventory_item_ids:
             return {}
         statement = (
-            select(Prescription, PrescriptionItem.inventory_item_id)
+            select(Prescription, PrescriptionItem.inventory_item_id, PrescriptionItem.validated_quantity)
             .join(PrescriptionItem, PrescriptionItem.prescription_id == Prescription.id)
             .where(
                 Prescription.tenant_id == tenant_id,
@@ -150,9 +150,9 @@ class PrescriptionRepository:
             .order_by(Prescription.created_at.desc())
         )
         result = await self.session.execute(statement)
-        latest: dict[str, Prescription] = {}
-        for prescription, inventory_item_id in result.all():
+        latest: dict[str, tuple[Prescription, int | None]] = {}
+        for prescription, inventory_item_id, validated_quantity in result.all():
             if inventory_item_id not in latest:
-                latest[inventory_item_id] = prescription
+                latest[inventory_item_id] = (prescription, validated_quantity)
         return latest
 

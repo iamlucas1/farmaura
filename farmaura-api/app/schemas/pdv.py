@@ -112,9 +112,15 @@ class PdvDiscountLimitRequest(StrictModel):
 
 
 class PdvDiscountLimitResponse(StrictModel):
-    """Return the maximum discount percent the current cart can absorb without breaching margin protection."""
+    """Return the maximum discount percent the current cart can absorb without breaching margin protection.
+
+    Also carries a live preview of the cashback the customer would earn on this cart — computed the
+    same way as the real thing at checkout (`PdvService._compute_cashback`), just against the cart's
+    current lines instead of a persisted order, so the PDV can show it before the sale is finalized.
+    """
 
     max_discount_percent: Decimal
+    cashback_earned_preview: Decimal = Decimal("0.00")
 
 
 class PdvSaleCreateRequest(StrictModel):
@@ -124,6 +130,7 @@ class PdvSaleCreateRequest(StrictModel):
     include_cpf_on_invoice: bool = True
     cashback_applied: Decimal = Field(default=Decimal("0.00"), ge=0)
     recipient_email: str = Field(default="", max_length=320)
+    payment_terminal_reference: str = Field(default="", max_length=64)
 
 
 # ============================================================================
@@ -189,6 +196,7 @@ class PdvSaleResponse(StrictModel):
     id: str
     sale_code: str
     payment_method: str
+    payment_terminal_reference: str = ""
     total: Decimal
     cashback_applied: Decimal = Decimal("0.00")
     cashback_earned: Decimal = Decimal("0.00")
@@ -376,6 +384,7 @@ class PdvUpsellSuggestionItemResponse(StrictModel):
     brand: str
     category: str
     price: Decimal
+    is_controlled: bool = False
 
 
 class PdvUpsellSuggestionResponse(StrictModel):
@@ -400,6 +409,7 @@ class PdvPrescriptionCreateRequest(StrictModel):
     decision: str | None = Field(default=None, pattern="^(approved|rejected)$")
     pharmacist_notes: str = Field(default="", max_length=2000)
     rejection_reason: str = Field(default="", max_length=2000)
+    quantity: int = Field(default=1, ge=1, le=100)
 
 
 class PdvPrescriptionResponse(StrictModel):
@@ -411,6 +421,7 @@ class PdvPrescriptionResponse(StrictModel):
     delivery_method: str
     digital_reference_url: str = ""
     requires_retention: bool = False
+    validated_quantity: int | None = None
 
 
 class PdvPrescriptionCartStatusResponse(StrictModel):
@@ -420,6 +431,7 @@ class PdvPrescriptionCartStatusResponse(StrictModel):
     prescription_id: str | None = None
     status: str = "missing"
     delivery_method: str = ""
+    validated_quantity: int | None = None
 
 
 class PdvPrescriptionStatusResponse(StrictModel):
@@ -444,14 +456,20 @@ class PdvRecurrenceConfirmRequest(StrictModel):
     inventory_item_id: str
     quantity: int = Field(ge=1, le=100)
     frequency_days: int = Field(default=30, ge=1, le=365)
-    payment_method_id: str
+    # Optional: a customer with no saved card can still be scheduled — see
+    # PdvService.confirm_recurrence. Charges immediately when provided.
+    payment_method_id: str | None = None
 
 
 class PdvRecurrenceConfirmResponse(StrictModel):
-    """Represent the result of confirming and charging a recurrence."""
+    """Represent the result of confirming a recurrence — charged now, or scheduled pending a card."""
 
     subscription_id: str
     discount_percent: Decimal
     charge_status: str
     total_charged: Decimal
+    # True when there was no saved card to charge: the subscription was scheduled
+    # instead of charged, and the customer will get reminder e-mails until next_charge_due_label.
+    scheduled_pending_card: bool = False
+    next_charge_due_label: str = ""
 

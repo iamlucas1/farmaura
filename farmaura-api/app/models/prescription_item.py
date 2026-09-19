@@ -44,5 +44,9 @@ class PrescriptionItem(Base, UuidModel, TimestampedModel):
     medication_name: Mapped[str] = mapped_column(String(255), nullable=False)
     dosage_instructions: Mapped[str] = mapped_column(Text, default="", nullable=False)
     prescribed_quantity_label: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    # Units validated at the PDV for this item (set only by PrescriptionService.create_from_pdv) — the
+    # ceiling PdvService._enforce_prescription_gate checks a cart line's qty against before it can be
+    # queued to the cashier. Null for prescriptions created outside the PDV (marketplace/order review).
+    validated_quantity: Mapped[int | None] = mapped_column(nullable=True)
     matches_requested_item: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     pharmacist_note: Mapped[str] = mapped_column(Text, default="", nullable=False)

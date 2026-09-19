@@ -13,7 +13,7 @@ Observations:
 - the bootstrap response confirms module readiness only;
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_subject_session, require_internal_subject
@@ -21,11 +21,14 @@ from app.domain.enums import UserRole
 from app.core.responses import StatusResponse
 from app.schemas.auth import TokenSubject
 from app.schemas.deliveries import (
+    DeliveryDriverListResponse,
+    DeliveryLiveResponse,
     DeliveryLocationPingRequest,
-    DeliveryRouteLiveResponse,
+    DeliveryRouteListResponse,
     DriverAssignRequest,
     DriverAssignResponse,
     MyDeliveryRouteListResponse,
+    PlanDeliveryRoutesRequest,
 )
 from app.services.delivery_service import DeliveryService
 from app.services.operations_service import OperationsService
@@ -49,6 +52,43 @@ async def get_delivery_status(
     return await service.get_status("Delivery workflows scaffolded.")
 
 
+@router.get("/drivers", response_model=DeliveryDriverListResponse)
+async def list_delivery_drivers(
+    store_id: str = Query(default="", max_length=36),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DeliveryDriverListResponse:
+    """Return every driver based at the caller's store, for the route-planning driver picker."""
+
+    service = DeliveryService(session=session, subject=subject)
+    return await service.list_drivers(requested_store_id=store_id)
+
+
+@router.get("/routes", response_model=DeliveryRouteListResponse)
+async def list_delivery_routes(
+    store_id: str = Query(default="", max_length=36),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DeliveryRouteListResponse:
+    """Return every currently active delivery route for the caller's store."""
+
+    service = DeliveryService(session=session, subject=subject)
+    return await service.list_active_routes(requested_store_id=store_id)
+
+
+@router.post("/routes/plan", response_model=DeliveryRouteListResponse)
+async def plan_delivery_routes(
+    payload: PlanDeliveryRoutesRequest,
+    store_id: str = Query(default="", max_length=36),
+    subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> DeliveryRouteListResponse:
+    """(Re)plan every currently pending delivery stop into one route per driver."""
+
+    service = DeliveryService(session=session, subject=subject)
+    return await service.plan_routes(payload, requested_store_id=store_id)
+
+
 @router.patch("/routes/{route_id}/driver", response_model=DriverAssignResponse)
 async def assign_delivery_route_driver(
     route_id: str,
@@ -62,15 +102,16 @@ async def assign_delivery_route_driver(
     return await service.assign_driver(route_id=route_id, payload=payload)
 
 
-@router.get("/routes/live", response_model=DeliveryRouteLiveResponse)
-async def get_delivery_route_live(
+@router.get("/routes/live", response_model=DeliveryLiveResponse)
+async def get_delivery_routes_live(
+    store_id: str = Query(default="", max_length=36),
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
-) -> DeliveryRouteLiveResponse:
-    """Return a lightweight live-tracking snapshot for the active delivery route."""
+) -> DeliveryLiveResponse:
+    """Return a lightweight live-tracking snapshot for every active delivery route at once."""
 
     service = DeliveryService(session=session, subject=subject)
-    return await service.get_live_route()
+    return await service.get_live_routes(requested_store_id=store_id)
 
 
 @router.get("/my-route", response_model=MyDeliveryRouteListResponse)

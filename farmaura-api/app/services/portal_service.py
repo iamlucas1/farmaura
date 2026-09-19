@@ -34,6 +34,7 @@ from app.core.password_hashing import hash_password
 from app.core.tenant_context import apply_first_access_context, apply_public_marketplace_context, apply_tenant_context
 from app.domain.enums import AccessScope, OrderStatus, UserRole
 from app.domain.validators import is_valid_email
+from app.schemas.deliveries import DeliveryRouteListResponse
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.customer_repository import CustomerRepository
 from app.repositories.inventory_repository import InventoryRepository
@@ -49,8 +50,6 @@ from app.models.chat_thread import ChatThread
 from app.models.coupon_campaign import CouponCampaign
 from app.models.customer import Customer
 from app.models.customer_address import CustomerAddress
-from app.models.delivery_route import DeliveryRoute
-from app.models.delivery_route_stop import DeliveryRouteStop
 from app.models.health_service import HealthService
 from app.models.health_service_appointment import HealthServiceAppointment
 from app.models.marketplace_listing import MarketplaceListing
@@ -61,6 +60,7 @@ from app.models.portal_setting import PortalSetting
 from app.models.prescription import Prescription
 from app.models.pricing_promotion import PricingPromotion
 from app.models.product_review import ProductReview
+from app.models.product_view_event import ProductViewEvent
 from app.models.saved_product import SavedProduct
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -83,8 +83,6 @@ from app.schemas.portal import (
     PortalStoreConstructionCostsResponse,
     PortalCouponMutationRequest,
     PortalCouponResponse,
-    PortalDeliveryRouteResponse,
-    PortalDeliveryRouteStopResponse,
     PortalFavoriteMutationRequest,
     PortalFavoriteResponse,
     PortalFinancialSettingsResponse,
@@ -435,12 +433,28 @@ class PortalService:
             coupon_campaigns=await self._list_coupon_campaigns(tenant_id=tenant_id, active_only=False),
             pricing_promotions=await self._list_pricing_promotions(tenant_id=tenant_id),
             financial_settings=await self._resolve_financial_settings(tenant_id=tenant_id),
-            delivery_route=await self._resolve_delivery_route(tenant_id=tenant_id, store=store),
+            delivery_routes=await self._resolve_delivery_routes(subject, store_id=store.id),
             delivery_pricing=await self._resolve_delivery_pricing(tenant_id=tenant_id),
             delivery_areas=await self._resolve_delivery_areas(tenant_id=tenant_id),
             pdv_discount_settings=await self._resolve_pdv_discount_settings(tenant_id=tenant_id),
             cnae_settings=await self._resolve_cnae_settings(tenant_id=tenant_id),
         )
+
+    async def _resolve_delivery_routes(self, subject: TokenSubject, *, store_id: str) -> DeliveryRouteListResponse:
+        """Return every currently active delivery route for the bootstrap's already-resolved
+        store (passed in explicitly so it can never disagree with what the rest of this same
+        bootstrap response shows as `store`/`stores`).
+
+        Import kept local (not at module level) to break a circular import: DeliveryService
+        pulls in CashbackService, which itself imports PortalService for one helper — a
+        module-level import here would try to load PortalService again while this same module
+        is still mid-import, which Python rejects. Deferring it to call time sidesteps that
+        without touching the (unrelated) cashback/portal relationship.
+        """
+
+        from app.services.delivery_service import DeliveryService
+
+        return await DeliveryService(session=self.session, subject=subject).list_active_routes(requested_store_id=store_id)
 
     async def get_marketplace_meta(self, *, tenant_id: str | None) -> PortalMarketplaceMetaResponse:
         """Return the tenant-scoped marketplace meta (fees, installments, cashback policy)."""
@@ -954,15 +968,48 @@ class PortalService:
         customer = await self._require_customer(subject)
         return await self._list_saved_products(customer=customer)
 
+    async def log_product_view(self, subject: TokenSubject, inventory_product_id: str) -> None:
+        """Log one authenticated customer's view of a product's detail page.
+
+        Feeds PurchaseHistoryService's PDV upsell engine — a customer who keeps looking
+        at a product without buying it yet is still a real cross-sell signal. Silently
+        no-ops for an unknown product id (a stale/removed product) rather than surfacing
+        an error for something with no real user-facing consequence.
+        """
+
+        customer = await self._require_customer(subject)
+        product = await InventoryRepository(self.session).get_product_by_id(
+            tenant_id=customer.tenant_id, product_id=inventory_product_id,
+        )
+        if product is None:
+            return
+        self.session.add(
+            ProductViewEvent(
+                id=str(uuid4()),
+                tenant_id=customer.tenant_id,
+                customer_id=customer.id,
+                inventory_product_id=product.id,
+                product_name_snapshot=product.name,
+            )
+        )
+        await self.session.commit()
+
     async def save_favorite(self, subject: TokenSubject, payload: PortalFavoriteMutationRequest) -> list[PortalFavoriteResponse]:
         """Persist one favorite product reference for the authenticated customer."""
 
         customer = await self._require_customer(subject)
         product_ref = payload.product_ref.strip()
+        resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=product_ref)
+        listing_ref, inventory_ref, real_name = resolved if resolved is not None else (None, None, product_ref)
         saved_products = await self._fetch_saved_product_models(customer=customer)
-        if any(self._saved_product_ref(item) == product_ref for item in saved_products):
+        already_saved = any(
+            (inventory_ref is not None and item.inventory_item_id == inventory_ref)
+            or (listing_ref is not None and item.marketplace_listing_id == listing_ref)
+            or self._saved_product_ref(item) == product_ref
+            for item in saved_products
+        )
+        if already_saved:
             return await self._list_saved_products(customer=customer)
-        listing_ref, inventory_ref = self._split_product_ref(product_ref)
         record = SavedProduct(
             id=str(uuid4()),
             tenant_id=customer.tenant_id,
@@ -970,22 +1017,30 @@ class PortalService:
             marketplace_listing_id=listing_ref,
             inventory_item_id=inventory_ref,
             saved_from_channel='marketplace',
-            product_name_snapshot=product_ref,
+            product_name_snapshot=real_name,
         )
         self.session.add(record)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_saved_products(customer=customer)
 
     async def delete_favorite(self, subject: TokenSubject, product_ref: str) -> list[PortalFavoriteResponse]:
         """Delete one favorite product reference for the authenticated customer."""
 
         customer = await self._require_customer(subject)
-        saved_products = await self._fetch_saved_product_models(customer=customer)
         normalized_ref = product_ref.strip()
+        resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=normalized_ref)
+        listing_ref, inventory_ref, _real_name = resolved if resolved is not None else (None, None, "")
+        saved_products = await self._fetch_saved_product_models(customer=customer)
         for record in saved_products:
-            if self._saved_product_ref(record) == normalized_ref:
+            if (
+                self._saved_product_ref(record) == normalized_ref
+                or (inventory_ref is not None and record.inventory_item_id == inventory_ref)
+                or (listing_ref is not None and record.marketplace_listing_id == listing_ref)
+            ):
                 await self.session.delete(record)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_saved_products(customer=customer)
 
     async def list_subscriptions(self, subject: TokenSubject) -> list[PortalSubscriptionResponse]:
@@ -999,15 +1054,25 @@ class PortalService:
 
         customer = await self._require_customer(subject)
         product_ref = payload.product_ref.strip()
+        resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=product_ref)
+        listing_ref, inventory_ref, real_name = resolved if resolved is not None else (None, None, product_ref)
         subscriptions = await self._fetch_subscription_models(customer=customer)
-        existing = next((record for record in subscriptions if self._subscription_ref(record) == product_ref), None)
+        existing = next(
+            (
+                record
+                for record in subscriptions
+                if (inventory_ref is not None and record.inventory_item_id == inventory_ref)
+                or (listing_ref is not None and record.marketplace_listing_id == listing_ref)
+                or self._subscription_ref(record) == product_ref
+            ),
+            None,
+        )
         if existing is not None:
             existing.quantity = payload.quantity
             existing.frequency_days = payload.frequency_days
             existing.is_paused = False
             existing.subscription_status = 'active'
         else:
-            listing_ref, inventory_ref = self._split_product_ref(product_ref)
             record = Subscription(
                 id=str(uuid4()),
                 tenant_id=customer.tenant_id,
@@ -1016,7 +1081,7 @@ class PortalService:
                 inventory_item_id=inventory_ref,
                 subscription_code='SUB-' + uuid4().hex[:8].upper(),
                 subscription_status='active',
-                product_name_snapshot=product_ref,
+                product_name_snapshot=real_name,
                 quantity=payload.quantity,
                 frequency_days=payload.frequency_days,
                 next_cycle_in_days=max(1, payload.frequency_days // 4),
@@ -1030,14 +1095,27 @@ class PortalService:
             )
             self.session.add(record)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_subscriptions(customer=customer)
 
     async def update_subscription(self, subject: TokenSubject, product_ref: str, payload: PortalSubscriptionUpdateRequest) -> list[PortalSubscriptionResponse]:
         """Update one marketplace subscription for the authenticated customer."""
 
         customer = await self._require_customer(subject)
+        normalized_ref = product_ref.strip()
+        resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=normalized_ref)
+        listing_ref, inventory_ref, _real_name = resolved if resolved is not None else (None, None, "")
         subscriptions = await self._fetch_subscription_models(customer=customer)
-        record = next((item for item in subscriptions if self._subscription_ref(item) == product_ref.strip()), None)
+        record = next(
+            (
+                item
+                for item in subscriptions
+                if self._subscription_ref(item) == normalized_ref
+                or (inventory_ref is not None and item.inventory_item_id == inventory_ref)
+                or (listing_ref is not None and item.marketplace_listing_id == listing_ref)
+            ),
+            None,
+        )
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription not found.')
         if payload.quantity is not None:
@@ -1052,17 +1130,26 @@ class PortalService:
         if payload.skip_next_cycle:
             record.next_cycle_in_days = int(record.next_cycle_in_days or 0) + int(record.frequency_days or 0)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_subscriptions(customer=customer)
 
     async def delete_subscription(self, subject: TokenSubject, product_ref: str) -> list[PortalSubscriptionResponse]:
         """Delete one marketplace subscription for the authenticated customer."""
 
         customer = await self._require_customer(subject)
+        normalized_ref = product_ref.strip()
+        resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=normalized_ref)
+        listing_ref, inventory_ref, _real_name = resolved if resolved is not None else (None, None, "")
         subscriptions = await self._fetch_subscription_models(customer=customer)
         for record in subscriptions:
-            if self._subscription_ref(record) == product_ref.strip():
+            if (
+                self._subscription_ref(record) == normalized_ref
+                or (inventory_ref is not None and record.inventory_item_id == inventory_ref)
+                or (listing_ref is not None and record.marketplace_listing_id == listing_ref)
+            ):
                 await self.session.delete(record)
         await self.session.commit()
+        await apply_tenant_context(self.session, subject)
         return await self._list_subscriptions(customer=customer)
 
     async def create_health_appointment(
@@ -1678,7 +1765,22 @@ class PortalService:
     async def _list_subscriptions(self, customer: Customer) -> list[PortalSubscriptionResponse]:
         """Return serialized subscriptions for one customer."""
 
-        return [PortalSubscriptionResponse(product_ref=self._subscription_ref(item), quantity=int(item.quantity or 1), frequency_days=int(item.frequency_days or 30), is_paused=bool(item.is_paused), next_cycle_in_days=int(item.next_cycle_in_days or 0), started_at_label=item.started_at_label or '') for item in await self._fetch_subscription_models(customer=customer)]
+        return [
+            PortalSubscriptionResponse(
+                product_ref=self._subscription_ref(item),
+                quantity=int(item.quantity or 1),
+                frequency_days=int(item.frequency_days or 30),
+                is_paused=bool(item.is_paused),
+                next_cycle_in_days=int(item.next_cycle_in_days or 0),
+                started_at_label=item.started_at_label or '',
+                status=item.subscription_status or 'active',
+                due_date_label=item.next_charge_due_at.strftime('%d/%m/%Y') if item.next_charge_due_at else '',
+                cancel_reason=item.cancel_reason or '',
+                product_name=item.product_name_snapshot or '',
+                unit_price=item.unit_price_snapshot or Decimal('0.00'),
+            )
+            for item in await self._fetch_subscription_models(customer=customer)
+        ]
 
     async def _list_coupon_campaigns(self, *, tenant_id: str, active_only: bool) -> list[PortalCouponResponse]:
         """Return coupon campaigns for one tenant."""
@@ -1875,60 +1977,6 @@ class PortalService:
             rx_pending_yesterday=rx_pending_yesterday,
         )
 
-    async def _resolve_delivery_route(self, *, tenant_id: str, store: PortalStoreResponse) -> PortalDeliveryRouteResponse:
-        """Return the active internal delivery route, or an empty hub-only snapshot."""
-
-        route_statement = (
-            select(DeliveryRoute)
-            .where(DeliveryRoute.tenant_id == tenant_id, DeliveryRoute.route_status.in_(['planned', 'dispatched']))
-            .order_by(desc(DeliveryRoute.created_at))
-            .limit(1)
-        )
-        route = (await self.session.execute(route_statement)).scalar_one_or_none()
-        if route is None:
-            return PortalDeliveryRouteResponse(hub_name=store.name, hub_address=store.address)
-        stops_statement = (
-            select(DeliveryRouteStop, Order.order_code)
-            .join(Order, Order.id == DeliveryRouteStop.order_id)
-            .where(DeliveryRouteStop.route_id == route.id)
-            .order_by(DeliveryRouteStop.stop_sequence)
-        )
-        stop_rows = (await self.session.execute(stops_statement)).all()
-        stops = [
-            PortalDeliveryRouteStopResponse(
-                id=stop.id,
-                order_id=stop.order_id,
-                order_code=order_code or '',
-                customer=stop.customer_name_snapshot,
-                address=stop.address_line_snapshot,
-                district=stop.district_snapshot,
-                cep=stop.postal_code_snapshot,
-                status=stop.stop_status,
-                lat=stop.latitude,
-                lng=stop.longitude,
-                dist=stop.distance_from_origin_km,
-                navigation_url=stop.navigation_url,
-            )
-            for stop, order_code in stop_rows
-        ]
-        return PortalDeliveryRouteResponse(
-            id=route.id,
-            code=route.route_code,
-            status=route.route_status,
-            driver=route.driver_name_snapshot,
-            driver_user_id=route.driver_user_id or "",
-            vehicle=route.vehicle_label,
-            total_km=route.total_distance_km,
-            total_min=route.estimated_duration_minutes,
-            saved_km=route.saved_distance_km,
-            provider=route.route_provider,
-            hub_name=route.origin_name or store.name,
-            hub_address=route.origin_address or store.address,
-            hub_lat=route.origin_latitude,
-            hub_lng=route.origin_longitude,
-            stops=stops,
-        )
-
     async def _build_product_review_collection(self, *, product_ref: str, inventory_ids: list[str], listing_id: str) -> PortalProductReviewCollectionResponse:
         """Return the review summary and comment list for one product scope."""
 
@@ -1946,6 +1994,34 @@ class PortalService:
         else:
             average = Decimal('0.0')
         return PortalProductReviewCollectionResponse(product_ref=product_ref, rating_average=average, review_count=len(reviews), items=review_items)
+
+    async def _resolve_grouped_product_ref(
+        self, *, tenant_id: str, product_ref: str,
+    ) -> tuple[str | None, str | None, str] | None:
+        """Resolve a raw "mkt-<name>-<brand>" grouped product ref to a real catalog item.
+
+        Same root cause as _resolve_review_purchase_match: product_ref from the frontend is
+        almost always this grouped id, never inv-/listing- prefixed — writing it straight
+        into a uuid FK column (the prior behavior in save_favorite/create_subscription)
+        fails at the database the moment a customer favorites/subscribes using a real
+        product id instead of one of the internal snapshot-origin prefixes. Returns
+        (marketplace_listing_id, inventory_item_id, real_name) for the first catalog item
+        whose computed grouped id matches, or None if nothing in the current catalog does.
+        """
+
+        cleaned_ref = product_ref.strip()
+        listing_id, inventory_id = self._split_product_ref(cleaned_ref)
+        if inventory_id:
+            item = await InventoryRepository(self.session).get_item_by_id(tenant_id=tenant_id, item_id=inventory_id)
+            return (None, inventory_id, item.name if item else cleaned_ref)
+        if listing_id:
+            return (listing_id, None, cleaned_ref)
+
+        items = await InventoryRepository(self.session).list_items(tenant_id=tenant_id, active_only=False)
+        for item in items:
+            if build_marketplace_product_id(item.name, item.brand_name) == cleaned_ref:
+                return (None, item.id, item.name)
+        return None
 
     async def _resolve_review_purchase_match(self, *, customer: Customer, product_ref: str) -> tuple[str | None, str | None, str | None]:
         """Resolve whether the customer has a matching paid order for the reviewed product.
@@ -2160,13 +2236,23 @@ class PortalService:
         return str(record.product_name_snapshot or record.id)
 
     def _split_product_ref(self, product_ref: str) -> tuple[str | None, str | None]:
-        """Split one frontend product reference into persisted foreign keys."""
+        """Split one frontend product reference into persisted foreign keys, if it is one.
+
+        Returns (None, None) when product_ref isn't inv-/listing- prefixed — the common
+        case for a ref coming straight from the frontend (the raw "mkt-<name>-<brand>"
+        grouped id, see build_marketplace_product_id). Returning the raw string as if it
+        were a literal foreign key value here (the prior behavior) wrote/matched a non-uuid
+        string against a uuid column and failed at the database the moment a real product
+        ref reached this — every caller's own fallback (recomputing the grouped id in
+        Python, see _resolve_grouped_product_ref/_resolve_review_purchase_match) is what
+        actually knows how to resolve that kind of ref.
+        """
 
         if product_ref.startswith('inv-'):
             return None, product_ref[4:]
         if product_ref.startswith('listing-'):
             return product_ref[8:], None
-        return None, product_ref
+        return None, None
 
     def _normalize_coupon_code(self, value: str) -> str:
         """Return a normalized coupon code identifier."""

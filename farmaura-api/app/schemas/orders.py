@@ -185,13 +185,23 @@ class OrderResponse(StrictModel):
 # ============================================================================
 
 
+class OrderItemPickLocationResponse(StrictModel):
+    """Represent one shelf/lot a picked order line was taken from."""
+
+    location_code: str
+    location_name: str = ""
+    quantity: int
+
+
 class InternalOrderItemResponse(StrictModel):
     """Represent one order line for the internal console."""
 
     id: str
+    inventory_item_id: str = ""
     name: str
     qty: int
     loc: str
+    pick_locations: list[OrderItemPickLocationResponse] = []
     rx: bool
     picked: bool = False
 
@@ -210,6 +220,7 @@ class InternalOrderResponse(StrictModel):
     priority: str
     placed: str
     payment: str
+    payment_status: str = "pending"
     channel: str
     total: Decimal
     address: str = ""
@@ -255,10 +266,18 @@ class OrderAdvanceRequest(StrictModel):
     next_status: str = Field(pattern="^(separating|ready|dispatched)$")
 
 
-class OrderItemLocationUpdateRequest(StrictModel):
-    """Validate a picked item source-location change."""
+class OrderItemPickLocationRequest(StrictModel):
+    """Validate one shelf/lot entry of a (possibly split) pick-location update."""
 
     location_code: str = Field(min_length=1, max_length=64)
+    quantity: int = Field(gt=0, le=100000)
+
+
+class OrderItemLocationUpdateRequest(StrictModel):
+    """Validate a picked item source-location change — one entry normally, two or
+    more when the picker had to split the quantity across different shelves."""
+
+    locations: list[OrderItemPickLocationRequest] = Field(min_length=1, max_length=8)
 
 
 class OrderItemPickRequest(StrictModel):

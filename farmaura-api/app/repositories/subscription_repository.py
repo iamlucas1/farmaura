@@ -50,3 +50,14 @@ class SubscriptionRepository:
         await self.session.flush()
         await self.session.refresh(subscription)
         return subscription
+
+    async def list_pending_card_ids(self) -> list[str]:
+        """Return every subscription id currently scheduled without a saved card.
+
+        Cross-tenant on purpose — SubscriptionCardReminderScheduler is a system job that
+        sweeps every tenant, mirroring FiscalScheduler's own eligibility query.
+        """
+
+        statement = select(Subscription.id).where(Subscription.subscription_status == "pending_card")
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())

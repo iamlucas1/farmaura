@@ -47,6 +47,8 @@ class PdvSale(Base, UuidModel, TimestampedModel):
     pharmacist_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
     payment_method: Mapped[str] = mapped_column(String(24), nullable=False)
     payment_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    # NSU/authCode do terminal Itaú (via farmaura-pdv-bridge) para pix/debit/credit; vazio para cash.
+    payment_terminal_reference: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     sale_status: Mapped[str] = mapped_column(String(24), nullable=False)
     include_cpf_on_invoice: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     customer_display_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)

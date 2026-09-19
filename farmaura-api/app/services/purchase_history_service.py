@@ -25,11 +25,14 @@ Observations:
 """
 
 from collections import Counter
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from statistics import mean, median
+from typing import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.inventory_item import InventoryItem
@@ -38,6 +41,9 @@ from app.models.pdv_sale_item import PdvSaleItem
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.order_repository import OrderRepository
 from app.repositories.pdv_repository import PdvRepository
+from app.repositories.product_availability_alert_repository import ProductAvailabilityAlertRepository
+from app.repositories.product_view_event_repository import ProductViewEventRepository
+from app.repositories.saved_product_repository import SavedProductRepository
 from app.repositories.subscription_repository import SubscriptionRepository
 from app.services.marketplace_projection import slug_marketplace_value
 
@@ -71,6 +77,18 @@ WEIGHT_GLOBAL_CO_PURCHASE = 1.0
 WEIGHT_PERSONAL_CO_PURCHASE = 3.0
 WEIGHT_PERSONAL_TOP_PRODUCT = 1.5
 WEIGHT_PERSONAL_RECURRENCE = 2.0
+# Browsing-interest signals — real intent, but weaker than an actual purchase, so all
+# three stay below every purchase-based weight above. A back-in-stock request is the
+# strongest of the three (an active "I want this now" blocked only by stock); a favorite
+# is a deliberate but passive bookmark; a page view is the weakest individual signal,
+# which is why it is applied per view (see PRODUCT_VIEW_COUNT_CAP) instead of once —
+# repeated viewing without buying is exactly the pattern the weight is meant to catch.
+WEIGHT_PERSONAL_DESIRED = 1.2
+WEIGHT_PERSONAL_FAVORITE = 1.0
+WEIGHT_PERSONAL_VIEW = 0.3
+# Caps how many views of the same product count toward its score — otherwise one
+# obsessively-revisited product could out-rank every other signal combined.
+PRODUCT_VIEW_COUNT_CAP = 10
 # 5 shown inline in the PDV panel + up to 10 more revealed in the "ver mais" modal (15 total) —
 # see PdvUpsell, point-of-sale-screen.jsx.
 UPSELL_SUGGESTIONS_LIMIT = 15
@@ -131,6 +149,7 @@ class UpsellSuggestion:
     brand: str
     category: str
     price: Decimal
+    is_controlled: bool = False
 
 
 # ============================================================================
@@ -149,11 +168,42 @@ class PurchaseHistoryService:
         self.pdv_repository = PdvRepository(session)
         self.subscription_repository = SubscriptionRepository(session)
 
+    @asynccontextmanager
+    async def _elevated_for_cashier(self) -> AsyncGenerator[None]:
+        """Temporarily widen this session's RLS role for one narrow, read-only history lookup.
+
+        A cashier's own row-level policies scope pdv_sales/orders to sales they personally
+        rang up (and zero marketplace orders at all) — the right default for browsing raw
+        sales, but it starves the signals computed here (top products, recurrence,
+        co-purchase) even though the result only ever surfaces already-in-stock product
+        names back to the response, never a raw order/sale/customer row. Elevating to
+        'pharmacist' for the duration of the read matches what CrmService.get_purchase_insights
+        already grants a pharmacist for the exact same query, then restores the real role
+        immediately after — a no-op for every role that isn't 'cashier'.
+        """
+
+        if self.session.bind is None or self.session.bind.dialect.name != "postgresql":
+            yield
+            return
+        original_role = (await self.session.execute(text("SELECT current_setting('app.current_user_role', true)"))).scalar()
+        if original_role != "cashier":
+            yield
+            return
+        await self.session.execute(text("SELECT set_config('app.current_user_role', 'pharmacist', true)"))
+        try:
+            yield
+        finally:
+            await self.session.execute(
+                text("SELECT set_config('app.current_user_role', :role, true)"), {"role": original_role}
+            )
+
     async def get_customer_purchase_summary(self, *, tenant_id: str, customer_id: str) -> CustomerPurchaseSummary:
         """Return top products and recurrence candidates for one customer."""
 
-        order_items = await self.order_repository.list_items_by_customer(tenant_id=tenant_id, customer_id=customer_id)
-        sale_items = await self.pdv_repository.list_sale_items_by_customer(tenant_id=tenant_id, customer_id=customer_id)
+        async with self._elevated_for_cashier():
+            order_items = await self.order_repository.list_items_by_customer(tenant_id=tenant_id, customer_id=customer_id)
+            sale_items = await self.pdv_repository.list_sale_items_by_customer(tenant_id=tenant_id, customer_id=customer_id)
+            active_subscriptions = await self.subscription_repository.list_active_for_customer(tenant_id=tenant_id, customer_id=customer_id)
 
         by_product: dict[str, dict[str, object]] = {}
         dates_by_product: dict[str, list[datetime]] = {}
@@ -191,7 +241,6 @@ class PurchaseHistoryService:
             reverse=True,
         )[:TOP_PRODUCTS_LIMIT]
 
-        active_subscriptions = await self.subscription_repository.list_active_for_customer(tenant_id=tenant_id, customer_id=customer_id)
         subscribed_name_slugs = {slug_marketplace_value(subscription.product_name_snapshot) for subscription in active_subscriptions}
 
         continuous_use_names = await self._continuous_use_product_names(
@@ -252,6 +301,19 @@ class PurchaseHistoryService:
         """Return the cross-channel product identity key, matching the marketplace catalog grouping."""
 
         return slug_marketplace_value(name) + "::" + (slug_marketplace_value(brand) or "sem-marca")
+
+    async def _resolve_brand_by_name(self, *, tenant_id: str, names: list[str]) -> dict[str, str]:
+        """Return each product's current brand, by lowercased name — for signals that only kept a name.
+
+        Favorites, back-in-stock requests, and view events don't snapshot a brand (unlike
+        order/sale line items), so their product identity key needs one extra lookup
+        against the live catalog before it can be compared to the purchase-based keys.
+        """
+
+        if not names:
+            return {}
+        products = await InventoryRepository(self.session).list_products_by_names(tenant_id=tenant_id, names=names)
+        return {product.name.strip().lower(): product.brand_name for product in products}
 
     def _detect_interval_pattern(self, dates: list[datetime]) -> tuple[int, int] | None:
         """Detect the customer's own real recurring-purchase cadence for one product.
@@ -338,36 +400,86 @@ class PurchaseHistoryService:
                 scores[key] = scores.get(key, 0.0) + count * weight
                 labels.setdefault(key, key_labels[key])
 
-        global_order_items = await self.order_repository.list_items_for_orders_matching_products(tenant_id=tenant_id, name_brand_pairs=cart_pairs)
-        global_sale_items = await self.pdv_repository.list_sale_items_for_sales_matching_products(tenant_id=tenant_id, name_brand_pairs=cart_pairs)
-        order_counts, order_labels = self._distinct_transaction_counts(global_order_items, "order_id")
-        sale_counts, sale_labels = self._distinct_transaction_counts(global_sale_items, "pdv_sale_id")
-        add(order_counts, WEIGHT_GLOBAL_CO_PURCHASE, order_labels)
-        add(sale_counts, WEIGHT_GLOBAL_CO_PURCHASE, sale_labels)
+        async with self._elevated_for_cashier():
+            global_order_items = await self.order_repository.list_items_for_orders_matching_products(tenant_id=tenant_id, name_brand_pairs=cart_pairs)
+            global_sale_items = await self.pdv_repository.list_sale_items_for_sales_matching_products(tenant_id=tenant_id, name_brand_pairs=cart_pairs)
+            order_counts, order_labels = self._distinct_transaction_counts(global_order_items, "order_id")
+            sale_counts, sale_labels = self._distinct_transaction_counts(global_sale_items, "pdv_sale_id")
+            add(order_counts, WEIGHT_GLOBAL_CO_PURCHASE, order_labels)
+            add(sale_counts, WEIGHT_GLOBAL_CO_PURCHASE, sale_labels)
 
-        if customer_id:
-            personal_order_items = await self.order_repository.list_items_for_orders_matching_products(
-                tenant_id=tenant_id, name_brand_pairs=cart_pairs, customer_id=customer_id,
-            )
-            personal_sale_items = await self.pdv_repository.list_sale_items_for_sales_matching_products(
-                tenant_id=tenant_id, name_brand_pairs=cart_pairs, customer_id=customer_id,
-            )
-            personal_order_counts, personal_order_labels = self._distinct_transaction_counts(personal_order_items, "order_id")
-            personal_sale_counts, personal_sale_labels = self._distinct_transaction_counts(personal_sale_items, "pdv_sale_id")
-            add(personal_order_counts, WEIGHT_PERSONAL_CO_PURCHASE, personal_order_labels)
-            add(personal_sale_counts, WEIGHT_PERSONAL_CO_PURCHASE, personal_sale_labels)
+            if customer_id:
+                personal_order_items = await self.order_repository.list_items_for_orders_matching_products(
+                    tenant_id=tenant_id, name_brand_pairs=cart_pairs, customer_id=customer_id,
+                )
+                personal_sale_items = await self.pdv_repository.list_sale_items_for_sales_matching_products(
+                    tenant_id=tenant_id, name_brand_pairs=cart_pairs, customer_id=customer_id,
+                )
+                personal_order_counts, personal_order_labels = self._distinct_transaction_counts(personal_order_items, "order_id")
+                personal_sale_counts, personal_sale_labels = self._distinct_transaction_counts(personal_sale_items, "pdv_sale_id")
+                add(personal_order_counts, WEIGHT_PERSONAL_CO_PURCHASE, personal_order_labels)
+                add(personal_sale_counts, WEIGHT_PERSONAL_CO_PURCHASE, personal_sale_labels)
 
-            summary = await self.get_customer_purchase_summary(tenant_id=tenant_id, customer_id=customer_id)
-            for top_product in summary.top_products:
-                if top_product.product_key in cart_keys:
-                    continue
-                scores[top_product.product_key] = scores.get(top_product.product_key, 0.0) + WEIGHT_PERSONAL_TOP_PRODUCT
-                labels.setdefault(top_product.product_key, (top_product.name, top_product.brand))
-            for candidate in summary.recurrence_candidates:
-                if candidate.product_key in cart_keys:
-                    continue
-                scores[candidate.product_key] = scores.get(candidate.product_key, 0.0) + WEIGHT_PERSONAL_RECURRENCE
-                labels.setdefault(candidate.product_key, (candidate.name, candidate.brand))
+                summary = await self.get_customer_purchase_summary(tenant_id=tenant_id, customer_id=customer_id)
+                for top_product in summary.top_products:
+                    if top_product.product_key in cart_keys:
+                        continue
+                    scores[top_product.product_key] = scores.get(top_product.product_key, 0.0) + WEIGHT_PERSONAL_TOP_PRODUCT
+                    labels.setdefault(top_product.product_key, (top_product.name, top_product.brand))
+                for candidate in summary.recurrence_candidates:
+                    if candidate.product_key in cart_keys:
+                        continue
+                    scores[candidate.product_key] = scores.get(candidate.product_key, 0.0) + WEIGHT_PERSONAL_RECURRENCE
+                    labels.setdefault(candidate.product_key, (candidate.name, candidate.brand))
+
+                # Browsing-interest signals: favorited products, back-in-stock requests
+                # ("desejados"), and repeated product-page views — real cross-sell signals
+                # even when the customer has never actually bought the product yet.
+                favorites = await SavedProductRepository(self.session).list_for_customer(tenant_id=tenant_id, customer_id=customer_id)
+                alerts = await ProductAvailabilityAlertRepository(self.session).list_for_customer(customer_id=customer_id)
+                views = await ProductViewEventRepository(self.session).list_for_customer(tenant_id=tenant_id, customer_id=customer_id)
+
+                names_needing_brand = {
+                    record.product_name_snapshot.strip()
+                    for record in (*favorites, *alerts, *views)
+                    if record.product_name_snapshot.strip()
+                }
+                brand_by_name = await self._resolve_brand_by_name(tenant_id=tenant_id, names=list(names_needing_brand))
+
+                def resolve_key(name: str) -> tuple[str, str] | None:
+                    name = name.strip()
+                    if not name:
+                        return None
+                    brand = brand_by_name.get(name.lower(), "")
+                    key = self._product_key(name, brand)
+                    return None if key in cart_keys else (key, brand)
+
+                for favorite in favorites:
+                    resolved = resolve_key(favorite.product_name_snapshot)
+                    if resolved is None:
+                        continue
+                    key, brand = resolved
+                    scores[key] = scores.get(key, 0.0) + WEIGHT_PERSONAL_FAVORITE
+                    labels.setdefault(key, (favorite.product_name_snapshot.strip(), brand))
+
+                for alert in alerts:
+                    resolved = resolve_key(alert.product_name_snapshot)
+                    if resolved is None:
+                        continue
+                    key, brand = resolved
+                    scores[key] = scores.get(key, 0.0) + WEIGHT_PERSONAL_DESIRED
+                    labels.setdefault(key, (alert.product_name_snapshot.strip(), brand))
+
+                view_counts: Counter[str] = Counter()
+                for view in views:
+                    resolved = resolve_key(view.product_name_snapshot)
+                    if resolved is None:
+                        continue
+                    key, brand = resolved
+                    view_counts[key] += 1
+                    labels.setdefault(key, (view.product_name_snapshot.strip(), brand))
+                for key, count in view_counts.items():
+                    scores[key] = scores.get(key, 0.0) + min(count, PRODUCT_VIEW_COUNT_CAP) * WEIGHT_PERSONAL_VIEW
 
         if not scores:
             return []
@@ -392,6 +504,7 @@ class PurchaseHistoryService:
                     brand=match.brand_name,
                     category=match.category_name,
                     price=Decimal(match.sale_price),
+                    is_controlled=match.is_controlled,
                 )
             )
             if len(suggestions) >= UPSELL_SUGGESTIONS_LIMIT:

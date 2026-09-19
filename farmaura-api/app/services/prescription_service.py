@@ -130,6 +130,7 @@ class PrescriptionService:
                 medication_name=payload.medication_name or item.name,
                 dosage_instructions="Conforme orientação médica.",
                 prescribed_quantity_label="",
+                validated_quantity=payload.quantity,
                 matches_requested_item=True,
                 pharmacist_note="",
             )
@@ -150,6 +151,7 @@ class PrescriptionService:
             delivery_method=prescription.delivery_method,
             digital_reference_url=prescription.digital_reference_url,
             requires_retention=prescription.requires_retention,
+            validated_quantity=payload.quantity,
         )
 
     async def get_status_for_cart(self, customer_id: str | None, inventory_item_ids: list[str]) -> PdvPrescriptionStatusResponse:
@@ -166,9 +168,10 @@ class PrescriptionService:
             items=[
                 PdvPrescriptionCartStatusResponse(
                     inventory_item_id=item_id,
-                    prescription_id=latest[item_id].id if item_id in latest else None,
-                    status=latest[item_id].status if item_id in latest else "missing",
-                    delivery_method=latest[item_id].delivery_method if item_id in latest else "",
+                    prescription_id=latest[item_id][0].id if item_id in latest else None,
+                    status=latest[item_id][0].status if item_id in latest else "missing",
+                    delivery_method=latest[item_id][0].delivery_method if item_id in latest else "",
+                    validated_quantity=latest[item_id][1] if item_id in latest else None,
                 )
                 for item_id in inventory_item_ids
             ]

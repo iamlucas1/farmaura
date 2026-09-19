@@ -16,6 +16,21 @@ function faDateIn(days) {
 const FA_FREQS = [{ v: 30, l: 'Todo mês' }, { v: 60, l: 'A cada 2 meses' }, { v: 90, l: 'A cada 3 meses' }];
 const faFreqLabel = (value) => (FA_FREQS.find((entry) => entry.v === value) || FA_FREQS[0]).l;
 
+const SUB_CANCEL_REASON_LABEL = {
+  no_card_by_due_date: 'Nenhum cartão foi cadastrado até o vencimento.',
+  charge_failed: 'A cobrança falhou no vencimento.',
+};
+
+/* Um produto do catálogo casado com a assinatura (`p.real`), ou um produto "sintético"
+   montado a partir do próprio snapshot da assinatura, para o caso comum de uma assinatura
+   criada pelo PDV referenciar um item de estoque sem equivalente no catálogo público do
+   marketplace — sem isso, essas linhas some da tela inteiramente. */
+function resolveSubProduct(sub, products) {
+  const matched = products.find((product) => product.id === sub.id);
+  if (matched) return { ...matched, real: true };
+  return { id: sub.id, name: sub.name || 'Produto', brand: '', price: sub.unitPrice, cat: 'medicamentos', real: false };
+}
+
 function SubProductIcon({ cat, size = 30 }) {
   const name = cat === 'medicamentos' ? 'pill' : cat === 'perfumaria' ? 'sparkle' : cat === 'bem-estar' ? 'leaf' : 'heart';
   return <Icon name={name} size={size} style={{ color: 'var(--fa-primary)', opacity: .5 }} />;
@@ -30,9 +45,9 @@ function SubscriptionsScreen({ ctx }) {
     return <LoginGate icon="repeat" title="Entre para gerenciar suas assinaturas" sub="Acompanhe seus medicamentos de uso contínuo, ajuste a frequência e nunca fique sem o que importa." cta="Entrar na conta" onNav={onNav} />;
   }
 
-  const rows = subs.map((sub) => ({ s: sub, p: products.find((product) => product.id === sub.id) })).filter((entry) => entry.p);
+  const rows = subs.map((sub) => ({ s: sub, p: resolveSubProduct(sub, products) }));
   const confirmingRow = confirmingSub ? rows.find((row) => row.s.id === confirmingSub.id) : null;
-  const active = rows.filter((entry) => !entry.s.paused);
+  const active = rows.filter((entry) => entry.s.status === 'active' && !entry.s.paused);
   const monthly = active.reduce((sum, entry) => sum + (entry.p.price * 0.85 * entry.s.qty) * (30 / entry.s.freq), 0);
   const eligible = products.filter((product) => product.tags.includes('assinatura') && !subs.find((sub) => sub.id === product.id));
 
@@ -56,16 +71,27 @@ function SubscriptionsScreen({ ctx }) {
         <div className="subs-list">
           {rows.map(({ s, p }) => {
             const unit = p.price * 0.85;
+            const pendingCard = s.status === 'pending_card';
+            const cancelled = s.status === 'cancelled';
+            const goToProduct = () => p.real && onNav({ name: 'product', id: p.id });
             return (
-              <article className="sub-card" key={s.id} style={{ opacity: s.paused ? .72 : 1 }}>
+              <article className="sub-card" key={s.id} style={{ opacity: s.paused || cancelled ? .72 : 1 }}>
                 <div className="sub-card-main">
-                  <span className="sub-thumb" style={{ background: 'var(--fa-mist-2)', cursor: 'pointer' }} onClick={() => onNav({ name: 'product', id: p.id })}>
+                  <span className="sub-thumb" style={{ background: 'var(--fa-mist-2)', cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>
                     <SubProductIcon cat={p.cat} size={22} />
                   </span>
                   <div className="sub-info">
                     <span className="sub-brand">{p.brand}</span>
-                    <span className="sub-name" style={{ cursor: 'pointer' }} onClick={() => onNav({ name: 'product', id: p.id })}>{p.name}</span>
-                    {s.paused ? <span className="set-badge" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Pausada</span> : <span className="set-badge is-on" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Ativa</span>}
+                    <span className="sub-name" style={{ cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>{p.name}</span>
+                    {cancelled ? (
+                      <span className="set-badge is-critical" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Cancelada</span>
+                    ) : pendingCard ? (
+                      <span className="set-badge is-warn" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Aguardando cartão</span>
+                    ) : s.paused ? (
+                      <span className="set-badge" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Pausada</span>
+                    ) : (
+                      <span className="set-badge is-on" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Ativa</span>
+                    )}
                   </div>
                   <div className="sub-price">
                     <span className="cart-item-price-row">
@@ -76,30 +102,44 @@ function SubscriptionsScreen({ ctx }) {
                     <span className="sub-price-caption">por entrega</span>
                   </div>
                 </div>
+                {(pendingCard || cancelled) && (
+                  <div className="cell-muted" style={{ margin: '0 0 12px', padding: '10px 12px', borderRadius: 'var(--fa-r-input)', background: cancelled ? 'var(--fa-rose-soft)' : 'var(--fa-warn-soft)', color: cancelled ? 'var(--fa-primary-ink)' : 'var(--fa-warn-ink)', fontSize: 12.5, lineHeight: 1.5 }}>
+                    {cancelled
+                      ? (SUB_CANCEL_REASON_LABEL[s.cancelReason] || 'Essa assinatura foi cancelada.')
+                      : `Cadastre um cartão até ${s.dueDateLabel || 'a data prevista'} para não perder o desconto — enviamos lembretes por e-mail.`}
+                    {pendingCard && (
+                      <button className="fa-btn fa-btn-primary fa-btn-sm" style={{ marginTop: 8 }} onClick={() => onNav({ name: 'account' })}>
+                        <Icon name="plus" size={13} />Cadastrar cartão
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="order-meta-grid sub-meta-grid">
                   <div className="order-meta-item"><span className="k">Frequência</span><span className="v"><Icon name="repeat" size={13} style={{ verticalAlign: -2, marginRight: 5, color: 'var(--fa-ink-3)' }} />{faFreqLabel(s.freq)}</span></div>
-                  <div className="order-meta-item"><span className="k">Próxima entrega</span><span className="v">{s.paused ? 'Pausada' : <>{faDateIn(s.nextInDays)}<span className="sub-countdown">em {s.nextInDays} {s.nextInDays === 1 ? 'dia' : 'dias'}</span></>}</span></div>
+                  <div className="order-meta-item"><span className="k">{pendingCard ? 'Vencimento' : 'Próxima entrega'}</span><span className="v">{pendingCard ? s.dueDateLabel : cancelled ? '—' : s.paused ? 'Pausada' : <>{faDateIn(s.nextInDays)}<span className="sub-countdown">em {s.nextInDays} {s.nextInDays === 1 ? 'dia' : 'dias'}</span></>}</span></div>
                   <div className="order-meta-item"><span className="k">Assinante desde</span><span className="v">{s.since}</span></div>
                 </div>
-                <div className="sub-card-foot" style={{ flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--fa-ink-2)' }}>
-                      Quantidade
-                      <QtyStepper value={s.qty} onChange={(qty) => patchSub(s.id, { qty: Math.max(1, qty) })} />
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--fa-ink-2)' }}>
-                      Frequência
-                      <select className="fa-input" value={s.freq} onChange={(event) => patchSub(s.id, { freq: Number(event.target.value) })} style={{ height: 38, width: 'auto', paddingRight: 30, fontSize: 13 }}>
-                        {FA_FREQS.map((freq) => <option key={freq.v} value={freq.v}>{freq.l}</option>)}
-                      </select>
-                    </label>
+                {!pendingCard && !cancelled && (
+                  <div className="sub-card-foot" style={{ flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--fa-ink-2)' }}>
+                        Quantidade
+                        <QtyStepper value={s.qty} onChange={(qty) => patchSub(s.id, { qty: Math.max(1, qty) })} />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--fa-ink-2)' }}>
+                        Frequência
+                        <select className="fa-input" value={s.freq} onChange={(event) => patchSub(s.id, { freq: Number(event.target.value) })} style={{ height: 38, width: 'auto', paddingRight: 30, fontSize: 13 }}>
+                          {FA_FREQS.map((freq) => <option key={freq.v} value={freq.v}>{freq.l}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {!s.paused && <button className="ghost-btn" type="button" onClick={() => skipNextSub(s.id)}><Icon name="chevR" size={14} />Pular próxima</button>}
+                      <button className="ghost-btn" type="button" onClick={() => (s.paused ? patchSub(s.id, { paused: false }) : setConfirmingSub({ id: s.id, action: 'pause' }))}><Icon name={s.paused ? 'play' : 'pause'} size={14} />{s.paused ? 'Retomar' : 'Pausar'}</button>
+                      <button className="sub-remove-btn" type="button" onClick={() => setConfirmingSub({ id: s.id, action: 'cancel' })}><Icon name="trash" size={14} />Cancelar assinatura</button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {!s.paused && <button className="ghost-btn" type="button" onClick={() => skipNextSub(s.id)}><Icon name="chevR" size={14} />Pular próxima</button>}
-                    <button className="ghost-btn" type="button" onClick={() => (s.paused ? patchSub(s.id, { paused: false }) : setConfirmingSub({ id: s.id, action: 'pause' }))}><Icon name={s.paused ? 'play' : 'pause'} size={14} />{s.paused ? 'Retomar' : 'Pausar'}</button>
-                    <button className="sub-remove-btn" type="button" onClick={() => setConfirmingSub({ id: s.id, action: 'cancel' })}><Icon name="trash" size={14} />Cancelar assinatura</button>
-                  </div>
-                </div>
+                )}
               </article>
             );
           })}

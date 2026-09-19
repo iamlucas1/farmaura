@@ -15,7 +15,7 @@ Observations:
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Numeric, String
+from sqlalchemy import JSON, Boolean, CheckConstraint, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampedModel, UuidModel
@@ -53,6 +53,7 @@ class OrderItem(Base, UuidModel, TimestampedModel):
     category_name_snapshot: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     ean_code_snapshot: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     storage_location_snapshot: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    pick_locations: Mapped[list[dict[str, int | str]]] = mapped_column(JSON, default=list, nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)

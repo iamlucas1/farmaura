@@ -1,0 +1,16 @@
+{
+  "name": "farmaura-pdv-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente local que roda no PC do caixa e faz a ponte USB entre o PDV do Farmaura (navegador) e a maquininha Itaú.",
+  "main": "bin/farmaura-pdv-bridge.js",
+  "bin": {
+    "farmaura-pdv-bridge": "bin/farmaura-pdv-bridge.js"
+  },
+  "scripts": {
+    "start": "node bin/farmaura-pdv-bridge.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

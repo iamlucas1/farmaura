@@ -283,7 +283,7 @@ function ProductSpecs({ p }) {
 let lastPickedQty = { variantGroupId: null, qty: 1 };
 
 function ProductScreen({ ctx }) {
-  const { products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant, paymentRules, authClient } = ctx;
+  const { user, products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant, paymentRules, authClient } = ctx;
   const product = products.find((entry) => entry.id === route.id) || products[0];
   const [qty, setQty] = useState(() => (
     product && product.variantGroupId && product.variantGroupId === lastPickedQty.variantGroupId
@@ -338,6 +338,15 @@ function ProductScreen({ ctx }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [alsoBoughtRef]);
+
+  // Alimenta o motor de "Oportunidades de venda" do PDV: um cliente que volta a olhar o
+  // mesmo produto várias vezes sem comprar ainda é um sinal real de interesse. Só para
+  // clientes identificados (sem isso não há a quem atribuir o sinal) — melhor esforço,
+  // nunca bloqueia a navegação se a chamada falhar.
+  useEffect(() => {
+    if (!user || !alsoBoughtRef) return;
+    authClient.request('/portal/marketplace/products/' + alsoBoughtRef + '/view', { method: 'POST' }).catch(() => {});
+  }, [user, alsoBoughtRef]);
 
   if (!product) {
     return (

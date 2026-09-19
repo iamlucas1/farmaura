@@ -13,9 +13,10 @@ Observations:
 - financial values are stored as snapshots so historical subscription terms remain auditable;
 """
 
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampedModel, UuidModel
@@ -67,3 +68,15 @@ class Subscription(Base, UuidModel, TimestampedModel):
     unit_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("15.00"), nullable=False)
     is_paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Real, computable due date for the first charge — distinct from next_cycle_date_label
+    # (a display-only string). Only meaningfully set for "pending_card" subscriptions today
+    # (scheduled without a saved card), so the reminder scheduler has something to compare
+    # against; null for a subscription that already charged immediately.
+    next_charge_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    # Short machine-readable reason, set only when subscription_status becomes "cancelled"
+    # this way (e.g. "no_card_by_due_date") — cancelled_at_label stays the human date/time.
+    cancel_reason: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    # Smallest reminder threshold (in days-until-due) already emailed, from
+    # SUBSCRIPTION_CARD_REMINDER_THRESHOLDS_DAYS; -1 means no reminder sent yet. Prevents
+    # re-sending the same day's reminder on every scheduler tick.
+    card_reminder_last_threshold_days: Mapped[int] = mapped_column(Integer, default=-1, nullable=False)

@@ -749,6 +749,11 @@ function normalizeMarketplaceSubscription(entry) {
     paused: !!entry.is_paused,
     nextInDays: Number(entry.next_cycle_in_days || 0),
     since: entry.started_at_label || 'Assinatura recente',
+    status: entry.status || 'active',
+    dueDateLabel: entry.due_date_label || '',
+    cancelReason: entry.cancel_reason || '',
+    name: entry.product_name || '',
+    unitPrice: Number(entry.unit_price || 0),
   };
 }
 

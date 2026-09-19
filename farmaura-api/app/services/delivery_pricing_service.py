@@ -25,8 +25,9 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from math import atan2, cos, radians, sin, sqrt
 from uuid import uuid4
+
+from app.domain.geo import haversine_km as compute_haversine_km
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -315,12 +316,7 @@ class DeliveryPricingService:
     def haversine_km(self, lat1: Decimal, lng1: Decimal, lat2: Decimal, lng2: Decimal) -> Decimal:
         """Return the real great-circle distance in kilometers between two coordinates."""
 
-        earth_radius_km = 6371.0
-        phi1, phi2 = radians(float(lat1)), radians(float(lat2))
-        delta_phi = radians(float(lat2) - float(lat1))
-        delta_lambda = radians(float(lng2) - float(lng1))
-        a = sin(delta_phi / 2) ** 2 + cos(phi1) * cos(phi2) * sin(delta_lambda / 2) ** 2
-        return quantize_money(Decimal(str(earth_radius_km * 2 * atan2(sqrt(a), sqrt(1 - a)))))
+        return quantize_money(compute_haversine_km(lat1, lng1, lat2, lng2))
 
     # ------------------------------------------------------------------
     # Route stop attachment

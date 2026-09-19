@@ -2053,6 +2053,8 @@ body.pd-sticky-bar-active .fa-chat-widget { bottom: calc(80px + env(safe-area-in
 .set-badge { font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 2px 8px; border-radius: 999px; background: var(--fa-mist-2); color: var(--fa-ink-2); }
 
 .set-badge.is-on { background: var(--fa-success-soft); color: var(--fa-success); }
+.set-badge.is-warn { background: var(--fa-warn-soft); color: var(--fa-warn-ink); }
+.set-badge.is-critical { background: var(--fa-vital); color: #fff; }
 
 /* -- address cards -- */
 .prof-addr-list { display: flex; flex-direction: column; }

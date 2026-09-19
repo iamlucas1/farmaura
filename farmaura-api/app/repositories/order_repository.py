@@ -204,6 +204,22 @@ class OrderRepository:
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def list_active_delivery_routes(self, *, tenant_id: str, store_id: str) -> list[DeliveryRoute]:
+        """Return every open delivery route for one tenant-scoped store — plural counterpart of
+        `get_active_delivery_route`, for stores dispatching more than one route at once."""
+
+        statement = (
+            select(DeliveryRoute)
+            .where(
+                DeliveryRoute.tenant_id == tenant_id,
+                DeliveryRoute.store_id == store_id,
+                DeliveryRoute.route_status.in_(["planned", "dispatched"]),
+            )
+            .order_by(DeliveryRoute.created_at.desc())
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
     async def add_delivery_route(self, route: DeliveryRoute) -> DeliveryRoute:
         """Persist one delivery route row."""
 
@@ -246,6 +262,20 @@ class OrderRepository:
         """Return the ordered stops belonging to one delivery route."""
 
         statement = select(DeliveryRouteStop).where(DeliveryRouteStop.route_id == route_id).order_by(DeliveryRouteStop.stop_sequence)
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def list_route_stops_for_routes(self, *, route_ids: list[str]) -> list[DeliveryRouteStop]:
+        """Return every stop belonging to any of `route_ids`, in one query — batch counterpart
+        of `list_route_stops` for reading several routes at once."""
+
+        if not route_ids:
+            return []
+        statement = (
+            select(DeliveryRouteStop)
+            .where(DeliveryRouteStop.route_id.in_(route_ids))
+            .order_by(DeliveryRouteStop.route_id, DeliveryRouteStop.stop_sequence)
+        )
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
