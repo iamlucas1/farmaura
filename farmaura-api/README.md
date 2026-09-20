@@ -23,9 +23,11 @@ Base inicial da API da Farmaura em Python com FastAPI, SQLAlchemy 2.x e arquitet
 
 ## Docker
 
-1. Copie `.env.example` para `.env`.
-2. Suba a stack com `./scripts/docker_up.sh`.
-3. Sempre que alterar o frontend containerizado, rode `./scripts/docker_rebuild_web.sh`.
+1. Copie `.env.example` para `.env` (`cp` no Linux/Git Bash, `Copy-Item` no PowerShell).
+2. Dentro de `farmaura-api/`, suba a stack: `./scripts/docker_up.sh` (Linux, macOS, Git Bash) ou `.\scripts\docker_up.ps1` (Windows PowerShell).
+3. Sempre que alterar o frontend containerizado, rode `./scripts/docker_rebuild_web.sh` ou `.\scripts\docker_rebuild_web.ps1`.
+
+Os pares `.sh`/`.ps1` fazem exatamente a mesma coisa (`docker compose up --build` e rebuild só do serviço `farmaura`); os comandos `docker compose ...` puros também funcionam igual nos dois sistemas. Se o PowerShell recusar o `.ps1` ("a execução de scripts foi desabilitada"), rode uma vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` ou use `powershell -ExecutionPolicy Bypass -File .\scripts\docker_up.ps1`.
 
 O compose do backend:
 
@@ -39,8 +41,8 @@ O compose do backend:
 
 Comandos operacionais úteis:
 
-- `./scripts/docker_up.sh`: sobe ou recria a stack inteira com build;
-- `./scripts/docker_rebuild_web.sh`: recompila a imagem web multi-stage e recria apenas o serviço `farmaura`, sem rebuildar dependências da API;
+- `docker_up.sh` / `docker_up.ps1`: sobe ou recria a stack inteira com build;
+- `docker_rebuild_web.sh` / `docker_rebuild_web.ps1`: recompila a imagem web multi-stage e recria apenas o serviço `farmaura`, sem rebuildar dependências da API;
 
 URLs locais após subir a stack:
 

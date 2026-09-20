@@ -111,7 +111,7 @@ services:
     image: mailhog/mailhog:v1.0.1
     restart: unless-stopped
     ports:
-      - "127.0.0.1:1025:1025" # SMTP catcher — matches APP_SMTP_HOST=host.docker.internal in .env
+      - "127.0.0.1:1025:1025" # SMTP catcher — to use it, set APP_SMTP_HOST=farmaura-mailhog and APP_SMTP_PORT=1025 in .env (service name on the private network; host.docker.internal only resolves on Docker Desktop, not on Linux Engine)
       - "127.0.0.1:8025:8025" # web UI to inspect e-mails sent by local dev
     networks:
       - farmaura_private

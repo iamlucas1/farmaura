@@ -1,0 +1,27 @@
+# Fins de linha: o repositorio inteiro e LF, em qualquer sistema.
+# Sem isto, um clone no Windows com core.autocrlf=true converte os scripts .sh (e o
+# farmaura-api/docker/entrypoint.sh, que e copiado para a imagem Linux) para CRLF, e o
+# container da API falha ao subir ("no such file or directory" / "bad interpreter").
+# Com o atributo no proprio repositorio, a regra vale igual em todas as maquinas,
+# independente da configuracao local do git.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.ps1 text eol=lf
+Dockerfile text eol=lf
+
+# Binarios: nunca converter fim de linha
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

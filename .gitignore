@@ -28,3 +28,6 @@ storage/*
 /lumos-gateway/
 /lumosmed/
 test.db
+
+# per-machine agent approvals (Windows PowerShell/winget entries vs Linux paths) - never shared
+.claude/settings.local.json
