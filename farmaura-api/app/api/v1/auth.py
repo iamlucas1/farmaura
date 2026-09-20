@@ -18,9 +18,16 @@ Observations:
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_app_settings, get_current_subject, get_session, get_subject_session
+from app.api.deps import (
+    get_app_settings,
+    get_current_subject,
+    get_session,
+    get_subject_session,
+    require_internal_subject,
+)
 from app.core.config import Settings
 from app.core.rate_limit import AUTH_RATE_LIMIT, rate_limit
+from app.domain.enums import UiTheme
 from app.domain.permissions import get_allowed_modules, get_allowed_portals
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import (
@@ -43,6 +50,8 @@ from app.schemas.auth import (
     TwoFactorVerifyRequest,
     UnlockAccountRequest,
     UnlockAccountResponse,
+    UserPreferencesRequest,
+    UserPreferencesResponse,
 )
 from app.schemas.portal import PortalRegisterRequest
 from app.services.auth_service import AuthService
@@ -238,4 +247,18 @@ async def get_session_context(
         allowed_portals=get_allowed_portals(subject.access_scope, subject.role),
         allowed_modules=get_allowed_modules(subject.role, subject.access_scope),
         two_factor_enabled=bool(user and user.two_factor_enabled),
+        ui_theme=UiTheme(user.ui_theme) if user else UiTheme.AUTO,
     )
+
+
+@router.patch("/preferences", response_model=UserPreferencesResponse)
+async def update_preferences(
+    payload: UserPreferencesRequest,
+    subject: TokenSubject = Depends(require_internal_subject()),
+    session: AsyncSession = Depends(get_subject_session),
+    settings: Settings = Depends(get_app_settings),
+) -> UserPreferencesResponse:
+    """Save the console preferences (color theme) on the authenticated staff account."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.update_preferences(subject, payload)

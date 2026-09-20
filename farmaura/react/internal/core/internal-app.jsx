@@ -5,6 +5,7 @@ import { BrowserRouter, Route, Routes, useNavigate, useParams } from "react-rout
 import { Icon } from "../../marketplace/core/marketplace-icons.jsx";
 import { AccountModal, AppShell, PharmLogin } from "./internal-shell.jsx";
 import { confirmAction as kitConfirmAction, showToast as kitShowToast } from "./internal-ui.jsx";
+import { applyInternalTheme } from "./internal-theme.js";
 import { AcquisitionCostsScreen } from "../screens/acquisition-costs-screen.jsx";
 import { AnalyticsScreen } from "../screens/analytics-screen.jsx";
 import { BrandsScreen } from "../screens/brands-screen.jsx";
@@ -1225,6 +1226,12 @@ function PharmApp() {
       active = false;
     };
   }, [authClient]);
+  // O tema é preferência da conta: vale enquanto há sessão e volta ao do sistema no login/logout,
+  // para quem entrar em seguida num computador compartilhado não herdar a escolha de quem saiu.
+  const activeTheme = user ? user.uiTheme : 'auto';
+  useEffect(() => {
+    applyInternalTheme(activeTheme);
+  }, [activeTheme]);
   const safeRoute = user
     ? (window.FA_ACCESS.canAccessInternalRoute(user, route)
       ? route
@@ -4600,6 +4607,20 @@ function PharmApp() {
     showToast(enabled ? 'Dupla autenticacao ativada' : 'Dupla autenticacao desativada', 'success');
   };
 
+  const updateUiTheme = async (theme) => {
+    const previous = user.uiTheme;
+    if (theme === previous) {
+      return;
+    }
+    setUser((current) => current ? { ...current, uiTheme: theme } : current);
+    try {
+      await authClient.updatePreferences({ ui_theme: theme });
+    } catch (error) {
+      setUser((current) => current && current.uiTheme === theme ? { ...current, uiTheme: previous } : current);
+      showToast(error && error.message ? error.message : 'Não foi possível salvar o tema.', 'warn');
+    }
+  };
+
   const beginTwoFactorSetup = async () => authClient.beginTwoFactorSetup();
 
   const enableTwoFactor = async (code) => {
@@ -4834,7 +4855,7 @@ function PharmApp() {
           estimateAudience={estimatePromotionAudience}
         />
       )}
-      {acctTab && <AccountModal tab={acctTab} onClose={() => setAcctTab(null)} user={user} onLogoutAll={onLogoutAll} onTwoFactorSetup={beginTwoFactorSetup} onTwoFactorEnable={enableTwoFactor} onTwoFactorDisable={disableTwoFactor} onTwoFactorStatusChange={applyInternalTwoFactorState} stores={stores} selectedStoreId={selectedStoreId} />}
+      {acctTab && <AccountModal tab={acctTab} onClose={() => setAcctTab(null)} user={user} onLogoutAll={onLogoutAll} onTwoFactorSetup={beginTwoFactorSetup} onTwoFactorEnable={enableTwoFactor} onTwoFactorDisable={disableTwoFactor} onTwoFactorStatusChange={applyInternalTwoFactorState} onThemeChange={updateUiTheme} stores={stores} selectedStoreId={selectedStoreId} />}
     </>
   );
 }

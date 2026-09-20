@@ -67,6 +67,8 @@ from app.schemas.auth import (
     TwoFactorVerifyRequest,
     UnlockAccountRequest,
     UnlockAccountResponse,
+    UserPreferencesRequest,
+    UserPreferencesResponse,
 )
 from app.services.notification_service import NotificationService
 
@@ -308,6 +310,15 @@ class AuthService:
             detail="Two-factor authentication disabled.",
             two_factor_enabled=False,
         )
+
+    async def update_preferences(self, subject: TokenSubject, payload: UserPreferencesRequest) -> UserPreferencesResponse:
+        """Persist the console preferences the authenticated user chose for their own account."""
+
+        user = await self._get_subject_user(subject)
+        user.ui_theme = payload.ui_theme.value
+        await self.user_repository.save(user)
+        await self.session.commit()
+        return UserPreferencesResponse(ui_theme=payload.ui_theme)
 
     async def refresh(
         self,

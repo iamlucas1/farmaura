@@ -47,6 +47,14 @@ class PortalName(StrEnum):
     INTERNAL = "internal"
 
 
+class UiTheme(StrEnum):
+    """Supported internal console color themes; AUTO follows the operating system."""
+
+    AUTO = "auto"
+    LIGHT = "light"
+    DARK = "dark"
+
+
 class OrderStatus(StrEnum):
     """Supported order statuses."""
 

@@ -7,9 +7,10 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { MARKETPLACE_LOGO_MARK_URL } from "../../marketplace/core/marketplace-assets.js";
 import { TwoFactorModal } from "../../shared/two-factor-modal.jsx";
 import {
-  Icon, PageHead, Modal, Tabs, Field, SwitchToggle,
+  Icon, PageHead, Modal, Tabs, Field, SwitchToggle, PillNav,
   ConfirmHost, ToastHost, Avatar, Badge,
 } from "./internal-ui.jsx";
+import { THEME_OPTIONS } from "./internal-theme.js";
 
 /* Below 860px the rail becomes an off-canvas drawer. The burger (in the breadcrumb
    bar) and the scrim/close (in the rail) share one open/setOpen pair without
@@ -637,7 +638,7 @@ function PharmLogin({ onLogin, externalError }) {
    Account modal
    ============================================================ */
 
-function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwoFactorEnable, onTwoFactorDisable, onTwoFactorStatusChange, stores, selectedStoreId }) {
+function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwoFactorEnable, onTwoFactorDisable, onTwoFactorStatusChange, onThemeChange, stores, selectedStoreId }) {
   const isAdmin = user.role === window.FA_ACCESS.ROLE.ADMIN;
   const [active, setActive] = useState(tab || 'profile');
   const [twoFactorModalMode, setTwoFactorModalMode] = useState('');
@@ -676,6 +677,11 @@ function AccountModal({ tab, onClose, user, onLogoutAll, onTwoFactorSetup, onTwo
 
       {active === 'settings' && (
         <div style={{ display: 'grid', gap: 4 }}>
+          <div style={{ padding: '10px 0 14px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Aparência</div>
+            <div className="page-desc" style={{ margin: '2px 0 10px' }}>Tema de cores do portal. Fica salvo na sua conta e vale em qualquer dispositivo; "Automático" segue o tema do sistema.</div>
+            <PillNav options={THEME_OPTIONS} active={user.uiTheme} onChange={onThemeChange} />
+          </div>
           {[['Notificações de novos pedidos', true], ['Alertas de receita pendente', true], ['Avisos de estoque baixo', true], ['Resumo diário por e-mail', false]].map(([l, on]) => (
             <div key={l} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{l}</span>

@@ -45,6 +45,12 @@ Observations:
     [ROLE.CUSTOMER]: 'Cliente',
   };
 
+  const UI_THEMES = ['auto', 'light', 'dark'];
+
+  function normalizeUiTheme(value) {
+    return UI_THEMES.includes(value) ? value : 'auto';
+  }
+
   function buildAvatarLabel(name) {
     return String(name || '')
       .trim()
@@ -68,6 +74,7 @@ Observations:
       crf: source.crf || null,
       avatar: source.avatar || '',
       twoFactorEnabled: !!source.twoFactorEnabled,
+      uiTheme: normalizeUiTheme(source.uiTheme),
     };
   }
 
@@ -83,6 +90,7 @@ Observations:
       store: subject.store_id || null,
       avatar: buildAvatarLabel(source.full_name || source.email || ''),
       twoFactorEnabled: !!source.two_factor_enabled,
+      uiTheme: normalizeUiTheme(source.ui_theme),
     });
   }
 
@@ -154,5 +162,6 @@ Observations:
     isInternalPortalEligible,
     normalizeInternalUser,
     normalizeMarketplaceUser,
+    normalizeUiTheme,
   };
 })(window);

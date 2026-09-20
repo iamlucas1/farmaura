@@ -17,7 +17,7 @@ from uuid import UUID
 
 from pydantic import AliasChoices, Field, field_validator
 
-from app.domain.enums import AccessScope, PortalName, UserRole
+from app.domain.enums import AccessScope, PortalName, UiTheme, UserRole
 from app.domain.validators import is_strong_password
 from app.schemas.common import StrictModel
 
@@ -56,6 +56,19 @@ class AuthSessionResponse(StrictModel):
     allowed_portals: list[str]
     allowed_modules: list[str]
     two_factor_enabled: bool
+    ui_theme: UiTheme = UiTheme.AUTO
+
+
+class UserPreferencesRequest(StrictModel):
+    """Validate the console preferences a staff member saves on their own account."""
+
+    ui_theme: UiTheme
+
+
+class UserPreferencesResponse(StrictModel):
+    """Echo the console preferences persisted on the authenticated account."""
+
+    ui_theme: UiTheme
 
 
 class RefreshRequest(StrictModel):

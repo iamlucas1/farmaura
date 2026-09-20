@@ -38,7 +38,7 @@ Devolve um de três shapes, nesta ordem de decisão: 1) conta bloqueada → 429;
 
 ## Tabelas envolvidas
 
-- **`users`** — `role`/`access_scope` (CHECKs), `two_factor_enabled/secret`, `must_change_password`, `session_version` (int — usado tanto para logout-all quanto para invalidar challenges emitidos antes de uma mudança de sessão), `store_id` (FK `stores.id` SET NULL).
+- **`users`** — `role`/`access_scope` (CHECKs), `two_factor_enabled/secret`, `must_change_password`, `session_version` (int — usado tanto para logout-all quanto para invalidar challenges emitidos antes de uma mudança de sessão), `store_id` (FK `stores.id` SET NULL), `ui_theme` (`auto|light|dark`, check `ck_users_users_ui_theme_allowed`) — tema do console interno escolhido pela própria pessoa; devolvido em `GET /auth/session` e gravado por `PATCH /auth/preferences` (só portal interno, sempre na conta do próprio token, corpo estrito `{ui_theme}`). Ver [[../00_Decisoes/2026-09-20-tema-claro-escuro-preferencia-por-usuario|ADR]].
 - **`refresh_tokens`** — ver rotação/detecção de reuso acima.
 - **`customers`** — ligado a `users` por e-mail (não FK direta); todo cliente marketplace tem ambos os registros.
 
@@ -59,4 +59,5 @@ Devolve um de três shapes, nesta ordem de decisão: 1) conta bloqueada → 429;
 
 ## Atualizações
 
+- 2026-09-20: `users.ui_theme` + `PATCH /auth/preferences` + campo `ui_theme` em `GET /auth/session` (tema claro/escuro/automático por usuário no console interno; seletor na aba Preferências de "Minha conta") — ver [[../00_Decisoes/2026-09-20-tema-claro-escuro-preferencia-por-usuario|ADR]] e [[../06_Pendencias/aplicar-migration-user-ui-theme-em-producao|migration pendente em produção]].
 - 2026-07-25: nota criada — documentação do estado atual do módulo.

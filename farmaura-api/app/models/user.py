@@ -16,7 +16,7 @@ Observations:
 from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.enums import AccessScope, UserRole
+from app.domain.enums import AccessScope, UiTheme, UserRole
 from app.models.base import Base, TimestampedModel, UuidModel
 
 
@@ -38,6 +38,10 @@ class User(Base, UuidModel, TimestampedModel):
             "access_scope IN ('marketplace', 'internal', 'hybrid')",
             name="users_access_scope_allowed",
         ),
+        CheckConstraint(
+            "ui_theme IN ('auto', 'light', 'dark')",
+            name="users_ui_theme_allowed",
+        ),
     )
 
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
@@ -50,6 +54,7 @@ class User(Base, UuidModel, TimestampedModel):
         default=AccessScope.MARKETPLACE.value,
         nullable=False,
     )
+    ui_theme: Mapped[str] = mapped_column(String(16), default=UiTheme.AUTO.value, nullable=False)
     two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     two_factor_secret: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -275,10 +275,16 @@ button.card-head:focus-visible { outline: 2px solid var(--accent); outline-offse
 .tier-ouro { background: #fbeecd; color: #946110; }
 .tier-prata { background: #e7e9ea; color: #5b6266; }
 .tier-bronze { background: #f3ddc9; color: #8a4c1e; }
-:root:not([data-theme="light"]) .tier-diamante, :root[data-theme="dark"] .tier-diamante { background: rgba(90,150,230,.18); color: #8fbcf5; }
-:root:not([data-theme="light"]) .tier-ouro, :root[data-theme="dark"] .tier-ouro { background: rgba(240,180,41,.16); color: #f0b429; }
-:root:not([data-theme="light"]) .tier-prata, :root[data-theme="dark"] .tier-prata { background: rgba(255,255,255,.10); color: #c3c2b7; }
-:root:not([data-theme="light"]) .tier-bronze, :root[data-theme="dark"] .tier-bronze { background: rgba(217,89,38,.16); color: #e69a5f; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .tier-diamante { background: rgba(90,150,230,.18); color: #8fbcf5; }
+  :root:not([data-theme="light"]) .tier-ouro { background: rgba(240,180,41,.16); color: #f0b429; }
+  :root:not([data-theme="light"]) .tier-prata { background: rgba(255,255,255,.10); color: #c3c2b7; }
+  :root:not([data-theme="light"]) .tier-bronze { background: rgba(217,89,38,.16); color: #e69a5f; }
+}
+:root[data-theme="dark"] .tier-diamante { background: rgba(90,150,230,.18); color: #8fbcf5; }
+:root[data-theme="dark"] .tier-ouro { background: rgba(240,180,41,.16); color: #f0b429; }
+:root[data-theme="dark"] .tier-prata { background: rgba(255,255,255,.10); color: #c3c2b7; }
+:root[data-theme="dark"] .tier-bronze { background: rgba(217,89,38,.16); color: #e69a5f; }
 
 table { width: 100%; border-collapse: collapse; font-size: 12.75px; }
 .table-wrap { overflow-x: auto; }

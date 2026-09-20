@@ -245,3 +245,44 @@ def test_auth_session_returns_scope_and_modules(client: object) -> None:
     assert payload["allowed_portals"] == ["internal"]
     assert "inventory" in payload["allowed_modules"]
     assert "sales" not in payload["allowed_modules"]
+    assert payload["ui_theme"] == "auto"
+
+
+def test_preferences_require_authentication(client: object) -> None:
+    """Verify saving console preferences rejects anonymous requests."""
+
+    response = client.patch("/api/v1/auth/preferences", json={"ui_theme": "dark"})
+    assert response.status_code == 401
+
+
+def test_preferences_reject_marketplace_customer_session(client: object) -> None:
+    """Verify a marketplace customer cannot write internal console preferences."""
+
+    response = client.patch(
+        "/api/v1/auth/preferences",
+        headers=build_auth_headers(role=UserRole.CUSTOMER, access_scope=AccessScope.MARKETPLACE),
+        json={"ui_theme": "dark"},
+    )
+    assert response.status_code == 403
+
+
+def test_preferences_reject_unknown_theme_value(client: object) -> None:
+    """Verify an internal session cannot store a theme outside the allowlist."""
+
+    response = client.patch(
+        "/api/v1/auth/preferences",
+        headers=build_auth_headers(role=UserRole.CASHIER, access_scope=AccessScope.INTERNAL),
+        json={"ui_theme": "blue"},
+    )
+    assert response.status_code == 422
+
+
+def test_preferences_reject_overposted_fields(client: object) -> None:
+    """Verify role, scope, or tenant fields cannot ride along on a preferences update."""
+
+    response = client.patch(
+        "/api/v1/auth/preferences",
+        headers=build_auth_headers(role=UserRole.CASHIER, access_scope=AccessScope.INTERNAL),
+        json={"ui_theme": "dark", "role": "admin", "access_scope": "hybrid"},
+    )
+    assert response.status_code == 422

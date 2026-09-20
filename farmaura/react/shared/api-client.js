@@ -259,6 +259,12 @@ Observations:
       async fetchSession() {
         return authenticatedRequest('/auth/session', { method: 'GET' });
       },
+      async updatePreferences(preferences) {
+        return authenticatedRequest('/auth/preferences', {
+          method: 'PATCH',
+          body: JSON.stringify(preferences),
+        });
+      },
       async request(path, options) {
         return authenticatedRequest(path, options || {});
       },
