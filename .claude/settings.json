@@ -525,7 +525,10 @@
       "Bash(curl -sS -m 15 -o react-dom.prod.js -w \"react-dom: %{http_code} %{size_download}b\\\\n\" https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js)",
       "Bash(mkdir -p build)",
       "Bash(cp react.prod.js react-dom.prod.js build/)",
-      "Bash(npm i *)"
+      "Bash(npm i *)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); Set-Location \"C:\\\\Users\\\\maria\\\\OneDrive\\\\Documentos\\\\Farmaura\\\\farmaura-api\"; docker compose down 2>&1 | Out-Null; docker compose up --build -d 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); docker ps --format \"table {{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}\"; \"\"; foreach \\($u in \"http://127.0.0.1:8080/api/v1/health\",\"http://127.0.0.1:3000/healthz\",\"http://127.0.0.1:3000/marketplace\",\"http://127.0.0.1:3000/internal\",\"http://127.0.0.1:8025/\"\\) { try { $r = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 15; \"{0}  ->  {1}  \\({2} bytes\\)\" -f $u, $r.StatusCode, $r.RawContentLength } catch { \"{0}  ->  FALHOU: {1}\" -f $u, $_.Exception.Message } }; \"\"; \"--- health body ---\"; \\(Invoke-WebRequest -Uri \"http://127.0.0.1:8080/api/v1/health\" -UseBasicParsing\\).Content)",
+      "PowerShell($m = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\); $u = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); \"No PATH da maquina: \" + \\($m -split ';' | Where-Object { $_ -match 'Docker' }\\); \"No PATH do usuario: \" + \\($u -split ';' | Where-Object { $_ -match 'Docker' }\\); \"docker.exe existe: \" + \\(Test-Path \"C:\\\\Program Files\\\\Docker\\\\Docker\\\\resources\\\\bin\\\\docker.exe\"\\))"
     ],
     "ask": [
       "Bash(rm *)",
