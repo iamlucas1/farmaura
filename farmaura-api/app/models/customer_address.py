@@ -13,7 +13,9 @@ Observations:
 - this table stores reusable customer addresses only;
 """
 
-from sqlalchemy import Boolean, ForeignKey, String
+from decimal import Decimal
+
+from sqlalchemy import Boolean, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampedModel, UuidModel
@@ -42,3 +44,8 @@ class CustomerAddress(Base, UuidModel, TimestampedModel):
     recipient_phone: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Explicitly confirmed by the customer on the marketplace map picker — null means "typed the
+    # address but never confirmed a pin", not "confirmed at (0,0)"; unlike OrderFulfillment's
+    # geocoding-fallback coordinates, there is no automatic value to fall back to here.
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)

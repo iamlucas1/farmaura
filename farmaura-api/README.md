@@ -31,12 +31,13 @@ Os pares `.sh`/`.ps1` fazem exatamente a mesma coisa (`docker compose up --build
 
 O compose do backend:
 
-- sobe `farmaura-web`, `farmaura-api`, `farmaura-postgres` e `farmaura-valkey`;
+- sobe `farmaura-web`, `farmaura-api`, `farmaura-postgres`, `farmaura-valkey`, `farmaura-mailhog` e `farmaura-nominatim`;
 - mantém PostgreSQL e Valkey somente na rede privada `farmaura_private`;
 - por padrão não depende do `lumos_gateway` localmente;
 - publica a camada web em `127.0.0.1:3000`;
 - expõe a API localmente em `127.0.0.1:8080` para desenvolvimento;
-- responde healthcheck em `/api/v1/health`.
+- responde healthcheck em `/api/v1/health`;
+- `farmaura-nominatim` é um Nominatim (geocodificação) auto-hospedado — importa o extrato OSM do Centro-Oeste no primeiro boot (~200MB, pode levar alguns minutos); acompanhar com `docker compose logs -f farmaura-nominatim` e checar `http://127.0.0.1:9090/status.php` quando quiser confirmar se já terminou.
 
 
 Comandos operacionais úteis:

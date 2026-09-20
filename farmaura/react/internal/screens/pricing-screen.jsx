@@ -3,7 +3,7 @@ import { resolvePaymentBreakdown } from "../../shared/payment-pricing.js";
 import { buildCouponProductOptions, CouponTargetPicker } from "./coupons-screen.jsx";
 import { FinStepper } from "./finance-screen.jsx";
 import {
-  Icon, PageHead, Modal, Drawer, Field, SwitchToggle, PillNav, KpiChip,
+  Icon, PageHead, Modal, Drawer, Field, SwitchToggle, PillNav, StatCard, RowIconBtn,
   Badge, EmptyState, confirmAction, showToast, money, numfmt,
 } from "../core/internal-ui.jsx";
 
@@ -128,8 +128,7 @@ function PricingScreen({ ctx }) {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("all");
   const [brand, setBrand] = useState("all");
-  const [groupBy, setGroupBy] = useState("category");
-  const [collapsedGroups, setCollapsedGroups] = useState({});
+  const [groupBy] = useState("product");
   const [edit, setEdit] = useState(null);
   const [bulk, setBulk] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -141,6 +140,7 @@ function PricingScreen({ ctx }) {
     all: inventory.length,
     low: enriched.filter((e) => e.calc.margin < mkt.minMargin).length,
     controlled: inventory.filter((it) => it.controlled).length,
+    negative: enriched.filter((e) => e.calc.margin < 0).length,
   };
   const brandOptions = [...new Set(inventory.map((it) => (it.brand || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const match = ({ it, calc }) => {
@@ -166,12 +166,20 @@ function PricingScreen({ ctx }) {
     return groups;
   }, {});
   const groupedEntries = Object.entries(groupedRows);
-  const toggleGroup = (key) => setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
-  const collapseAllGroups = () => setCollapsedGroups(Object.fromEntries(groupedEntries.map(([key]) => [key, true])));
-  const expandAllGroups = () => setCollapsedGroups(Object.fromEntries(groupedEntries.map(([key]) => [key, false])));
 
   const avgMargin = enriched.reduce((s, e) => s + e.calc.margin, 0) / (enriched.length || 1);
   const avgPayout = enriched.reduce((s, e) => s + e.calc.payout, 0) / (enriched.length || 1);
+
+  /* Uma linha por produto, igual à tabela do artifact — o preço/margem representativo vem do
+     primeiro lote do grupo (preço é o mesmo produto a produto; só custo pode variar por lote,
+     e nesse caso o card de detalhe por lote já existe em Estoque). Farmaura hoje precifica só
+     para o marketplace — não existe um "preço de loja" separado do preço de marketplace no
+     modelo real, então as colunas/loja e /marketplace mostram o mesmo valor real de propósito,
+     em vez de inventar um segundo preço que não existe. */
+  const productPricingRows = groupedEntries.map(([key, group]) => {
+    const primary = group.rows[0];
+    return { key, label: group.label, cat: primary.it.cat || "Medicamentos", it: primary.it, calc: primary.calc };
+  });
 
   const createProductDiscount = (it) => {
     openPromotionCreate({ kind: "product_discount", scopeType: "products", targetProducts: [it.name] });
@@ -191,41 +199,6 @@ function PricingScreen({ ctx }) {
     setEdit(null);
   };
 
-  const renderPricingRow = ({ it, calc }) => {
-    const ms = marginState(calc.margin, mkt.minMargin);
-    const bar = Math.max(4, Math.min(100, Math.round(calc.margin / (mkt.minMargin * 2) * 100)));
-    return (
-      <tr key={it.id}>
-        <td>
-          <div className="cell-strong" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-            {it.name}{it.controlled && <Badge tone="warning">Tarja</Badge>}
-          </div>
-          <div className="cell-muted" style={{ fontSize: 12 }}>{it.brand}{it.batch && it.batch !== "—" ? " · lote " + it.batch : ""}</div>
-        </td>
-        <td className="mono cell-muted">{_prc(calc.cost)}</td>
-        <td><span style={{ fontWeight: 800, fontSize: 14.5 }}>{_prc(calc.price)}</span></td>
-        <td>
-          <div className="mono cell-strong">{_prc(calc.payout)}</div>
-          <div className="cell-muted" style={{ fontSize: 11.5 }}>− {_prc(calc.fees)} taxas{calc.tax > 0 ? " · − " + _prc(calc.tax) + " impostos" : ""}</div>
-        </td>
-        <td>
-          <Badge tone={ms.tone}><Icon name={ms.key === "ok" ? "check" : "alert"} size={11} />{_p1(calc.margin)}</Badge>
-          <div style={{ height: 5, borderRadius: 5, background: "var(--surface-2)", marginTop: 5, overflow: "hidden", width: 90 }}>
-            <div style={{ height: "100%", width: bar + "%", background: `var(--${ms.tone === "good" ? "good" : ms.tone === "warning" ? "warning" : "critical"})` }} />
-          </div>
-        </td>
-        <td><VsMarket vsRef={calc.vsRef} refPrice={calc.ref} /></td>
-        <td>{it.marketplaceVisible ? <Badge tone="good"><Icon name="store" size={11} />Publicado</Badge> : <Badge tone="neutral"><Icon name="minus" size={11} />Oculto</Badge>}</td>
-        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-          <div className="row-actions" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => createProductDiscount(it)}><Icon name="tag" size={12} />Criar desconto</button>
-            <button className="btn btn-primary btn-sm" onClick={() => setEdit(it)}><Icon name="tag" size={12} />Precificar</button>
-          </div>
-        </td>
-      </tr>
-    );
-  };
-
   return (
     <div className="route-fade">
       <PageHead
@@ -233,79 +206,62 @@ function PricingScreen({ ctx }) {
         title="Precificador"
         desc={`Vitrine ${mkt.name} · preços, margens e promoções.`}
         actions={(
-          <button className="btn btn-primary" onClick={() => setSettingsOpen(true)}><Icon name="cog" size={14} />Configurações gerais</button>
+          <>
+            <button className="btn btn-secondary" onClick={() => setBulk(true)}><Icon name="scale" size={14} />Margem em massa</button>
+            <button className="btn btn-primary" onClick={() => setSettingsOpen(true)}><Icon name="cog" size={14} />Configurações gerais</button>
+          </>
         )}
       />
 
       <div className="grid g-3" style={{ marginBottom: 16 }}>
-        <KpiChip icon="boxes" label="Todos os itens" value={counts.all} active={cat === "all"} onClick={() => setCat("all")} />
-        <KpiChip icon="alert" label={`Abaixo da meta (${_p1(mkt.minMargin)})`} value={counts.low} tone={counts.low ? "warning" : undefined} active={cat === "low"} onClick={() => setCat("low")} />
-        <KpiChip icon="lock" label="Controlados" value={counts.controlled} active={cat === "controlled"} onClick={() => setCat("controlled")} />
+        <StatCard icon="scale" label="Margem líquida média — loja" value={_p1(avgMargin)} tone={avgMargin < mkt.minMargin ? "warning" : "good"} />
+        <StatCard icon="dollar" label="Margem líquida média — marketplace" value={_p1(avgMargin)} tone="accent" />
+        <StatCard icon="alerttriangle" label="Produtos com margem negativa" value={counts.negative} tone={counts.negative ? "critical" : undefined} />
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
-          <PillNav options={[{ key: "category", label: "Por categoria" }, { key: "product", label: "Por produto" }]} active={groupBy} onChange={setGroupBy} />
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="btn btn-secondary btn-sm" onClick={expandAllGroups}><Icon name="expand" size={13} />Expandir tudo</button>
-            <button className="btn btn-secondary btn-sm" onClick={collapseAllGroups}><Icon name="minus" size={13} />Recolher tudo</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setBulk(true)}><Icon name="scale" size={13} />Margem em massa</button>
-          </div>
+      <div className="card">
+        <div className="card-head">
+          <input className="input" style={{ maxWidth: 320 }} placeholder="Buscar produto ou categoria..." value={query} onChange={(e) => setQuery(e.target.value)} />
+          <span className="card-head-sub">{productPricingRows.length} de {groupedEntries.length}</span>
         </div>
-        <div className="card-pad" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", borderBottom: "1px solid var(--border)" }}>
-          <input className="input" style={{ width: "auto", flex: "1 1 200px", minWidth: 180 }} placeholder="Buscar produto ou EAN" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <select className="input" style={{ width: "auto", minWidth: 170 }} value={brand} onChange={(e) => setBrand(e.target.value)}>
-            <option value="all">Todas as marcas</option>
-            {brandOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-          {(brand !== "all" || cat !== "all") && (
-            <button className="btn btn-ghost btn-sm" onClick={() => { setBrand("all"); setCat("all"); }}><Icon name="x" size={13} />Limpar filtros</button>
-          )}
-        </div>
-        <div className="card-head" style={{ border: "none" }}>
-          <span className="card-head-sub">
-            {rows.length} {groupBy === "product" ? "lote(s)" : "item(ns)"} em {groupedEntries.length} {groupBy === "product" ? "produto(s)" : "categoria(s)"} · margem líquida média {_p1(avgMargin)} · repasse médio {_prc(avgPayout)}
-          </span>
-        </div>
-        {rows.length === 0 ? <div className="card-pad"><EmptyState icon="search" title="Nenhum produto neste filtro" /></div> : (
+        {productPricingRows.length === 0 ? <div className="card-pad"><EmptyState icon="search" title="Nenhum produto neste filtro" /></div> : (
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Produto</th><th>Custo</th><th>Preço marketplace</th><th>Repasse líquido</th><th>Margem líquida</th><th>vs. mercado</th><th>Publicação</th><th /></tr>
+                <tr><th>Produto</th><th>Categoria</th><th>Custo (CMV)</th><th>Preço loja</th><th>Margem líquida loja</th><th>Preço marketplace</th><th>Margem líquida marketplace</th><th /></tr>
               </thead>
               <tbody>
-                {groupedEntries.flatMap(([key, group]) => {
-                  const collapsed = !!collapsedGroups[key];
-                  const groupQty = group.rows.reduce((sum, { it }) => sum + (it.qty || 0), 0);
-                  return [
-                    <tr key={"group-" + key}>
-                      <td colSpan="8" style={{ padding: 0 }}>
-                        <button
-                          onClick={() => toggleGroup(key)}
-                          aria-label={collapsed ? "Expandir grupo" : "Minimizar grupo"}
-                          style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "var(--surface-2)", border: "none", cursor: "pointer", font: "inherit", color: "inherit", textAlign: "left" }}
-                        >
-                          <span style={{ fontWeight: 700 }}>{group.label}</span>
-                          <span className="cell-muted" style={{ fontSize: 12 }}>
-                            {groupBy === "product" ? `${group.rows.length} ${group.rows.length === 1 ? "lote" : "lotes"} · ${groupQty} un` : `${group.rows.length} item(ns)`}
-                          </span>
-                          <Icon name="chevD" size={13} style={{ marginLeft: "auto", transform: collapsed ? "rotate(-90deg)" : "none", transition: "transform .15s" }} />
-                        </button>
+                {productPricingRows.map(({ key, it, calc }) => {
+                  const ms = marginState(calc.margin, mkt.minMargin);
+                  return (
+                    <tr key={key}>
+                      <td>
+                        <div className="cell-strong" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                          {it.name}{it.controlled && <Badge tone="warning">Tarja</Badge>}
+                        </div>
+                        <div className="cell-muted" style={{ fontSize: 12 }}>{it.brand}</div>
                       </td>
-                    </tr>,
-                    ...(collapsed ? [] : group.rows.map((row) => renderPricingRow(row))),
-                  ];
+                      <td>{it.cat || "Medicamentos"}</td>
+                      <td className="mono cell-muted">{_prc(calc.cost)}</td>
+                      <td>{_prc(calc.price)}</td>
+                      <td><Badge tone={ms.tone}>{_p1(calc.margin)}</Badge></td>
+                      <td>{_prc(calc.price)}</td>
+                      <td><Badge tone={ms.tone}>{_p1(calc.margin)}</Badge></td>
+                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <div className="row-actions" style={{ justifyContent: "flex-end" }}>
+                          <RowIconBtn name="eye" onClick={() => setEdit(it)} label="Ver detalhes" />
+                          <RowIconBtn name="edit" onClick={() => setEdit(it)} label="Precificar" />
+                          <RowIconBtn name="tag" onClick={() => createProductDiscount(it)} label="Criar desconto" />
+                        </div>
+                      </td>
+                    </tr>
+                  );
                 })}
               </tbody>
             </table>
           </div>
         )}
       </div>
-
-      <p className="page-desc" style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
-        <Icon name="info" size={13} style={{ flex: "none", marginTop: 2 }} />
-        Margem líquida = repasse após comissão {_p1(mkt.commissionPct)}, taxa de pagamento {_p1(mkt.paymentFeePct)} e tarifa fixa {_prc(mkt.fixedFee)} — descontado o custo e os impostos do Simples Nacional (Faixa {simplesEffectiveRate(taxRegime.trailing12mRevenue).bracket}), líquidos do ICMS-ST do CNAE de cada item.
-      </p>
 
       {settingsOpen && (
         <PricingSettingsDrawer

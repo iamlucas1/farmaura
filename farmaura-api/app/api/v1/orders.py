@@ -153,13 +153,14 @@ async def list_internal_order_board(
 @router.get('/internal-board/changes', response_model=InternalOrderBoardChangeResponse)
 async def get_internal_order_board_changes(
     since: str = Query(default="", max_length=64),
+    store_id: str = Query(default="", max_length=36),
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderBoardChangeResponse:
     """Return a lightweight board sync payload when operational orders changed."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.get_internal_board_changes(since=since)
+    return await service.get_internal_board_changes(since=since, requested_store_id=store_id)
 
 
 @router.post('/{order_id}/items/{item_id}/location', response_model=InternalOrderResponse)
@@ -167,13 +168,16 @@ async def update_internal_order_item_location(
     order_id: str,
     item_id: str,
     payload: OrderItemLocationUpdateRequest,
+    store_id: str = Query(default="", max_length=36),
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Persist the selected stock location used to pick one order item."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.update_internal_order_item_location(order_id=order_id, item_id=item_id, payload=payload)
+    return await service.update_internal_order_item_location(
+        order_id=order_id, item_id=item_id, payload=payload, requested_store_id=store_id
+    )
 
 
 @router.post('/{order_id}/items/{item_id}/pick', response_model=InternalOrderResponse)
@@ -181,48 +185,54 @@ async def update_internal_order_item_pick(
     order_id: str,
     item_id: str,
     payload: OrderItemPickRequest,
+    store_id: str = Query(default="", max_length=36),
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Persist the separation-checklist state for one picked order item."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.update_internal_order_item_pick(order_id=order_id, item_id=item_id, payload=payload)
+    return await service.update_internal_order_item_pick(
+        order_id=order_id, item_id=item_id, payload=payload, requested_store_id=store_id
+    )
 
 
 @router.post('/{order_id}/pickup/confirm', response_model=InternalOrderResponse)
 async def confirm_internal_pickup(
     order_id: str,
     payload: PickupCodeConfirmRequest,
+    store_id: str = Query(default="", max_length=36),
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Validate a pickup code without exposing it to the pharmacist UI."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.confirm_internal_pickup(order_id=order_id, payload=payload)
+    return await service.confirm_internal_pickup(order_id=order_id, payload=payload, requested_store_id=store_id)
 
 
 @router.post('/{order_id}/shipping/dispatch', response_model=InternalOrderResponse)
 async def dispatch_shipping_order(
     order_id: str,
+    store_id: str = Query(default="", max_length=36),
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Buy the real carrier shipment, generate its label, and mark the order dispatched."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.dispatch_shipping_order(order_id=order_id)
+    return await service.dispatch_shipping_order(order_id=order_id, requested_store_id=store_id)
 
 
 @router.post('/{order_id}/advance', response_model=InternalOrderResponse)
 async def advance_internal_order(
     order_id: str,
     payload: OrderAdvanceRequest,
+    store_id: str = Query(default="", max_length=36),
     subject: TokenSubject = Depends(require_internal_subject(UserRole.ADMIN, UserRole.MANAGER, UserRole.PHARMACIST)),
     session: AsyncSession = Depends(get_subject_session),
 ) -> InternalOrderResponse:
     """Advance one internal order through its allowed operational transition."""
 
     service = OrderService(session=session, subject=subject)
-    return await service.advance_internal_order(order_id, payload)
+    return await service.advance_internal_order(order_id, payload, requested_store_id=store_id)

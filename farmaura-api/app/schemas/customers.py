@@ -97,6 +97,10 @@ class CustomerAddressResponse(StrictModel):
     recipient_name: str = ""
     recipient_phone: str = ""
     is_primary: bool = False
+    # Set only once the customer confirmed a pin on the marketplace map picker — None for an
+    # address that was only ever typed (or created before this feature existed).
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
 
 
 class CustomerAddressUpsertRequest(StrictModel):
@@ -113,6 +117,26 @@ class CustomerAddressUpsertRequest(StrictModel):
     recipient_name: str = Field(default="", max_length=255)
     recipient_phone: str = Field(default="", max_length=32)
     is_primary: bool = False
+    latitude: Decimal | None = Field(default=None, ge=Decimal("-90"), le=Decimal("90"))
+    longitude: Decimal | None = Field(default=None, ge=Decimal("-180"), le=Decimal("180"))
+
+
+class CustomerAddressSearchResult(StrictModel):
+    """Represent one free-text address search match, for the marketplace map picker."""
+
+    label: str = ""
+    district: str = ""
+    city: str = ""
+    state_code: str = ""
+    kind: str = "other"
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
+
+
+class CustomerAddressSearchResponse(StrictModel):
+    """Represent the results of one free-text address search."""
+
+    results: list[CustomerAddressSearchResult] = Field(default_factory=list)
 
 
 # ============================================================================

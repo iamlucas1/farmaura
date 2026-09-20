@@ -1,17 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
-  Badge, RowIconBtn, SearchInput, KpiChip, RecoverModal, confirmAction, showToast,
+  Badge, RowIconBtn, SearchInput, RecoverModal, confirmAction, showToast,
 } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Cadastro de classes terapêuticas, vinculadas a uma categoria de produto. */
-
-const KPIS = [
-  { key: "all", label: "Todas", icon: "pill" },
-  { key: "active", label: "Ativas", icon: "check", tone: "good" },
-  { key: "inactive", label: "Inativas", icon: "pause" },
-  { key: "no_category", label: "Sem categoria", icon: "grid", tone: "warning" },
-];
 
 function TherapeuticClassesScreen({ ctx }) {
   const {
@@ -21,8 +14,6 @@ function TherapeuticClassesScreen({ ctx }) {
   const isAdmin = !!(user && window.FA_ACCESS && user.role === window.FA_ACCESS.ROLE.ADMIN);
 
   const [query, setQuery] = useState("");
-  const [kpi, setKpi] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
   const [editItem, setEditItem] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
   const [savingId, setSavingId] = useState("");
@@ -36,20 +27,9 @@ function TherapeuticClassesScreen({ ctx }) {
   const available = (therapeuticClasses || []).filter((c) => !c.discarded);
   const discarded = (therapeuticClasses || []).filter((c) => c.discarded);
   const categoryOptions = (categories || []).filter((c) => c.active && !c.discarded);
-  const kpiValues = {
-    all: available.length,
-    active: available.filter((c) => c.active).length,
-    inactive: available.filter((c) => !c.active).length,
-    no_category: available.filter((c) => !c.categoryId).length,
-  };
 
-  const hasFilters = kpi !== "all" || categoryFilter !== "all";
   const rows = available
     .filter((c) => {
-      if (kpi === "active" && !c.active) return false;
-      if (kpi === "inactive" && c.active) return false;
-      if (kpi === "no_category" && c.categoryId) return false;
-      if (categoryFilter !== "all" && c.categoryId !== categoryFilter) return false;
       if (query && !((c.name || "") + (c.description || "")).toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     })
@@ -108,23 +88,10 @@ function TherapeuticClassesScreen({ ctx }) {
         )}
       />
 
-      <div className="grid g-4" style={{ marginBottom: 16 }}>
-        {KPIS.map((k) => (
-          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
-        ))}
-      </div>
-
       <div className="card">
         <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
           <SearchInput value={query} onChange={setQuery} placeholder="Buscar por nome ou descrição..." />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <select className="input" style={{ width: "auto", minWidth: 170 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-              <option value="all">Todas as categorias</option>
-              {categoryOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            {hasFilters && <button className="btn btn-ghost btn-sm" onClick={() => { setKpi("all"); setCategoryFilter("all"); }}><Icon name="x" size={13} />Limpar</button>}
-            <span className="card-head-sub">{rows.length} de {available.length}</span>
-          </div>
+          <span className="card-head-sub">{rows.length} de {available.length}</span>
         </div>
         <DataTable
           columns={columns}

@@ -55,6 +55,10 @@ class OrderFulfillment(Base, UuidModel, TimestampedModel):
     route_sequence: Mapped[int] = mapped_column(default=0, nullable=False)
     sla_target_minutes: Mapped[int] = mapped_column(default=0, nullable=False)
     eta_label: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    # Free-text, customer-requested delivery time ("hoje à tarde", "depois das 19h") — distinct
+    # from eta_label (the system's own calculated estimate); empty when the customer had no
+    # preference.
+    requested_delivery_time_label: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     ready_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     dispatched_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     delivered_at_label: Mapped[str] = mapped_column(String(40), default="", nullable=False)

@@ -188,25 +188,9 @@ class OrderRepository:
         await self.session.refresh(fulfillment)
         return fulfillment
 
-    async def get_active_delivery_route(self, *, tenant_id: str, store_id: str) -> DeliveryRoute | None:
-        """Return the current open delivery route for one tenant-scoped store, if any."""
-
-        statement = (
-            select(DeliveryRoute)
-            .where(
-                DeliveryRoute.tenant_id == tenant_id,
-                DeliveryRoute.store_id == store_id,
-                DeliveryRoute.route_status.in_(["planned", "dispatched"]),
-            )
-            .order_by(DeliveryRoute.created_at.desc())
-            .limit(1)
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one_or_none()
-
     async def list_active_delivery_routes(self, *, tenant_id: str, store_id: str) -> list[DeliveryRoute]:
-        """Return every open delivery route for one tenant-scoped store — plural counterpart of
-        `get_active_delivery_route`, for stores dispatching more than one route at once."""
+        """Return every open delivery route for one tenant-scoped store — a store can have several
+        running at once, one per driver currently out."""
 
         statement = (
             select(DeliveryRoute)
@@ -300,3 +284,14 @@ class OrderRepository:
         statement = select(DeliveryRouteStop).where(DeliveryRouteStop.id == stop_id)
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
+
+    async def get_undelivered_route_stop_by_order_id(self, *, order_id: str) -> DeliveryRouteStop | None:
+        """Return the not-yet-delivered route stop already attached to one order, if any — lets a
+        caller avoid attaching a second stop for the same order (e.g. one manually planned via
+        "Planejar rotas" while still pending, later reaching dispatch through the normal flow)."""
+
+        statement = select(DeliveryRouteStop).where(
+            DeliveryRouteStop.order_id == order_id, DeliveryRouteStop.stop_status != "delivered"
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().first()

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
-  Badge, RowIconBtn, SearchInput, KpiChip, money, confirmAction, showToast,
+  Badge, RowIconBtn, SearchInput, money, confirmAction, showToast,
 } from "../core/internal-ui.jsx";
 
 const UF_OPTIONS = [
@@ -10,13 +10,6 @@ const UF_OPTIONS = [
 ];
 
 /* FARMAURA Console — Cadastro de fornecedores. */
-
-const KPIS = [
-  { key: "all", label: "Todos", icon: "truck" },
-  { key: "active", label: "Ativos", icon: "check", tone: "good" },
-  { key: "inactive", label: "Inativos", icon: "pause" },
-  { key: "no_location", label: "Sem localização", icon: "pin", tone: "warning" },
-];
 
 function buildSupplierForm(supplier) {
   return {
@@ -43,9 +36,6 @@ function SuppliersScreen({ ctx }) {
   const { suppliers, refreshSuppliers, addSupplier, updateSupplier, setSupplierActive } = ctx;
 
   const [query, setQuery] = useState("");
-  const [kpi, setKpi] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [ufFilter, setUfFilter] = useState("all");
   const [editItem, setEditItem] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
   const [savingId, setSavingId] = useState("");
@@ -53,23 +43,9 @@ function SuppliersScreen({ ctx }) {
   useEffect(() => { if (refreshSuppliers) refreshSuppliers(); }, []);
 
   const all = suppliers || [];
-  const kpiValues = {
-    all: all.length,
-    active: all.filter((s) => s.active).length,
-    inactive: all.filter((s) => !s.active).length,
-    no_location: all.filter((s) => !s.uf && !s.city).length,
-  };
-  const categoryOptions = Array.from(new Set(all.map((s) => s.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const ufOptions = UF_OPTIONS.filter((uf) => all.some((s) => s.uf === uf));
-  const hasFilters = kpi !== "all" || categoryFilter !== "all" || ufFilter !== "all";
 
   const rows = all
     .filter((s) => {
-      if (kpi === "active" && !s.active) return false;
-      if (kpi === "inactive" && s.active) return false;
-      if (kpi === "no_location" && (s.uf || s.city)) return false;
-      if (categoryFilter !== "all" && s.category !== categoryFilter) return false;
-      if (ufFilter !== "all" && s.uf !== ufFilter) return false;
       if (query && !((s.legalName || "") + (s.tradeName || "") + (s.cnpj || "") + (s.category || "")).toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     })
@@ -126,27 +102,10 @@ function SuppliersScreen({ ctx }) {
         )}
       />
 
-      <div className="grid g-4" style={{ marginBottom: 16 }}>
-        {KPIS.map((k) => (
-          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
-        ))}
-      </div>
-
       <div className="card">
         <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
           <SearchInput value={query} onChange={setQuery} placeholder="Buscar por razão social, fantasia, CNPJ..." />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <select className="input" style={{ width: "auto", minWidth: 150 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-              <option value="all">Todas as categorias</option>
-              {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select className="input" style={{ width: "auto" }} value={ufFilter} onChange={(e) => setUfFilter(e.target.value)}>
-              <option value="all">Toda UF</option>
-              {ufOptions.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-            </select>
-            {hasFilters && <button className="btn btn-ghost btn-sm" onClick={() => { setKpi("all"); setCategoryFilter("all"); setUfFilter("all"); }}><Icon name="x" size={13} />Limpar</button>}
-            <span className="card-head-sub">{rows.length} de {all.length}</span>
-          </div>
+          <span className="card-head-sub">{rows.length} de {all.length}</span>
         </div>
         <DataTable
           columns={columns}

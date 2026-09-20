@@ -59,6 +59,9 @@ class PdvDeliveryRequest(StrictModel):
     city: str = Field(default="", max_length=120)
     state_code: str = Field(default="", max_length=2)
     reference_note: str = Field(default="", max_length=500)
+    # Free-text, e.g. "Hoje à tarde", "Depois das 19h" — no slot/calendar system behind it, just
+    # carried through to the resulting order so whoever dispatches it can see the preference.
+    requested_delivery_time_label: str = Field(default="", max_length=80)
 
 
 class PdvQueueCreateRequest(StrictModel):
@@ -124,9 +127,16 @@ class PdvDiscountLimitResponse(StrictModel):
 
 
 class PdvSaleCreateRequest(StrictModel):
-    """Validate a PDV sale finalization request."""
+    """Validate a PDV sale finalization request.
 
-    payment_method: str = Field(pattern="^(cash|pix|debit|credit)$")
+    'marketplace_card' charges a card the customer already saved on their marketplace account
+    (requires payment_method_id and a customer identified on the order) instead of a card swiped
+    at the counter terminal — same real Asaas charge the marketplace checkout itself makes, not a
+    separate payment integration.
+    """
+
+    payment_method: str = Field(pattern="^(cash|pix|debit|credit|marketplace_card)$")
+    payment_method_id: str = Field(default="", max_length=64)
     include_cpf_on_invoice: bool = True
     cashback_applied: Decimal = Field(default=Decimal("0.00"), ge=0)
     recipient_email: str = Field(default="", max_length=320)
@@ -206,6 +216,9 @@ class PdvSaleResponse(StrictModel):
     customer: PdvCustomerLiteResponse | None = None
     items: list[PdvLineResponse]
     fiscal_document: FiscalDocumentResponse | None = None
+    # Order code of the real Order created for a delivery sale — empty for pickup sales, which
+    # have no counterpart in the marketplace order pipeline.
+    linked_order_code: str = ""
 
 
 class PdvSaleListResponse(StrictModel):

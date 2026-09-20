@@ -66,6 +66,8 @@ function createEmptyAddress() {
     state: "",
     recipientName: "",
     recipientPhone: "",
+    lat: null,
+    lng: null,
   };
 }
 
@@ -88,6 +90,8 @@ function normalizeAddress(value) {
     state: String(value && value.state || cityState.state || "").slice(0, 2).toUpperCase(),
     recipientName: String(value && value.recipientName || ""),
     recipientPhone: String(value && value.recipientPhone || ""),
+    lat: value && value.lat != null ? Number(value.lat) : null,
+    lng: value && value.lng != null ? Number(value.lng) : null,
   };
 }
 
@@ -137,6 +141,18 @@ async function fetchViaCepAddress(cep) {
   };
 }
 
+async function searchAddressLocations(authClient, query) {
+  /** Return real-place matches for a free-text query, for the map picker's search box. */
+
+  const trimmed = String(query || "").trim();
+  if (trimmed.length < 3) {
+    return [];
+  }
+  const params = new URLSearchParams({ query: trimmed });
+  const response = await authClient.request(`/customers/me/addresses/search?${params.toString()}`, { method: "GET" });
+  return Array.isArray(response && response.results) ? response.results : [];
+}
+
 async function fetchDeliveryCoverage(authClient, address) {
   /** Return a best-effort delivery-coverage preview for one resolved address. */
 
@@ -158,4 +174,5 @@ export {
   fetchViaCepAddress,
   formatCep,
   normalizeAddress,
+  searchAddressLocations,
 };

@@ -889,6 +889,7 @@ function CheckoutScreen({ ctx }) {
           onSave={editingAddressId ? saveEditedAddress : saveNewAddress}
           onCancel={() => { setAddingNewAddress(false); setEditingAddressId(''); }}
           selfName={profile && profile.name} selfPhone={profile && profile.phone}
+          authClient={ctx.authClient}
         />
         {addressError ? <div style={{ color: 'var(--fa-error)', fontSize: 12.5, marginTop: 8 }}>{addressError}</div> : null}
       </div>
@@ -1042,6 +1043,11 @@ function CheckoutScreen({ ctx }) {
                         <span>{selectedAddress ? 'Este endereço está incompleto — corrija antes de continuar.' : 'Cadastre um endereço para continuar.'}</span>
                       </div>
                     )}
+                    <div style={{ marginTop: 14 }}>
+                      <Field label="Horário desejado para entrega (opcional)">
+                        <input className="fa-input" placeholder="Ex.: Hoje à tarde, depois das 15h" value={delivery.requestedTime || ''} onChange={(event) => setDelivery({ ...delivery, requestedTime: event.target.value })} />
+                      </Field>
+                    </div>
                   </div>
                 )}
                 {delivery.method === 'pickup' && <PickupStorePicker data={delivery} set={setDelivery} stores={stores} />}

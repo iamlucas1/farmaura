@@ -56,6 +56,16 @@ from app.services.portal_service import PortalService
 MAX_MOTOBOY_DISTANCE_KM = Decimal("15.00")
 
 
+def _has_real_coordinate(lat: Decimal | None, lng: Decimal | None) -> bool:
+    """A coordinate that is present but pinned at (0,0) means geocoding silently failed — treat
+    that as missing, same convention used across the delivery domain (see
+    dev-obsidian/farmaura/05_Integracoes_Infra/Geocoding_Nominatim.md)."""
+
+    if lat is None or lng is None:
+        return False
+    return lat != Decimal("0.0000000") or lng != Decimal("0.0000000")
+
+
 @dataclass(frozen=True, slots=True)
 class OrderStoreResolution:
     """Represent the store chosen to fulfill one marketplace order."""
@@ -346,29 +356,24 @@ class DeliveryPricingService:
         order_fulfillment_id: str | None = None,
         store_label: str = "",
     ) -> None:
-        """Append one placed delivery (marketplace order or PDV sale) as a real stop on the tenant's active route."""
+        """Append one placed delivery (marketplace order or PDV sale) as a real stop on whichever
+        active route is geographically closest to it, so nearby deliveries get handed to the same
+        motoboy instead of spreading thin — see `_select_or_create_route`.
 
-        route = await self.repository.get_active_delivery_route(tenant_id=tenant_id, store_id=store_id)
-        if route is None:
-            store = await self.store_repository.get_by_id(tenant_id=tenant_id, store_id=store_id)
-            origin_name = (store.name if store else "") or store_label or "Farmácia Farmaura"
-            origin_address = ", ".join(
-                part for part in [store.address_line, store.district, store.city, store.state_code] if store and part
-            ) if store else ""
-            route = DeliveryRoute(
-                id=str(uuid4()),
-                tenant_id=tenant_id,
-                store_id=store_id,
-                route_code=self.build_route_code(now),
-                route_status="planned",
-                origin_name=origin_name,
-                origin_address=origin_address,
-                origin_latitude=store.latitude if store else Decimal("0.0000000"),
-                origin_longitude=store.longitude if store else Decimal("0.0000000"),
-                route_provider="store" if store else "",
-                planned_at_label=now.strftime("%H:%M"),
-            )
-            route = await self.repository.add_delivery_route(route)
+        No-ops if this order already has an undelivered stop somewhere (e.g. attached earlier via
+        "Planejar rotas" while still pending, now reaching this same call again at dispatch) —
+        never creates a second stop for the same order.
+        """
+
+        if order_id:
+            existing = await self.repository.get_undelivered_route_stop_by_order_id(order_id=order_id)
+            if existing is not None:
+                return
+
+        route = await self._select_or_create_route(
+            tenant_id=tenant_id, store_id=store_id, now=now, store_label=store_label,
+            latitude=latitude, longitude=longitude,
+        )
         next_sequence = await self.repository.get_next_route_stop_sequence(route_id=route.id)
         stop = DeliveryRouteStop(
             id=str(uuid4()),
@@ -391,3 +396,57 @@ class DeliveryPricingService:
         route.stop_count = int(route.stop_count or 0) + 1
         route.total_distance_km = quantize_money(Decimal(route.total_distance_km or 0) + Decimal(route_distance_km or 0))
         await self.repository.save_delivery_route(route)
+
+    async def _select_or_create_route(
+        self, *, tenant_id: str, store_id: str, now: datetime, store_label: str, latitude: Decimal, longitude: Decimal,
+    ) -> DeliveryRoute:
+        """Pick the geographically closest active route that already has a driver assigned, so a
+        new delivery gets handed to whichever motoboy is already working that side of town instead
+        of spreading nearby stops thin across drivers. Falls back to a fresh, unassigned route
+        (same as before this existed) when no driver-assigned route is currently active — the
+        operator picks a driver for it from the dropdown, same as any route already supports.
+
+        Distance is measured against each candidate route's own existing stops (not just its
+        origin) so "closest" reflects where that driver is actually already headed, not just which
+        route object happens to exist — a route with no stops left yet (driver idle, just started)
+        falls back to distance from the store itself.
+        """
+
+        active_routes = await self.repository.list_active_delivery_routes(tenant_id=tenant_id, store_id=store_id)
+        driver_routes = [route for route in active_routes if route.driver_user_id]
+        if driver_routes:
+            stops = await self.repository.list_route_stops_for_routes(route_ids=[route.id for route in driver_routes])
+            stops_by_route: dict[str, list[DeliveryRouteStop]] = {}
+            for stop in stops:
+                if stop.stop_status != "delivered" and _has_real_coordinate(stop.latitude, stop.longitude):
+                    stops_by_route.setdefault(stop.route_id, []).append(stop)
+
+            def distance_to(route: DeliveryRoute) -> Decimal:
+                candidates = stops_by_route.get(route.id) or []
+                if candidates:
+                    return min(self.haversine_km(latitude, longitude, stop.latitude, stop.longitude) for stop in candidates)
+                if _has_real_coordinate(route.origin_latitude, route.origin_longitude):
+                    return self.haversine_km(latitude, longitude, route.origin_latitude, route.origin_longitude)
+                return Decimal("999999")
+
+            return min(driver_routes, key=distance_to)
+
+        store = await self.store_repository.get_by_id(tenant_id=tenant_id, store_id=store_id)
+        origin_name = (store.name if store else "") or store_label or "Farmácia Farmaura"
+        origin_address = ", ".join(
+            part for part in [store.address_line, store.district, store.city, store.state_code] if store and part
+        ) if store else ""
+        route = DeliveryRoute(
+            id=str(uuid4()),
+            tenant_id=tenant_id,
+            store_id=store_id,
+            route_code=self.build_route_code(now),
+            route_status="planned",
+            origin_name=origin_name,
+            origin_address=origin_address,
+            origin_latitude=store.latitude if store else Decimal("0.0000000"),
+            origin_longitude=store.longitude if store else Decimal("0.0000000"),
+            route_provider="store" if store else "",
+            planned_at_label=now.strftime("%H:%M"),
+        )
+        return await self.repository.add_delivery_route(route)

@@ -34,6 +34,7 @@ const PAY_METHODS = [
   { id: "pix", label: "Pix", icon: "pix" },
   { id: "debit", label: "Débito", icon: "card" },
   { id: "credit", label: "Crédito", icon: "card" },
+  { id: "marketplace_card", label: "Cartão salvo", icon: "card" },
 ];
 
 /* Máscara de CPF: 000.000.000-00 */
@@ -344,6 +345,11 @@ function PdvFulfillmentPicker({ delivery, setDelivery, checkPdvDeliveryCoverage,
           {selectedAddressId && (
             <div style={{ marginTop: 10 }}><Field label="Nome de quem recebe"><input className="input" value={delivery.recipientName || ""} onChange={(e) => setDelivery({ ...delivery, recipientName: e.target.value })} /></Field></div>
           )}
+          <div style={{ marginTop: 10 }}>
+            <Field label="Horário desejado para entrega (opcional)">
+              <input className="input" placeholder="Ex.: Hoje à tarde, depois das 15h" value={delivery.requestedDeliveryTimeLabel || ""} onChange={(e) => setDelivery({ ...delivery, requestedDeliveryTimeLabel: e.target.value })} />
+            </Field>
+          </div>
           {blocked && <div style={{ fontSize: 12, marginTop: 4, color: "var(--critical)" }}>Fora da área de entrega — escolha retirar na loja.</div>}
         </>
       )}
@@ -722,6 +728,9 @@ function PdvScreen({ ctx }) {
   const [results, setResults] = useState([]);
   const [expandedResultId, setExpandedResultId] = useState(null);
   const [pay, setPay] = useState("pix");
+  const [paymentMethodId, setPaymentMethodId] = useState("");
+  const [customerCards, setCustomerCards] = useState([]);
+  const [loadingCustomerCards, setLoadingCustomerCards] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState(null);
@@ -735,6 +744,23 @@ function PdvScreen({ ctx }) {
     const forced = user.role === "cashier" ? "caixa" : "pharm";
     if (operator !== forced) setOperator(forced);
   }, [user && user.role, canSwitchOperator]);
+  // Cartão salvo no marketplace: só carrega a lista quando o caixa de fato seleciona esse método,
+  // e refaz a busca se trocar de cliente identificado enquanto ele estiver selecionado.
+  useEffect(() => {
+    if (pay !== "marketplace_card") return;
+    if (!pdvCustomer || !pdvCustomer.id) { setCustomerCards([]); setPaymentMethodId(""); return; }
+    let cancelled = false;
+    (async () => {
+      setLoadingCustomerCards(true);
+      const methods = fetchCustomerPaymentMethods ? await fetchCustomerPaymentMethods(pdvCustomer.id) : [];
+      if (cancelled) return;
+      setCustomerCards(methods || []);
+      const primary = (methods || []).find((m) => m.isPrimary) || (methods || [])[0];
+      setPaymentMethodId(primary ? primary.id : "");
+      setLoadingCustomerCards(false);
+    })();
+    return () => { cancelled = true; };
+  }, [pay, pdvCustomer && pdvCustomer.id]);
   const [caixaReady, setCaixaReady] = useState(false); // paciente confirmado — atendimento iniciado
   const [idOpen, setIdOpen] = useState(false);
   const [nota, setNota] = useState(null);
@@ -1077,7 +1103,7 @@ function PdvScreen({ ctx }) {
 
   const emit = async (terminalReference) => {
     try {
-      const synced = recordSale && await recordSale({ pay, items: lines, customer: pdvCustomer, cpfNota, cashApplied, discVal, terminalReference });
+      const synced = recordSale && await recordSale({ pay, paymentMethodId: pay === "marketplace_card" ? paymentMethodId : "", items: lines, customer: pdvCustomer, cpfNota, cashApplied, discVal, terminalReference });
       if (!synced) {
         notify && notify("Não foi possível emitir a nota fiscal agora. Tente novamente.", "warn");
         return;
@@ -1456,7 +1482,7 @@ function PdvScreen({ ctx }) {
               <div className="pdv-cart-section">
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <div className="pdv-cart-section-label" style={{ margin: 0 }}>Pagamento</div>
-                  {pay !== "cash" && (
+                  {pay !== "cash" && pay !== "marketplace_card" && (
                     <button type="button" className={"pdv-bridge-pill pdv-bridge-pill-" + (bridgeOk ? "ok" : "off")} onClick={() => setBridgeSettingsOpen(true)}>
                       <Icon name={bridgeOk ? "check" : "alert"} size={11} />
                       {bridgeOk ? "Maquininha conectada" : "Maquininha não encontrada"}
@@ -1464,15 +1490,37 @@ function PdvScreen({ ctx }) {
                   )}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                  {PAY_METHODS.map((m) => (
-                    <button
-                      key={m.id} type="button" className="btn btn-sm" style={{ flex: "1 1 70px", background: pay === m.id ? "var(--accent)" : "var(--surface-2)", color: pay === m.id ? "var(--accent-contrast)" : "var(--text-secondary)" }}
-                      onClick={() => setPay(m.id)}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
+                  {PAY_METHODS.map((m) => {
+                    const disabled = m.id === "marketplace_card" && !(pdvCustomer && pdvCustomer.id);
+                    return (
+                      <button
+                        key={m.id} type="button" className="btn btn-sm" disabled={disabled}
+                        title={disabled ? "Identifique o cliente para cobrar o cartão salvo dele" : undefined}
+                        style={{ flex: "1 1 70px", background: pay === m.id ? "var(--accent)" : "var(--surface-2)", color: pay === m.id ? "var(--accent-contrast)" : "var(--text-secondary)", opacity: disabled ? 0.5 : 1 }}
+                        onClick={() => setPay(m.id)}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
                 </div>
+                {pay === "marketplace_card" && (
+                  <div style={{ marginBottom: 10 }}>
+                    {loadingCustomerCards ? (
+                      <div className="cell-muted">Carregando cartões salvos...</div>
+                    ) : customerCards.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {customerCards.map((m) => (
+                          <ChoiceCard key={m.id} on={paymentMethodId === m.id} radio onClick={() => setPaymentMethodId(m.id)} style={{ padding: "8px 10px" }}>
+                            <span style={{ fontSize: 13 }}>{m.brandName} •••• {m.lastFourDigits}{m.isPrimary ? " · principal" : ""}</span>
+                          </ChoiceCard>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ color: "var(--warning)", fontSize: 12.5 }}>Este cliente não tem cartão salvo no marketplace.</div>
+                    )}
+                  </div>
+                )}
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }} onClick={() => setCpfNota(!cpfNota)}>
                   <span style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", background: cpfNota ? "var(--accent)" : "transparent", borderColor: cpfNota ? "var(--accent)" : "var(--border-strong)", color: "#fff" }}>{cpfNota && <Icon name="check" size={12} />}</span>
                   Incluir CPF na nota fiscal
@@ -1542,7 +1590,8 @@ function PdvScreen({ ctx }) {
               </button>
             ) : (
               <button
-                className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }} disabled={lines.length === 0}
+                className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: 12, marginTop: 4 }}
+                disabled={lines.length === 0 || (pay === "marketplace_card" && !paymentMethodId)}
                 onClick={() => {
                   if (pendingRxLines.length > 0) {
                     notify && notify(
@@ -1553,10 +1602,10 @@ function PdvScreen({ ctx }) {
                     );
                     return;
                   }
-                  pay === "cash" ? emit() : startTerminalCharge();
+                  pay === "cash" || pay === "marketplace_card" ? emit() : startTerminalCharge();
                 }}
               >
-                {pay === "cash" ? (<><Icon name="receipt" size={15} />Gerar nota fiscal</>) : (<><Icon name="card" size={15} />Cobrar na maquininha</>)}
+                {pay === "cash" ? (<><Icon name="receipt" size={15} />Gerar nota fiscal</>) : pay === "marketplace_card" ? (<><Icon name="card" size={15} />Cobrar cartão salvo</>) : (<><Icon name="card" size={15} />Cobrar na maquininha</>)}
               </button>
             )}
           </div>
@@ -2067,6 +2116,13 @@ function NotaFiscalModal({ nota, storeFiscal, pharmacistProfile, onSendEmail, on
         </div>
         <div className="cell-muted" style={{ textAlign: "center", marginTop: 10 }}>Atendido por {P.name} · {P.crf}</div>
       </div>
+
+      {nota.fulfillmentType === "delivery" && nota.linkedOrderCode && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "10px 12px", background: "var(--good-soft)", borderRadius: "var(--radius-md)", fontSize: 12.5 }}>
+          <Icon name="truck" size={15} />
+          <span>Entrega registrada como pedido <b className="mono">{nota.linkedOrderCode}</b> — acompanhe em "Pedidos online".</span>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button className="btn btn-secondary" style={{ flex: 1, justifyContent: "center" }} disabled={!nota.printableUrl} onClick={() => nota.printableUrl && window.open(nota.printableUrl, "_blank", "noopener")}><Icon name="printer" size={16} />Imprimir</button>

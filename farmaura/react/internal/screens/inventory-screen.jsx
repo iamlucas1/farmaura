@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { stockState } from "../core/internal-shell.jsx";
-import { Icon, PageHead, Badge, KpiChip, PillNav, EmptyState, Modal, Field, SearchInput } from "../core/internal-ui.jsx";
+import { Icon, PageHead, Badge, StatCard, Tabs, PillNav, EmptyState, Modal, Field, SearchInput, DataTable, Drawer } from "../core/internal-ui.jsx";
 
 const LOCATION_TYPE_OPTIONS = [
   { value: "estoque", label: "Estoque" },
@@ -30,6 +30,17 @@ function isExpiringSoonIso(isoDate) {
   if (!isoDate) return false;
   const expiryDate = new Date(isoDate + "T00:00:00");
   if (Number.isNaN(expiryDate.getTime())) return false;
+  const diff = expiryDate.getTime() - Date.now();
+  return diff >= 0 && diff <= 1000 * 60 * 60 * 24 * 120;
+}
+
+function isExpiringSoon(expiry) {
+  if (!expiry || expiry === "—") return false;
+  const match = /^(\d{2})\/(\d{4})$/.exec(expiry);
+  if (!match) return false;
+  const month = Number(match[1]);
+  const year = Number(match[2]);
+  const expiryDate = new Date(year, month, 0);
   const diff = expiryDate.getTime() - Date.now();
   return diff >= 0 && diff <= 1000 * 60 * 60 * 24 * 120;
 }
@@ -120,11 +131,11 @@ function InventoryScreen({ ctx }) {
   const [lotReceiptOpen, setLotReceiptOpen] = useState(false);
   const [lotTransferTarget, setLotTransferTarget] = useState(null);
   const [lotAdjustTarget, setLotAdjustTarget] = useState(null);
-  const [collapsedCategories, setCollapsedCategories] = useState({});
   // "Por produto" agora é o padrão: como o mesmo produto passou a ser compartilhado entre
   // lojas (só a quantidade/local/lote continuam por loja), listar "por categoria" fazia o
   // mesmo produto aparecer em duas linhas soltas e parecer duplicado.
   const [groupBy, setGroupBy] = useState("product"); // category | product — agrupa por classe ou pelo produto (ignorando o lote)
+  const [selectedProductKey, setSelectedProductKey] = useState(null);
   const storeNameById = Object.fromEntries((stores || []).map((store) => [store.id, store.name]));
   const hasMultipleStores = new Set((inventory || []).map((item) => item.storeId).filter(Boolean)).size > 1;
   const summary = inventorySummary || {
@@ -161,11 +172,13 @@ function InventoryScreen({ ctx }) {
 
   const matchItem = (item) => {
     const state = stockState(item).key;
-    if (filter === "normal" && state !== "normal") return false;
-    if (filter === "attention" && state !== "attention") return false;
-    if (filter === "low" && state !== "low") return false;
-    if (filter === "out" && state !== "out") return false;
-    if (filter === "controlled" && !item.controlled) return false;
+    if (filter === "normal" && state !== "normal" && state !== "attention") return false;
+    if (filter === "low" && state !== "low" && state !== "out") return false;
+    if (filter === "near_expiry") {
+      const itemLotsForExpiry = lotsByItemId[item.id] || [];
+      const hasNearExpiry = itemLotsForExpiry.length ? itemLotsForExpiry.some((lot) => isExpiringSoonIso(lot.expiry)) : isExpiringSoon(item.expiry);
+      if (!hasNearExpiry) return false;
+    }
     const itemLots = lotsByItemId[item.id] || [];
     const itemLocationCodes = itemLots.length ? itemLots.map((lot) => lot.locationCode) : [item.loc];
     const itemLocationTypes = itemLots.length ? itemLots.map((lot) => lot.locationType) : [(locationsByCode[item.loc] || {}).locationType];
@@ -219,29 +232,25 @@ function InventoryScreen({ ctx }) {
   }, {});
   const groupedEntries = Object.entries(groupedRows);
 
-  const isExpiringSoon = (expiry) => {
-    if (!expiry || expiry === "—") return false;
-    const match = /^(\d{2})\/(\d{4})$/.exec(expiry);
-    if (!match) return false;
-    const month = Number(match[1]);
-    const year = Number(match[2]);
-    const expiryDate = new Date(year, month, 0);
-    const now = new Date();
-    const diff = expiryDate.getTime() - now.getTime();
-    return diff >= 0 && diff <= 1000 * 60 * 60 * 24 * 120;
-  };
-
-  const toggleCategory = (category) => {
-    setCollapsedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
-  };
-
-  const collapseAllCategories = () => {
-    setCollapsedCategories(Object.fromEntries(groupedEntries.map(([category]) => [category, true])));
-  };
-
-  const expandAllCategories = () => {
-    setCollapsedCategories(Object.fromEntries(groupedEntries.map(([category]) => [category, false])));
-  };
+  /* Uma linha por produto (soma as quantidades entre lotes/locais) — visão padrão da tela,
+     equivalente à tabela plana do artifact "Farmaura Operações". O detalhe por lote/local
+     continua real e completo, só que fica no drawer ao clicar na linha, em vez de sempre
+     expandido — nenhum dado de lote é descartado, só deixa de ficar sempre visível. */
+  const productSummaryRows = groupedEntries.map(([key, group]) => {
+    const items = group.items;
+    const totalQty = items.reduce((sum, item) => sum + (item.qty || 0), 0);
+    const primary = items[0];
+    const itemLots = items.flatMap((item) => lotsByItemId[item.id] || []);
+    const locationCodes = [...new Set(itemLots.length ? itemLots.map((lot) => lot.locationCode) : items.map((item) => item.loc))];
+    const expiries = (itemLots.length ? itemLots.map((lot) => lot.expiry) : items.map((item) => item.expiry)).filter(Boolean).sort();
+    return {
+      key, label: group.label, items,
+      totalQty, locationCodes,
+      nearestExpiry: expiries[0] || null,
+      min: primary.min || primary.lowThreshold || 0,
+      state: stockState({ ...primary, qty: totalQty }),
+    };
+  });
 
   const movementRows = inventoryMovements.filter((movement) => {
     if (q && !(movement.itemName + movement.reason + movement.reference + movement.from + movement.to).toLowerCase().includes(q.toLowerCase())) return false;
@@ -267,76 +276,6 @@ function InventoryScreen({ ctx }) {
     }
   };
 
-  const renderItemRow = (item) => {
-    const state = stockState(item);
-    const progressTarget = Math.max(1, item.normalThreshold || item.attentionThreshold || item.lowThreshold || item.min || 1);
-    const pct = Math.max(6, Math.min(100, Math.round((item.qty / progressTarget) * 100)));
-    const itemLots = (lotsByItemId[item.id] || []).filter((lot) => lot.qty > 0).slice().sort((left, right) => (left.expiry || "9999-99-99").localeCompare(right.expiry || "9999-99-99"));
-    const hasThresholds = !!(item.lowThreshold || item.attentionThreshold || item.normalThreshold);
-    const lowPct = hasThresholds && item.lowThreshold ? Math.round((item.lowThreshold / progressTarget) * 100) : null;
-    const attentionPct = hasThresholds && item.attentionThreshold ? Math.round((item.attentionThreshold / progressTarget) * 100) : null;
-    return (
-      <tr key={item.id}>
-        <td>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <span className="stat-icon" style={{ width: 32, height: 32, flex: "none" }}><Icon name={item.controlled ? "lock" : "pill"} size={16} /></span>
-            <div style={{ minWidth: 0 }}>
-              <div className="cell-strong" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {item.name}
-                {item.controlled && <Badge tone="critical"><Icon name="lock" size={10} />Tarja</Badge>}
-              </div>
-              <div className="cell-muted">
-                {item.brand} · <span className="mono">{item.ean || item.sku}</span>
-                {hasMultipleStores && storeNameById[item.storeId] && <> · {storeNameById[item.storeId]}</>}
-              </div>
-            </div>
-          </div>
-        </td>
-        <td>
-          <div style={{ fontWeight: 700 }}>{item.medClass || "Geral"}</div>
-        </td>
-        <td>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {itemLots.length > 0
-              ? itemLots.map((lot) => <span key={lot.id} className="mono" style={{ fontSize: 12 }} title={lot.locationCode}>{lot.locationCode}</span>)
-              : <span className="mono" style={{ fontSize: 12 }} title={item.loc}>{item.loc}</span>}
-          </div>
-        </td>
-        <td>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {itemLots.length > 0
-              ? itemLots.map((lot) => <span key={lot.id} className="mono" style={{ fontSize: 12 }} title={lot.batch || "—"}>{lot.batch || "—"}</span>)
-              : <span className="mono" style={{ fontSize: 12 }} title={item.batch || "—"}>{item.batch || "—"}</span>}
-          </div>
-        </td>
-        <td>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {itemLots.length > 0
-              ? itemLots.map((lot) => <span key={lot.id} style={isExpiringSoonIso(lot.expiry) ? { color: "var(--warning)", fontWeight: 700 } : undefined}>{formatIsoDate(lot.expiry)}</span>)
-              : <span style={isExpiringSoon(item.expiry) ? { color: "var(--warning)", fontWeight: 700 } : undefined}>{item.expiry || "—"}</span>}
-          </div>
-        </td>
-        <td>
-          <div style={{ fontWeight: 800, fontSize: 15 }}>{item.qty} <span className="cell-muted" style={{ fontWeight: 600, fontSize: 12 }}>un</span></div>
-          <div style={{ position: "relative", height: 6, borderRadius: 99, background: "var(--surface-2)", marginTop: 6, minWidth: 80 }}>
-            <span style={{ display: "block", height: "100%", borderRadius: 99, width: pct + "%", background: state.color }} />
-            {lowPct != null && lowPct > 0 && lowPct < 100 && <span style={{ position: "absolute", top: -2, left: lowPct + "%", width: 2, height: 10, background: "var(--text-muted)" }} />}
-            {attentionPct != null && attentionPct > 0 && attentionPct < 100 && <span style={{ position: "absolute", top: -2, left: attentionPct + "%", width: 2, height: 10, background: "var(--text-muted)" }} />}
-          </div>
-          {hasThresholds && <div className="cell-muted">baixo até {item.lowThreshold || 0} · atenção até {item.attentionThreshold || 0} · normal até {item.normalThreshold || 0}</div>}
-        </td>
-        <td><Badge tone={state.key === "normal" ? "good" : state.key === "attention" ? "neutral" : state.key === "low" ? "warning" : "critical"}>{state.label}</Badge></td>
-        <td style={{ textAlign: "right" }}>
-          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => setEditItem(item)}><Icon name="edit" size={14} />Editar</button>
-            <button className="icon-btn" onClick={() => setMovementItem(item)} aria-label="Movimentar item" title="Movimentar item"><Icon name="boxes" size={16} /></button>
-            <button className="icon-btn" onClick={() => setTransferItem(item)} aria-label="Transferir item" title="Transferir item"><Icon name="route" size={16} /></button>
-          </div>
-        </td>
-      </tr>
-    );
-  };
-
   return (
     <div className="route-fade" data-screen-label="Estoque">
       <PageHead
@@ -345,16 +284,23 @@ function InventoryScreen({ ctx }) {
         actions={<SearchInput value={q} onChange={setQ} placeholder="Buscar por nome, EAN, SKU, classe, categoria ou local" />}
       />
 
-      <div className="grid g-6" style={{ marginBottom: 16 }}>
-        <KpiChip icon="boxes" label="Itens ativos" value={summary.total_items} active={filter === "all"} onClick={() => setFilter("all")} />
-        <KpiChip icon="check" label="Estoque normal" value={summary.normal_stock_items} tone="good" active={filter === "normal"} onClick={() => setFilter("normal")} />
-        <KpiChip icon="alert" label="Em atenção" value={summary.attention_stock_items} active={filter === "attention"} onClick={() => setFilter("attention")} />
-        <KpiChip icon="alert" label="Estoque baixo" value={summary.low_stock_items} tone="warning" active={filter === "low"} onClick={() => setFilter("low")} />
-        <KpiChip icon="minus" label="Esgotados" value={summary.out_of_stock_items} tone="critical" active={filter === "out"} onClick={() => setFilter("out")} />
-        <KpiChip icon="lock" label="Controlados" value={summary.controlled_items} active={filter === "controlled"} onClick={() => setFilter("controlled")} />
+      <div className="grid g-3" style={{ marginBottom: 16 }}>
+        <StatCard icon="dollar" label="Valor total em estoque" value={brl(inventory.reduce((sum, item) => sum + Number(item.cost || 0) * Number(item.qty || 0), 0))} tone="accent" />
+        <StatCard icon="alerttriangle" label="Abaixo do mínimo" value={summary.low_stock_items + summary.out_of_stock_items} tone="critical" />
+        <StatCard icon="calendar" label="Próximos do vencimento (60d)" value={stockLots.filter((lot) => isExpiringSoonIso(lot.expiry)).length} tone="warning" />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+      <Tabs
+        tabs={[
+          { key: "all", label: "Todos", count: summary.total_items },
+          { key: "low", label: "Estoque baixo", count: summary.low_stock_items + summary.out_of_stock_items },
+          { key: "near_expiry", label: "Perto do vencimento", count: stockLots.filter((lot) => isExpiringSoonIso(lot.expiry)).length },
+          { key: "normal", label: "Estoque normal", count: summary.normal_stock_items + summary.attention_stock_items },
+        ]}
+        active={filter} onChange={setFilter}
+      />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, marginTop: 14, flexWrap: "wrap" }}>
         <PillNav
           options={[{ key: "items", label: "Itens" }, { key: "lots", label: "Lotes por local" }, { key: "movements", label: "Movimentações" }, { key: "locations", label: "Armazenamentos" }]}
           active={view} onChange={setView}
@@ -368,53 +314,6 @@ function InventoryScreen({ ctx }) {
           <button className="btn btn-primary btn-sm" onClick={() => setNewOpen(true)} disabled={!inventoryLocations.length}><Icon name="plus" size={15} />Novo item</button>
         </div>
       </div>
-
-      {(view === "items" || view === "lots") && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end", marginBottom: 16 }}>
-          <Field label="Tipo de local">
-            <select className="input" style={{ minWidth: 170 }} value={locationTypeFilter} onChange={(e) => setLocationTypeFilter(e.target.value)}>
-              <option value="all">Todos os tipos</option>
-              {LOCATION_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </Field>
-          {view === "lots" && (
-            <Field label="Status do lote">
-              <select className="input" style={{ minWidth: 170 }} value={lotStatusFilter} onChange={(e) => setLotStatusFilter(e.target.value)}>
-                <option value="all">Todos os status</option>
-                {LOT_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </Field>
-          )}
-          <Field label="Local">
-            <select className="input" style={{ minWidth: 200 }} value={locationCode} onChange={(e) => setLocationCode(e.target.value)}>
-              <option value="all">Todos os locais</option>
-              {inventoryLocations.map((location) => <option key={location.id} value={location.code}>{location.code} · {location.name}</option>)}
-            </select>
-          </Field>
-          {view === "items" && (
-            <Field label="Classe terapêutica">
-              <select className="input" style={{ minWidth: 200 }} value={medicationClass} onChange={(e) => setMedicationClass(e.target.value)}>
-                <option value="all">Todas as classes</option>
-                {medicationClasses.map((itemClass) => <option key={itemClass} value={itemClass}>{itemClass}</option>)}
-              </select>
-            </Field>
-          )}
-          <Field label="Marca">
-            <select className="input" style={{ minWidth: 180 }} value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
-              <option value="all">Todas as marcas</option>
-              {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
-            </select>
-          </Field>
-          {(locationTypeFilter !== "all" || lotStatusFilter !== "all" || locationCode !== "all" || medicationClass !== "all" || brandFilter !== "all") && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => { setLocationTypeFilter("all"); setLotStatusFilter("all"); setLocationCode("all"); setMedicationClass("all"); setBrandFilter("all"); }}
-            >
-              <Icon name="close" size={13} />Limpar filtros
-            </button>
-          )}
-        </div>
-      )}
 
       {view === "lots" && (
         <div className="card">
@@ -473,65 +372,55 @@ function InventoryScreen({ ctx }) {
 
       {view === "items" && (
         <div className="card">
-          <div className="card-head" style={{ flexWrap: "wrap", gap: 10 }}>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Itens de estoque</div>
-              <div className="card-head-sub">
-                {rows.length} item(ns) em {groupedEntries.length} {groupBy === "product" ? "produto(s)" : "categoria(s)"}
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <PillNav options={[{ key: "category", label: "Por categoria" }, { key: "product", label: "Por produto" }]} active={groupBy} onChange={setGroupBy} />
-              <button className="btn btn-secondary btn-sm" onClick={expandAllCategories}><Icon name="expand" size={14} />Expandir tudo</button>
-              <button className="btn btn-secondary btn-sm" onClick={collapseAllCategories}><Icon name="minus" size={14} />Recolher tudo</button>
-            </div>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <colgroup>
-                <col style={{ width: "19%" }} />
-                <col style={{ width: "7%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "11%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "11%" }} />
-                <col style={{ width: "11%" }} />
-                <col style={{ width: "22%" }} />
-              </colgroup>
-              <thead>
-                <tr><th>Medicamento</th><th>Classe</th><th>Local</th><th>Lote</th><th>Validade</th><th>Estoque</th><th>Status</th><th></th></tr>
-              </thead>
-              <tbody>
-                {groupedEntries.flatMap(([key, group]) => {
-                  const collapsed = !!collapsedCategories[key];
-                  const groupQty = group.items.reduce((sum, item) => sum + (item.qty || 0), 0);
-                  return [
-                    <tr key={"category-" + key}>
-                      <td colSpan="8" style={{ background: "var(--surface-2)", padding: 0 }}>
-                        <button
-                          onClick={() => toggleCategory(key)}
-                          aria-label={collapsed ? "Expandir grupo" : "Minimizar grupo"}
-                          style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", border: "none", background: "transparent", cursor: "pointer", textAlign: "left" }}
-                        >
-                          <span style={{ fontWeight: 800, fontSize: 13 }}>{group.label}</span>
-                          <span className="cell-muted" style={{ marginLeft: "auto" }}>
-                            {groupBy === "product"
-                              ? group.items.length + (group.items.length === 1 ? " lote" : " lotes") + " · " + groupQty + " un"
-                              : group.items.length + " item(ns)"}
-                          </span>
-                          <Icon name="chevD" size={14} style={{ transform: collapsed ? "rotate(-90deg)" : undefined, transition: "transform .15s" }} />
-                        </button>
-                      </td>
-                    </tr>,
-                    ...(collapsed ? [] : group.items.map(renderItemRow)),
-                  ];
-                })}
-              </tbody>
-            </table>
-            {!rows.length && <EmptyState icon="search" title="Nenhum item encontrado neste filtro" />}
-          </div>
+          <DataTable
+            columns={[
+              { key: "label", label: "Produto" },
+              { key: "locationCodes", label: "Localização", mono: true, render: (row) => row.locationCodes.join(", ") || "—" },
+              { key: "totalQty", label: "Estoque", render: (row) => row.totalQty + " " + (row.items[0].unit || "un") },
+              { key: "min", label: "Mínimo", render: (row) => row.min + " " + (row.items[0].unit || "un") },
+              { key: "state", label: "Nível", render: (row) => <Badge tone={row.state.key === "low" || row.state.key === "out" ? "critical" : row.state.key === "attention" ? "warning" : "good"}>{row.state.label}</Badge> },
+              { key: "nearestExpiry", label: "Vencimento", render: (row) => row.nearestExpiry ? <span style={isExpiringSoonIso(row.nearestExpiry) ? { color: "var(--warning)", fontWeight: 700 } : undefined}>{formatIsoDate(row.nearestExpiry)}</span> : <span className="cell-muted">—</span> },
+            ]}
+            rows={productSummaryRows}
+            rowKey="key"
+            onRowClick={(row) => setSelectedProductKey(row.key)}
+            empty="Nenhum item encontrado neste filtro"
+          />
         </div>
       )}
+
+      <Drawer
+        open={!!selectedProductKey}
+        onClose={() => setSelectedProductKey(null)}
+        title={selectedProductKey ? (groupedRows[selectedProductKey] || {}).label : ""}
+        subtitle={selectedProductKey ? `${(groupedRows[selectedProductKey] || { items: [] }).items.length} lote(s)` : ""}
+      >
+        {selectedProductKey && (groupedRows[selectedProductKey] || { items: [] }).items.map((item) => {
+          const itemLots = (lotsByItemId[item.id] || []).filter((lot) => lot.qty > 0);
+          return (
+            <div key={item.id} className="card card-pad" style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <span className="stat-icon" style={{ width: 32, height: 32, flex: "none" }}><Icon name={item.controlled ? "lock" : "pill"} size={16} /></span>
+                <div style={{ minWidth: 0 }}>
+                  <div className="cell-strong">{item.medClass || "Geral"}{item.controlled && <Badge tone="critical" style={{ marginLeft: 6 }}>Tarja</Badge>}</div>
+                  {hasMultipleStores && storeNameById[item.storeId] && <div className="cell-muted">{storeNameById[item.storeId]}</div>}
+                </div>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setEditItem(item)}><Icon name="edit" size={13} />Editar</button>
+                  <button className="icon-btn" onClick={() => setMovementItem(item)} aria-label="Movimentar item" title="Movimentar item"><Icon name="boxes" size={15} /></button>
+                  <button className="icon-btn" onClick={() => setTransferItem(item)} aria-label="Transferir item" title="Transferir item"><Icon name="route" size={15} /></button>
+                </div>
+              </div>
+              {(itemLots.length ? itemLots : [{ id: item.id, locationCode: item.loc, batch: item.batch, expiry: item.expiry, qty: item.qty }]).map((lot) => (
+                <div key={lot.id} className="kv">
+                  <span className="kv-label mono">{lot.locationCode} · lote {lot.batch || "—"}</span>
+                  <span className="kv-value">{lot.qty} un · vence {formatIsoDate(lot.expiry)}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </Drawer>
 
       {view === "movements" && (
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>

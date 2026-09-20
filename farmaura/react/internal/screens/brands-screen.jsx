@@ -1,17 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
-  Badge, RowIconBtn, SearchInput, KpiChip, RecoverModal, confirmAction, showToast,
+  Badge, RowIconBtn, SearchInput, RecoverModal, confirmAction, showToast,
 } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Cadastro de marcas, vinculadas aos fornecedores que as distribuem. */
-
-const KPIS = [
-  { key: "all", label: "Todas", icon: "grid" },
-  { key: "active", label: "Ativas", icon: "check", tone: "good" },
-  { key: "inactive", label: "Inativas", icon: "pause" },
-  { key: "no_supplier", label: "Sem fornecedor", icon: "truck", tone: "warning" },
-];
 
 function BrandsScreen({ ctx }) {
   const {
@@ -21,8 +14,6 @@ function BrandsScreen({ ctx }) {
   const isAdmin = !!(user && window.FA_ACCESS && user.role === window.FA_ACCESS.ROLE.ADMIN);
 
   const [query, setQuery] = useState("");
-  const [kpi, setKpi] = useState("all");
-  const [supplierFilter, setSupplierFilter] = useState("all");
   const [editBrand, setEditBrand] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
   const [savingId, setSavingId] = useState("");
@@ -35,28 +26,13 @@ function BrandsScreen({ ctx }) {
 
   const available = (brands || []).filter((b) => !b.discarded);
   const discarded = (brands || []).filter((b) => b.discarded);
-  const activeCount = available.filter((b) => b.active).length;
-  const inactiveCount = available.filter((b) => !b.active).length;
-  const noSupplierCount = available.filter((b) => !b.suppliers.length).length;
-  const kpiValues = { all: available.length, active: activeCount, inactive: inactiveCount, no_supplier: noSupplierCount };
 
-  const supplierOptions = (suppliers || [])
-    .map((s) => ({ id: s.id, name: s.tradeName || s.legalName }))
-    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-
-  const hasFilters = kpi !== "all" || supplierFilter !== "all";
   const rows = available
     .filter((b) => {
-      if (kpi === "active" && !b.active) return false;
-      if (kpi === "inactive" && b.active) return false;
-      if (kpi === "no_supplier" && b.suppliers.length) return false;
-      if (supplierFilter !== "all" && !b.supplierIds.includes(supplierFilter)) return false;
       if (query && !(b.name + b.description).toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     })
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR"));
-
-  const clearFilters = () => { setKpi("all"); setSupplierFilter("all"); };
 
   const toggleActive = async (brand) => {
     setSavingId(brand.id);
@@ -130,23 +106,10 @@ function BrandsScreen({ ctx }) {
         )}
       />
 
-      <div className="grid g-4" style={{ marginBottom: 16 }}>
-        {KPIS.map((k) => (
-          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
-        ))}
-      </div>
-
       <div className="card">
         <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
           <SearchInput value={query} onChange={setQuery} placeholder="Buscar por nome ou descrição..." />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <select className="input" style={{ width: "auto", minWidth: 180 }} value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)}>
-              <option value="all">Todos os fornecedores</option>
-              {supplierOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
-            {hasFilters && <button className="btn btn-ghost btn-sm" onClick={clearFilters}><Icon name="x" size={13} />Limpar</button>}
-            <span className="card-head-sub">{rows.length} de {available.length}</span>
-          </div>
+          <span className="card-head-sub">{rows.length} de {available.length}</span>
         </div>
         <DataTable
           columns={columns}

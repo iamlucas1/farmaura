@@ -46,8 +46,11 @@ services:
       APP_STORAGE_TMP_ROOT: /app/storage/tmp
       APP_STORAGE_QUARANTINE_ROOT: /app/storage/quarantine
       APP_GEOCODING_ENABLED: "true"
-      APP_GEOCODING_BASE_URL: https://nominatim.openstreetmap.org
+      # Self-hosted Nominatim (see farmaura-nominatim below) — no public usage policy to respect,
+      # so the request throttle drops way down from the public instance's ~1 req/s default.
+      APP_GEOCODING_BASE_URL: http://farmaura-nominatim:8080
       APP_GEOCODING_USER_AGENT: farmaura-api/1.0 (contato@farmaura.com.br)
+      APP_GEOCODING_MIN_INTERVAL_SECONDS: "0.2"
     depends_on:
       farmaura-postgres:
         condition: service_healthy
@@ -116,6 +119,44 @@ services:
     networks:
       - farmaura_private
 
+  # Self-hosted geocoding — replaces the public nominatim.openstreetmap.org instance (no usage
+  # policy/rate limit to respect, no third-party dependency for something this central to
+  # delivery routing). All-in-one image: bundles its own Postgres+PostGIS, no shared DB with
+  # farmaura-postgres. Imports the Centro-Oeste OSM extract (Distrito Federal + Goiás + Mato
+  # Grosso + Mato Grosso do Sul — Farmaura's real delivery footprint, ~200MB) on first boot; that
+  # first import can take several minutes, farmaura-api does not block startup waiting for it (see
+  # its own healthcheck's long start_period below instead) and geocoding calls just fail closed
+  # until it's ready, same as any other geocoding outage.
+  farmaura-nominatim:
+    container_name: farmaura_nominatim
+    image: mediagis/nominatim:5.3.2
+    restart: unless-stopped
+    environment:
+      PBF_URL: https://download.geofabrik.de/south-america/brazil/centro-oeste-latest.osm.pbf
+      USER_AGENT: farmaura-nominatim/1.0 (contato@farmaura.com.br)
+      IMPORT_WIKIPEDIA: "false"
+      IMPORT_US_POSTCODES: "false"
+      IMPORT_GB_POSTCODES: "false"
+      NOMINATIM_PASSWORD: nominatim
+      # FREEZE: import once, never poll for replication diffs afterward — addresses/streets don't
+      # change often enough to justify a standing background sync job for this system. To pick up
+      # newer OSM data later, stop the container, remove the farmaura_nominatim_data volume, and
+      # start it again (re-imports fresh from PBF_URL).
+      FREEZE: "true"
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:9090:8080" # for inspecting the instance directly from the host (http://127.0.0.1:9090/status.php), not used by farmaura-api itself
+    volumes:
+      - farmaura_nominatim_data:/var/lib/postgresql/16/main
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/status.php | grep -q 'OK' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 1800s # first-boot import of the region extract
+    networks:
+      - farmaura_private
+
 networks:
   farmaura_private:
     name: farmaura_private
@@ -132,3 +173,5 @@ volumes:
     name: farmaura_storage_quarantine
   farmaura_storage_tmp:
     name: farmaura_storage_tmp
+  farmaura_nominatim_data:
+    name: farmaura_nominatim_data

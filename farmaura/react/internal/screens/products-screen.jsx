@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  Icon, PageHead, Badge, KpiChip, SearchInput, EmptyState, Modal, Field,
+  Icon, PageHead, Badge, Tabs, SearchInput, EmptyState, Modal, Field,
   SwitchToggle, RecoverModal, confirmAction,
 } from "../core/internal-ui.jsx";
 
@@ -44,10 +44,6 @@ function ProductsScreen({ ctx }) {
   const cnaeOptions = (cnaeSettings && cnaeSettings.items) || [];
   const isAdmin = !!(user && window.FA_ACCESS && user.role === window.FA_ACCESS.ROLE.ADMIN);
   const [q, setQ] = useState("");
-  const [kpiFilter, setKpiFilter] = useState("all");
-  const [brandFilter, setBrandFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [classFilter, setClassFilter] = useState("all");
   const [editProduct, setEditProduct] = useState(null);
   const [viewProduct, setViewProduct] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
@@ -64,38 +60,17 @@ function ProductsScreen({ ctx }) {
   }, []);
 
   const availableProducts = (products || []).filter((product) => !product.discarded);
-  const activeCount = availableProducts.filter((product) => product.active).length;
-  const inactiveCount = availableProducts.filter((product) => !product.active).length;
-  const controlledCount = availableProducts.filter((product) => product.isControlled).length;
-  const genericCount = availableProducts.filter((product) => product.isGeneric).length;
-  const noStoreCount = availableProducts.filter((product) => !product.storeCount).length;
   const brandOptions = _uniqueOptions(availableProducts, "brandId", "brandName");
   const categoryOptions = _uniqueOptions(availableProducts, "categoryId", "categoryName");
   const classOptions = _uniqueOptions(availableProducts, "therapeuticClassId", "medicationClassName");
-  const hasExtraFilters = kpiFilter !== "all" || brandFilter !== "all" || categoryFilter !== "all" || classFilter !== "all";
 
   const rows = availableProducts.filter((product) => {
-    if (kpiFilter === "active" && !product.active) return false;
-    if (kpiFilter === "inactive" && product.active) return false;
-    if (kpiFilter === "controlled" && !product.isControlled) return false;
-    if (kpiFilter === "generic" && !product.isGeneric) return false;
-    if (kpiFilter === "no_store" && product.storeCount) return false;
-    if (brandFilter !== "all" && product.brandId !== brandFilter) return false;
-    if (categoryFilter !== "all" && product.categoryId !== categoryFilter) return false;
-    if (classFilter !== "all" && product.therapeuticClassId !== classFilter) return false;
     if (q) {
       const haystack = (product.name + product.sku + product.brandName + product.categoryName + product.medicationClassName + product.eanCode).toLowerCase();
       if (!haystack.includes(q.toLowerCase())) return false;
     }
     return true;
   }).sort((left, right) => (left.name || "").localeCompare(right.name || "", "pt-BR"));
-
-  const clearFilters = () => {
-    setKpiFilter("all");
-    setBrandFilter("all");
-    setCategoryFilter("all");
-    setClassFilter("all");
-  };
 
   const handleToggleActive = async (product) => {
     setSavingId(product.id);
@@ -150,52 +125,24 @@ function ProductsScreen({ ctx }) {
   return (
     <div className="route-fade">
       <PageHead
-        eyebrow="Catálogo & Estoque" title="Produtos" desc={rows.length + " produto(s) exibido(s)"}
-        actions={<SearchInput value={q} onChange={setQ} placeholder="Buscar por nome, SKU, marca, categoria ou EAN" />}
+        eyebrow="Catálogo & Estoque" title="Produtos" desc="Cadastro completo com fornecedor, tributação, classe terapêutica e CNAE."
+        actions={(
+          <>
+            {isAdmin && discardedProducts.length > 0 && (
+              <button className="btn btn-secondary" onClick={() => setRecoverOpen(true)}>
+                <Icon name="repeat" size={14} />Recuperar descartados ({discardedProducts.length})
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={() => setNewOpen(true)}><Icon name="plus" size={14} />Novo produto</button>
+          </>
+        )}
       />
 
-      <div className="grid g-6" style={{ marginBottom: 16 }}>
-        <KpiChip icon="grid" label="Todos" value={availableProducts.length} active={kpiFilter === "all"} onClick={() => setKpiFilter("all")} />
-        <KpiChip icon="check" label="Ativos" value={activeCount} tone="good" active={kpiFilter === "active"} onClick={() => setKpiFilter("active")} />
-        <KpiChip icon="pause" label="Inativos" value={inactiveCount} active={kpiFilter === "inactive"} onClick={() => setKpiFilter("inactive")} />
-        <KpiChip icon="lock" label="Controlados" value={controlledCount} active={kpiFilter === "controlled"} onClick={() => setKpiFilter("controlled")} />
-        <KpiChip icon="leaf" label="Genéricos" value={genericCount} active={kpiFilter === "generic"} onClick={() => setKpiFilter("generic")} />
-        <KpiChip icon="bag" label="Sem loja vinculada" value={noStoreCount} tone={noStoreCount ? "warning" : undefined} active={kpiFilter === "no_store"} onClick={() => setKpiFilter("no_store")} />
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        {isAdmin && (
-          <button className="btn btn-secondary btn-sm" disabled={!discardedProducts.length} onClick={() => setRecoverOpen(true)} title={discardedProducts.length ? "Recuperar produtos descartados" : "Não há produtos descartados"}>
-            <Icon name="repeat" size={15} />Recuperar descartados{discardedProducts.length ? " (" + discardedProducts.length + ")" : ""}
-          </button>
-        )}
-        <button className="btn btn-secondary btn-sm" onClick={refreshProducts}><Icon name="repeat" size={15} />Atualizar</button>
-        <button className="btn btn-primary btn-sm" onClick={() => setNewOpen(true)}><Icon name="plus" size={15} />Novo produto</button>
-      </div>
-
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end", marginBottom: 16 }}>
-        <Field label="Marca">
-          <select className="input" style={{ minWidth: 160 }} value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)}>
-            <option value="all">Todas as marcas</option>
-            {brandOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Categoria">
-          <select className="input" style={{ minWidth: 160 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-            <option value="all">Todas as categorias</option>
-            {categoryOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Classe terapêutica">
-          <select className="input" style={{ minWidth: 170 }} value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-            <option value="all">Todas as classes</option>
-            {classOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </Field>
-        {hasExtraFilters && <button className="btn btn-ghost btn-sm" onClick={clearFilters}><Icon name="close" size={14} />Limpar filtros</button>}
-      </div>
-
       <div className="card">
+        <div className="card-head">
+          <SearchInput value={q} onChange={setQ} placeholder="Buscar por nome, SKU, marca, categoria ou EAN" />
+          <span className="card-head-sub">{rows.length} de {availableProducts.length} registros</span>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -242,7 +189,7 @@ function ProductsScreen({ ctx }) {
             </tbody>
           </table>
           {!rows.length && (
-            <EmptyState icon="capsule" title="Nenhum produto encontrado" desc={(hasExtraFilters || q) ? "Limpe a busca e os filtros para ver todos os produtos." : undefined} />
+            <EmptyState icon="capsule" title="Nenhum produto encontrado" desc={q ? "Limpe a busca para ver todos os produtos." : undefined} />
           )}
         </div>
       </div>

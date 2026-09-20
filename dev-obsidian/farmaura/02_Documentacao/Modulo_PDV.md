@@ -6,7 +6,7 @@ cssclasses: ia-nota
 
 ## O que é
 
-Fluxo de venda presencial no balcão da farmácia, com handoff explícito farmacêutico→caixa via fila (diferente do pedido online, que vai direto para `Order`). Reaproveita deliberadamente a mesma lógica de precificação de entrega do marketplace (exceção documentada em [[../03_Padroes_Politicas/excecao-delivery-pricing-cross-service|excecao-delivery-pricing-cross-service]]) e o mesmo pipeline de emissão fiscal (ver [[Modulo_Fiscal|Módulo Fiscal]]).
+Fluxo de venda presencial no balcão da farmácia, com handoff explícito farmacêutico→caixa via fila — o pedido de balcão em si (`PdvOrder`/`PdvSale`) é um par de tabelas próprio, sem relação com `Order` do pedido online, **exceto** quando o fulfillment é entrega: desde 2026-09-20 uma venda de PDV com "Entregar em casa" também cria um `Order`/`OrderItem`/`OrderFulfillment` de verdade na finalização (`PdvService._create_linked_delivery_order`, `originating_pdv_sale_id` rastreia a origem), para entrar no mesmo pipeline `new → separating → ready → dispatched` do pedido online — ver seção "Entrega de balcão vira Order" abaixo. Reaproveita deliberadamente a mesma lógica de precificação de entrega do marketplace (exceção documentada em [[../03_Padroes_Politicas/excecao-delivery-pricing-cross-service|excecao-delivery-pricing-cross-service]]) e o mesmo pipeline de emissão fiscal (ver [[Modulo_Fiscal|Módulo Fiscal]]).
 
 ## Tabelas / Models
 
@@ -30,8 +30,32 @@ Fluxo de venda presencial no balcão da farmácia, com handoff explícito farmac
 6. **Envio ao caixa** (`POST /pdv/orders`): **é aqui que o estoque é decrementado** (`SELECT FOR UPDATE` + `InventoryMovement` + FEFO), não na finalização — decisão deliberada para que dois farmacêuticos nunca reservem a mesma última unidade simultaneamente.
 7. Fila do caixa: reservas expiradas são canceladas lazily ao listar, com devolução de estoque.
 8. Claim: caixa assume o pedido (`cashier_user_id` setado).
-9. Pagamento (`cash|pix|debit|credit` — único valor, não há split real além de cashback+resto) e decisão de incluir CPF na nota.
-10. **Finalização** (`complete_sale`, tudo em um commit): cria `PdvSale`+itens, liquida ledger de cashback, anexa parada de rota se `delivery`, **emite fiscal síncrono** (`FiscalService.issue_for_pdv_sale`, best-effort com Asaas — falha do provedor não desfaz a venda já paga).
+9. Pagamento (`cash|pix|debit|credit|marketplace_card` — único valor, não há split real além de cashback+resto) e decisão de incluir CPF na nota. `marketplace_card` cobra o cartão salvo do cliente no marketplace via Asaas (`PaymentService.charge_card`, mesmo caminho do checkout online) — exige cliente identificado com `customer_id` e `payment_method_id` de um cartão salvo dele.
+10. **Finalização** (`complete_sale`, tudo em um commit): cria `PdvSale`+itens, liquida ledger de cashback, **se `delivery`, cria também `Order`+`OrderItem`s+`OrderFulfillment`** (ver seção abaixo — a parada de rota em si só é anexada no despacho, igual pedido online, não aqui), **emite fiscal síncrono** (`FiscalService.issue_for_pdv_sale`, best-effort com Asaas — falha do provedor não desfaz a venda já paga).
+
+## Entrega de balcão vira Order (desde 2026-09-20)
+
+Uma venda de PDV com "Entregar em casa" deixou de ficar presa ao par `PdvOrder`/`PdvSale` — a
+finalização (`complete_sale`) também monta um `Order`/`OrderItem`s/`OrderFulfillment` reais
+(`channel='pdv'`, `status=OrderStatus.NEW`, `originating_pdv_sale_id` apontando de volta pra
+`PdvSale`), reaproveitando `self.delivery_pricing.repository`/`.store_repository`
+(`OrderRepository`/`StoreRepository` já expostos por `DeliveryPricingService`). Isso faz a venda
+aparecer em "Pedidos online" e passar pelo mesmo `new → separating → ready → dispatched` que um
+pedido do marketplace — inclusive ficando elegível pra roteirização/despacho por proximidade já
+existente (`attach_route_stop`, chamado no despacho, não na criação — mesmo ponto do pedido
+online). Os `OrderItem` nascem com `picked_for_fulfillment=True`: já foram fisicamente separados
+no balcão, então o item pula a separação visualmente mas o pedido ainda passa por todo o resto do
+fluxo, como pedido pelo usuário.
+
+`requested_delivery_time_label` (horário desejado de entrega, texto livre) existe tanto em
+`PdvDeliveryRequest`/`PdvOrder` quanto em `CheckoutDeliveryRequest`/`OrderFulfillment` — mesmo
+campo, mesmo formato, nos dois canais.
+
+Exigiu ampliar RLS: `app_private.can_access_order_row`/`can_access_customer_row` passaram a
+incluir `cashier` (antes só admin/manager/pharmacist) — é o caixa quem chama `complete_sale`, e
+sem isso o `INSERT` em `orders` (e a leitura de `customers`/`customer_payment_methods` pro
+pagamento `marketplace_card`) falha por RLS. Ver
+[[../06_Pendencias/aplicar-migration-pdv-delivery-order-integration-em-producao|pendência de deploy em produção]].
 
 ## Regras de negócio não óbvias
 
@@ -67,6 +91,7 @@ Fluxo de venda presencial no balcão da farmácia, com handoff explícito farmac
 
 ## Atualizações
 
+- 2026-09-20: venda de PDV com "Entregar em casa" passou a criar também um `Order`/`OrderItem`s/`OrderFulfillment` real na finalização, entrando no mesmo pipeline `new → separating → ready → dispatched` de um pedido online (antes ficava presa a `PdvOrder`/`PdvSale`, invisível pro board e pra rota); novo método de pagamento `marketplace_card` (cobra cartão salvo do cliente via Asaas); novo campo `requested_delivery_time_label` (horário desejado, texto livre) no PDV e no checkout do marketplace. Exigiu ampliar RLS de `orders`/`customers` pra incluir `cashier`. Ver seção "Entrega de balcão vira Order" acima e [[../06_Pendencias/aplicar-migration-pdv-delivery-order-integration-em-producao|pendência de deploy]].
 - 2026-09-17: pagamento no caixa (Pix/débito/crédito) passou a integrar de verdade com a maquininha Itaú via `farmaura-pdv-bridge` (agente local, USB) — driver ainda simulado, aguardando SDK da Itaú. Sale ganhou `payment_terminal_reference` (NSU/authCode). Ver [[../00_Decisoes/2026-09-17-integracao-maquininha-itau-via-agente-usb-local|ADR]] e [[../06_Pendencias/sdk-itau-maquininha-pendente|pendência do SDK real]].
 - 2026-07-30: PDV passou a suportar cupom (antes só tinha desconto manual) — mutuamente exclusivo com o desconto manual, exige cliente identificado, respeita o mesmo teto de margem, `usage_count` incrementa só em `complete_sale`. Ver [[Modulo_CRM|Módulo CRM]] e [[../00_Decisoes/2026-07-30-cupom-validado-no-servidor-com-service-compartilhado|ADR]].
 - 2026-07-25: nota criada — documentação do estado atual do módulo.

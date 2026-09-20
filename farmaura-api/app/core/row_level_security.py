@@ -354,7 +354,11 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     app_private.current_tenant_id() IS NOT NULL
                     AND (
                         target_customer_id = app_private.current_customer_id()
-                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        -- cashier included: completing a PDV sale paid with the customer's saved
+                        -- marketplace card (PdvService.complete_sale) resolves the Customer row
+                        -- and their customer_payment_methods (which reuses this same function)
+                        -- from a cashier session, same "internal operator" set as can_access_order_row().
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist', 'cashier')
                     )
             $$;
     """,
@@ -369,7 +373,10 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     app_private.current_tenant_id() IS NOT NULL
                     AND (
                         target_customer_id = app_private.current_customer_id()
-                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist')
+                        -- cashier included: completing a PDV delivery sale now inserts the
+                        -- linked marketplace Order (see PdvService._create_linked_delivery_order)
+                        -- from a cashier session, same "internal operator" set as is_internal_operator().
+                        OR app_private.current_user_role() IN ('admin', 'manager', 'pharmacist', 'cashier')
                     )
             $$;
     """,

@@ -64,8 +64,8 @@ function ChatScreen({ ctx }) {
   return (
     <div className="route-fade">
       <PageHead eyebrow="Atendimento" title="Conversas" desc={`${threads.length} clientes · ${totalUnread} não lidas`} />
-      <div className="grid" style={{ gridTemplateColumns: "320px 1fr", gap: 0, alignItems: "stretch", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden", minHeight: 560, background: "var(--surface)" }}>
-        <div className="scrollbar-thin" style={{ borderRight: "1px solid var(--border)", overflowY: "auto", maxHeight: 640 }}>
+      <div className="card chat-shell">
+        <div className="chat-list scrollbar-thin" style={{ borderRight: "1px solid var(--border)", overflowY: "auto" }}>
           {threads.map((entry) => (
             <div
               key={entry.id}

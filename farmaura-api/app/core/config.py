@@ -110,6 +110,15 @@ class Settings(BaseSettings):
     geocoding_base_url: str = "https://nominatim.openstreetmap.org"
     geocoding_user_agent: str = "farmaura-api/1.0 (contato@farmaura.com.br)"
     geocoding_timeout_seconds: int = 10
+    # 1.05s matches nominatim.openstreetmap.org's public usage policy (~1 req/s, shared across
+    # every request this process makes, not per caller). A self-hosted instance (see
+    # farmaura-nominatim in docker-compose.yml) has no such policy — only this process's own
+    # request rate — so it can run much faster; override via APP_GEOCODING_MIN_INTERVAL_SECONDS
+    # per environment instead of hardcoding one assumption for both.
+    geocoding_min_interval_seconds: float = 1.05
+    routing_enabled: bool = True
+    routing_base_url: str = "https://router.project-osrm.org"
+    routing_timeout_seconds: int = 10
     smtp_enabled: bool = False
     smtp_host: str = ""
     smtp_port: int = 587

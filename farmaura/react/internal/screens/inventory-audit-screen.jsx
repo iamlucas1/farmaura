@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { brl } from "../../marketplace/core/marketplace-components.jsx";
-import { Icon, PageHead, Badge, SearchInput, EmptyState, Field } from "../core/internal-ui.jsx";
+import { Icon, PageHead, Badge, SearchInput, PillNav, DataTable, Drawer, EmptyState } from "../core/internal-ui.jsx";
 
 const ENTITY_TYPE_LABEL = { item: "Item", location: "Local" };
 
@@ -59,12 +59,9 @@ function InventoryAuditScreen({ ctx }) {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [entityType, setEntityType] = useState("all");
   const [action, setAction] = useState("all");
-  const [actorQuery, setActorQuery] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
   const [q, setQ] = useState("");
+  const [selected, setSelected] = useState(null);
 
   const load = async (targetPage) => {
     setLoading(true);
@@ -72,11 +69,11 @@ function InventoryAuditScreen({ ctx }) {
       const result = await fetchInventoryAudit({
         page: targetPage,
         pageSize,
-        entityType: entityType === "all" ? "" : entityType,
+        entityType: "",
         action: action === "all" ? "" : action,
-        actorQuery,
-        dateFrom: dateFrom ? dateFrom + "T00:00:00" : "",
-        dateTo: dateTo ? dateTo + "T23:59:59" : "",
+        actorQuery: "",
+        dateFrom: "",
+        dateTo: "",
         q,
       });
       setEntries(result.items);
@@ -92,93 +89,43 @@ function InventoryAuditScreen({ ctx }) {
   useEffect(() => {
     load(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entityType, action]);
+  }, [action, q]);
 
-  const applyFilters = () => load(1);
-  const clearFilters = () => {
-    setEntityType("all");
-    setAction("all");
-    setActorQuery("");
-    setDateFrom("");
-    setDateTo("");
-    setQ("");
-  };
-  const hasFilters = entityType !== "all" || action !== "all" || !!actorQuery || !!dateFrom || !!dateTo || !!q;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const columns = [
+    { key: "createdAt", label: "Quando", render: (e) => auditDate(e.createdAt) },
+    { key: "actorName", label: "Usuário", render: (e) => e.actorName || "Usuário desconhecido" },
+    { key: "action", label: "Ação", render: (e) => {
+      const meta = ACTION_META[e.action] || { label: e.action };
+      return <Badge tone="neutral">{meta.label}</Badge>;
+    } },
+    { key: "entityLabel", label: "Entidade / registro", render: (e) => e.entityLabel || "Registro removido" },
+    { key: "entityType", label: "Categoria", render: (e) => <Badge tone="neutral">{ENTITY_TYPE_LABEL[e.entityType] || e.entityType}</Badge> },
+  ];
 
   return (
     <div className="route-fade">
-      <PageHead
-        eyebrow="Catálogo & Estoque" title="Auditoria" desc={total + " registro(s) no filtro atual"}
-        actions={<SearchInput value={q} onChange={setQ} placeholder="Buscar por produto ou local" />}
-      />
+      <PageHead eyebrow="Catálogo & Estoque" title="Auditoria" desc="Log de tudo que acontece no estoque e no precificador — entradas, saídas e responsáveis." />
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end", marginBottom: 18 }}>
-        <Field label="Tipo">
-          <select className="input" value={entityType} onChange={(e) => setEntityType(e.target.value)}>
-            <option value="all">Todos</option>
-            <option value="item">Item</option>
-            <option value="location">Local</option>
-          </select>
-        </Field>
-        <Field label="Ação">
-          <select className="input" value={action} onChange={(e) => setAction(e.target.value)}>
-            <option value="all">Todas</option>
-            <option value="create">Criação</option>
-            <option value="update">Edição</option>
-            <option value="status_change">Mudança de status</option>
-            <option value="stock_movement">Movimentação de estoque</option>
-            <option value="pdv_sale">Venda no PDV</option>
-          </select>
-        </Field>
-        <Field label="Usuário">
-          <input className="input" placeholder="Nome ou e-mail" value={actorQuery} onChange={(e) => setActorQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") applyFilters(); }} />
-        </Field>
-        <Field label="De"><input className="input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /></Field>
-        <Field label="Até"><input className="input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} /></Field>
-        <button className="btn btn-primary btn-sm" onClick={applyFilters} disabled={loading}><Icon name="filter" size={14} />Filtrar</button>
-        {hasFilters && <button className="btn btn-secondary btn-sm" onClick={clearFilters} disabled={loading}><Icon name="close" size={13} />Limpar</button>}
-        <button className="btn btn-secondary btn-sm" style={{ marginLeft: "auto" }} onClick={() => load(page)} disabled={loading}><Icon name="repeat" size={15} />Atualizar</button>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {entries.map((entry) => {
-          const meta = ACTION_META[entry.action] || { label: entry.action, icon: "activity", fg: "var(--text-secondary)", bg: "var(--surface-2)" };
-          return (
-            <div key={entry.id} className="card card-pad">
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                <span className="stat-icon" style={{ width: 36, height: 36, background: meta.bg, color: meta.fg }}><Icon name={meta.icon} size={16} /></span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="cell-strong">{entry.entityLabel || "Registro removido"}</div>
-                  <div className="cell-muted">{ENTITY_TYPE_LABEL[entry.entityType] || entry.entityType} · {meta.label}</div>
-                </div>
-                <div className="cell-muted">{auditDate(entry.createdAt)}</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13 }}>
-                <Icon name="user" size={13} />
-                <span style={{ fontWeight: 700 }}>{entry.actorName || "Usuário desconhecido"}</span>
-                {entry.actorEmail && <span className="cell-muted">{entry.actorEmail}</span>}
-                {entry.actorRole && <Badge tone="neutral">{entry.actorRole}</Badge>}
-                {entry.ipAddress && <span className="mono cell-muted">IP {entry.ipAddress}</span>}
-              </div>
-              {entry.changes.length > 0 && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {entry.changes
-                    .filter((change) => !(entry.action === "pdv_sale" && change.field === "reason"))
-                    .map((change, index) => (
-                      <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, minWidth: 140 }}>{fieldLabel(change.field)}</span>
-                        <span className="cell-muted">{formatChangeValue(change.field, change.old)}</span>
-                        <Icon name="arrowR" size={12} />
-                        <span style={{ fontWeight: 600 }}>{formatChangeValue(change.field, change.new)}</span>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {!loading && !entries.length && <div className="card"><EmptyState icon="shield" title="Nenhum registro de auditoria encontrado neste filtro" /></div>}
+      <div className="card">
+        <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
+          <SearchInput value={q} onChange={setQ} placeholder="Buscar produto ou local..." />
+          <PillNav
+            options={[
+              { key: "all", label: "Todos" },
+              ...Object.entries(ACTION_META).map(([key, meta]) => ({ key, label: meta.label })),
+            ]}
+            active={action} onChange={setAction}
+          />
+        </div>
+        <DataTable
+          columns={columns}
+          rows={entries}
+          rowKey="id"
+          onRowClick={(entry) => setSelected(entry)}
+          empty={loading ? "Carregando…" : "Nenhum registro encontrado"}
+        />
       </div>
 
       {totalPages > 1 && (
@@ -188,6 +135,44 @@ function InventoryAuditScreen({ ctx }) {
           <button className="btn btn-secondary btn-sm" disabled={page >= totalPages || loading} onClick={() => load(page + 1)}>Próxima<Icon name="chevR" size={14} /></button>
         </div>
       )}
+
+      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected ? (selected.entityLabel || "Registro removido") : ""} subtitle={selected ? auditDate(selected.createdAt) : ""}>
+        {selected && (() => {
+          const meta = ACTION_META[selected.action] || { label: selected.action, icon: "activity", fg: "var(--text-secondary)", bg: "var(--surface-2)" };
+          return (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                <span className="stat-icon" style={{ width: 36, height: 36, background: meta.bg, color: meta.fg }}><Icon name={meta.icon} size={16} /></span>
+                <div>
+                  <div className="cell-strong">{meta.label}</div>
+                  <div className="cell-muted">{ENTITY_TYPE_LABEL[selected.entityType] || selected.entityType}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, marginBottom: 14 }}>
+                <Icon name="user" size={13} />
+                <span style={{ fontWeight: 700 }}>{selected.actorName || "Usuário desconhecido"}</span>
+                {selected.actorEmail && <span className="cell-muted">{selected.actorEmail}</span>}
+                {selected.actorRole && <Badge tone="neutral">{selected.actorRole}</Badge>}
+                {selected.ipAddress && <span className="mono cell-muted">IP {selected.ipAddress}</span>}
+              </div>
+              {selected.changes.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {selected.changes
+                    .filter((change) => !(selected.action === "pdv_sale" && change.field === "reason"))
+                    .map((change, index) => (
+                      <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 700, minWidth: 140 }}>{fieldLabel(change.field)}</span>
+                        <span className="cell-muted">{formatChangeValue(change.field, change.old)}</span>
+                        <Icon name="arrowR" size={12} />
+                        <span style={{ fontWeight: 600 }}>{formatChangeValue(change.field, change.new)}</span>
+                      </div>
+                    ))}
+                </div>
+              ) : <EmptyState icon="shield" title="Sem alterações de campo registradas" />}
+            </>
+          );
+        })()}
+      </Drawer>
     </div>
   );
 }

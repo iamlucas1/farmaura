@@ -54,6 +54,14 @@ class Order(Base, UuidModel, TimestampedModel):
         index=True,
         nullable=True,
     )
+    # Set only when this order was created from a PDV ("Balcão") delivery sale instead of the
+    # marketplace checkout — traceability back to the sale that paid for it, nothing in the
+    # operational pipeline (board, routing, status transitions) branches on this being set.
+    originating_pdv_sale_id: Mapped[str | None] = mapped_column(
+        ForeignKey("pdv_sales.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     order_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     channel: Mapped[str] = mapped_column(String(24), default="app", nullable=False)
     status: Mapped[str] = mapped_column(String(24), default=OrderStatus.NEW.value, nullable=False)

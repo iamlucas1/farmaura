@@ -1,24 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
-  Badge, RowIconBtn, SearchInput, KpiChip, RecoverModal, confirmAction, showToast,
+  Badge, RowIconBtn, SearchInput, RecoverModal, confirmAction, showToast,
 } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Cadastro de categorias de produto. */
-
-const KPIS = [
-  { key: "all", label: "Todas", icon: "grid" },
-  { key: "active", label: "Ativas", icon: "check", tone: "good" },
-  { key: "inactive", label: "Inativas", icon: "pause" },
-  { key: "no_description", label: "Sem descrição", icon: "edit", tone: "warning" },
-];
 
 function CategoriesScreen({ ctx }) {
   const { categories, refreshCategories, addCategory, updateCategory, setCategoryActive, setCategoryDiscarded, user } = ctx;
   const isAdmin = !!(user && window.FA_ACCESS && user.role === window.FA_ACCESS.ROLE.ADMIN);
 
   const [query, setQuery] = useState("");
-  const [kpi, setKpi] = useState("all");
   const [editItem, setEditItem] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
   const [savingId, setSavingId] = useState("");
@@ -28,18 +20,9 @@ function CategoriesScreen({ ctx }) {
 
   const available = (categories || []).filter((c) => !c.discarded);
   const discarded = (categories || []).filter((c) => c.discarded);
-  const kpiValues = {
-    all: available.length,
-    active: available.filter((c) => c.active).length,
-    inactive: available.filter((c) => !c.active).length,
-    no_description: available.filter((c) => !c.description).length,
-  };
 
   const rows = available
     .filter((c) => {
-      if (kpi === "active" && !c.active) return false;
-      if (kpi === "inactive" && c.active) return false;
-      if (kpi === "no_description" && c.description) return false;
       if (query && !(c.name + c.description).toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     })
@@ -96,12 +79,6 @@ function CategoriesScreen({ ctx }) {
           </>
         )}
       />
-
-      <div className="grid g-4" style={{ marginBottom: 16 }}>
-        {KPIS.map((k) => (
-          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
-        ))}
-      </div>
 
       <div className="card">
         <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>

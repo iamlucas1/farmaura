@@ -22,10 +22,15 @@ Observations:
   actually has to hop through intermediate ones, which is what makes the
   bidirectional search a real graph search and not decoration;
 - none of this models real streets (no road network data is loaded anywhere
-  in this system) — edge weights are still straight-line haversine distances,
+  in this module) — edge weights are still straight-line haversine distances,
   same approximation every other distance calculation in this codebase uses;
   what changed is *how many stops a route visits at once* and *what order*,
-  not the accuracy of a single point-to-point measurement;
+  not the accuracy of a single point-to-point measurement. The *visiting
+  order* this module decides is still handed to a real road-routing provider
+  (app/services/routing_client.py, OSRM) by the caller (DeliveryService) to
+  get the actual road-following geometry/distance/duration for that same
+  order — this module never talks to that provider itself, and falls back
+  to this straight-line approximation whenever it is unavailable;
 - nearest-neighbor-over-the-graph is not provably optimal (true TSP is
   NP-hard and not worth the complexity for the handful of stops one store
   dispatches at once) — see

@@ -1,22 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
-  Badge, RowIconBtn, SearchInput, KpiChip, money, confirmAction, showToast,
+  Badge, RowIconBtn, SearchInput, money, confirmAction, showToast,
 } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Cadastro de serviços de saúde (procedimentos e valores) oferecidos pela farmácia. */
-
-const KPIS = [
-  { key: "all", label: "Todos", icon: "activity" },
-  { key: "active", label: "Ativos", icon: "check", tone: "good" },
-  { key: "inactive", label: "Inativos", icon: "pause" },
-];
 
 function HealthServicesScreen({ ctx }) {
   const { healthServicesAdmin, refreshHealthServicesAdmin, addHealthService, updateHealthService, setHealthServiceActive } = ctx;
 
   const [query, setQuery] = useState("");
-  const [kpi, setKpi] = useState("all");
   const [editItem, setEditItem] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
   const [savingId, setSavingId] = useState("");
@@ -24,16 +17,9 @@ function HealthServicesScreen({ ctx }) {
   useEffect(() => { if (refreshHealthServicesAdmin) refreshHealthServicesAdmin(); }, []);
 
   const services = healthServicesAdmin || [];
-  const kpiValues = {
-    all: services.length,
-    active: services.filter((s) => s.active).length,
-    inactive: services.filter((s) => !s.active).length,
-  };
 
   const rows = services
     .filter((s) => {
-      if (kpi === "active" && !s.active) return false;
-      if (kpi === "inactive" && s.active) return false;
       if (query && !((s.name || "") + (s.group || "") + (s.description || "")).toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     })
@@ -85,12 +71,6 @@ function HealthServicesScreen({ ctx }) {
           </>
         )}
       />
-
-      <div className="grid g-3" style={{ marginBottom: 16 }}>
-        {KPIS.map((k) => (
-          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
-        ))}
-      </div>
 
       <div className="card">
         <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>

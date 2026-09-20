@@ -40,6 +40,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.asaas_client import AsaasClient, AsaasError
 from app.services.cashback_service import CashbackService
 from app.services.coupon_service import CouponService
+from app.services.geocoding_client import GeocodingClient
 from app.services.marketplace_projection import build_marketplace_catalog_groups
 from app.services.portal_service import PortalService
 from app.schemas.auth import TokenSubject
@@ -48,6 +49,8 @@ from app.schemas.customers import (
     CartItemResponse,
     CartItemUpsertRequest,
     CustomerAddressResponse,
+    CustomerAddressSearchResponse,
+    CustomerAddressSearchResult,
     CustomerAddressUpsertRequest,
     CustomerAnniversaryClaimRequest,
     CustomerAnniversaryOfferResponse,
@@ -313,6 +316,8 @@ class CustomerService:
             recipient_name=payload.recipient_name.strip(),
             recipient_phone=payload.recipient_phone.strip(),
             is_primary=payload.is_primary,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
         )
         await self.address_repository.add(address)
         await self.session.commit()
@@ -341,6 +346,8 @@ class CustomerService:
         address.recipient_name = payload.recipient_name.strip()
         address.recipient_phone = payload.recipient_phone.strip()
         address.is_primary = payload.is_primary
+        address.latitude = payload.latitude
+        address.longitude = payload.longitude
         await self.address_repository.save(address)
         await self.session.commit()
         await apply_tenant_context(self.session, subject)
@@ -357,6 +364,26 @@ class CustomerService:
         await self.session.commit()
         await apply_tenant_context(self.session, subject)
         return await self.list_addresses(subject)
+
+    async def search_addresses(self, subject: TokenSubject, query: str) -> CustomerAddressSearchResponse:
+        """Return free-text address search matches for the marketplace map picker — lets the
+        customer find their real location instead of only typing it in blind."""
+
+        await self._resolve_customer(subject)
+        matches = await asyncio.to_thread(GeocodingClient().search, query)
+        results = [
+            CustomerAddressSearchResult(
+                label=entry.label,
+                district=entry.district,
+                city=entry.city,
+                state_code=entry.state_code,
+                kind=entry.kind,
+                latitude=entry.latitude,
+                longitude=entry.longitude,
+            )
+            for entry in matches
+        ]
+        return CustomerAddressSearchResponse(results=results)
 
     # ------------------------------------------------------------------------
     # Payment methods
@@ -702,6 +729,8 @@ class CustomerService:
             recipient_name=address.recipient_name,
             recipient_phone=address.recipient_phone,
             is_primary=address.is_primary,
+            latitude=address.latitude,
+            longitude=address.longitude,
         )
 
     def _build_payment_method_response(self, method: CustomerPaymentMethod) -> CustomerPaymentMethodResponse:

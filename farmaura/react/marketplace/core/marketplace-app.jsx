@@ -2145,6 +2145,7 @@ function App() {
             city: details && details.delivery && details.delivery.city || '',
             state_code: details && details.delivery && details.delivery.state || '',
             reference_note: details && details.delivery && details.delivery.reference || '',
+            requested_delivery_time_label: details && details.delivery && details.delivery.requestedTime || '',
             store_id: details && details.delivery && details.delivery.store || '',
             store_name: (() => {
               const store = (portalData.stores || []).find((entry) => entry.id === (details && details.delivery && details.delivery.store || ''));
@@ -2549,6 +2550,8 @@ function App() {
     recipient_name: address.recipientName || '',
     recipient_phone: address.recipientPhone || '',
     is_primary: !!address.primary,
+    latitude: address.lat != null ? address.lat : null,
+    longitude: address.lng != null ? address.lng : null,
   });
   const fromBackendAddress = (entry) => ({
     id: entry.id,
@@ -2564,6 +2567,8 @@ function App() {
     recipientName: entry.recipient_name || '',
     recipientPhone: entry.recipient_phone || '',
     primary: !!entry.is_primary,
+    lat: entry.latitude != null ? Number(entry.latitude) : null,
+    lng: entry.longitude != null ? Number(entry.longitude) : null,
   });
   const createCustomerAddress = async (address) => {
     const response = await authClient.request('/customers/me/addresses', {

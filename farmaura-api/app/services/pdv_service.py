@@ -27,7 +27,7 @@ from app.core.cache import invalidate_cache_scope
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.tenant_context import apply_tenant_context
-from app.domain.enums import UserRole
+from app.domain.enums import OrderStatus, UserRole
 from app.repositories.cashback_repository import CashbackRepository
 from app.repositories.customer_payment_method_repository import CustomerPaymentMethodRepository
 from app.repositories.inventory_lot_repository import InventoryLotRepository
@@ -76,6 +76,9 @@ from app.models.cashback_transaction import CashbackTransaction
 from app.models.cashback_transaction_line import CashbackTransactionLine
 from app.models.customer_cashback_wallet import CustomerCashbackWallet
 from app.models.inventory_movement import InventoryMovement
+from app.models.order import Order
+from app.models.order_fulfillment import OrderFulfillment
+from app.models.order_item import OrderItem
 from app.models.pdv_draft_session import PdvDraftSession
 from app.models.pdv_order import PdvOrder
 from app.models.pdv_order_item import PdvOrderItem
@@ -435,6 +438,7 @@ class PdvService:
             delivery_fee_amount=Decimal(delivery_fields["delivery_fee_amount"]),
             delivery_latitude=Decimal(delivery_fields["delivery_latitude"]),
             delivery_longitude=Decimal(delivery_fields["delivery_longitude"]),
+            requested_delivery_time_label=payload.delivery.requested_delivery_time_label if payload.delivery else "",
         )
         await self.repository.add_order(order)
         for prescription in matched_prescriptions:
@@ -868,7 +872,14 @@ class PdvService:
         )
 
     async def complete_sale(self, order_id: str, payload: PdvSaleCreateRequest) -> PdvSaleResponse:
-        """Finalize one claimed PDV order into a sale snapshot."""
+        """Finalize one claimed PDV order into a sale snapshot.
+
+        A delivery sale ("Entregar em casa") also creates a real marketplace `Order` +
+        `OrderItem`s + `OrderFulfillment` (see `_create_linked_delivery_order`), so it enters
+        the exact same new -> separating -> ready -> dispatched pipeline an online order does —
+        shows up on "Pedidos online", gets route-planned/dispatched like any other delivery.
+        A pickup sale stays PDV-only, same as before this existed.
+        """
 
         store_id = await self._get_store_id()
         order = await self.repository.get_order_by_id(tenant_id=str(self.subject.tenant_id), order_id=order_id, store_id=store_id)
@@ -881,18 +892,61 @@ class PdvService:
             store_id=store_id,
             requested_apply_amount=payload.cashback_applied,
         )
+        sale_code = "NFCE-" + uuid4().hex[:8].upper()
+        sale_total = max(Decimal("0.00"), order.total_amount - cashback_applied)
+
+        payment_status = "paid"
+        payment_terminal_reference = payload.payment_terminal_reference
+        if payload.payment_method == "marketplace_card":
+            # "verificar se foi pago no balcão através do PDV ou com o cartão cadastrado no
+            # marketplace": unlike cash/pix/debit/credit (already physically collected at the
+            # counter, hence instantly "paid"), this branch makes a real Asaas charge against
+            # the customer's saved card token — the same charge_card() call the marketplace
+            # checkout itself makes (see confirm_recurrence for the identical pattern).
+            if not order.customer_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Identifique o cliente para cobrar o cartão cadastrado no marketplace.",
+                )
+            if not payload.payment_method_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Selecione o cartão salvo do cliente.",
+                )
+            customer = await CashbackRepository(self.session).get_customer_by_id(
+                tenant_id=str(self.subject.tenant_id), customer_id=order.customer_id,
+            )
+            if customer is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado.")
+            payment_method_record = await CustomerPaymentMethodRepository(self.session).get_for_customer(
+                customer_id=order.customer_id, payment_method_id=payload.payment_method_id,
+            )
+            if payment_method_record is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cartão salvo não encontrado para este cliente.")
+            payment_service = PaymentService(self.session)
+            charge = await payment_service.charge_card(
+                customer=customer,
+                provider_token=payment_method_record.provider_token,
+                billing_type="CREDIT_CARD",
+                amount=sale_total,
+                external_reference=sale_code,
+                description=f"Venda PDV {sale_code}",
+            )
+            payment_terminal_reference = charge["payment_id"]
+            payment_status = "paid" if payment_service.resolve_order_payment_status(charge["status"]) == "approved" else "pending"
+
         sale = PdvSale(
             id=str(uuid4()),
             tenant_id=str(self.subject.tenant_id),
             store_id=store_id,
-            sale_code="NFCE-" + uuid4().hex[:8].upper(),
+            sale_code=sale_code,
             pdv_order_id=order.id,
             customer_id=order.customer_id,
             cashier_user_id=str(self.subject.user_id),
             pharmacist_user_id=order.pharmacist_user_id,
             payment_method=payload.payment_method,
-            payment_status="paid",
-            payment_terminal_reference=payload.payment_terminal_reference,
+            payment_status=payment_status,
+            payment_terminal_reference=payment_terminal_reference,
             sale_status="completed",
             include_cpf_on_invoice=payload.include_cpf_on_invoice,
             customer_display_name=order.customer_display_name,
@@ -902,7 +956,7 @@ class PdvService:
             discount_amount=order.discount_amount,
             cashback_applied_amount=cashback_applied,
             cashback_earned_amount=cashback_earned,
-            total_amount=max(Decimal("0.00"), order.total_amount - cashback_applied),
+            total_amount=sale_total,
             completed_at_label="agora",
             fulfillment_type=order.fulfillment_type,
             delivery_address_line=order.delivery_address_line,
@@ -956,20 +1010,10 @@ class PdvService:
             )
         order.order_status = "completed"
         order.completed_at_label = "agora"
+        linked_order_code = ""
         if sale.fulfillment_type == "delivery":
-            await self.delivery_pricing.attach_route_stop(
-                tenant_id=str(self.subject.tenant_id),
-                store_id=store_id,
-                now=datetime.now(UTC),
-                recipient_name=sale.customer_display_name,
-                address_line=sale.delivery_address_line,
-                district=sale.delivery_district,
-                postal_code=sale.delivery_postal_code,
-                latitude=sale.delivery_latitude,
-                longitude=sale.delivery_longitude,
-                route_distance_km=Decimal("0.00"),
-                eta_label="",
-                pdv_sale_id=sale.id,
+            linked_order_code = await self._create_linked_delivery_order(
+                pdv_order=order, sale=sale, order_items=order_items, store_id=store_id,
             )
         if order.coupon_code:
             campaign = (await self.session.execute(
@@ -996,7 +1040,122 @@ class PdvService:
             customer=self._serialize_customer(order),
             items=response_items,
             fiscal_document=fiscal_service.serialize_document(fiscal_document),
+            linked_order_code=linked_order_code,
         )
+
+    async def _create_linked_delivery_order(
+        self, *, pdv_order: PdvOrder, sale: PdvSale, order_items: list[PdvOrderItem], store_id: str,
+    ) -> str:
+        """Create the real marketplace Order/OrderItem/OrderFulfillment for a PDV delivery sale,
+        so it enters the same new -> separating -> ready -> dispatched pipeline an online order
+        does (appears on "Pedidos online", becomes eligible for route planning/dispatch).
+
+        Items are pre-marked picked_for_fulfillment=True: they were already physically picked
+        and paid for at the counter, so staff working the board see that step already done while
+        the order still visibly passes through every later stage the marketplace flow has.
+        """
+
+        now = datetime.now(UTC)
+        store = await self.delivery_pricing.store_repository.get_by_id(tenant_id=str(self.subject.tenant_id), store_id=store_id)
+        payment_labels = {
+            "cash": "Dinheiro (balcão)",
+            "pix": "Pix (balcão)",
+            "debit": "Cartão de débito (balcão)",
+            "credit": "Cartão de crédito (balcão)",
+            "marketplace_card": "Cartão cadastrado (marketplace)",
+        }
+        delivery_order = Order(
+            id=str(uuid4()),
+            tenant_id=str(self.subject.tenant_id),
+            store_id=store_id,
+            customer_id=sale.customer_id,
+            selected_address_id=None,
+            selected_payment_method_id=None,
+            originating_pdv_sale_id=sale.id,
+            order_code="FA-" + now.strftime("%H%M%S") + "-" + uuid4().hex[:4].upper(),
+            channel="pdv",
+            status=OrderStatus.NEW.value,
+            fulfillment_type="delivery",
+            priority="normal",
+            payment_method_label=payment_labels.get(sale.payment_method, "Balcão"),
+            payment_status="approved" if sale.payment_status == "paid" else "pending",
+            payment_confirmed_at=now if sale.payment_status == "paid" else None,
+            customer_display_name=sale.customer_display_name,
+            customer_document_snapshot=sale.customer_document_snapshot,
+            customer_phone_snapshot=pdv_order.customer_phone_snapshot,
+            customer_email_snapshot="",
+            requires_prescription_review=False,
+            prescription_status="none",
+            subtotal_amount=sale.subtotal_amount,
+            delivery_fee_amount=sale.delivery_fee_amount,
+            discount_amount=sale.discount_amount,
+            coupon_code=sale.coupon_code,
+            cashback_applied_amount=sale.cashback_applied_amount,
+            cashback_earned_amount=sale.cashback_earned_amount,
+            total_amount=sale.total_amount,
+            placed_at_label=now.strftime("%H:%M"),
+            estimated_ready_at_label="",
+            estimated_delivery_at_label="",
+            completed_at_label="",
+            marketplace_note="",
+            internal_note="Venda criada no PDV (balcão) — " + sale.sale_code,
+        )
+        await self.delivery_pricing.repository.add_order(delivery_order)
+        for item in order_items:
+            await self.delivery_pricing.repository.add_order_item(
+                OrderItem(
+                    id=str(uuid4()),
+                    order_id=delivery_order.id,
+                    inventory_item_id=item.inventory_item_id,
+                    marketplace_listing_id=None,
+                    item_sku="",
+                    item_name_snapshot=item.item_name_snapshot,
+                    brand_name_snapshot=item.brand_name_snapshot,
+                    category_name_snapshot="",
+                    ean_code_snapshot=item.ean_code_snapshot,
+                    storage_location_snapshot=item.storage_location_snapshot,
+                    pick_locations=[],
+                    quantity=item.quantity,
+                    unit_price=item.unit_price,
+                    line_total=item.line_total,
+                    requires_prescription_upload=False,
+                    prescription_status="none",
+                    picked_for_fulfillment=True,
+                    picked_at_label=now.strftime("%H:%M"),
+                )
+            )
+        await self.delivery_pricing.repository.add_fulfillment(
+            OrderFulfillment(
+                id=str(uuid4()),
+                order_id=delivery_order.id,
+                fulfillment_type="delivery",
+                store_label=store.name if store else "Farmácia Farmaura",
+                pickup_code="",
+                recipient_name=pdv_order.customer_display_name,
+                recipient_document_snapshot=pdv_order.customer_document_snapshot,
+                recipient_phone=pdv_order.customer_phone_snapshot,
+                address_line=pdv_order.delivery_address_line,
+                district=pdv_order.delivery_district,
+                city=pdv_order.delivery_city,
+                state_code=pdv_order.delivery_state_code,
+                postal_code=pdv_order.delivery_postal_code,
+                reference_note="",
+                latitude=pdv_order.delivery_latitude,
+                longitude=pdv_order.delivery_longitude,
+                route_distance_km=Decimal("0.00"),
+                route_sequence=0,
+                sla_target_minutes=180,
+                eta_label="",
+                requested_delivery_time_label=pdv_order.requested_delivery_time_label,
+                ready_at_label="",
+                dispatched_at_label="",
+                delivered_at_label="",
+                picked_up_at_label="",
+                driver_name="",
+                driver_phone="",
+            )
+        )
+        return delivery_order.order_code
 
     async def list_sales(self, *, requested_store_id: str = "") -> PdvSaleListResponse:
         """Return finalized PDV sales for the console."""

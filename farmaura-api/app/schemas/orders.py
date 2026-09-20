@@ -49,6 +49,9 @@ class CheckoutDeliveryRequest(StrictModel):
     reference_note: str = Field(default="", max_length=500)
     store_id: str = Field(default="", max_length=64)
     store_name: str = Field(default="", max_length=255)
+    # Free-text, e.g. "Hoje à tarde", "Depois das 19h" — no slot/calendar system behind it, just
+    # carried through to the fulfillment so whoever dispatches it can see the preference.
+    requested_delivery_time_label: str = Field(default="", max_length=80)
 
 
 class DeliveryCoverageResponse(StrictModel):
@@ -241,6 +244,7 @@ class InternalOrderResponse(StrictModel):
     dist: Decimal | None = None
     sla: int | None = None
     eta: str = ""
+    requested_delivery_time: str = ""
     items: list[InternalOrderItemResponse]
     fiscal_document: FiscalDocumentResponse | None = None
 

@@ -22,10 +22,166 @@ import {
   fetchViaCepAddress,
   formatCep,
   normalizeAddress,
+  searchAddressLocations,
 } from "../core/marketplace-address.js";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { initials } from "./account-shared.jsx";
 import { TwoFactorModal } from "../../shared/two-factor-modal.jsx";
+import { loadLeaflet } from "../../shared/leaflet.js";
+
+const MAP_TILE_LAYER_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const MAP_TILE_LAYER_ATTRIBUTION = "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors";
+const MAP_DEFAULT_CENTER = [-15.7797, -47.9297]; // Brasilia — used only until the customer searches/drops a pin
+
+function buildMapPinIcon(leaflet) {
+  /** Create the same teardrop pin icon used on the checkout store map, for visual consistency. */
+
+  return leaflet.divIcon({
+    className: "fa-map-pin-icon",
+    html: "<span style=\"display:grid;place-items:center;width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--fa-vital);box-shadow:0 6px 14px -4px rgba(43,26,26,.5)\"><span style=\"transform:rotate(45deg);color:#fff;font-weight:800;font-size:14px\">•</span></span>",
+    iconSize: [34, 34],
+    iconAnchor: [17, 34],
+  });
+}
+
+function AddressMapPicker({ authClient, lat, lng, onConfirm }) {
+  /** Let the customer search for and/or drag-place their exact delivery location on a real map —
+      additive to the typed address fields above, never a replacement for them. Dragging the pin
+      or clicking the map both call `onConfirm({ lat, lng })` directly (no extra geocoding round
+      trip needed, the map already knows exactly where that point is). */
+
+  const elementRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const onConfirmRef = useRef(onConfirm);
+  onConfirmRef.current = onConfirm;
+  const [mapError, setMapError] = useState("");
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState([]);
+  const [searchError, setSearchError] = useState("");
+  const hasPin = lat != null && lng != null;
+
+  const placeMarker = (leaflet, map, point) => {
+    if (markerRef.current) {
+      markerRef.current.setLatLng(point);
+      return;
+    }
+    markerRef.current = leaflet.marker(point, { icon: buildMapPinIcon(leaflet), draggable: true }).addTo(map);
+    markerRef.current.on("dragend", () => {
+      const position = markerRef.current.getLatLng();
+      onConfirmRef.current({ lat: position.lat, lng: position.lng });
+    });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderMap() {
+      if (!elementRef.current) return;
+      try {
+        const leaflet = await loadLeaflet();
+        if (cancelled || !elementRef.current) return;
+        setMapError("");
+        const center = hasPin ? [lat, lng] : MAP_DEFAULT_CENTER;
+        const map = mapRef.current || leaflet.map(elementRef.current, {
+          center, zoom: hasPin ? 16 : 12, zoomControl: true, scrollWheelZoom: false,
+        });
+        mapRef.current = map;
+        if (!mapRef.current.__faTileLayerAdded) {
+          leaflet.tileLayer(MAP_TILE_LAYER_URL, { attribution: MAP_TILE_LAYER_ATTRIBUTION, maxZoom: 19 }).addTo(map);
+          mapRef.current.__faTileLayerAdded = true;
+          // Placing/moving the pin by clicking the map is the same action as dragging it.
+          map.on("click", (event) => {
+            placeMarker(leaflet, map, event.latlng);
+            onConfirmRef.current({ lat: event.latlng.lat, lng: event.latlng.lng });
+          });
+        }
+        if (hasPin) {
+          placeMarker(leaflet, map, [lat, lng]);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMapError(error && error.message ? error.message : "Nao foi possivel carregar o mapa.");
+        }
+      }
+    }
+
+    void renderMap();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPin, lat, lng]);
+
+  const runSearch = async (event) => {
+    if (event) event.preventDefault();
+    const trimmed = query.trim();
+    if (trimmed.length < 3) {
+      setSearchError("Digite pelo menos 3 letras para buscar.");
+      return;
+    }
+    setSearching(true);
+    setSearchError("");
+    try {
+      const matches = await searchAddressLocations(authClient, trimmed);
+      setResults(matches);
+      if (matches.length === 0) {
+        setSearchError("Nenhum lugar encontrado — tente ser mais especifico.");
+      }
+    } catch (error) {
+      setSearchError(error && error.message ? error.message : "Nao foi possivel buscar no mapa.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickResult = (result) => {
+    if (result.latitude == null || result.longitude == null) return;
+    const point = { lat: Number(result.latitude), lng: Number(result.longitude) };
+    setResults([]);
+    setQuery(result.label || "");
+    if (mapRef.current) {
+      mapRef.current.setView([point.lat, point.lng], 16);
+    }
+    onConfirm(point);
+  };
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <form onSubmit={runSearch} style={{ display: "flex", gap: 8 }}>
+        <input
+          className="fa-input" style={{ flex: 1 }} value={query} onChange={(event) => setQuery(event.target.value)}
+          placeholder="Buscar rua, ponto de referencia ou bairro no mapa..."
+        />
+        <button type="submit" className="fa-btn fa-btn-soft" disabled={searching}>
+          <Icon name="search" size={15} />{searching ? "Buscando..." : "Buscar"}
+        </button>
+      </form>
+      {searchError ? <div style={{ color: "var(--fa-error)", fontSize: 12, marginTop: 6 }}>{searchError}</div> : null}
+      {results.length > 0 && (
+        <div style={{ marginTop: 8, border: "1px solid var(--fa-border)", borderRadius: "var(--fa-r-input)", overflow: "hidden" }}>
+          {results.map((result, index) => (
+            <button
+              key={index} type="button" onClick={() => pickResult(result)}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", background: "var(--fa-surface)", cursor: "pointer", fontSize: 12.5, borderTop: index > 0 ? "1px solid var(--fa-border)" : "none" }}
+            >
+              {result.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div ref={elementRef} style={{ height: 220, borderRadius: "var(--fa-r-card)", overflow: "hidden", marginTop: 10, background: "var(--fa-mist-2)" }} />
+      {mapError ? (
+        <div style={{ color: "var(--fa-error)", fontSize: 12, marginTop: 6 }}>{mapError}</div>
+      ) : (
+        <div style={{ fontSize: 12, marginTop: 6, color: hasPin ? "var(--fa-success)" : "var(--fa-faint)" }}>
+          {hasPin
+            ? "Localizacao confirmada no mapa — arraste o marcador ou clique em outro ponto para ajustar."
+            : "Nenhuma localizacao confirmada ainda — busque, clique no mapa ou arraste o marcador ate o local exato."}
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 function Block({ icon, title, sub, action, children, bodyStyle }) {
@@ -53,7 +209,7 @@ function SavedTag({ show }) {
   return <span className="fa-badge fa-badge-health" style={{ marginLeft: 10 }}><Icon name="check" size={12} stroke={2.6} />Salvo</span>;
 }
 
-function AddressForm({ initial, onSave, onCancel, selfName = "", selfPhone = "" }) {
+function AddressForm({ initial, onSave, onCancel, selfName = "", selfPhone = "", authClient }) {
   /** Render the saved-address form with ViaCEP-assisted autofill.
    *
    * Who receives at this address (recipientName/recipientPhone) is stored on the address
@@ -188,6 +344,13 @@ function AddressForm({ initial, onSave, onCancel, selfName = "", selfPhone = "" 
         <div className="fa-field"><label htmlFor="addr-district">Bairro</label><input id="addr-district" className="fa-input" value={address.district} onChange={(event) => setField('district', event.target.value)} placeholder="Bairro" /></div>
         <div className="fa-field"><label htmlFor="addr-city">Cidade</label><input id="addr-city" className="fa-input" value={address.city} onChange={(event) => setField('city', event.target.value)} placeholder="Cidade" /></div>
         <div className="fa-field"><label htmlFor="addr-state">UF</label><input id="addr-state" className="fa-input" value={address.state} onChange={(event) => setField('state', event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))} placeholder="UF" /></div>
+      </div>
+      <div className="fa-field fa-span2" style={{ marginTop: 4 }}>
+        <label>Localizacao exata no mapa (opcional)</label>
+        <div className="fa-faint" style={{ fontSize: 12, marginBottom: 8 }}>
+          O endereco digitado acima continua sendo o que vale — isso aqui e so para guardar o ponto exato, pra ficar mais facil pro entregador achar.
+        </div>
+        <AddressMapPicker authClient={authClient} lat={address.lat} lng={address.lng} onConfirm={({ lat, lng }) => setAddress((current) => ({ ...current, lat, lng }))} />
       </div>
       {!isValid && (
         <div style={{ color: 'var(--fa-error)', fontSize: 12.5, marginTop: 12 }}>
@@ -816,14 +979,14 @@ function ProfileManage({ ctx, acct }) {
                       {normalizedAddresses.length > 1 && <button className="ghost-btn is-danger" type="button" onClick={() => { setAddrError(''); setRemovingAddr(address); }}>Remover</button>}
                     </div>
                   </div>
-                  {editingAddr === address.id && <AddressForm initial={address} onSave={saveAddr} onCancel={() => setEditingAddr(null)} selfName={profile.name} selfPhone={profile.phone} />}
+                  {editingAddr === address.id && <AddressForm initial={address} onSave={saveAddr} onCancel={() => setEditingAddr(null)} selfName={profile.name} selfPhone={profile.phone} authClient={ctx.authClient} />}
                 </React.Fragment>
               ))}
             </div>
           ) : (
             <p className="prof-addr-empty">Nenhum endereço cadastrado. Adicione um para receber seus pedidos em casa.</p>
           )}
-          {editingAddr === 'new' && <AddressForm initial={createEmptyAddress()} onSave={saveAddr} onCancel={() => setEditingAddr(null)} selfName={profile.name} selfPhone={profile.phone} />}
+          {editingAddr === 'new' && <AddressForm initial={createEmptyAddress()} onSave={saveAddr} onCancel={() => setEditingAddr(null)} selfName={profile.name} selfPhone={profile.phone} authClient={ctx.authClient} />}
         </section>
       </div>
 

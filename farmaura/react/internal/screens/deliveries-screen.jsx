@@ -27,12 +27,13 @@ const DEFAULT_CENTER = { lat: -15.9775167, lng: -48.0383778 };
 const TILE_LAYER_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_LAYER_ATTRIBUTION = "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors";
 
-function buildStopContent(stop, index, driverLabel) {
-  /** Build the popup HTML for a delivery stop. */
+function buildStopContent(stop, titlePrefix, driverLabel) {
+  /** Build the popup HTML for a delivery stop. `titlePrefix` goes right before the customer
+      name — e.g. "1. " for a numbered route stop, or "" for an unplanned one. */
 
   return `
     <div style="min-width:220px">
-      <div style="font-weight:800;font-size:14px;margin-bottom:4px">${index + 1}. ${stop.customer}</div>
+      <div style="font-weight:800;font-size:14px;margin-bottom:4px">${titlePrefix}${stop.customer}</div>
       ${driverLabel ? `<div style="font-size:11.5px;color:var(--accent);font-weight:700;margin-bottom:2px">${driverLabel}</div>` : ""}
       <div style="font-size:12.5px;color:var(--text-secondary)">${stop.address}</div>
       <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${stop.district} · ${stop.cep || "Sem CEP"}</div>
@@ -87,6 +88,19 @@ function createStopIcon(leaflet, index, color) {
   });
 }
 
+function createUnplannedIcon(leaflet) {
+  /** Create the Leaflet icon for a pending order not yet part of any route — a plain neutral
+      dot (no number, no line to it) so the operator can see where it is before planning. */
+
+  return leaflet.divIcon({
+    className: "lf-icon",
+    html: "<div style=\"width:16px;height:16px;border-radius:50%;background:var(--text-muted);border:2px solid #fff;box-shadow:0 2px 6px rgba(43,26,26,.35)\"></div>",
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+    popupAnchor: [0, -10],
+  });
+}
+
 function getCoordinates(item) {
   /** Normalize a record into a valid latitude and longitude pair. */
 
@@ -115,20 +129,27 @@ function routeColor(index) {
 
 /* ---------- map: every active route at once, one color each, plus every driver's live position ---------- */
 
-function RouteMap({ hub, routes, activeStopId, driverLivePositions }) {
-  /** Render the delivery map with one Leaflet marker set and polyline per active route. */
+function RouteMap({ hub, routes, unplannedStops, activeStopId, driverLivePositions }) {
+  /** Render the delivery map with one Leaflet marker set and polyline per active route, plus a
+      plain marker for every pending order that has not entered a route yet. */
 
   const elementRef = useRef(null);
   const mapRef = useRef(null);
   const tileLayerRef = useRef(null);
   const markersRef = useRef({}); // por stop.id
   const routeLinesRef = useRef({}); // por route.id
+  const unplannedMarkersRef = useRef({}); // por order.id
   const driverMarkersRef = useRef({}); // por route.id
+  const lastBoundsSignatureRef = useRef("");
   const [mapError, setMapError] = useState("");
 
   const routesWithStops = useMemo(
     () => routes.map((route) => ({ ...route, validStops: route.stops.filter((stop) => hasRealCoordinates(getCoordinates(stop))) })),
     [routes]
+  );
+  const validUnplannedStops = useMemo(
+    () => (unplannedStops || []).filter((stop) => hasRealCoordinates(getCoordinates(stop))),
+    [unplannedStops]
   );
 
   useEffect(() => {
@@ -151,7 +172,7 @@ function RouteMap({ hub, routes, activeStopId, driverLivePositions }) {
 
         const rawHubCoordinates = getCoordinates(hub);
         const hubCoordinates = hasRealCoordinates(rawHubCoordinates) ? rawHubCoordinates : null;
-        const firstStopCoordinates = getCoordinates(routesWithStops.flatMap((route) => route.validStops)[0]);
+        const firstStopCoordinates = getCoordinates([...routesWithStops.flatMap((route) => route.validStops), ...validUnplannedStops][0]);
         const center = hubCoordinates || firstStopCoordinates || DEFAULT_CENTER;
 
         const map = mapRef.current || leaflet.map(elementRef.current, {
@@ -174,6 +195,8 @@ function RouteMap({ hub, routes, activeStopId, driverLivePositions }) {
         markersRef.current = {};
         Object.values(routeLinesRef.current).forEach((line) => line.remove());
         routeLinesRef.current = {};
+        Object.values(unplannedMarkersRef.current).forEach((marker) => marker.remove());
+        unplannedMarkersRef.current = {};
 
         const bounds = [];
 
@@ -191,16 +214,21 @@ function RouteMap({ hub, routes, activeStopId, driverLivePositions }) {
             const stopCoordinates = getCoordinates(stop);
             const marker = leaflet
               .marker([stopCoordinates.lat, stopCoordinates.lng], { icon: createStopIcon(leaflet, index, route.color), title: stop.customer })
-              .bindPopup(buildStopContent(stop, index, route.driver))
+              .bindPopup(buildStopContent(stop, `${index + 1}. `, route.driver))
               .addTo(map);
             markersRef.current[stop.id] = marker;
             bounds.push([stopCoordinates.lat, stopCoordinates.lng]);
           });
 
-          const routePath = [
-            ...(hubCoordinates ? [[hubCoordinates.lat, hubCoordinates.lng]] : []),
-            ...route.validStops.map((stop) => { const c = getCoordinates(stop); return [c.lat, c.lng]; }),
-          ];
+          // Real road-following geometry from the backend's routing provider (OSRM), when it
+          // succeeded — falls back to a straight line stop-to-stop (haversine order) when it
+          // did not, same as before this existed.
+          const routePath = Array.isArray(route.geometry) && route.geometry.length >= 2
+            ? route.geometry.map((point) => [point.lat, point.lng])
+            : [
+                ...(hubCoordinates ? [[hubCoordinates.lat, hubCoordinates.lng]] : []),
+                ...route.validStops.map((stop) => { const c = getCoordinates(stop); return [c.lat, c.lng]; }),
+              ];
           if (routePath.length >= 2) {
             routeLinesRef.current[route.id] = leaflet
               .polyline(routePath, { color: route.color, weight: 4, opacity: 0.82, lineJoin: "round" })
@@ -208,10 +236,29 @@ function RouteMap({ hub, routes, activeStopId, driverLivePositions }) {
           }
         });
 
-        if (bounds.length > 0) {
-          map.fitBounds(bounds, { padding: [52, 52] });
-        } else {
-          map.setView([center.lat, center.lng], hubCoordinates || firstStopCoordinates ? 12 : 10);
+        validUnplannedStops.forEach((stop) => {
+          const stopCoordinates = getCoordinates(stop);
+          const marker = leaflet
+            .marker([stopCoordinates.lat, stopCoordinates.lng], { icon: createUnplannedIcon(leaflet), title: stop.customer })
+            .bindPopup(buildStopContent(stop, "", "Aguardando planejamento"))
+            .addTo(map);
+          unplannedMarkersRef.current[stop.id] = marker;
+          bounds.push([stopCoordinates.lat, stopCoordinates.lng]);
+        });
+
+        // Only re-fit the view when the actual set of points changed (a stop was added/
+        // removed/moved) — this effect also reruns on every poll-driven re-render upstream
+        // (driver position, order status, etc.) with a brand new `routes`/`unplannedStops`
+        // array each time even when the points themselves are identical, and re-fitting on
+        // every one of those would keep yanking the operator's manual zoom/pan back out.
+        const boundsSignature = bounds.map((point) => point.join(",")).sort().join("|");
+        if (boundsSignature !== lastBoundsSignatureRef.current) {
+          lastBoundsSignatureRef.current = boundsSignature;
+          if (bounds.length > 0) {
+            map.fitBounds(bounds, { padding: [52, 52] });
+          } else {
+            map.setView([center.lat, center.lng], hubCoordinates || firstStopCoordinates ? 12 : 10);
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -225,7 +272,7 @@ function RouteMap({ hub, routes, activeStopId, driverLivePositions }) {
     return () => {
       cancelled = true;
     };
-  }, [hub, routesWithStops]);
+  }, [hub, routesWithStops, validUnplannedStops]);
 
   useEffect(() => {
     /** Focus the active stop marker when the stop list is hovered. */
@@ -315,7 +362,7 @@ function RouteMap({ hub, routes, activeStopId, driverLivePositions }) {
     );
   }
 
-  return <div className="card" style={{ height: 420, overflow: "hidden", padding: 0 }} ref={elementRef}></div>;
+  return <div className="card route-map-card" style={{ height: 420, overflow: "hidden", padding: 0 }} ref={elementRef}></div>;
 }
 
 /* ---------- reusable stop/order row, used both for planned stops and unplanned orders ---------- */
@@ -400,7 +447,10 @@ function RouteCard({ route, color, orders, openOrder, openChatFor, drivers, assi
       )}
       <div style={{ padding: "4px 6px" }}>
         {route.stops.map((stop, index) => {
-          const order = orders.find((o) => o.id === stop.orderId) || null;
+          // stop.orderId is the order's real UUID (DeliveryRouteStop.order_id); order.id is the
+          // order *code* used everywhere else in the internal console (OrderDrawer looks orders
+          // up by code) — order.recordId carries the matching UUID, so match on that, not .id.
+          const order = orders.find((o) => o.recordId === stop.orderId) || null;
           return (
             <DeliveryStopRow
               key={stop.id} index={index + 1} color={color} bordered={index > 0}
@@ -410,7 +460,7 @@ function RouteCard({ route, color, orders, openOrder, openChatFor, drivers, assi
               active={activeStopId === stop.id}
               onMouseEnter={() => setActiveStopId(stop.id)}
               onMouseLeave={() => setActiveStopId(null)}
-              onOpen={() => stop.orderId && openOrder(stop.orderId)}
+              onOpen={order ? () => openOrder(order.id) : undefined}
               onChat={order ? () => openChatFor(order) : undefined}
             />
           );
@@ -468,8 +518,11 @@ function DeliveriesScreen({ ctx }) {
 
   const activeDeliveryOrders = orders.filter((order) => order.fulfillment === "delivery" && isActiveOrderStatus(order.status));
   const readyCount = activeDeliveryOrders.filter((order) => order.status === "ready").length;
+  // stop.orderId is the order's real UUID; order.id is the order *code* (order.recordId carries
+  // the UUID) — matching against order.id here always missed, so an order already on a route
+  // kept showing as "aguardando planejamento" too (and doubled up on the map).
   const plannedOrderIds = new Set(deliveryRoutes.flatMap((route) => route.stops.map((stop) => stop.orderId)));
-  const unplannedOrders = activeDeliveryOrders.filter((order) => !plannedOrderIds.has(order.id));
+  const unplannedOrders = activeDeliveryOrders.filter((order) => !plannedOrderIds.has(order.recordId));
 
   const coloredRoutes = deliveryRoutes.map((route, index) => ({ ...route, color: routeColor(index) }));
 
@@ -482,7 +535,7 @@ function DeliveriesScreen({ ctx }) {
 
       <div className="grid" style={{ gridTemplateColumns: "1.35fr 1fr", gap: 20, alignItems: "start" }}>
         <div>
-          <RouteMap hub={hub} routes={coloredRoutes} activeStopId={activeStopId} driverLivePositions={driverLivePositions} />
+          <RouteMap hub={hub} routes={coloredRoutes} unplannedStops={unplannedOrders} activeStopId={activeStopId} driverLivePositions={driverLivePositions} />
           <button className="btn btn-primary" style={{ marginTop: 16, width: "100%", justifyContent: "center" }} disabled={readyCount === 0} onClick={dispatchRoute}>
             <Icon name="nav" size={18} />Despachar entregas prontas ({readyCount})
           </button>

@@ -10,8 +10,10 @@ Responsibilities:
 
 Observations:
 - this client intentionally covers only the single-address lookup Farmaura needs;
-- lookups are process-local cached and throttled to at most ~1 request per second,
-  matching the public Nominatim usage policy without requiring an API key.
+- lookups are process-local cached and throttled to `geocoding_min_interval_seconds`
+  (default 1.05s, matching nominatim.openstreetmap.org's public usage policy) — a
+  self-hosted instance has no such policy and can run much faster, configure per
+  environment instead of assuming the public instance's pace everywhere.
 """
 
 from __future__ import annotations
@@ -67,7 +69,6 @@ _NEIGHBORHOOD_ADDRESS_TYPES = {"suburb", "neighbourhood", "city_district", "quar
 _CACHE: dict[str, GeocodeResult | None] = {}
 _CACHE_LOCK = threading.Lock()
 _LAST_REQUEST_MONOTONIC = 0.0
-_MIN_REQUEST_INTERVAL_SECONDS = 1.05
 
 
 def _strip_accents(value: str) -> str:
@@ -93,6 +94,7 @@ class GeocodingClient:
         self.base_url = str(settings.geocoding_base_url or "").rstrip("/")
         self.user_agent = str(settings.geocoding_user_agent or "").strip()
         self.timeout_seconds = int(settings.geocoding_timeout_seconds or 10)
+        self.min_interval_seconds = float(settings.geocoding_min_interval_seconds)
 
     def geocode(self, address: str) -> GeocodeResult | None:
         """Return the resolved coordinate for one free-form address, or None when unavailable."""
@@ -174,8 +176,8 @@ class GeocodingClient:
         global _LAST_REQUEST_MONOTONIC
         with _CACHE_LOCK:
             elapsed = time.monotonic() - _LAST_REQUEST_MONOTONIC
-            if elapsed < _MIN_REQUEST_INTERVAL_SECONDS:
-                time.sleep(_MIN_REQUEST_INTERVAL_SECONDS - elapsed)
+            if elapsed < self.min_interval_seconds:
+                time.sleep(self.min_interval_seconds - elapsed)
             _LAST_REQUEST_MONOTONIC = time.monotonic()
         params = {"q": query, "format": "jsonv2", "limit": limit, "countrycodes": "br"}
         if addressdetails:

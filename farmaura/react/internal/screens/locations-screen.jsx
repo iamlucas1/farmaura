@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Icon, PageHead, DataTable, Modal, FormGrid,
-  Badge, RowIconBtn, PillNav, KpiChip, showToast,
+  Badge, RowIconBtn, PillNav, SearchInput, showToast,
 } from "../core/internal-ui.jsx";
 import { LOCATION_TYPE_LABEL, LOCATION_TYPE_OPTIONS } from "./inventory-screen.jsx";
 
@@ -19,13 +19,6 @@ function buildLocationForm(location) {
   };
 }
 
-const STATUS_KPIS = [
-  { key: "all", label: "Todos", icon: "grid" },
-  { key: "active", label: "Ativos", icon: "check", tone: "good" },
-  { key: "inactive", label: "Inativos", icon: "pause" },
-  { key: "controlled", label: "Só controlados", icon: "lock", tone: "warning" },
-];
-
 function LocationsScreen({ ctx }) {
   const { stores: allStores, fetchStoreLocations, createStoreLocation, updateStoreLocation, setStoreLocationActive } = ctx;
   const stores = Array.isArray(allStores) && allStores.length ? allStores : [{ id: "", name: "Loja" }];
@@ -35,7 +28,7 @@ function LocationsScreen({ ctx }) {
   const activeStore = stores.find((s) => s.id === storeId) || stores[0];
 
   const [typeFilter, setTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -54,17 +47,8 @@ function LocationsScreen({ ctx }) {
 
   useEffect(() => { load(storeId, typeFilter); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [storeId, typeFilter]);
 
-  const kpiValues = {
-    all: locations.length,
-    active: locations.filter((l) => l.active).length,
-    inactive: locations.filter((l) => !l.active).length,
-    controlled: locations.filter((l) => l.controlledOnly).length,
-  };
-
   const rows = locations.filter((l) => {
-    if (statusFilter === "active" && !l.active) return false;
-    if (statusFilter === "inactive" && l.active) return false;
-    if (statusFilter === "controlled" && !l.controlledOnly) return false;
+    if (query && !((l.code || "") + (l.name || "") + (l.zone || "") + (l.description || "")).toLowerCase().includes(query.toLowerCase())) return false;
     return true;
   });
 
@@ -110,20 +94,17 @@ function LocationsScreen({ ctx }) {
         )}
       />
 
-      <div className="grid g-4" style={{ marginBottom: 16 }}>
-        {STATUS_KPIS.map((k) => (
-          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={statusFilter === k.key} onClick={() => setStatusFilter(k.key)} />
-        ))}
-      </div>
-
       <div className="card">
         <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>
+          <SearchInput value={query} onChange={setQuery} placeholder="Buscar por código, nome ou zona..." />
+          <span className="card-head-sub">{rows.length} em {activeStore ? activeStore.name : "esta unidade"}</span>
+        </div>
+        <div style={{ padding: "0 18px 14px" }}>
           <PillNav
             options={[{ key: "all", label: `Todos (${locations.length})` }, ...LOCATION_TYPE_OPTIONS.map((o) => ({ key: o.value, label: o.label }))]}
             active={typeFilter}
             onChange={setTypeFilter}
           />
-          <span className="card-head-sub">{rows.length} em {activeStore ? activeStore.name : "esta unidade"}</span>
         </div>
         {loading
           ? <div className="empty"><span className="empty-title">Carregando locais…</span></div>

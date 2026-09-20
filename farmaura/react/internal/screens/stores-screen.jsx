@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Icon, PageHead, DataTable, Modal, FormGrid, SwitchToggle,
-  Badge, RowIconBtn, SearchInput, KpiChip, confirmAction, showToast,
+  Badge, RowIconBtn, SearchInput, confirmAction, showToast,
 } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Cadastro de lojas (filiais) do tenant. */
@@ -9,12 +9,6 @@ import {
 const UF_OPTIONS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
   "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
-];
-
-const KPIS = [
-  { key: "all", label: "Todas", icon: "store" },
-  { key: "active", label: "Ativas", icon: "check", tone: "good" },
-  { key: "inactive", label: "Inativas", icon: "pause" },
 ];
 
 function buildStoreForm(store) {
@@ -36,7 +30,6 @@ function StoresScreen({ ctx }) {
   const { storeDirectory, refreshStoreDirectory, addStoreEntry, updateStoreEntry, setStoreEntryActive } = ctx;
 
   const [query, setQuery] = useState("");
-  const [kpi, setKpi] = useState("all");
   const [editItem, setEditItem] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
   const [savingId, setSavingId] = useState("");
@@ -44,16 +37,9 @@ function StoresScreen({ ctx }) {
   useEffect(() => { if (refreshStoreDirectory) refreshStoreDirectory(); }, []);
 
   const all = storeDirectory || [];
-  const kpiValues = {
-    all: all.length,
-    active: all.filter((s) => s.active).length,
-    inactive: all.filter((s) => !s.active).length,
-  };
 
   const rows = all
     .filter((s) => {
-      if (kpi === "active" && !s.active) return false;
-      if (kpi === "inactive" && s.active) return false;
       if (query && !((s.name || "") + (s.code || "") + (s.city || "") + (s.cnpj || "")).toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     })
@@ -107,12 +93,6 @@ function StoresScreen({ ctx }) {
           </>
         )}
       />
-
-      <div className="grid g-3" style={{ marginBottom: 16 }}>
-        {KPIS.map((k) => (
-          <KpiChip key={k.key} icon={k.icon} label={k.label} value={kpiValues[k.key]} tone={k.tone} active={kpi === k.key} onClick={() => setKpi(k.key)} />
-        ))}
-      </div>
 
       <div className="card">
         <div className="card-head" style={{ flexWrap: "wrap", gap: 12 }}>

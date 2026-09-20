@@ -27,6 +27,7 @@ Observations:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -51,6 +52,7 @@ from app.repositories.store_repository import StoreRepository
 from app.repositories.user_repository import UserRepository
 from app.services.cashback_service import CashbackService
 from app.services.delivery_pricing_service import DeliveryPricingService
+from app.services.routing_client import RoutingClient
 from app.schemas.auth import TokenSubject
 from app.schemas.deliveries import (
     DeliveryDriverListResponse,
@@ -58,6 +60,7 @@ from app.schemas.deliveries import (
     DeliveryLiveResponse,
     DeliveryLiveStopResponse,
     DeliveryLocationPingRequest,
+    DeliveryRouteGeometryPointResponse,
     DeliveryRouteLiveItemResponse,
     DeliveryRouteListResponse,
     DeliveryRouteResponse,
@@ -188,9 +191,12 @@ class DeliveryService:
         Each route's stops are reordered by a real bidirectional-Dijkstra graph search (not the
         order they happened to be inserted in), and its distance/ETA/savings are computed fresh
         from that search every time this is called — not trusted from a stored snapshot, so the
-        numbers always match exactly what the stop list below them shows. Only stops for orders
-        still awaiting dispatch (new/separating/ready) are included; one already delivered,
-        dispatched, or cancelled has nothing left to plan.
+        numbers always match exactly what the stop list below them shows. A stop shows up here
+        from the moment its order is dispatched (that is when a route stop is attached — see
+        DeliveryPricingService.attach_route_stop) until the stop itself is marked delivered or its
+        order is cancelled; the order's own status past dispatch (dispatched vs. delivered) does
+        not hide it — a dispatched-but-not-yet-delivered stop is exactly what a driver still needs
+        to see on their route.
         """
 
         tenant_id = str(self.subject.tenant_id)
@@ -210,7 +216,11 @@ class DeliveryService:
         order_ids = [stop.order_id for stop in all_stops if stop.order_id]
         order_status_by_id: dict[str, tuple[str, str]] = {}
         if order_ids:
-            statement = select(Order.id, Order.status, Order.order_code).where(Order.id.in_(order_ids))
+            # is_active excludes cancelled orders — everything else (including "dispatched") is
+            # still a stop a driver needs to see; see the docstring above.
+            statement = select(Order.id, Order.status, Order.order_code).where(
+                Order.id.in_(order_ids), Order.is_active.is_(True)
+            )
             for order_id, order_status, order_code in (await self.session.execute(statement)).all():
                 order_status_by_id[order_id] = (order_status, order_code)
 
@@ -219,7 +229,7 @@ class DeliveryService:
             if not stop.order_id:
                 continue
             status_and_code = order_status_by_id.get(stop.order_id)
-            if status_and_code is None or status_and_code[0] not in PENDING_ORDER_STATUSES:
+            if status_and_code is None or status_and_code[0] == OrderStatus.DELIVERED.value:
                 continue
             if stop.stop_status == "delivered":
                 continue
@@ -236,12 +246,27 @@ class DeliveryService:
 
             total_km = Decimal("0.00")
             saved_km = Decimal("0.00")
+            geometry: list[DeliveryRouteGeometryPointResponse] = []
+            real_total_minutes: int | None = None
             if has_origin and geocoded:
                 points = [(stop.latitude, stop.longitude) for stop in geocoded]
                 visiting_order, total_km = nearest_neighbor_order_via_graph(origin, points)
                 geocoded = [geocoded[i] for i in visiting_order]
                 naive_km = route_length_km(origin, points)
                 saved_km = max(Decimal("0.00"), naive_km - total_km)
+
+                # Visiting order above comes from the proximity-graph search (no real street
+                # data). This asks OSRM for the real road-following geometry/distance/duration
+                # of that same already-decided order — replaces the haversine estimate with the
+                # real one when it succeeds, and leaves the haversine fallback untouched (still a
+                # straight line on the map) when the routing service is unavailable.
+                road_route = await asyncio.to_thread(
+                    RoutingClient().route, [origin, *[(stop.latitude, stop.longitude) for stop in geocoded]]
+                )
+                if road_route is not None:
+                    total_km = road_route.distance_km
+                    real_total_minutes = int(road_route.duration_minutes)
+                    geometry = [DeliveryRouteGeometryPointResponse(lat=lat, lng=lng) for lat, lng in road_route.coordinates]
 
             ordered_stops = geocoded + ungeocoded
             items.append(
@@ -253,13 +278,14 @@ class DeliveryService:
                     driver_user_id=route.driver_user_id or "",
                     vehicle=route.vehicle_label,
                     total_km=total_km,
-                    total_min=_estimate_minutes(total_km, len(ordered_stops)),
+                    total_min=real_total_minutes if real_total_minutes is not None else _estimate_minutes(total_km, len(ordered_stops)),
                     saved_km=saved_km,
                     provider=route.route_provider,
                     hub_name=route.origin_name or hub_name,
                     hub_address=route.origin_address or hub_address,
                     hub_lat=route.origin_latitude,
                     hub_lng=route.origin_longitude,
+                    geometry=geometry,
                     stops=[
                         DeliveryRouteStopResponse(
                             id=stop.id,

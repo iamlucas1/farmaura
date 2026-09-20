@@ -24,6 +24,7 @@ Quando os dados locais ficaram inconsistentes, ou quando é preciso voltar a um 
 Seed determinístico, sem argumentos de linha de comando nem variáveis de ambiente próprias — todos os dados vêm de constantes fixas no topo do arquivo. Composição atual (impressa no console ao final de `seed_database()`):
 
 - **Tenant/lojas**: 1 tenant (`TENANT_ID`) com 2 lojas — "Farmaura Ponte Alta Norte" (`STORE_ID`, principal) e "Farmaura Águas Claras" (`SECOND_STORE_ID`), cada uma com endereço, CNPJ e coordenadas fixas (usadas pelo mapa real da loja).
+- **Endereços de entrega**: desde 2026-09-20, todo CEP/coordenada de endereço de cliente vem de `REAL_DF_DISTRICT_ADDRESSES` (topo de `scripts/seed.py`) — um CEP real por distrito (Águas Claras, Taguatinga Norte/Sul, Ceilândia, Samambaia, Guará, Ponte Alta Norte, Vicente Pires), confirmado por geocodificação reversa real contra o Nominatim, não mais uma fórmula que gerava CEP plausível mas falso. Ver [[../00_Decisoes/2026-09-20-cep-e-coordenadas-reais-no-seed-para-testar-o-mapa|ADR]].
 - **Data de referência**: `SEED_NOW = 2026-06-11 09:30 UTC` — timestamp base para os registros operacionais gerados (pedidos, movimentações, snapshot "dia de atendimento").
 - **CNAEs** (`CNAE_REGISTRY`): 7 atividades registradas para a farmácia, com uma delas (`47.71-7-01`, comércio varejista de produtos farmacêuticos) marcada `is_subject_to_icms_st=True` — os demais itens do catálogo assumem `False`. Regime tributário simulado: Simples Nacional, Anexo I, DF, faturamento fictício de R$ 1.200.000/12m (Faixa 4), usado pelo Precificador.
 - **Usuários de teste**: todos com a mesma senha, `DEFAULT_PASSWORD = "Farmaura@123"`. Um por papel/loja — admin (`adriana.lima@farmaura.com.br`), farmacêutica líder com 2FA ativo (`helena.rocha@farmaura.com.br`, loja principal), farmacêutica sem 2FA (loja Águas Claras), gerente de loja, 2 caixas, 1 entregador, e 4 clientes de marketplace (`mariana`, `lucas`, `camila` — esta com 2FA —, `bianca`). Segredo TOTP compartilhado para as contas com 2FA: `MFA_SECRET = "JBSWY3DPEHPK3PXP"`.
@@ -45,6 +46,7 @@ Qualquer desenvolvedor trabalhando localmente. Não usar em produção — este 
 
 ## Atualizações
 
+- 2026-09-20: CEPs/coordenadas de endereço de cliente passaram a ser reais (verificados por geocodificação reversa), não mais uma fórmula sintética — ver seção "Parâmetros do seed" acima e [[../00_Decisoes/2026-09-20-cep-e-coordenadas-reais-no-seed-para-testar-o-mapa|ADR]].
 - 2026-08-29 (2): "Marcas em destaque" passou a nascer direto do seed também (`build_home_brands_settings()`) — as três seções de merchandising da home (banner, marcas, ofertas do dia) agora vêm todas prontas de `scripts/seed.py`; `populate_demo_content.py` não é mais necessário pra ver nenhuma delas localmente.
 - 2026-08-29: banner da home (hero) passou a nascer direto do seed determinístico (antes só ofertas do dia vinha assim) — atualizado o passo 4 pra refletir que só "Marcas em destaque" ainda depende de `populate_demo_content.py`. Ver [[../00_Decisoes/2026-08-29-seed-banner-home-hero-e-limite-do-sanitizador|ADR]].
 - 2026-07-19: nota criada.

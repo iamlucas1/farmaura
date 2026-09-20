@@ -86,6 +86,13 @@ class DeliveryRouteStopResponse(StrictModel):
     navigation_url: str = ""
 
 
+class DeliveryRouteGeometryPointResponse(StrictModel):
+    """Represent one point of a route's real road-following polyline."""
+
+    lat: Decimal
+    lng: Decimal
+
+
 class DeliveryRouteResponse(StrictModel):
     """Represent one active delivery route for the admin console — a store can have several of
     these running at once, one per driver currently dispatched."""
@@ -105,6 +112,9 @@ class DeliveryRouteResponse(StrictModel):
     hub_lat: Decimal | None = None
     hub_lng: Decimal | None = None
     stops: list[DeliveryRouteStopResponse] = Field(default_factory=list)
+    # Real road-following polyline from the routing provider; empty when routing was
+    # unavailable, in which case the frontend falls back to straight lines between stops.
+    geometry: list[DeliveryRouteGeometryPointResponse] = Field(default_factory=list)
 
 
 class DeliveryRouteListResponse(StrictModel):

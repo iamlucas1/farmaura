@@ -1014,6 +1014,7 @@ function PharmApp() {
     totalMin: Number(item.total_min || 0),
     savedKm: Number(item.saved_km || 0),
     stops: Array.isArray(item.stops) ? item.stops.map(normalizeDeliveryRouteStop) : [],
+    geometry: Array.isArray(item.geometry) ? item.geometry.map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) })) : [],
   });
   const normalizeDeliveryRoutesPayload = (payload) => ({
     hub: {
@@ -1172,6 +1173,8 @@ function PharmApp() {
     cashback: Number(item.cashback_earned || 0),
     cashApplied: Number(item.cashback_applied || 0),
     discVal: 0,
+    fulfillmentType: item.fulfillment_type || 'pickup',
+    linkedOrderCode: item.linked_order_code || '',
   })) : [];
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -2847,6 +2850,7 @@ function PharmApp() {
     city: delivery.city || '',
     state_code: delivery.stateCode || '',
     reference_note: delivery.referenceNote || '',
+    requested_delivery_time_label: delivery.requestedDeliveryTimeLabel || '',
   } : { fulfillment_type: 'pickup' };
   const _deliveryFromBackend = (delivery) => ({
     fulfillmentType: delivery && delivery.fulfillment_type || 'pickup',
@@ -2859,6 +2863,7 @@ function PharmApp() {
     city: delivery && delivery.city || '',
     stateCode: delivery && delivery.state_code || '',
     referenceNote: delivery && delivery.reference_note || '',
+    requestedDeliveryTimeLabel: delivery && delivery.requested_delivery_time_label || '',
   });
   const _customerToBackend = (customer) => customer ? {
     id: customer.id || null,
@@ -3017,6 +3022,7 @@ function PharmApp() {
       method: 'POST',
       body: JSON.stringify({
         payment_method: sale.pay || 'pix',
+        payment_method_id: sale.paymentMethodId || '',
         include_cpf_on_invoice: sale.cpfNota !== false,
         cashback_applied: Number(sale.cashApplied || 0),
         payment_terminal_reference: sale.terminalReference || '',
@@ -3150,11 +3156,6 @@ function PharmApp() {
     setPdvSales(readInternalCache(user, 'pdv_sales', []));
   }, [user && user.id]);
 
-  useEffect(() => {
-    if (customers.length && !customers.find((item) => item.name === crmFocus)) {
-      setCrmFocus(customers[0].name);
-    }
-  }, [customers, crmFocus]);
   useEffect(() => {
     if (!user) {
       return;
@@ -3384,7 +3385,7 @@ function PharmApp() {
     async function pollBoardChanges() {
       try {
         const query = ordersRevision ? '?since=' + encodeURIComponent(ordersRevision) : '';
-        const response = await authClient.request('/orders/internal-board/changes' + query, { method: 'GET' });
+        const response = await authClient.request(withStoreParam('/orders/internal-board/changes' + query), { method: 'GET' });
         if (!active || !response) {
           return;
         }
@@ -3527,6 +3528,22 @@ function PharmApp() {
       return Array.isArray(response.items) ? response.items.map((item) => ({ id: item.id, name: item.name || '' })) : [];
     } catch (error) {
       return [];
+    }
+  };
+
+  // Rebusca as rotas ativas da loja — chamado depois de despachar um pedido de entrega, já que o
+  // backend anexa a parada numa rota automaticamente nesse momento (ver
+  // DeliveryPricingService.attach_route_stop) e o mapa precisa refletir isso sem esperar o
+  // próximo bootstrap/ação manual.
+  const refreshDeliveryRoutes = async () => {
+    if (isFilePreview || !user) return;
+    try {
+      const response = await authClient.request(withStoreParam('/deliveries/routes'), { method: 'GET' });
+      const normalized = normalizeDeliveryRoutesPayload(response);
+      setDeliveryRoutes(normalized.routes);
+      if (normalized.hub.name || normalized.hub.addr || normalized.hub.lat != null) setHub(normalized.hub);
+    } catch (error) {
+      // silencioso — próxima ação/poll tenta de novo; não há nada de crítico para o usuário aqui
     }
   };
 
@@ -3812,13 +3829,18 @@ function PharmApp() {
     const next = { new: 'separating', separating: 'ready', ready: 'dispatched' }[current.status] || current.status;
     if (!isFilePreview && user && current.recordId) {
       try {
-        const response = await authClient.request('/orders/' + current.recordId + '/advance', {
+        const response = await authClient.request(withStoreParam('/orders/' + current.recordId + '/advance'), {
           method: 'POST',
           body: JSON.stringify({ next_status: next }),
         });
         const normalized = normalizeOrdersPayload({ items: [response] })[0];
         if (normalized) {
           setOrders((prev) => prev.map((item) => item.recordId === normalized.recordId ? normalized : item));
+        }
+        if (next === 'dispatched' && current.fulfillment === 'delivery') {
+          // o backend acabou de anexar essa entrega numa rota (ver attach_route_stop) — busca as
+          // rotas de novo para o mapa refletir isso sem esperar outra ação/reload.
+          void refreshDeliveryRoutes();
         }
       } catch (error) {
         if (!silent) showToast(error && error.message ? error.message : 'Nao foi possivel avancar o pedido', 'warn');
@@ -3847,7 +3869,7 @@ function PharmApp() {
     }
     if (!isFilePreview && user) {
       try {
-        const response = await authClient.request('/orders/' + orderRecordId + '/items/' + itemId + '/location', {
+        const response = await authClient.request(withStoreParam('/orders/' + orderRecordId + '/items/' + itemId + '/location'), {
           method: 'POST',
           body: JSON.stringify({ locations: entries.map((entry) => ({ location_code: entry.locationCode, quantity: entry.quantity })) }),
         });
@@ -3879,7 +3901,7 @@ function PharmApp() {
     }
     if (!isFilePreview && user) {
       try {
-        const response = await authClient.request('/orders/' + orderRecordId + '/items/' + itemId + '/pick', {
+        const response = await authClient.request(withStoreParam('/orders/' + orderRecordId + '/items/' + itemId + '/pick'), {
           method: 'POST',
           body: JSON.stringify({ picked }),
         });
@@ -3906,7 +3928,7 @@ function PharmApp() {
     }
     if (!isFilePreview && user && current.recordId) {
       try {
-        const response = await authClient.request('/orders/' + current.recordId + '/pickup/confirm', {
+        const response = await authClient.request(withStoreParam('/orders/' + current.recordId + '/pickup/confirm'), {
           method: 'POST',
           body: JSON.stringify({ code }),
         });
@@ -3931,7 +3953,7 @@ function PharmApp() {
     }
     if (!isFilePreview && user) {
       try {
-        const response = await authClient.request('/orders/' + orderRecordId + '/shipping/dispatch', { method: 'POST' });
+        const response = await authClient.request(withStoreParam('/orders/' + orderRecordId + '/shipping/dispatch'), { method: 'POST' });
         const normalized = normalizeOrdersPayload({ items: [response] })[0];
         if (normalized) {
           setOrders((prev) => prev.map((item) => item.recordId === normalized.recordId ? normalized : item));

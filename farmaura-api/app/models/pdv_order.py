@@ -72,6 +72,7 @@ class PdvOrder(Base, UuidModel, TimestampedModel):
     delivery_fee_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     delivery_latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), default=Decimal("0.0000000"), nullable=False)
     delivery_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), default=Decimal("0.0000000"), nullable=False)
+    requested_delivery_time_label: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     is_reservation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reservation_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     requested_by_store_id: Mapped[str | None] = mapped_column(ForeignKey("stores.id", ondelete="SET NULL"), nullable=True)

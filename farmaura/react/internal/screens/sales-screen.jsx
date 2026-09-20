@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { brl } from "../../marketplace/core/marketplace-components.jsx";
-import { OC_STATUS, customerOf } from "../core/internal-shell.jsx";
+import { customerOf } from "../core/internal-shell.jsx";
 import { QrPlaceholder, SendNotaModal } from "./point-of-sale-screen.jsx";
-import { Icon, PageHead, Badge, StatCard, SearchInput, EmptyState, PillNav, SwitchToggle, Modal } from "../core/internal-ui.jsx";
+import { Icon, PageHead, Badge, StatCard, SearchInput, PillNav, SwitchToggle, Modal, DataTable, RowIconBtn } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Vendas & Notas: registro unificado das vendas PAGAS
    (online + balcão/PDV) com emissão e consulta da nota fiscal (NFC-e).
@@ -81,35 +81,43 @@ function SalesScreen({ ctx }) {
     setModalSale(sale);
   };
 
-  const sitOf = (s) => s.source === "pdv"
-    ? { label: "Venda concluída", tone: "good", icon: "check" }
-    : (OC_STATUS[s.status] ? { label: OC_STATUS[s.status].label, tone: "neutral", icon: OC_STATUS[s.status].icon } : { label: "—", tone: "neutral", icon: "clock" });
+  const columns = [
+    { key: "id", label: "Venda", mono: true },
+    { key: "order", label: "Pedido", render: (s) => s.source === "online" ? <span className="mono">{s.id}</span> : <span className="cell-muted">—</span> },
+    { key: "channelLabel", label: "Canal", render: (s) => <Badge tone={s.source === "pdv" ? "accent" : "neutral"}><Icon name={s.source === "pdv" ? "cash" : "bag"} size={10} />{s.source === "pdv" ? "Balcão" : s.channelLabel}</Badge> },
+    { key: "customerName", label: "Cliente" },
+    { key: "total", label: "Valor", render: (s) => <span className="cell-strong">{brl(s.total)}</span> },
+    { key: "payLabel", label: "Pagamento" },
+    { key: "paid", label: "Pago", render: (s) => s.paid ? <Badge tone="good">Pago</Badge> : <Badge tone="warning">Pendente</Badge> },
+    { key: "nfce", label: "Nota fiscal", render: (s) => s.nfce ? <Badge tone="good">Emitida</Badge> : <Badge tone="warning">Pendente</Badge> },
+    { key: "when", label: "Hora", mono: true },
+  ];
 
   return (
     <div className="route-fade">
       <PageHead
-        eyebrow="Clientes & vendas" title="Vendas & Notas" desc="Vendas pagas — online e balcão — com emissão e consulta de nota fiscal"
-        actions={<SearchInput value={q} onChange={setQ} placeholder="Buscar venda, cliente ou nº da nota" />}
+        eyebrow="Clientes & vendas" title="Vendas & Notas" desc="Todas as vendas — online e balcão — com status fiscal e de pagamento."
+        actions={(
+          <PillNav
+            options={[
+              { key: "all", label: `Todas (${counts.all})` },
+              { key: "online", label: `Online (${counts.online})` },
+              { key: "pdv", label: `Balcão (${counts.pdv})` },
+            ]}
+            active={chan} onChange={setChan}
+          />
+        )}
       />
 
       {/* Métricas — somente vendas pagas */}
-      <div className="grid g-4" style={{ marginBottom: 20 }}>
-        <StatCard icon="money" label="Faturamento pago" value={brl(faturamento)} />
-        <StatCard icon="check" label="Vendas pagas" value={paidAll.length} tone="good" />
-        <StatCard icon="receipt" label="Notas emitidas" value={emitidas} />
-        <StatCard icon="printer" label="Notas a emitir" value={aEmitir} tone="warning" />
+      <div className="grid g-3" style={{ marginBottom: 16 }}>
+        <StatCard icon="money" label="Faturamento (pago)" value={brl(faturamento)} tone="good" />
+        <StatCard icon="check" label="Notas emitidas" value={paidAll.length ? Math.round((emitidas / paidAll.length) * 100) + "%" : "—"} tone="accent" />
+        <StatCard icon="card" label="Pendentes de pagamento" value={pendentes} tone="critical" />
       </div>
 
-      {/* Filtros por canal + alternar pendentes */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>
-        <PillNav
-          options={[
-            { key: "all", label: `Todas (${counts.all})` },
-            { key: "online", label: `Online (${counts.online})` },
-            { key: "pdv", label: `Balcão (${counts.pdv})` },
-          ]}
-          active={chan} onChange={setChan}
-        />
+        <SearchInput value={q} onChange={setQ} placeholder="Buscar venda, cliente ou nº da nota" />
         <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
           <SwitchToggle on={showPending} onChange={setShowPending} />
           Mostrar aguardando pagamento{pendentes > 0 ? " (" + pendentes + ")" : ""}
@@ -117,41 +125,18 @@ function SalesScreen({ ctx }) {
         <button className="btn btn-secondary btn-sm"><Icon name="download" size={15} />Exportar</button>
       </div>
 
-      {/* Tabela de vendas */}
-      <div className="card" style={{ overflow: "hidden" }}>
-        {list.length === 0 ? (
-          <EmptyState icon="receipt" title="Nenhuma venda neste filtro" desc="Só aparecem vendas pagas — balcão concluído e online com pagamento confirmado." />
-        ) : list.map((s, i) => {
-          const sit = sitOf(s);
-          return (
-            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderTop: i ? "1px solid var(--border)" : "none" }}>
-              <span className="stat-icon" style={{ width: 40, height: 40, flex: "none" }}><Icon name={s.source === "pdv" ? "cash" : (s.fulfillment === "pickup" ? "store" : "truck")} size={18} /></span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                  <span style={{ flex: "0 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.customerName}</span>
-                  <Badge tone={s.source === "pdv" ? "accent" : "neutral"}><Icon name={s.source === "pdv" ? "cash" : "bag"} size={10} />{s.source === "pdv" ? "Balcão" : s.channelLabel}</Badge>
-                </div>
-                <div className="cell-muted" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {s.id} · {s.count} {s.count === 1 ? "item" : "itens"} · {s.payLabel} · {s.when}
-                </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", flex: "none" }}>
-                {s.paid ? <Badge tone="good"><Icon name="check" size={11} />Pago · {s.payLabel}</Badge> : <Badge tone="warning"><Icon name="clock" size={11} />Aguardando pagamento</Badge>}
-                <Badge tone={sit.tone}><Icon name={sit.icon} size={10} />{sit.label}</Badge>
-              </div>
-              <div style={{ width: 96, flex: "none", textAlign: "right", fontWeight: 800, fontSize: 15 }}>{brl(s.total)}</div>
-              <div style={{ width: 132, flex: "none", display: "flex", justifyContent: "flex-end" }}>
-                {!s.paid ? (
-                  <Badge tone="neutral">Indisponível</Badge>
-                ) : s.nfce ? (
-                  <button className="btn btn-secondary btn-sm" onClick={() => setModalSale(s)}><Icon name="receipt" size={14} />Ver nota</button>
-                ) : (
-                  <button className="btn btn-secondary btn-sm" onClick={() => genNota(s)}><Icon name="clock" size={14} />Em processamento</button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="card">
+        <DataTable
+          columns={columns}
+          rows={list}
+          rowKey="key"
+          empty="Nenhuma venda neste filtro"
+          renderActions={(s) => (
+            !s.paid ? <span className="cell-muted">—</span>
+              : s.nfce ? <RowIconBtn name="printer" onClick={() => setModalSale(s)} label="Ver nota" />
+              : <button className="btn btn-secondary btn-sm" onClick={() => genNota(s)}><Icon name="clock" size={14} />Em processamento</button>
+          )}
+        />
       </div>
 
       <div className="cell-muted" style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 7 }}>

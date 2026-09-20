@@ -463,8 +463,10 @@ class OrderService:
             shipping_service_id=shipping_quote.service_id if order.fulfillment_type == 'shipping' else '',
         )
         await self.repository.add_fulfillment(fulfillment)
-        if order.fulfillment_type == 'delivery':
-            await self._attach_delivery_route_stop(order=order, fulfillment=fulfillment, subject=subject, store_id=store_id, now=now)
+        # No route stop attached here anymore — a delivery order only gets one once it is
+        # actually dispatched (advance_internal_order), not the moment it is placed, so it lands
+        # on the geographically closest driver route active *at dispatch time* instead of
+        # whichever route happened to exist when the order was first created.
         if order.requires_prescription_review:
             await self._create_prescription_snapshot(order=order, customer=customer, payload=payload, order_items=created_items)
         # Cashback: redeem wallet balance (capped server-side at a % of the order total) and
@@ -528,11 +530,11 @@ class OrderService:
         store_id = await self._get_store_id(subject, requested_store_id=requested_store_id, allow_all_stores=True)
         return await self._build_internal_board_response(tenant_id=str(subject.tenant_id), store_id=store_id)
 
-    async def get_internal_board_changes(self, *, since: str) -> InternalOrderBoardChangeResponse:
+    async def get_internal_board_changes(self, *, since: str, requested_store_id: str = "") -> InternalOrderBoardChangeResponse:
         """Return a webhook-like sync response for board refreshes."""
 
         subject = self._require_subject()
-        store_id = await self._get_store_id(subject)
+        store_id = await self._get_store_id(subject, requested_store_id=requested_store_id, allow_all_stores=True)
         revision_dt = await self.repository.get_latest_board_revision(tenant_id=str(subject.tenant_id), store_id=store_id)
         revision = self._format_revision(revision_dt)
         since_dt = self._parse_revision(since)
@@ -547,11 +549,12 @@ class OrderService:
         order_id: str,
         item_id: str,
         payload: OrderItemLocationUpdateRequest,
+        requested_store_id: str = "",
     ) -> InternalOrderResponse:
         """Persist the selected stock address for one picked order item."""
 
         subject = self._require_subject()
-        store_id = await self._get_store_id(subject)
+        store_id = await self._get_store_id(subject, requested_store_id=requested_store_id)
         order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, store_id=store_id)
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
@@ -593,11 +596,12 @@ class OrderService:
         order_id: str,
         item_id: str,
         payload: OrderItemPickRequest,
+        requested_store_id: str = "",
     ) -> InternalOrderResponse:
         """Persist the separation-checklist state for one picked order item."""
 
         subject = self._require_subject()
-        store_id = await self._get_store_id(subject)
+        store_id = await self._get_store_id(subject, requested_store_id=requested_store_id)
         order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, store_id=store_id)
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
@@ -611,11 +615,13 @@ class OrderService:
         await self.session.commit()
         return await self._load_internal_order(order)
 
-    async def confirm_internal_pickup(self, *, order_id: str, payload: PickupCodeConfirmRequest) -> InternalOrderResponse:
+    async def confirm_internal_pickup(
+        self, *, order_id: str, payload: PickupCodeConfirmRequest, requested_store_id: str = ""
+    ) -> InternalOrderResponse:
         """Validate the pickup code informed by the customer and finish the order."""
 
         subject = self._require_subject()
-        store_id = await self._get_store_id(subject)
+        store_id = await self._get_store_id(subject, requested_store_id=requested_store_id)
         order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, store_id=store_id)
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
@@ -680,11 +686,11 @@ class OrderService:
         await self.session.commit()
         return await self._load_internal_order(order)
 
-    async def dispatch_shipping_order(self, *, order_id: str) -> InternalOrderResponse:
+    async def dispatch_shipping_order(self, *, order_id: str, requested_store_id: str = "") -> InternalOrderResponse:
         """Buy the real carrier shipment, generate its label, and mark the order dispatched."""
 
         subject = self._require_subject()
-        store_id = await self._get_store_id(subject)
+        store_id = await self._get_store_id(subject, requested_store_id=requested_store_id)
         order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, store_id=store_id)
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
@@ -718,11 +724,13 @@ class OrderService:
         await self.session.commit()
         return await self._load_internal_order(order)
 
-    async def advance_internal_order(self, order_id: str, payload: OrderAdvanceRequest) -> InternalOrderResponse:
+    async def advance_internal_order(
+        self, order_id: str, payload: OrderAdvanceRequest, *, requested_store_id: str = ""
+    ) -> InternalOrderResponse:
         """Advance one order through the pharmacist operational workflow."""
 
         subject = self._require_subject()
-        store_id = await self._get_store_id(subject)
+        store_id = await self._get_store_id(subject, requested_store_id=requested_store_id)
         order = await self.repository.get_by_id(tenant_id=str(subject.tenant_id), order_id=order_id, store_id=store_id)
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
@@ -760,6 +768,15 @@ class OrderService:
             order.completed_at_label = order.completed_at_label or 'Despachado'
             if fulfillment is not None:
                 fulfillment.dispatched_at_label = now.strftime('%H:%M')
+            if order.fulfillment_type == 'delivery' and fulfillment is not None:
+                # Only now — actually leaving the store with a driver — does a route stop make
+                # sense; attaching it at order placement (the old behavior) put it on a route
+                # before the pharmacist had even started separating it, and always on whichever
+                # route happened to be "the" active one, ignoring proximity to other drivers
+                # already out. attach_route_stop() picks the geographically closest currently
+                # active route with a driver, so nearby deliveries consolidate under the same
+                # motoboy instead of spreading across drivers.
+                await self._attach_delivery_route_stop(order=order, fulfillment=fulfillment, subject=subject, store_id=store_id, now=now)
         await self.session.commit()
         return await self._load_internal_order(order)
 
@@ -880,6 +897,7 @@ class OrderService:
             dist=distance,
             sla=fulfillment.sla_target_minutes if fulfillment else None,
             eta=(fulfillment.eta_label if fulfillment else '') or order.estimated_delivery_at_label or order.estimated_ready_at_label,
+            requested_delivery_time=fulfillment.requested_delivery_time_label if fulfillment else '',
             items=items,
             fiscal_document=fiscal_document,
         )
@@ -1277,6 +1295,7 @@ class OrderService:
             route_sequence=0,
             sla_target_minutes=sla_target_minutes,
             eta_label=eta_label,
+            requested_delivery_time_label=payload.delivery.requested_delivery_time_label,
             ready_at_label='',
             dispatched_at_label='',
             delivered_at_label='',

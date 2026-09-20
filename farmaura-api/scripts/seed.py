@@ -116,6 +116,35 @@ SECOND_STORE_LONGITUDE = Decimal("-48.0261600")
 DEFAULT_PASSWORD = "Farmaura@123"
 MFA_SECRET = "JBSWY3DPEHPK3PXP"
 
+# Real, Nominatim-verified (CEP, coordinate, road) anchor per district already referenced
+# throughout this seed (customer addresses, delivery routes, route-stop district labels) — every
+# entry below was reverse-geocoded against the real point (not guessed), so a CEP and its
+# coordinate always resolve to the same real place. Replaces two earlier generators that produced
+# plausible-looking but fake CEPs (a formula, `7{...}-{...}`) paired with coordinates that were
+# just a small offset from the store — so the map/OSRM routing had nothing real to work with. See
+# dev-obsidian/farmaura/00_Decisoes/2026-09-20-cep-e-coordenadas-reais-no-seed-para-testar-o-mapa.md.
+REAL_DF_DISTRICT_ADDRESSES: dict[str, tuple[str, Decimal, Decimal, str]] = {
+    "Aguas Claras": ("71916-500", Decimal("-15.8378000"), Decimal("-48.0261000"), "Avenida Pau Brasil"),
+    "Taguatinga Norte": ("72130-005", Decimal("-15.7908000"), Decimal("-48.0567000"), "QNM 15"),
+    "Guara": ("71060-631", Decimal("-15.8300000"), Decimal("-47.9850000"), "QE 24 Conjunto F"),
+    "Ceilandia": ("72210-510", Decimal("-15.8150000"), Decimal("-48.1067000"), "EQNM 2/4"),
+    "Samambaia": ("72318-597", Decimal("-15.8700000"), Decimal("-48.0900000"), "Avenida Primeira Norte"),
+    "Ponte Alta Norte": ("72649-703", Decimal("-15.9529529"), Decimal("-48.0329347"), "Ponte Alta Norte Chacara 5"),
+    "Vicente Pires": ("72006-203", Decimal("-15.8135709"), Decimal("-48.0156045"), "SHVP Rua 4"),
+    "Taguatinga Sul": ("72015-530", Decimal("-15.8391000"), Decimal("-48.0575000"), "QSB 7"),
+}
+
+
+def real_district_point(district: str, jitter_index: int = 0) -> tuple[str, Decimal, Decimal]:
+    """Return (postal_code, latitude, longitude) for one real DF district, nudged by a small
+    deterministic offset (~0-250m) so several customers/orders in the same district don't stack
+    on the exact same map pixel — still lands inside the same real postal-code neighborhood."""
+
+    postal_code, latitude, longitude, _road = REAL_DF_DISTRICT_ADDRESSES[district]
+    lat_jitter = Decimal(str(round(0.0008 * ((jitter_index % 7) - 3), 7)))
+    lng_jitter = Decimal(str(round(0.0008 * ((jitter_index % 5) - 2), 7)))
+    return postal_code, latitude + lat_jitter, longitude + lng_jitter
+
 # Anchors the whole "day of operations" (orders, PDV sales, stock movements, delivery routes,
 # etc.) to real today at a fixed time-of-day — not a hardcoded past date. `_build_chart_seed`
 # (app/services/portal_service.py) queries orders/sales by real wall-clock day boundaries, so a
@@ -2259,7 +2288,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
             id=seed_uuid("address-mariana-home"),
             customer_id=customers["mariana"].id,
             label="Casa",
-            postal_code="72426-070",
+            postal_code=REAL_DF_DISTRICT_ADDRESSES["Ponte Alta Norte"][0],
             street_line="Rua 25 Sul, Bloco B, Apto 1402",
             district="Ponte Alta Norte",
             city="Brasilia",
@@ -2275,7 +2304,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
             id=seed_uuid("address-lucas-home"),
             customer_id=customers["lucas"].id,
             label="Casa",
-            postal_code="71945-610",
+            postal_code=REAL_DF_DISTRICT_ADDRESSES["Taguatinga Sul"][0],
             street_line="QSE 11, Casa 22",
             district="Taguatinga Sul",
             city="Brasilia",
@@ -2291,7 +2320,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
             id=seed_uuid("address-camila-work"),
             customer_id=customers["camila"].id,
             label="Trabalho",
-            postal_code="71910-540",
+            postal_code=REAL_DF_DISTRICT_ADDRESSES["Ponte Alta Norte"][0],
             street_line="Avenida Castanheiras, Sala 304",
             district="Ponte Alta Norte",
             city="Brasilia",
@@ -2307,7 +2336,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
             id=seed_uuid("address-bianca-home"),
             customer_id=customers["bianca"].id,
             label="Casa",
-            postal_code="71015-120",
+            postal_code=REAL_DF_DISTRICT_ADDRESSES["Guara"][0],
             street_line="QE 24, Conjunto H, Casa 09",
             district="Guara II",
             city="Brasilia",
@@ -2323,7 +2352,7 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
             id=seed_uuid("address-rafael-home"),
             customer_id=customers["rafael"].id,
             label="Casa",
-            postal_code="72006-600",
+            postal_code=REAL_DF_DISTRICT_ADDRESSES["Vicente Pires"][0],
             street_line="Rua 08, Chacara 47, Casa 4",
             district="Vicente Pires",
             city="Brasilia",
@@ -2438,14 +2467,14 @@ def build_customer_assets(customers: dict[str, Customer]) -> dict[str, list[obje
     bulk_card_brands = ["Visa", "Mastercard", "Elo", "Hipercard"]
     for row_index, key in enumerate(sorted(k for k in customers if k.startswith("bulk_customer_"))):
         customer = customers[key]
-        postal_code = f"7{1000 + (row_index * 37) % 9000:04d}-{100 + row_index % 900:03d}"
+        postal_code, _lat, _lng, real_road = REAL_DF_DISTRICT_ADDRESSES[customer.district_label]
         addresses.append(
             CustomerAddress(
                 id=seed_uuid("address-" + key),
                 customer_id=customer.id,
                 label="Casa",
                 postal_code=postal_code,
-                street_line=f"Rua {10 + row_index}, Quadra {1 + row_index % 30}, Casa {100 + row_index}",
+                street_line=f"{real_road}, Casa {100 + row_index}",
                 district=customer.district_label,
                 city="Brasilia",
                 state_code="DF",
@@ -3873,12 +3902,14 @@ def build_orders(
     listings = catalog["listings"]
     inventory = catalog["inventory"]
 
+    # Real coordinates (matching each customer's CustomerAddress.postal_code above) instead of
+    # points picked to merely "look right" near the store — see REAL_DF_DISTRICT_ADDRESSES.
     delivery_points = {
-        "mariana": coords("-15.9723010", "-48.0311000"),
-        "lucas": coords("-15.9819500", "-48.0445000"),
-        "camila": coords("-15.9698000", "-48.0482000"),
-        "bianca": coords("-15.9862000", "-48.0297000"),
-        "rafael": coords("-15.9748500", "-48.0501000"),
+        "mariana": real_district_point("Ponte Alta Norte", 1)[1:],
+        "lucas": real_district_point("Taguatinga Sul", 0)[1:],
+        "camila": real_district_point("Ponte Alta Norte", 4)[1:],
+        "bianca": real_district_point("Guara", 0)[1:],
+        "rafael": real_district_point("Vicente Pires", 0)[1:],
     }
 
     orders = {
@@ -5393,8 +5424,16 @@ def build_daily_operations(
                 picked_at_label=label(placed_at + timedelta(minutes=18)) if order_status in ("ready", "dispatched", "delivered") else "",
             ))
 
-        recipient_lat = Decimal(str(store["latitude"])) + Decimal(str(round(0.004 * ((i % 9) - 4), 4)))
-        recipient_lng = Decimal(str(store["longitude"])) + Decimal(str(round(0.004 * ((i % 7) - 3), 4)))
+        # Pickup has no real destination — the customer collects at the store, so its own real
+        # coordinate is correct. A delivery's pin comes from the same real district anchor its
+        # address/CEP above claims (not an arbitrary offset from the store that ignored district
+        # entirely) — a small per-order jitter keeps several deliveries in the same district from
+        # stacking on the exact same map point.
+        if fulfillment_type == "delivery" and address is not None and address.district in REAL_DF_DISTRICT_ADDRESSES:
+            _postal, recipient_lat, recipient_lng = real_district_point(address.district, i)
+        else:
+            recipient_lat = store["latitude"]
+            recipient_lng = store["longitude"]
         fulfillment = OrderFulfillment(
             id=seed_uuid("bulk-fulfillment-" + str(i)),
             order_id=order_id,

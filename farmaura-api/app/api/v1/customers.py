@@ -13,7 +13,7 @@ Observations:
 - richer customer endpoints can expand from this baseline;
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_subject_session, require_marketplace_subject
@@ -24,6 +24,7 @@ from app.schemas.customers import (
     CartItemResponse,
     CartItemUpsertRequest,
     CustomerAddressResponse,
+    CustomerAddressSearchResponse,
     CustomerAddressUpsertRequest,
     CustomerAnniversaryClaimRequest,
     CustomerAnniversaryOfferResponse,
@@ -144,6 +145,18 @@ async def list_customer_addresses(
 
     service = CustomerService(session)
     return await service.list_addresses(subject)
+
+
+@router.get("/me/addresses/search", response_model=CustomerAddressSearchResponse)
+async def search_customer_addresses(
+    query: str = Query(min_length=3, max_length=200),
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> CustomerAddressSearchResponse:
+    """Return free-text address matches for the marketplace map picker."""
+
+    service = CustomerService(session)
+    return await service.search_addresses(subject, query)
 
 
 @router.post("/me/addresses", response_model=list[CustomerAddressResponse])

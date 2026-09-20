@@ -234,6 +234,8 @@ button.rail-store:focus-visible { outline: 2px solid var(--rail-accent); outline
 .btn[disabled] { opacity: .45; cursor: not-allowed; }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-sm); }
+/* Confines Leaflet's internal z-index (zoom controls go up to 1000) to its own stacking context, so the map can never paint over a modal/overlay above it (see .modal-overlay z-index: 100). */
+.route-map-card { position: relative; isolation: isolate; }
 .card-pad { padding: 18px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--border); gap: 10px; }
 button.card-head { width: 100%; text-align: left; background: none; font: inherit; color: inherit; cursor: pointer; }
