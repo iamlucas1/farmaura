@@ -48,7 +48,7 @@ Comandos operacionais úteis:
 URLs locais após subir a stack:
 
 - `http://127.0.0.1:3000/marketplace`
-- `http://127.0.0.1:3000/internal`
+- `http://127.0.0.1:3000/miaura` (console interno)
 - `http://127.0.0.1:8080/api/v1/health`
 
 Para integrar com o gateway no servidor de dev/prod:

@@ -78,7 +78,7 @@ cd farmaura-api
 
 Isso sobe `farmaura` (nginx + build do frontend, `127.0.0.1:3000`), `farmaura-api` (`127.0.0.1:8080`), `farmaura-postgres`, `farmaura-valkey` e `farmaura-mailhog` (`127.0.0.1:8025`). No primeiro boot, com o banco vazio, `bootstrap_database.py` cria o schema, aplica RLS e roda o seed determinístico automaticamente — nenhum passo manual de seed é necessário (ver [[../../farmaura/07_POPs_Processos/resetar-e-re-semear-dados-locais|resetar-e-re-semear-dados-locais]] para os detalhes e para como forçar um reset depois).
 
-Acessar `http://127.0.0.1:3000/marketplace` e `http://127.0.0.1:3000/internal` para confirmar. **Nunca testar contra a porta 5173** (`vite --host` direto, fora do Docker) para verificação visual — bug real e já documentado de `<base href>` deixa essa porta em branco; usar sempre a build servida pelo Nginx na porta 3000 (ver memória de sessão `feedback_farmaura_visual_verification`).
+Acessar `http://127.0.0.1:3000/marketplace` e `http://127.0.0.1:3000/miaura` (console interno) para confirmar. **Nunca testar contra a porta 5173** (`vite --host` direto, fora do Docker) para verificação visual — bug real e já documentado de `<base href>` deixa essa porta em branco; usar sempre a build servida pelo Nginx na porta 3000 (ver memória de sessão `feedback_farmaura_visual_verification`).
 
 ## Passo 4 — orientar a IA (Claude Code) na máquina nova
 
