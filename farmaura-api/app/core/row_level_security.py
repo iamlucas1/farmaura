@@ -65,7 +65,12 @@ RLS_STATEMENTS: tuple[str, ...] = (
                     'customers',
                     'delivery_routes',
                     'file_assets',
+                    'fiscal_attempts',
                     'fiscal_documents',
+                    'fiscal_events',
+                    'fiscal_inutilizations',
+                    'fiscal_number_sequences',
+                    'product_fiscal_profiles',
                     'health_service_appointments',
                     'health_services',
                     'inventory_items',
@@ -552,6 +557,26 @@ RLS_STATEMENTS: tuple[str, ...] = (
                 tenant_id = app_private.current_tenant_id()
                 OR app_private.is_system_job()
             )
+    """,
+    """
+    -- The NFC-e emission worker is trusted server code (system job): it drains the outbox across tenants
+    -- and allocates numbers/attempts/events for the document's own tenant, exactly like fiscal_documents.
+    DROP POLICY IF EXISTS fiscal_attempts_access_policy ON fiscal_attempts;
+    CREATE POLICY fiscal_attempts_access_policy ON fiscal_attempts
+            USING (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job())
+            WITH CHECK (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job());
+    DROP POLICY IF EXISTS fiscal_events_access_policy ON fiscal_events;
+    CREATE POLICY fiscal_events_access_policy ON fiscal_events
+            USING (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job())
+            WITH CHECK (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job());
+    DROP POLICY IF EXISTS fiscal_number_sequences_access_policy ON fiscal_number_sequences;
+    CREATE POLICY fiscal_number_sequences_access_policy ON fiscal_number_sequences
+            USING (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job())
+            WITH CHECK (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job());
+    DROP POLICY IF EXISTS fiscal_inutilizations_access_policy ON fiscal_inutilizations;
+    CREATE POLICY fiscal_inutilizations_access_policy ON fiscal_inutilizations
+            USING (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job())
+            WITH CHECK (tenant_id = app_private.current_tenant_id() OR app_private.is_system_job())
     """,
     """
     DROP POLICY IF EXISTS tenant_isolation_policy ON file_assets

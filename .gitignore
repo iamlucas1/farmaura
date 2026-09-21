@@ -31,3 +31,12 @@ test.db
 
 # per-machine agent approvals (Windows PowerShell/winget entries vs Linux paths) - never shared
 .claude/settings.local.json
+
+# fiscal (NFC-e): certificates and anything under a secrets folder must never be committed
+*.pfx
+*.p12
+*.pem
+*.key
+*.jks
+farmaura-api/secrets/
+farmaura-api/storage/**/fiscal/

@@ -79,7 +79,7 @@ api_router.include_router(
 api_router.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(inventory_lots.router, prefix="/inventory", tags=["inventory-lots"])
 api_router.include_router(deliveries.router, prefix="/deliveries", tags=["deliveries"])
-api_router.include_router(fiscal.router, prefix="/fiscal-documents", tags=["fiscal-documents"])
+api_router.include_router(fiscal.router, prefix="/fiscal", tags=["fiscal"])
 api_router.include_router(crm.router, prefix="/crm", tags=["crm"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(pdv.router, prefix="/pdv", tags=["pdv"])

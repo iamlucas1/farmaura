@@ -21,7 +21,6 @@ import pytest
 
 from app.services.fiscal_service import FiscalService
 
-
 # ============================================================================
 # TEST HELPERS
 # ============================================================================
@@ -35,6 +34,7 @@ def build_order() -> SimpleNamespace:
         tenant_id=str(uuid4()),
         store_id=str(uuid4()),
         order_code="ORD-0001",
+        gateway_payment_id="pay_test",
         customer_id=str(uuid4()),
         payment_method_label="Cartão de crédito",
         customer_display_name="Cliente Teste",

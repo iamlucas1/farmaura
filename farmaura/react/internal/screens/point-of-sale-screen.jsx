@@ -4,6 +4,7 @@ import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { fetchViaCepAddress, formatCep } from "../../marketplace/core/marketplace-address.js";
 import { resolveMarketplaceCoupon } from "../../marketplace/screens/cart-screen.jsx";
 import { RecurringBadge } from "../core/internal-shell.jsx";
+import { FiscalStatusCard } from "./fiscal-screen.jsx";
 import { Icon, PageHead, Badge, PillNav, EmptyState, Field, Modal, QtyStepper, KV, SwitchToggle, Avatar, SearchInput } from "../core/internal-ui.jsx";
 import { getBridgeConfig, setBridgeConfig, pdvBridgeHealth, pdvBridgeCharge, pdvBridgeGetCharge, pdvBridgeCancelCharge } from "../core/pdv-bridge-client.js";
 
@@ -720,7 +721,7 @@ const PRESCRIPTION_STATUS_META = {
 };
 
 function PdvScreen({ ctx }) {
-  const { user, inventory, coupons = [], pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, pdvLogDemand, pdvFetchUpsellSuggestions, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
+  const { user, fiscalApi, inventory, coupons = [], pdvCart, setPdvCart, pdvCustomer, setPdvCustomer, pdvAdd, pdvSetQty, pdvRemove, pdvClear, pdvSetLocation, fetchPdvItemLocations, pdvSearchProducts, pdvCreateReservation, pdvLogDemand, pdvFetchUpsellSuggestions, fetchPdvPrescriptionStatus, createPdvPrescription, fetchCustomerPurchaseInsights, fetchCustomerPaymentMethods, fetchCustomerAddresses, createPdvCustomerAddress, confirmPdvRecurrence, checkPdvDeliveryCoverage, fetchPdvDiscountLimit, fetchPdvDrafts, autosavePdvDraft, deletePdvDraft, finalizeSale, pdvQueue, pdvSendToCashier, pdvClaimFromQueue, recordSale, customers = [], customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, notify, sendFiscalDocumentEmail, createPdvCustomer } = ctx;
   // Só admin/gerente escolhem a visão livremente — farmacêutico e caixa ficam travados na própria,
   // sem o seletor (que nunca fazia sentido pra eles: um farmacêutico não deveria conseguir "virar" caixa).
   const canSwitchOperator = !!user && (user.role === "admin" || user.role === "manager");
@@ -1614,7 +1615,7 @@ function PdvScreen({ ctx }) {
       </>
       )}
 
-      {nota && <NotaFiscalModal nota={nota} storeFiscal={storeFiscal} pharmacistProfile={pharmacistProfile} onSendEmail={sendFiscalDocumentEmail} onClose={() => setNota(null)} onDone={() => { setNota(null); resetAtendimento(); finalizeSale && finalizeSale(); }} />}
+      {nota && <NotaFiscalModal nota={nota} fiscalApi={fiscalApi} notify={ctx.notify} storeFiscal={storeFiscal} pharmacistProfile={pharmacistProfile} onSendEmail={sendFiscalDocumentEmail} onClose={() => setNota(null)} onDone={() => { setNota(null); resetAtendimento(); finalizeSale && finalizeSale(); }} />}
       {terminalCharge && (
         <PdvTerminalChargeModal charge={terminalCharge} amount={total} method={pay} onCancel={cancelTerminalCharge} onRetry={startTerminalCharge} />
       )}
@@ -2073,15 +2074,13 @@ function RecurrenceConfirmModal({ candidate, customerId, pdvSearchProducts, fetc
 }
 
 /* ---------- Modal: nota fiscal (NFC-e) emitida ---------- */
-function NotaFiscalModal({ nota, storeFiscal, pharmacistProfile, onSendEmail, onClose, onDone }) {
+function NotaFiscalModal({ nota, storeFiscal, pharmacistProfile, onSendEmail, fiscalApi, notify, onClose, onDone }) {
   const F = storeFiscal || {};
   const P = pharmacistProfile || {};
   const [sendOpen, setSendOpen] = useState(false);
   const payLabel = (PAY_METHODS.find((m) => m.id === nota.pay) || {}).label;
-  const tributos = Math.round(nota.total * 0.12 * 100) / 100;
-  const chaveFmt = (nota.chave || "").replace(/(\d{4})(?=\d)/g, "$1 ");
   return (
-    <Modal open onClose={onClose} title="Venda concluída" subtitle="Nota fiscal autorizada com sucesso.">
+    <Modal open onClose={onClose} title="Venda concluída" subtitle="A NFC-e é emitida junto à SEFAZ; acompanhe o estado abaixo.">
       {/* Cupom */}
       <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 16, background: "var(--bg)" }}>
         <div style={{ textAlign: "center", borderBottom: "1px dashed var(--border)", paddingBottom: 10, marginBottom: 10 }}>
@@ -2103,19 +2102,13 @@ function NotaFiscalModal({ nota, storeFiscal, pharmacistProfile, onSendEmail, on
         <div style={{ borderTop: "1px dashed var(--border)", paddingTop: 10, fontSize: 13 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 16 }}><span>TOTAL</span><span>{brl(nota.total)}</span></div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }} className="cell-muted"><span>Pagamento</span><span>{payLabel}</span></div>
-          <div style={{ display: "flex", justifyContent: "space-between" }} className="cell-muted"><span>Trib. aprox. (Lei 12.741)</span><span>{brl(tributos)}</span></div>
           <div style={{ display: "flex", justifyContent: "space-between" }} className="cell-muted"><span>Destinatário</span><span>{nota.customer && nota.cpfNota ? (nota.customer.doc || "—") : "CONSUMIDOR"}</span></div>
           {nota.customer && nota.cashback > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "var(--brand)", fontWeight: 700 }} className="cell-muted"><span>Cashback creditado</span><span>+ {brl(nota.cashback)}</span></div>}
         </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", borderTop: "1px dashed var(--border)", marginTop: 10, paddingTop: 12 }}>
-          <QrPlaceholder seed={parseInt(nota.numero) % 200 + 5} size={84} />
-          <div style={{ minWidth: 0 }}>
-            <div className="cell-muted" style={{ fontWeight: 700 }}>Consulte pela chave de acesso:</div>
-            <div className="mono" style={{ fontSize: 10.5, wordBreak: "break-all", lineHeight: 1.5, marginTop: 4 }}>{chaveFmt}</div>
-          </div>
-        </div>
         <div className="cell-muted" style={{ textAlign: "center", marginTop: 10 }}>Atendido por {P.name} · {P.crf}</div>
       </div>
+
+      <div style={{ marginTop: 12 }}><FiscalStatusCard initial={nota.raw} fiscalApi={fiscalApi} notify={notify} /></div>
 
       {nota.fulfillmentType === "delivery" && nota.linkedOrderCode && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "10px 12px", background: "var(--good-soft)", borderRadius: "var(--radius-md)", fontSize: 12.5 }}>
@@ -2125,7 +2118,6 @@ function NotaFiscalModal({ nota, storeFiscal, pharmacistProfile, onSendEmail, on
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button className="btn btn-secondary" style={{ flex: 1, justifyContent: "center" }} disabled={!nota.printableUrl} onClick={() => nota.printableUrl && window.open(nota.printableUrl, "_blank", "noopener")}><Icon name="printer" size={16} />Imprimir</button>
         <button className="btn btn-secondary" style={{ flex: 1, justifyContent: "center" }} onClick={() => setSendOpen(true)}><Icon name="mail" size={16} />Enviar</button>
         <button className="btn btn-primary" style={{ flex: 1.4, justifyContent: "center" }} onClick={onDone}><Icon name="check" size={16} />Nova venda</button>
       </div>

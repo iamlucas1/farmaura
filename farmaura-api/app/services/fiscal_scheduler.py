@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.database import SessionFactory
 from app.core.tenant_context import apply_system_job_context
 from app.domain.enums import OrderStatus
@@ -37,7 +38,6 @@ from app.services.fiscal_service import FiscalService
 
 logger = logging.getLogger("farmaura.fiscal_scheduler")
 
-FISCAL_ISSUANCE_DELAY_DAYS = 7
 TICK_INTERVAL_SECONDS = 900
 
 
@@ -63,7 +63,8 @@ async def run_fiscal_scheduler_tick() -> int:
     Returns the number of documents issued, mainly for test/verification use.
     """
 
-    cutoff = datetime.now(UTC) - timedelta(days=FISCAL_ISSUANCE_DELAY_DAYS)
+    # Default 7 days (CDC withdrawal window); APP_FISCAL_ISSUANCE_DELAY_DAYS=0 is for sandbox/dev testing only.
+    cutoff = datetime.now(UTC) - timedelta(days=get_settings().fiscal_issuance_delay_days)
     async with SessionFactory() as session:
         # set_config(..., true) is transaction-local, so this lookup session is
         # read-only and discarded — each order below gets its own fresh session

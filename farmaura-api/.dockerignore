@@ -14,3 +14,8 @@ storage/tmp/*
 *.pyo
 *.pyd
 *.db
+secrets/
+*.pfx
+*.p12
+*.pem
+*.key

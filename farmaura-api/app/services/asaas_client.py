@@ -19,10 +19,67 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from typing import Any
 from urllib import error, parse, request
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
+
+PRODUCTION_HOST = "api.asaas.com"
+SANDBOX_HOST = "api-sandbox.asaas.com"
+
+
+# ============================================================================
+# INVOICE PAYLOAD
+# ============================================================================
+
+
+def build_invoice_payload(
+    settings: Settings, *, payment_id: str, value: Decimal, description: str, effective_date: date,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Build the `POST /v3/invoices` body per the Asaas docs, or return what is missing.
+
+    The invoice is bound to the Asaas CHARGE (`payment` = `pay_...`); Asaas takes the customer from it.
+    Docs: `municipalServiceId` whenever the city has a service list, otherwise `municipalServiceCode`;
+    `municipalServiceName`, `value`, `deductions` and `effectiveDate` are always sent.
+    """
+
+    service_id = str(settings.asaas_invoice_municipal_service_id or "").strip()
+    service_code = str(settings.asaas_invoice_municipal_service_code or "").strip()
+    service_name = str(settings.asaas_invoice_municipal_service_name or "").strip()
+    problems: list[str] = []
+    if not payment_id.startswith("pay_"):
+        problems.append("o pedido não tem cobrança Asaas (gateway_payment_id)")
+    if not service_id and not service_code:
+        problems.append("APP_ASAAS_INVOICE_MUNICIPAL_SERVICE_ID ou APP_ASAAS_INVOICE_MUNICIPAL_SERVICE_CODE")
+    if not service_name:
+        problems.append("APP_ASAAS_INVOICE_MUNICIPAL_SERVICE_NAME")
+    if problems:
+        return None, problems
+    payload: dict[str, Any] = {
+        "payment": payment_id,
+        "serviceDescription": description,
+        "observations": settings.asaas_invoice_observations or description,
+        "value": float(Decimal(value or 0)),
+        "deductions": 0,
+        "effectiveDate": effective_date.isoformat(),
+        "municipalServiceName": service_name,
+        "taxes": {
+            "retainIss": bool(settings.asaas_invoice_retain_iss),
+            "iss": settings.asaas_invoice_iss,
+            "cofins": settings.asaas_invoice_cofins,
+            "csll": settings.asaas_invoice_csll,
+            "inss": settings.asaas_invoice_inss,
+            "ir": settings.asaas_invoice_ir,
+            "pis": settings.asaas_invoice_pis,
+        },
+    }
+    if service_id:
+        payload["municipalServiceId"] = service_id
+    else:
+        payload["municipalServiceCode"] = service_code
+    return payload, []
 
 
 # ============================================================================
@@ -74,6 +131,7 @@ class AsaasClient:
         self.enabled = bool(settings.asaas_enabled)
         self.base_url = str(settings.asaas_base_url or "").rstrip("/")
         self.access_token = str(settings.asaas_access_token or "").strip()
+        self.environment = str(settings.environment or "").strip().lower()
 
     def assert_configured(self) -> None:
         """Fail closed when the Asaas integration is disabled or incomplete."""
@@ -82,6 +140,26 @@ class AsaasClient:
             raise AsaasError("asaas_disabled", "A integração fiscal com o Asaas não está habilitada.", 503)
         if self.base_url == "" or self.access_token == "":
             raise AsaasError("asaas_not_configured", "As credenciais do Asaas não foram configuradas.", 503)
+        if self.is_production_host and self.environment != "production":
+            # A real API key in dev/staging/docker would charge REAL cards and issue REAL invoices.
+            raise AsaasError(
+                "asaas_production_blocked",
+                "O Asaas de produção só pode ser usado com APP_ENV=production. Use https://api-sandbox.asaas.com.",
+                503,
+            )
+
+    @property
+    def is_production_host(self) -> bool:
+        """Return whether the configured base URL is Asaas' production API."""
+
+        host = parse.urlparse(self.base_url).hostname or ""
+        return host == PRODUCTION_HOST
+
+    @property
+    def is_sandbox(self) -> bool:
+        """Return whether the configured base URL is Asaas' sandbox API."""
+
+        return (parse.urlparse(self.base_url).hostname or "") == SANDBOX_HOST
 
     def list_invoices(self, *, payment_id: str | None = None) -> list[dict[str, Any]]:
         """Return the remote invoices optionally filtered by payment identifier."""
@@ -139,6 +217,41 @@ class AsaasClient:
 
         self.assert_configured()
         return self._request("GET", f"/v3/payments/{payment_id}/pixQrCode").payload
+
+    def ping(self) -> dict[str, Any]:
+        """Cheapest authenticated read: proves the base URL and access token work."""
+
+        self.assert_configured()
+        return self._request("GET", "/v3/customers", query={"limit": 1}).payload
+
+    def list_webhooks(self) -> list[dict[str, Any]]:
+        """Return the webhooks registered on the Asaas account."""
+
+        self.assert_configured()
+        data = self._request("GET", "/v3/webhooks").payload.get("data")
+        return data if isinstance(data, list) else []
+
+    def create_webhook(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Register one webhook (`authToken` is echoed back by Asaas in the `asaas-access-token` header)."""
+
+        self.assert_configured()
+        return self._request("POST", "/v3/webhooks", payload=payload).payload
+
+    def get_fiscal_info(self) -> dict[str, Any]:
+        """Return the account's invoice (NFS-e) configuration; empty/404 when it was never configured."""
+
+        self.assert_configured()
+        return self._request("GET", "/v3/fiscalInfo").payload
+
+    def list_municipal_services(self, *, description: str = "") -> list[dict[str, Any]]:
+        """List the municipal services the account can issue invoices for (`id` = `municipalServiceId`)."""
+
+        self.assert_configured()
+        query: dict[str, Any] = {"limit": 100}
+        if description.strip():
+            query["description"] = description.strip()
+        data = self._request("GET", "/v3/fiscalInfo/services", query=query).payload.get("data")
+        return data if isinstance(data, list) else []
 
     def get_payment(self, payment_id: str) -> dict[str, Any]:
         """Return the current remote state of one payment."""

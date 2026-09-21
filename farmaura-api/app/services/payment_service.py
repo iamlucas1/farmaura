@@ -18,7 +18,7 @@ Observations:
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from ipaddress import ip_address, ip_network
 from typing import Any
@@ -28,6 +28,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.client_ip import current_client_ip
 from app.core.config import get_settings
 from app.core.tenant_context import apply_webhook_context
 from app.domain.validators import normalize_cpf
@@ -35,7 +36,6 @@ from app.models.customer import Customer
 from app.models.order import Order
 from app.models.payment_webhook_event import PaymentWebhookEvent
 from app.services.asaas_client import AsaasClient, AsaasError
-
 
 # ============================================================================
 # CONSTANTS
@@ -103,6 +103,7 @@ class PaymentService:
                     "customer": provider_customer_id,
                     "billingType": "PIX",
                     "value": float(amount),
+                    "dueDate": self._due_date(),
                     "description": description,
                     "externalReference": external_reference,
                 },
@@ -138,9 +139,11 @@ class PaymentService:
                     "customer": provider_customer_id,
                     "billingType": billing_type,
                     "value": float(amount),
+                    "dueDate": self._due_date(),
                     "description": description,
                     "externalReference": external_reference,
                     "creditCardToken": provider_token,
+                    **self._remote_ip_field(),
                 },
             )
         except AsaasError as error:
@@ -181,6 +184,7 @@ class PaymentService:
                     "cycle": "MONTHLY",
                     "description": description,
                     "externalReference": external_reference,
+                    **self._remote_ip_field(),
                 },
             )
         except AsaasError as error:
@@ -189,6 +193,19 @@ class PaymentService:
             "subscription_id": str(subscription.get("id") or ""),
             "status": str(subscription.get("status") or ""),
         }
+
+    @staticmethod
+    def _due_date() -> str:
+        """Return today's date (Brasília) as the charge due date; a card charge is captured immediately anyway."""
+
+        return (datetime.now(UTC) - timedelta(hours=3)).date().isoformat()
+
+    @staticmethod
+    def _remote_ip_field() -> dict[str, str]:
+        """Return `{"remoteIp": ...}` when the payer IP is known, else nothing (never invent one)."""
+
+        ip = current_client_ip()
+        return {"remoteIp": ip} if ip else {}
 
     def resolve_order_payment_status(self, provider_status: str) -> str:
         """Map one Asaas payment status onto the Farmaura order payment status."""

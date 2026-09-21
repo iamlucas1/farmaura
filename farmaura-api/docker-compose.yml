@@ -61,6 +61,9 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
+      # A1 certificate for NFC-e: read-only, mounted ONLY in the API container. Put the .pfx in ./secrets/nfce
+      # (git-ignored) and point NFCE_CERTIFICATE_PATH at /run/secrets/nfce/<file>.pfx.
+      - ./secrets/nfce:/run/secrets/nfce:ro
       - farmaura_storage_private:/app/storage/private
       - farmaura_storage_quarantine:/app/storage/quarantine
       - farmaura_storage_tmp:/app/storage/tmp

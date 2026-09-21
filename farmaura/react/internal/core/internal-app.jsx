@@ -36,6 +36,7 @@ import { ProductsScreen } from "../screens/products-screen.jsx";
 import { RxScreen } from "../screens/prescriptions-screen.jsx";
 import { ProductTraceScreen } from "../screens/product-trace-screen.jsx";
 import { SalesScreen } from "../screens/sales-screen.jsx";
+import { FiscalScreen } from "../screens/fiscal-screen.jsx";
 import { SettingsScreen } from "../screens/settings-screen.jsx";
 import { StoresScreen } from "../screens/stores-screen.jsx";
 import { SuppliersScreen } from "../screens/suppliers-screen.jsx";
@@ -1152,6 +1153,10 @@ function PharmApp() {
     total: Number(fiscal.gross_total_amount || 0),
     printableUrl: fiscal.printable_html_url || '',
     authorized: !!fiscal.authorized,
+    // Estado real vindo da SEFAZ (a NFC-e do balcão é emitida de forma assíncrona depois do fechamento da venda).
+    status: fiscal.status || '',
+    protocol: fiscal.protocol || '',
+    raw: fiscal,
   } : null;
   const normalizePdvSales = (payload, customerMap) => Array.isArray(payload && payload.items) ? payload.items.map((item) => ({
     id: item.id,
@@ -3038,10 +3043,23 @@ function PharmApp() {
   };
   // Envia um documento fiscal já emitido por e-mail (impressão usa a URL real do documento).
   const sendFiscalDocumentEmail = async (documentId, email, alsoWhatsapp) => {
-    return authClient.request('/fiscal-documents/' + documentId + '/send-email', {
+    return authClient.request('/fiscal/nfce/' + documentId + '/send-email', {
       method: 'POST',
       body: JSON.stringify({ email, also_whatsapp: !!alsoWhatsapp }),
     });
+  };
+  // API fiscal (NFC-e). Documentos trafegam só por chamadas autenticadas; nada é aberto por URL pública.
+  const fiscalPost = (path, body) => authClient.request(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
+  const fiscalApi = {
+    get: (id) => authClient.request('/fiscal/nfce/' + id),
+    list: (params) => authClient.request('/fiscal/nfce?' + new URLSearchParams(params || {}).toString()),
+    status: (live) => authClient.request('/fiscal/status' + (live ? '?live=true' : '')),
+    download: (id, kind) => authClient.download('/fiscal/nfce/' + id + '/' + kind),
+    sync: (id) => fiscalPost('/fiscal/nfce/' + id + '/sync'),
+    reprocess: (id) => fiscalPost('/fiscal/nfce/' + id + '/reprocess'),
+    cancel: (id, justification) => fiscalPost('/fiscal/nfce/' + id + '/cancel', { justification }),
+    reconcile: () => fiscalPost('/fiscal/reconcile'),
+    inutilize: (body) => fiscalPost('/fiscal/inutilization', body),
   };
   const finalizeSale = (msg) => showToast(msg || 'Venda registrada · nota emitida', 'success');
 
@@ -4760,7 +4778,7 @@ function PharmApp() {
     therapeuticClasses, refreshTherapeuticClasses, addTherapeuticClass, updateTherapeuticClass, setTherapeuticClassActive, setTherapeuticClassDiscarded,
     storeDirectory, refreshStoreDirectory, addStoreEntry, updateStoreEntry, setStoreEntryActive,
     pdvQueue, pdvSendToCashier, pdvClaimFromQueue,
-    pdvSales, recordSale, sendFiscalDocumentEmail,
+    pdvSales, recordSale, sendFiscalDocumentEmail, fiscalApi,
     marketplace, setMarketplace, saveMarketplaceMeta, marketplaceMetaBusy,
     homeBanner, setHomeBanner, saveHomeBanner, homeBannerBusy,
     homeBrands, setHomeBrands, saveHomeBrands, homeBrandsBusy,
@@ -4801,6 +4819,7 @@ function PharmApp() {
       case 'crm': return <CrmScreen ctx={ctx} />;
       case 'pdv': return <PdvScreen ctx={ctx} />;
       case 'sales': return <SalesScreen ctx={ctx} />;
+      case 'fiscal': return <FiscalScreen ctx={ctx} />;
       case 'home-banner': return <HomeBannerScreen ctx={ctx} />;
       case 'home-brands': return <HomeBrandsScreen ctx={ctx} />;
       case 'home-trends': return <HomeTrendsScreen ctx={ctx} />;

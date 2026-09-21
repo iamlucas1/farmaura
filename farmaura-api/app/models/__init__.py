@@ -35,6 +35,13 @@ from app.models.delivery_route_stop import DeliveryRouteStop
 from app.models.driver_location import DriverLocation
 from app.models.file_asset import FileAsset
 from app.models.fiscal_document import FiscalDocument
+from app.models.fiscal_support_tables import (
+    FiscalAttempt,
+    FiscalEvent,
+    FiscalInutilization,
+    FiscalNumberSequence,
+    ProductFiscalProfile,
+)
 from app.models.health_service import HealthService
 from app.models.health_service_appointment import HealthServiceAppointment
 from app.models.inventory_audit_entry import InventoryAuditEntry
@@ -98,7 +105,12 @@ __all__ = [
     "DeliveryRouteStop",
     "DriverLocation",
     "FileAsset",
+    "FiscalAttempt",
     "FiscalDocument",
+    "FiscalEvent",
+    "FiscalInutilization",
+    "FiscalNumberSequence",
+    "ProductFiscalProfile",
     "HealthService",
     "HealthServiceAppointment",
     "InventoryAuditEntry",

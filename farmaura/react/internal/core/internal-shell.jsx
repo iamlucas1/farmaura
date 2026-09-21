@@ -136,6 +136,7 @@ const NAV_GROUPS = [
   { label: 'Clientes & Vendas', items: [
     { id: 'crm', label: 'Clientes (CRM)', icon: 'user' },
     { id: 'sales', label: 'Vendas & Notas', icon: 'money', countKey: 'salesPending', alert: true },
+    { id: 'fiscal', label: 'Fiscal (NFC-e)', icon: 'receipt' },
     { id: 'analytics', label: 'Análises', icon: 'chart' },
   ] },
   { label: 'Compras', items: [

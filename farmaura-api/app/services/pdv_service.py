@@ -91,7 +91,7 @@ from app.schemas.orders import DeliveryCoverageResponse
 from app.services.catalog_service import CATALOG_CACHE_NAMESPACE
 from app.services.coupon_service import CouponCartLine, CouponService
 from app.services.delivery_pricing_service import DeliveryPricingService
-from app.services.fiscal_service import FiscalService
+from app.services.fiscal_service import FiscalService, kick_emission
 from app.services.inventory_stock_sync import decrement_lot_fefo
 from app.services.marketplace_projection import build_marketplace_catalog_groups, resolve_marketplace_category_id
 from app.services.notification_service import NotificationService
@@ -970,6 +970,7 @@ class PdvService:
         )
         await self.repository.add_sale(sale)
         response_items: list[PdvLineResponse] = []
+        created_sale_items: list[PdvSaleItem] = []
         for item in order_items:
             sale_item = PdvSaleItem(
                 id=str(uuid4()),
@@ -985,6 +986,7 @@ class PdvService:
                 is_controlled=order.includes_controlled_items,
             )
             await self.repository.add_sale_item(sale_item)
+            created_sale_items.append(sale_item)
             response_items.append(
                 PdvLineResponse(
                     id=sale_item.id,
@@ -1023,9 +1025,15 @@ class PdvService:
             )).scalar_one_or_none()
             if campaign is not None:
                 campaign.usage_count += 1
+        # The fiscal snapshot is frozen here (database only). SEFAZ is called by the worker AFTER this commit,
+        # so a fiscal failure can never roll back or duplicate the sale, and stock is never touched twice.
         fiscal_service = FiscalService(self.session)
-        fiscal_document = await fiscal_service.issue_for_pdv_sale(sale=sale)
+        fiscal_document = await fiscal_service.enqueue_pdv_sale(
+            sale=sale, sale_items=created_sale_items, actor_user_id=str(self.subject.user_id),
+        )
         await self.session.commit()
+        if fiscal_document is not None:
+            kick_emission(fiscal_document.id)
         return PdvSaleResponse(
             id=sale.id,
             sale_code=sale.sale_code,
@@ -1039,7 +1047,7 @@ class PdvService:
             delivery_fee=sale.delivery_fee_amount,
             customer=self._serialize_customer(order),
             items=response_items,
-            fiscal_document=fiscal_service.serialize_document(fiscal_document),
+            fiscal_document=fiscal_service.serialize_document(fiscal_document) if fiscal_document is not None else None,
             linked_order_code=linked_order_code,
         )
 

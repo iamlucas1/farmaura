@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { brl } from "../../marketplace/core/marketplace-components.jsx";
 import { customerOf } from "../core/internal-shell.jsx";
 import { QrPlaceholder, SendNotaModal } from "./point-of-sale-screen.jsx";
+import { FiscalStatusCard, statusLabel } from "./fiscal-screen.jsx";
 import { Icon, PageHead, Badge, StatCard, SearchInput, PillNav, SwitchToggle, Modal, DataTable, RowIconBtn } from "../core/internal-ui.jsx";
 
 /* FARMAURA Console — Vendas & Notas: registro unificado das vendas PAGAS
@@ -20,7 +21,7 @@ function methodLabel(p) { return PAY_LABELS[p] || p || "—"; }
 function onlinePayLabel(s) { return (s || "").split("·")[0].trim(); }
 
 function SalesScreen({ ctx }) {
-  const { orders, pdvSales, customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, sendFiscalDocumentEmail, notify } = ctx;
+  const { orders, pdvSales, customerByName = {}, storeFiscal = {}, pharmacistProfile = {}, sendFiscalDocumentEmail, fiscalApi, notify } = ctx;
   const [chan, setChan] = useState("all");        // all | online | pdv
   const [showPending, setShowPending] = useState(false); // exibir pedidos aguardando pagamento
   const [q, setQ] = useState("");
@@ -143,18 +144,19 @@ function SalesScreen({ ctx }) {
         <Icon name="shield" size={13} />Apenas vendas com pagamento confirmado entram no registro fiscal · NFC-e {storeFiscal.cnpj}
       </div>
 
-      {modalSale && <SaleNotaModal sale={modalSale} storeFiscal={storeFiscal} pharmacistProfile={pharmacistProfile} onSendEmail={sendFiscalDocumentEmail} onClose={() => setModalSale(null)} />}
+      {modalSale && <SaleNotaModal sale={modalSale} fiscalApi={fiscalApi} notify={notify} storeFiscal={storeFiscal} pharmacistProfile={pharmacistProfile} onSendEmail={sendFiscalDocumentEmail} onClose={() => setModalSale(null)} />}
     </div>
   );
 }
 
 /* ---------- Modal: visualizar / consultar a nota (NFC-e) de uma venda ---------- */
-function SaleNotaModal({ sale, storeFiscal, pharmacistProfile, onSendEmail, onClose }) {
+function SaleNotaModal({ sale, storeFiscal, pharmacistProfile, onSendEmail, fiscalApi, notify, onClose }) {
   const F = storeFiscal || {};
   const P = pharmacistProfile || {};
   const [sendOpen, setSendOpen] = useState(false);
   const n = sale.nfce;
-  const tributos = Math.round(sale.total * 0.12 * 100) / 100;
+  // Documento fiscal REAL (NFC-e enviada à SEFAZ) vs. documento simulado do protótipo (marketplace/legado).
+  const real = !!(n.raw && !n.raw.simulated);
   const chaveFmt = (n.chave || "").replace(/(\d{4})(?=\d)/g, "$1 ");
   const channelTag = sale.source === "pdv"
     ? "Balcão · venda no momento"
@@ -163,7 +165,7 @@ function SaleNotaModal({ sale, storeFiscal, pharmacistProfile, onSendEmail, onCl
   const sendNota = { id: n.id, numero: n.numero, total: sale.total, customer: sale.customerObj };
 
   return (
-    <Modal open onClose={onClose} title="Nota fiscal" subtitle={"NFC-e nº " + n.numero + " · autorizada"}>
+    <Modal open onClose={onClose} title="Nota fiscal" subtitle={"NFC-e nº " + n.numero + " · " + (real ? statusLabel(n.raw.status).toLowerCase() : "autorizada")}>
       <div style={{ textAlign: "center", marginBottom: 16 }}>
         <span className="stat-icon" style={{ width: 56, height: 56, margin: "0 auto 12px", background: "var(--good-soft)", color: "var(--good)" }}><Icon name="receipt" size={27} /></span>
       </div>
@@ -189,10 +191,12 @@ function SaleNotaModal({ sale, storeFiscal, pharmacistProfile, onSendEmail, onCl
         <div style={{ borderTop: "1px dashed var(--border)", paddingTop: 10, fontSize: 13 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 16 }}><span>TOTAL</span><span>{brl(sale.total)}</span></div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }} className="cell-muted"><span>Pagamento</span><span>{sale.payLabel}</span></div>
-          <div style={{ display: "flex", justifyContent: "space-between" }} className="cell-muted"><span>Trib. aprox. (Lei 12.741)</span><span>{brl(tributos)}</span></div>
           <div style={{ display: "flex", justifyContent: "space-between" }} className="cell-muted"><span>Destinatário</span><span>{dest}</span></div>
           {sale.cashback > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "var(--brand)", fontWeight: 700 }} className="cell-muted"><span>Cashback creditado</span><span>+ {brl(sale.cashback)}</span></div>}
         </div>
+        {real ? (
+          <div style={{ borderTop: "1px dashed var(--border)", marginTop: 10, paddingTop: 12 }}><FiscalStatusCard initial={n.raw} fiscalApi={fiscalApi} notify={notify} /></div>
+        ) : (
         <div style={{ display: "flex", gap: 12, alignItems: "center", borderTop: "1px dashed var(--border)", marginTop: 10, paddingTop: 12 }}>
           <QrPlaceholder seed={parseInt(n.numero) % 200 + 5} size={84} />
           <div style={{ minWidth: 0 }}>
@@ -200,11 +204,12 @@ function SaleNotaModal({ sale, storeFiscal, pharmacistProfile, onSendEmail, onCl
             <div className="mono" style={{ fontSize: 10.5, wordBreak: "break-all", lineHeight: 1.5, marginTop: 4 }}>{chaveFmt}</div>
           </div>
         </div>
+        )}
         <div className="cell-muted" style={{ textAlign: "center", marginTop: 10 }}>Emitida por {P.name} · {P.crf}</div>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button className="btn btn-secondary" style={{ flex: 1, justifyContent: "center" }} disabled={!n.printableUrl} onClick={() => n.printableUrl && window.open(n.printableUrl, "_blank", "noopener")}><Icon name="printer" size={16} />Imprimir</button>
+        <button className="btn btn-secondary" style={{ flex: 1, justifyContent: "center" }} disabled={real || !n.printableUrl} onClick={() => n.printableUrl && window.open(n.printableUrl, "_blank", "noopener")}><Icon name="printer" size={16} />Imprimir</button>
         <button className="btn btn-secondary" style={{ flex: 1, justifyContent: "center" }} onClick={() => setSendOpen(true)}><Icon name="mail" size={16} />Enviar</button>
         <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={onClose}><Icon name="check" size={16} />Fechar</button>
       </div>

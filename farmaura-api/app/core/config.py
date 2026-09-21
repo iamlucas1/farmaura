@@ -101,6 +101,9 @@ class Settings(BaseSettings):
     asaas_invoice_csll: float = 0.0
     asaas_invoice_inss: float = 0.0
     asaas_invoice_ir: float = 0.0
+    # Days after payment confirmation before the marketplace order gets its fiscal document (CDC 7-day
+    # withdrawal window, see fiscal_scheduler). Lower it (0) ONLY in sandbox/dev to test the flow without waiting.
+    fiscal_issuance_delay_days: int = Field(default=7, ge=0, le=30)
     melhor_envio_enabled: bool = False
     melhor_envio_base_url: str = "https://sandbox.melhorenvio.com.br"
     melhor_envio_access_token: str = ""
