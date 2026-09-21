@@ -26,4 +26,5 @@ Padrão aceito apenas para tarefas de background que rodam fora do ciclo de requ
 
 ## Atualizações
 
+- 2026-09-20: a mesma exceção passa a cobrir o `fiscal_worker.py` (emissão de NFC-e): sessão própria por documento, contexto `is_system_job()` reaplicado após cada commit, escopo restrito às tabelas fiscais (o snapshot da venda evita ler `inventory_*`/`pdv_*` fora do RLS do operador). Ver [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|ADR]].
 - 2026-07-19: nota criada.

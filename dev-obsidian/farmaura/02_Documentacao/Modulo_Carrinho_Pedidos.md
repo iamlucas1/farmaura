@@ -72,6 +72,8 @@ Domínio do fluxo de compra online do marketplace: carrinho persistido do client
 
 ## Atualizações
 
+- 2026-09-20: fluxo do checkout até a nota mapeado em [[Fluxo_Pagamento_e_Nota_Fiscal]].
+- 2026-09-20: cobranças Asaas (Pix/cartão) passaram a enviar `dueDate` e, no cartão/tokenização, `remoteIp` (exigidos pela API); o cliente Asaas recusa a API de produção fora de `APP_ENV=production`. O documento fiscal diferido do pedido online segue **simulado** ([[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]]) e a nota Asaas agora referencia a cobrança (`pay_…`). Ver [[../00_Decisoes/2026-09-20-asaas-sandbox-guarda-remoteip-e-nota-no-formato-real|ADR]].
 - 2026-09-04: cashback real no marketplace — checkout resgata e abate o pagamento real, ganho fica
   pendente até entrega/retirada, novo endpoint `GET /customers/me/cashback`, e "Meus pedidos"
   redesenhada conforme o demo "Padrão farmácia". Ver

@@ -2,52 +2,50 @@
 cssclasses: ia-nota
 ---
 
-# Módulo Fiscal (documentos fiscais / NFC-e)
+# Módulo Fiscal (NFC-e modelo 65)
 
 ## O que é
 
-Emissão de nota fiscal (NFC-e, hoje o único `document_type` suportado) para vendas do marketplace (diferida 7 dias, ver [[../00_Decisoes/2026-07-12-diferir-emissao-fiscal-7-dias|decisão]] e [[../03_Padroes_Politicas/regra-negocio-janela-cdc-nota-fiscal|regra da janela CDC]]) e do PDV (síncrona, na hora). O scheduler que resolve o diferimento já está detalhado em [[../03_Padroes_Politicas/excecao-fiscal-scheduler-sessao-propria|excecao-fiscal-scheduler-sessao-propria]] — esta nota cobre o restante: model, endpoints, regras de negócio e frontend.
+Emissão real de **NFC-e** (leiaute 4.00, DF via SVRS) para vendas do **PDV**, com estados, numeração transacional, recuperação de falhas, cancelamento, inutilização e DANFE. **Estado: implementado e testado offline; só homologação; produção bloqueada; sem chamada real à SEFAZ ainda** ([[../06_Pendencias/nfce-homologacao-real-pendente-credenciais|pendência]]). Documentação técnica completa: `farmaura-api/docs/fiscal/NFCE.md`. Decisão: [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|ADR]]. Integração: [[../05_Integracoes_Infra/SEFAZ_NFCe_SVRS_DF|SEFAZ_NFCe_SVRS_DF]]. Riscos: [[../04_Seguranca_Riscos/modulo-fiscal-nfce-riscos-e-controles|riscos e controles]].
 
-**Atenção a falso cognato**: "nota fiscal" também aparece em `acquisition-costs-screen.jsx`/`purchase-receiving-screen.jsx`/`inventory-screen.jsx`, mas é a nota fiscal **de compra do fornecedor** (entrada de estoque, domínio [[Modulo_Estoque|Estoque]]/[[Modulo_Orcamentos|Orçamentos]]) — módulo diferente e não relacionado a este.
+**Atenção a falso cognato**: "nota fiscal" também aparece em `acquisition-costs-screen.jsx`/`purchase-receiving-screen.jsx`/`inventory-screen.jsx`, mas é a nota fiscal **de compra do fornecedor** ([[Modulo_Estoque|Estoque]]/[[Modulo_Orcamentos|Orçamentos]]) — módulo diferente.
 
-## Tabela / Model
+## Fluxo
 
-Único model: **`FiscalDocument`** (`fiscal_document.py`). Campos principais: `document_type` (default `nfce`), `source_channel` (marketplace/pdv), `pdv_sale_id`/`order_id` (FKs SET NULL, mutuamente exclusivos por fluxo), `issued_by_user_id` (só no PDV), `document_number`/`access_key`/`series_code` (**gerados deterministicamente por hash SHA1** do código do pedido/venda — simulados, não vêm de uma SEFAZ real), `authorized` (bool, sempre `True` na emissão — **não há máquina de estados nem campo de cancelamento**), snapshots (`payment_method_snapshot`, `recipient_name/document_snapshot`), `gross_total_amount`, `approximate_tax_amount` (12% flat, aproximação de protótipo, não cálculo tributário real). RLS: tenant + `is_system_job()` (carve-out para o scheduler cross-tenant). **Sem repositório dedicado** — o service acessa a sessão diretamente com `select()`.
+Venda do PDV → `enqueue_pdv_sale` (só banco: snapshot fiscal imutável + `fiscal_documents` em `DRAFT`) → **COMMIT da venda** → worker (`fiscal_worker.py`, fila = o próprio banco, lease por documento) → número atômico → XML → XSD oficial → XMLDSig (A1) → `signed.xml` + COMMIT → SOAP/mTLS `NFeAutorizacao4` → `nfeProc` autorizado + DANFE. Nenhuma chamada de rede acontece dentro da transação da venda.
 
-## Endpoints
+## Tabelas / Models
 
-`GET /fiscal-documents/{id}`, `GET /fiscal-documents/{id}/printable` (HTML pronto para impressão), `POST /fiscal-documents/{id}/send-email` — todos `ADMIN, PHARMACIST, CASHIER`. **Não há endpoint de emissão manual** — a emissão acontece só dentro de `order_service`/`pdv_service`.
+- **`fiscal_documents`** (`FiscalDocument`): ciclo de vida completo (`status`, `cstat`, `protocol`, `serie`, `number`, `access_key`, `numeric_code`, `environment`, `emitter_cnpj`, `payload_snapshot`, chaves de storage do XML/PDF, `attempt_count`/`next_attempt_at`/`locked_until`). Únicos: `(emitter_cnpj, environment, model, serie, number)` e **um documento por venda**. Linhas do protótipo: `status = LEGACY_SIMULATED` (hash, nunca foram à SEFAZ; colunas legadas mantidas só para elas).
+- **`fiscal_number_sequences`**, **`fiscal_events`** (cancelamento + XML), **`fiscal_attempts`** (auditoria de cada chamada), **`fiscal_inutilizations`**, **`product_fiscal_profiles`** (NCM, CFOP, CST/CSOSN, PIS/COFINS, IBS/CBS — dados do contador, nunca inferidos).
+- RLS: tenant + carve-out `is_system_job()` para o worker (mesma exceção do scheduler — [[../03_Padroes_Politicas/excecao-fiscal-scheduler-sessao-propria|exceção]]).
 
-Desde 2026-08-26, o próprio cliente também tem acesso de leitura: `GET /orders/{order_id}/fiscal-document/printable` (`orders.py`, `require_marketplace_subject(CUSTOMER)`). Não é uma variante da rota interna — resolve o documento sempre a partir de um `Order` já confirmado como do próprio cliente (nunca aceita `document_id` direto), ver [[../00_Decisoes/2026-08-26-nota-fiscal-acesso-do-cliente-por-pedido|ADR]] para o racional de segurança (a RLS de `fiscal_documents` não tem predicado de dono, só a de `orders` tem).
+## Endpoints (`/api/v1/fiscal`)
+
+`POST /nfce`, `GET /nfce[/{id}]`, `GET /nfce/{id}/xml|pdf|printable`, `POST /nfce/{id}/print|cancel|sync|reprocess|send-email`, `GET /status`, `POST /reconcile`, `POST|GET /inutilization`, `GET|PUT /products/{id}/profile`. Papéis: caixa/farmacêutico emitem-consultam-imprimem; gerente cancela; admin inutiliza, reconcilia e edita perfis. Não-admin só vê a própria loja (404 caso contrário). Rota antiga `/fiscal-documents` removida; o acesso do cliente à própria nota (`GET /orders/{id}/fiscal-document/printable`) continua ([[../00_Decisoes/2026-08-26-nota-fiscal-acesso-do-cliente-por-pedido|ADR]]).
 
 ## Regras de negócio não óbvias
 
-- **Idempotência por venda**: emitir para um pedido/venda que já tem documento retorna o existente em vez de duplicar.
-- **Sem cancelamento nem reemissão em lugar nenhum do código** — se um pedido for cancelado *depois* da nota emitida, o `FiscalDocument` permanece `authorized=True` para sempre, sem reconciliação. O único tratamento é preventivo (scheduler pula pedidos já `CANCELLED` antes de emitir).
-- **PDV é síncrono, marketplace é diferido**: no PDV a nota é emitida dentro da mesma transação da venda (antes do commit) — venda presencial não tem janela de arrependimento do CDC. Só pedidos online passam pelo scheduler de 7 dias.
-- **CPF opcional no PDV**, conforme o toggle "Incluir CPF na nota" escolhido pelo operador.
-- **Best-effort com Asaas, nunca bloqueia a venda**: qualquer erro do provedor fiscal (mesmo provedor de pagamento, via invoice) é engolido silenciosamente — a venda já aceita nunca é revertida por falha fiscal.
-- **Envio de e-mail é best-effort**, retorna falha sem exceção se SMTP não estiver configurado.
+- **Timeout nunca é rejeição**: consulta a chave antes de reenviar; só reenvia o mesmo XML se a SEFAZ responder 217.
+- **Rejeição fiscal não é repetida sozinha**; `Reprocessar` reaproveita número e chave. `CANCELED`/`DENIED` são finais.
+- **Sem perfil fiscal completo → sem nota**, com a lista de campos que faltam.
+- **Venda com taxa de entrega não emite** (decisão contábil pendente); cashback resgatado vira desconto rateado ([[../06_Pendencias/nfce-pdv-troco-taxa-entrega-cashback-e-card|pendência]]).
+- **CRT=3 exige IBS/CBS desde 03/08/2026**; QR Code v3 online **não usa CSC**.
+- **Contingência offline desabilitada** (falta a fórmula da assinatura do QR v3): [[../06_Pendencias/nfce-contingencia-offline-assinatura-qr-v3|pendência]].
+- **Marketplace**: emissão diferida em 7 dias ([[../00_Decisoes/2026-07-12-diferir-emissao-fiscal-7-dias|decisão]], [[../03_Padroes_Politicas/regra-negocio-janela-cdc-nota-fiscal|regra CDC]]) segue criando documento **simulado** ([[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]]).
 
 ## Frontend
 
-Não há tela própria "Documentos Fiscais" — embutido em `sales-screen.jsx` ("Vendas & Notas", coluna de nota fiscal + `SaleNotaModal` para reenvio) e em `point-of-sale-screen.jsx` (`NotaFiscalModal` exibido ao finalizar venda no balcão, com reenvio por e-mail/link de impressão). No marketplace, `checkout-screen.jsx` só avisa o cliente para completar o CPF em "Minha Conta". Desde 2026-08-26, o cliente consegue baixar a própria nota: botão "Baixar nota fiscal" em `OrderCard`/`OrderSupportDrawer` (`account-shared.jsx`/`account-health-screen.jsx`, aba Meus pedidos), visível só quando `order.fiscalDocument` está presente — ou seja, some sozinho para pedidos ainda dentro da janela de diferimento de 7 dias, sem lógica de data extra no client.
-
-## Decisões de arquitetura dignas de nota
-
-- **Sem repositório dedicado** — único acesso a dados via `select()` direto no service, diferente do padrão de camadas do resto do backend.
-- **Ausência total de fluxo de cancelamento/estorno fiscal** — candidato natural a `04_Seguranca_Riscos/` ou `06_Pendencias/`.
-- **Numeração/chave de acesso são hashes determinísticos**, stand-in de protótipo para dados que normalmente viriam de uma SEFAZ real — limitação já comentada no próprio model.
+`fiscal-screen.jsx`: `FiscalStatusCard` (estado real, polling, Imprimir/PDF/XML/Reprocessar/Consultar) usado no modal do balcão (`NotaFiscalModal`) e em "Vendas & Notas"; painel **Fiscal (NFC-e)** (admin/gerente): contadores, filtros, ações, reconciliação, inutilização. Documentos só por chamada autenticada (blob). Foi removido o QR fictício e o "trib. aprox. 12%" fixo do modal. Não há tela de edição do perfil fiscal do produto.
 
 ## Ver também
 
-- [[../00_Decisoes/2026-07-12-diferir-emissao-fiscal-7-dias|Diferir emissão fiscal em 7 dias]].
-- [[../03_Padroes_Politicas/regra-negocio-janela-cdc-nota-fiscal|Regra de negócio: janela CDC / nota fiscal]].
-- [[../03_Padroes_Politicas/excecao-fiscal-scheduler-sessao-propria|Exceção: fiscal scheduler com sessão própria]].
-- [[Modulo_Carrinho_Pedidos|Módulo Carrinho e Pedidos]] — pedido que dispara a emissão diferida.
-- [[Modulo_PDV|Módulo PDV]] — venda que dispara a emissão síncrona.
+- [[Fluxo_Pagamento_e_Nota_Fiscal|Fluxo de pagamento e nota fiscal]] — os dois caminhos (balcão/NFC-e e marketplace/Asaas) lado a lado; [[../05_Integracoes_Infra/Asaas|Asaas]] para a nota de serviço.
+- [[Modulo_PDV|Módulo PDV]] — dispara a emissão; [[Modulo_Carrinho_Pedidos|Carrinho e Pedidos]] — emissão diferida (simulada).
 
 ## Atualizações
 
-- 2026-08-26: cliente ganhou acesso de leitura à própria nota fiscal — `GET /orders/{order_id}/fiscal-document/printable`, escopado por pedido (nunca por `document_id` direto), e botão "Baixar nota fiscal" em Meus pedidos. `fiscal_documents_access_policy` (RLS) não mudou — ownership é checado no service. Ver [[../00_Decisoes/2026-08-26-nota-fiscal-acesso-do-cliente-por-pedido|ADR]].
-- 2026-07-25: nota criada — documentação do estado atual do módulo.
+- 2026-09-20: adicionados o guia ponta a ponta [[Fluxo_Pagamento_e_Nota_Fiscal]] e o POP [[../07_POPs_Processos/emitir-nfce-em-homologacao|emitir NFC-e em homologação]].
+- 2026-09-20: módulo reescrito — NFC-e real (SVRS/DF, homologação), outbox + worker, snapshot fiscal, numeração atômica, recuperação de timeout, cancelamento, inutilização, DANFE 80 mm, painel fiscal. Migration `20260920_05`. Documentos antigos viram `LEGACY_SIMULATED`. Ver o [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|ADR]].
+- 2026-08-26: cliente ganhou acesso de leitura à própria nota fiscal — `GET /orders/{order_id}/fiscal-document/printable`.
+- 2026-07-25: nota criada — documentação do estado anterior (protótipo simulado).

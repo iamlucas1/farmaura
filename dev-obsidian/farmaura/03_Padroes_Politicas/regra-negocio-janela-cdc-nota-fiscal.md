@@ -25,4 +25,5 @@ Nenhuma conhecida — aplica-se a todo pedido do marketplace pago via Asaas. Se 
 
 ## Atualizações
 
+- 2026-09-20: o prazo de 7 dias deixou de ser constante e virou `APP_FISCAL_ISSUANCE_DELAY_DAYS` (padrão 7). `0` é **só para testar em sandbox/dev**; nunca usar em produção. Ver [[../07_POPs_Processos/testar-asaas-sandbox|POP do sandbox]].
 - 2026-07-19: nota criada.

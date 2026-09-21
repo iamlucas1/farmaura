@@ -60,5 +60,6 @@ O mesmo repositório git `dev` também contém `lumos-api/`, `lumos-gateway/` e 
 
 ## Atualizações
 
+- 2026-09-20: novo pacote `app/fiscal/` (motor puro de NFC-e: chave, XML 4.00 validado no XSD oficial, XMLDSig, SOAP/mTLS SVRS, DANFE) e `fiscal_worker.py` no `lifespan()`. Dependências novas (versão exata): `cryptography`, `reportlab`, `segno`, `tzdata`, `lxml` (dev: `aiosqlite`). Ver [[Modulo_Fiscal]], [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|ADR]]. O cliente Asaas ganhou trava sandbox×produção ([[../00_Decisoes/2026-09-20-asaas-sandbox-guarda-remoteip-e-nota-no-formato-real|ADR]]).
 - 2026-07-20: migração de Redis para Valkey (drop-in, mesmo protocolo) em toda a infra/código; rate limiting e bloqueio de login passam a rodar sobre Valkey. Novo cache de listagem de catálogo (`core/cache.py`), também sobre Valkey — ver [[../00_Decisoes/2026-07-20-migracao-redis-para-valkey-e-cache-de-catalogo|decisão]].
 - 2026-07-20: seção de atualizações adotada nesta nota — daqui em diante, toda mudança material ou adoção de tecnologia nova relevante para esta visão geral ganha uma entrada aqui.

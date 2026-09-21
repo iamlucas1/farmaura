@@ -34,6 +34,7 @@ Empacotamento e orquestração local/deploy dos serviços do produto Farmaura.
 
 ## Atualizações
 
+- 2026-09-20: o serviço `farmaura-api` monta `./secrets/nfce` em `/run/secrets/nfce` **somente-leitura** (certificado A1 da NFC-e; pasta ignorada pelo git e pelo `.dockerignore`, só neste container). Variáveis `NFCE_*`/`FISCAL_*` e o bloco Asaas vêm do `.env` ([[SEFAZ_NFCe_SVRS_DF]], [[Asaas]]).
 - 2026-09-18: corrigido erro nesta nota — `docker-compose.gateway.yml` conecta o serviço `farmaura` (web/nginx) à rede `lumos_gateway`, não `farmaura-api` como estava descrito antes (`farmaura-api` nunca sai de `farmaura_private`).
 - 2026-09-01: imagem da API passou a instalar o grupo `dev`; `pytest` ficou disponível para a suíte de testes no Docker — ver [[executar-testes-python-no-docker]].
 

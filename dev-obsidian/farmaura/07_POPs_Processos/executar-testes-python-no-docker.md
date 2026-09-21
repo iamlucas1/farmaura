@@ -68,4 +68,5 @@ Testes podem deixar de ser executáveis de forma reproduzível no ambiente Docke
 
 ## Atualizações
 
+- 2026-09-20: alternativa para máquinas sem Docker (Windows) e suas limitações em [[executar-testes-python-sem-docker-no-windows]].
 - 2026-09-01: nota criada após a inclusão do grupo `dev` na imagem da API, disponibilizando `pytest` no container.

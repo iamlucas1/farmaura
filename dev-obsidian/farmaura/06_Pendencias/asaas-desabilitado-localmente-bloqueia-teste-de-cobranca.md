@@ -4,7 +4,7 @@ cssclasses: ia-nota
 
 # Asaas desabilitado localmente impede testar cobrança de verdade ponta a ponta
 
-**Status:** Aberto
+**Status:** Em andamento — sandbox preparado em 2026-09-20, falta a chave e executar
 **Prioridade:** Baixa
 **Registrado em:** 2026-09-02
 
@@ -41,3 +41,6 @@ Não corrigido nesta sessão: ligar o Asaas de verdade (mesmo em sandbox) exige 
 uma decisão de infraestrutura/negócio, fora do escopo de uma sessão de desenvolvimento de feature —
 registrado aqui para quando o time decidir habilitar a integração (nesse momento, vale re-testar
 ponta a ponta os três fluxos de cobrança citados acima, não só assumir que "já foi testado antes").
+## Atualização 2026-09-20
+
+O sandbox foi preparado (trava, `remoteIp`/`dueDate`, payload da nota, scripts, `.env.example`) — ver o [[../00_Decisoes/2026-09-20-asaas-sandbox-guarda-remoteip-e-nota-no-formato-real|ADR]] e o [[../07_POPs_Processos/testar-asaas-sandbox|POP]]. O que falta é a chave do sandbox e rodar; o caminho de sucesso continua sem ter sido exercitado. Pendências novas: [[asaas-sandbox-pendencias-apos-preparacao]].

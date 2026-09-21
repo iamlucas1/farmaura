@@ -10,9 +10,14 @@ Base inicial da API da Farmaura em Python com FastAPI, SQLAlchemy 2.x e arquitet
 - `app/models`: models ORM;
 - `app/repositories`: acesso a dados;
 - `app/services`: casos de uso;
+- `app/fiscal`: motor puro da NFC-e (chave, XML 4.00, XSD oficial, assinatura, SOAP/mTLS, DANFE) — sem banco;
 - `app/schemas`: contratos de request/response;
 - `app/tests`: testes unitários, de API e segurança;
-- `storage`: diretórios privados de armazenamento.
+- `alembic`: migrations (produção exige migration, nunca alterar o banco à mão);
+- `scripts`: seed, bootstrap e verificações operacionais (`fiscal_homologation_check.py`, `asaas_sandbox_check.py`);
+- `docs`: documentação técnica dos módulos (`docs/fiscal/NFCE.md`, `docs/asaas/ASAAS.md`);
+- `secrets`: certificados locais (ignorada pelo git e pelo build);
+- `storage`: diretórios privados de armazenamento (inclui os XML/PDF fiscais).
 
 ## Execução
 
@@ -57,8 +62,37 @@ Para integrar com o gateway no servidor de dev/prod:
 docker compose -f docker-compose.yml -f docker-compose.gateway.yml up --build -d
 ```
 
+## Testes e qualidade
+
+Sem instalar nada no host, dentro do container da API:
+
+```bash
+docker compose run --rm --no-deps --entrypoint uv farmaura-api run pytest                 # toda a suíte
+docker compose run --rm --no-deps --entrypoint uv farmaura-api run pytest app/tests -k fiscal
+docker compose run --rm --no-deps --entrypoint uv farmaura-api run ruff check app
+docker compose run --rm --no-deps --entrypoint uv farmaura-api run mypy app
+```
+
+Em Windows sem Docker é possível usar um venv com as dependências fixas do `pyproject.toml` (procedimento e limitações no cofre: POP "executar testes Python sem Docker no Windows"). Testes que dependem de Postgres/Valkey só passam com a stack Docker de pé.
+
+## Migrations
+
+```bash
+docker compose run --rm --no-deps --entrypoint uv farmaura-api run alembic current
+docker compose run --rm --no-deps --entrypoint uv farmaura-api run alembic upgrade head
+```
+
+Todo schema novo do `farmaura-api` exige migration revisada. Produção só recebe migration com confirmação explícita (ver o POP de migration no cofre). Um Postgres novo criado por `create_all` não tem `alembic_version`: use `alembic stamp <revisão>` antes do `upgrade`.
+
+## Módulos com configuração própria
+
+- **NFC-e (nota fiscal do balcão)** — `docs/fiscal/NFCE.md`. Desligada por padrão (`NFCE_ENABLED=false`); só homologação; produção exige `FISCAL_ENV=producao` **e** `FISCAL_PRODUCTION_ENABLED=true`. Verificação: `python scripts/fiscal_homologation_check.py`.
+- **Asaas (pagamentos e nota de serviço do marketplace)** — `docs/asaas/ASAAS.md`. Em qualquer `APP_ENV` diferente de `production` só o sandbox é aceito. Verificação: `python scripts/asaas_sandbox_check.py`.
+
+As variáveis de ambos estão no `.env.example`, sem valores. Nunca versionar chave de API, senha de certificado ou o `.pfx`.
+
 ## Observações
 
 - `lumos-gateway/` permanece o único edge público.
-- O arquivo `uv.lock` ainda não foi gerado neste scaffold porque não houve resolução de dependências nesta sessão.
+- O `uv.lock` existe, mas as dependências do módulo fiscal (`cryptography`, `reportlab`, `segno`, `tzdata`, `lxml`, e `aiosqlite` no grupo dev) foram adicionadas ao `pyproject.toml` sem regenerar o lock: rode `uv lock` e commite.
 - O `docker-compose.yml` foi preparado para ambiente local e integração com o gateway existente.

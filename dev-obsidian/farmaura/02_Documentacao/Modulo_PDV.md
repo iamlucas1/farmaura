@@ -31,7 +31,7 @@ Fluxo de venda presencial no balcão da farmácia, com handoff explícito farmac
 7. Fila do caixa: reservas expiradas são canceladas lazily ao listar, com devolução de estoque.
 8. Claim: caixa assume o pedido (`cashier_user_id` setado).
 9. Pagamento (`cash|pix|debit|credit|marketplace_card` — único valor, não há split real além de cashback+resto) e decisão de incluir CPF na nota. `marketplace_card` cobra o cartão salvo do cliente no marketplace via Asaas (`PaymentService.charge_card`, mesmo caminho do checkout online) — exige cliente identificado com `customer_id` e `payment_method_id` de um cartão salvo dele.
-10. **Finalização** (`complete_sale`, tudo em um commit): cria `PdvSale`+itens, liquida ledger de cashback, **se `delivery`, cria também `Order`+`OrderItem`s+`OrderFulfillment`** (ver seção abaixo — a parada de rota em si só é anexada no despacho, igual pedido online, não aqui), **emite fiscal síncrono** (`FiscalService.issue_for_pdv_sale`, best-effort com Asaas — falha do provedor não desfaz a venda já paga).
+10. **Finalização** (`complete_sale`, tudo em um commit): cria `PdvSale`+itens, liquida ledger de cashback, **se `delivery`, cria também `Order`+`OrderItem`s+`OrderFulfillment`** (ver seção abaixo — a parada de rota em si só é anexada no despacho, igual pedido online, não aqui), **enfileira a NFC-e** (`FiscalService.enqueue_pdv_sale`: só grava o snapshot fiscal e um `fiscal_documents` em `DRAFT`, sem rede). A SEFAZ é chamada por um worker **depois do commit**, então falha fiscal nunca desfaz nem duplica a venda paga.
 
 ## Entrega de balcão vira Order (desde 2026-09-20)
 
@@ -79,18 +79,19 @@ pagamento `marketplace_card`) falha por RLS. Ver
 - Baixa de estoque no momento do envio à fila (não na finalização) — trade-off consciente.
 - `DeliveryPricingService`/`PortalService` compostos diretamente por `PdvService` — exceção documentada às camadas padrão.
 - RLS de PDV combina isolamento por tenant **e** loja, com regra adicional específica por papel `cashier` — mais granular que a maioria dos domínios.
-- Emissão fiscal síncrona e transacional com a venda, mas best-effort com o provedor externo.
+- Emissão fiscal **assíncrona e desacoplada** da venda (outbox + worker): a venda commita primeiro; a NFC-e sai em segundos e o modal do balcão acompanha o estado real. Venda com taxa de entrega não emite até decisão contábil.
 
 ## Ver também
 
 - [[../03_Padroes_Politicas/excecao-delivery-pricing-cross-service|Exceção delivery pricing cross-service]].
-- [[Modulo_Fiscal|Módulo Fiscal]] — emissão síncrona de NFC-e no PDV vs. diferida no marketplace.
+- [[Modulo_Fiscal|Módulo Fiscal]] — NFC-e real do PDV (outbox + worker) vs. documento simulado diferido do marketplace.
 - [[Modulo_Estoque|Módulo Estoque]] — FEFO e ledgers de movimento.
 - [[Modulo_CRM|Módulo CRM]] — cashback e recorrência.
 - [[../06_Pendencias/queries-em-loop-checkout-pdv|queries em loop no checkout PDV]].
 
 ## Atualizações
 
+- 2026-09-20: fim da emissão fiscal síncrona/simulada no fechamento da venda — `complete_sale` agora só enfileira o snapshot fiscal e dispara o worker após o commit; o `NotaFiscalModal` mostra o estado real da NFC-e (sem QR fictício nem "trib. aprox. 12%"). Ver [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|ADR]] e [[../06_Pendencias/nfce-pdv-troco-taxa-entrega-cashback-e-card|pendência de troco/entrega/cashback]].
 - 2026-09-20: venda de PDV com "Entregar em casa" passou a criar também um `Order`/`OrderItem`s/`OrderFulfillment` real na finalização, entrando no mesmo pipeline `new → separating → ready → dispatched` de um pedido online (antes ficava presa a `PdvOrder`/`PdvSale`, invisível pro board e pra rota); novo método de pagamento `marketplace_card` (cobra cartão salvo do cliente via Asaas); novo campo `requested_delivery_time_label` (horário desejado, texto livre) no PDV e no checkout do marketplace. Exigiu ampliar RLS de `orders`/`customers` pra incluir `cashier`. Ver seção "Entrega de balcão vira Order" acima e [[../06_Pendencias/aplicar-migration-pdv-delivery-order-integration-em-producao|pendência de deploy]].
 - 2026-09-17: pagamento no caixa (Pix/débito/crédito) passou a integrar de verdade com a maquininha Itaú via `farmaura-pdv-bridge` (agente local, USB) — driver ainda simulado, aguardando SDK da Itaú. Sale ganhou `payment_terminal_reference` (NSU/authCode). Ver [[../00_Decisoes/2026-09-17-integracao-maquininha-itau-via-agente-usb-local|ADR]] e [[../06_Pendencias/sdk-itau-maquininha-pendente|pendência do SDK real]].
 - 2026-07-30: PDV passou a suportar cupom (antes só tinha desconto manual) — mutuamente exclusivo com o desconto manual, exige cliente identificado, respeita o mesmo teto de margem, `usage_count` incrementa só em `complete_sale`. Ver [[Modulo_CRM|Módulo CRM]] e [[../00_Decisoes/2026-07-30-cupom-validado-no-servidor-com-service-compartilhado|ADR]].
