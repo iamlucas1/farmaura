@@ -902,7 +902,31 @@ function ProfileManage({ ctx, acct }) {
                   </select>
                 </div>
                 <div className="fa-field"><label htmlFor="profile-children-count">Número de filhos</label>
-                  <input id="profile-children-count" className="fa-input" type="number" min="0" max="20" placeholder="Opcional" value={draft.childrenCount === '' || draft.childrenCount == null ? '' : draft.childrenCount} onChange={(event) => setDraftField('childrenCount', event.target.value === '' ? '' : Number(event.target.value))} />
+                  <input
+                    id="profile-children-count"
+                    className="fa-input"
+                    type="number"
+                    min="0"
+                    max="20"
+                    placeholder="Opcional"
+                    disabled={draft.childrenCount === 0}
+                    value={draft.childrenCount === '' || draft.childrenCount == null ? '' : draft.childrenCount}
+                    onChange={(event) => setDraftField('childrenCount', event.target.value === '' ? '' : Number(event.target.value))}
+                  />
+                  <label className="fa-check" data-on={draft.childrenCount === 0 ? '1' : '0'} style={{ marginTop: 8 }} onClick={() => {
+                    // "Não tenho filhos" is the explicit way to answer "0" — distinct from leaving
+                    // the field blank, which the server treats as "never answered" (see
+                    // app/domain/profile_nudge.py: 0 counts as complete, only NULL is a gap).
+                    if (draft.childrenCount === 0) {
+                      setDraftField('childrenCount', '');
+                    } else {
+                      setDraft((current) => ({ ...current, childrenCount: 0, childrenBirthYears: [], childrenNames: [] }));
+                      setSavedInfo(false);
+                      setInfoError('');
+                    }
+                  }}>
+                    <span className="box"><Icon name="check" size={14} stroke={2.6} /></span>Não tenho filhos
+                  </label>
                 </div>
                 {Number(draft.childrenCount) > 0 && (
                   <div className="fa-field fa-span2">
@@ -943,7 +967,9 @@ function ProfileManage({ ctx, acct }) {
               </div>
               {infoError ? <div style={{ marginTop: 12, color: 'var(--fa-error)', fontSize: 12.5 }}>{infoError}</div> : null}
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                <button className="fa-btn fa-btn-primary" disabled={savingInfo || !draft.name.trim() || draft.cpf.replace(/\D/g, '').length !== 11} onClick={saveInfo}><Icon name="check" size={16} stroke={2.4} />{savingInfo ? 'Salvando...' : 'Salvar alterações'}</button>
+                {/* CPF is optional (a Google-only account starts without one) — only block saving
+                    when it's partially typed, not when it's simply empty. */}
+                <button className="fa-btn fa-btn-primary" disabled={savingInfo || !draft.name.trim() || (draft.cpf.replace(/\D/g, '').length > 0 && draft.cpf.replace(/\D/g, '').length !== 11)} onClick={saveInfo}><Icon name="check" size={16} stroke={2.4} />{savingInfo ? 'Salvando...' : 'Salvar alterações'}</button>
                 <button className="fa-btn fa-btn-soft" disabled={savingInfo} onClick={() => { setDraft(profile); setInfoError(''); setEditingPersonal(false); }}>Cancelar</button>
               </div>
             </>
@@ -1204,9 +1230,12 @@ function AccountSettings({ ctx, acct }) {
   );
 }
 
-// The four profile fields promotions can target. The keys are the ones the server reports in
-// profile_nudge.missing_fields (app/domain/profile_nudge.py).
+// The profile fields promotions can target. The keys are the ones the server reports in
+// profile_nudge.missing_fields (app/domain/profile_nudge.py), same order.
 const PROFILE_NUDGE_FIELDS = [
+  { key: 'phone', label: 'Telefone', icon: 'phone' },
+  { key: 'cpf', label: 'CPF', icon: 'shield' },
+  { key: 'birth_date', label: 'Data de nascimento', icon: 'calendar' },
   { key: 'gender', label: 'Gênero', icon: 'user' },
   { key: 'marital_status', label: 'Estado civil', icon: 'heart' },
   { key: 'children', label: 'Filhos', icon: 'babyFace' },

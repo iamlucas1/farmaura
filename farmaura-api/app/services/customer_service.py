@@ -278,18 +278,26 @@ class CustomerService:
         """Persist the authenticated customer's real personal and document data."""
 
         user = await self._get_subject_user(subject)
-        cpf = normalize_cpf(payload.cpf)
-        if not is_valid_cpf(cpf):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CPF inválido.")
+        # CPF is optional here (a Google-only signup starts with none) — only validated when the
+        # customer actually provides one. Stored as NULL, never "", so the column's unique
+        # constraint never collides between two customers who both left it blank (Postgres treats
+        # every NULL as distinct; two empty strings would clash on the second save).
+        raw_cpf = payload.cpf.strip()
+        cpf: str | None = None
+        if raw_cpf:
+            cpf = normalize_cpf(raw_cpf)
+            if not is_valid_cpf(cpf):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CPF inválido.")
         customer = await self.customer_repository.get_or_create(
             tenant_id=str(subject.tenant_id),
             user_id=str(subject.user_id),
             email=user.email,
             full_name=payload.full_name,
         )
-        existing_with_cpf = await self.customer_repository.get_by_cpf(tenant_id=str(subject.tenant_id), cpf=cpf)
-        if existing_with_cpf is not None and existing_with_cpf.id != customer.id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este CPF já está cadastrado para outro cliente.")
+        if cpf is not None:
+            existing_with_cpf = await self.customer_repository.get_by_cpf(tenant_id=str(subject.tenant_id), cpf=cpf)
+            if existing_with_cpf is not None and existing_with_cpf.id != customer.id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este CPF já está cadastrado para outro cliente.")
         customer.full_name = payload.full_name.strip()
         customer.cpf = cpf
         customer.phone = payload.phone.strip()
@@ -796,6 +804,9 @@ class CustomerService:
             return ProfileNudgeResponse()
         addresses = await self.address_repository.list_for_customer(customer_id=customer.id)
         missing = missing_promotion_profile_fields(
+            phone=customer.phone,
+            cpf=customer.cpf,
+            birth_date=customer.birth_date,
             gender=customer.gender,
             marital_status=customer.marital_status,
             children_count=customer.children_count,

@@ -74,7 +74,7 @@ class CustomerProfileUpdateRequest(StrictModel):
     """Validate a customer profile update payload."""
 
     full_name: str = Field(min_length=1, max_length=255)
-    cpf: str = Field(min_length=11, max_length=14)
+    cpf: str = Field(default="", max_length=14)
     phone: str = Field(default="", max_length=32)
     birth_date: str = Field(default="", max_length=10)
     gender: str = Field(default="", max_length=40)

@@ -31,6 +31,9 @@ PROFILE_NUDGE_COOLDOWN = timedelta(days=14)
 class ProfileNudgeField(StrEnum):
     """Profile fields the popup asks the customer to complete."""
 
+    PHONE = "phone"
+    CPF = "cpf"
+    BIRTH_DATE = "birth_date"
     GENDER = "gender"
     MARITAL_STATUS = "marital_status"
     CHILDREN = "children"
@@ -39,18 +42,28 @@ class ProfileNudgeField(StrEnum):
 
 def missing_promotion_profile_fields(
     *,
+    phone: str | None,
+    cpf: str | None,
+    birth_date: str | None,
     gender: str | None,
     marital_status: str | None,
     children_count: int | None,
     has_primary_address: bool,
 ) -> list[ProfileNudgeField]:
-    """Return the promotion-relevant profile fields the customer has not filled yet, in display order."""
+    """Return the promotion-relevant profile fields the customer has not filled yet, in order."""
 
     missing: list[ProfileNudgeField] = []
+    if not (phone or "").strip():
+        missing.append(ProfileNudgeField.PHONE)
+    if not (cpf or "").strip():
+        missing.append(ProfileNudgeField.CPF)
+    if not (birth_date or "").strip():
+        missing.append(ProfileNudgeField.BIRTH_DATE)
     if not (gender or "").strip():
         missing.append(ProfileNudgeField.GENDER)
     if not (marital_status or "").strip():
         missing.append(ProfileNudgeField.MARITAL_STATUS)
+    # 0 is a real, complete answer ("no kids") — only NULL (never answered) counts as missing.
     if children_count is None:
         missing.append(ProfileNudgeField.CHILDREN)
     if not has_primary_address:
@@ -64,7 +77,7 @@ def is_profile_nudge_due(
     dismissed_at: datetime | None,
     now: datetime,
 ) -> bool:
-    """Return whether the popup should be shown: something is missing and no snooze is still running."""
+    """Return whether the popup is due: something is missing and no snooze is still running."""
 
     if not missing:
         return False
