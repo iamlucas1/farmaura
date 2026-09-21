@@ -1296,6 +1296,82 @@ function ProfileCompletionNudge({ ctx }) {
   );
 }
 
+function GoogleWelcomeProfileModal({ ctx }) {
+  /** Render a one-time "complete your profile" popup right after a fresh Google Sign-In signup.
+   *
+   * Google only hands over name, e-mail and (sometimes) a photo — every other field a normal
+   * registration collects is missing on day one. Shown instead of ProfileCompletionNudge for the
+   * exact browser session that just created the account (ctx.justSignedUpViaGoogle, an in-memory
+   * flag set by applyAuthenticatedFlow in marketplace-app.jsx — never persisted, so it never
+   * reappears on a later visit even if the fields are still missing). Dismissing it (either
+   * button) clears that flag and persists the same server-side snooze ProfileCompletionNudge
+   * uses, so from this point on the account behaves exactly like any other for nudge purposes —
+   * no separate consent mechanism, no marketing opt-in side effect (unlike the offers nudge).
+   */
+
+  const { user, profile, dismissProfileNudge, clearGoogleWelcome, onNav } = ctx;
+  const [open, setOpen] = useState(false);
+  const nudge = (profile && profile.profileNudge) || { shouldShow: false, missingFields: [] };
+  const shouldShow = !!user && nudge.shouldShow;
+
+  useEffect(() => {
+    if (!shouldShow) { setOpen(false); return; }
+    const timer = window.setTimeout(() => setOpen(true), 1200);
+    return () => window.clearTimeout(timer);
+  }, [shouldShow]);
+
+  const dismiss = () => {
+    setOpen(false);
+    clearGoogleWelcome();
+    dismissProfileNudge();
+  };
+
+  const goComplete = () => {
+    setOpen(false);
+    clearGoogleWelcome();
+    dismissProfileNudge();
+    onNav({ name: 'account', tab: 'profile' });
+  };
+
+  const remaining = nudge.missingFields.length;
+  const subtitle = (remaining === 1 ? 'Falta só 1 dado' : `Faltam só ${remaining} dados`) + ' que sua conta Google não trouxe.';
+
+  return (
+    <ModalShell open={open} onClose={dismiss} maxw={420} padded={false} className="fa-nudge">
+      <div className="fa-nudge-hero" aria-hidden="true">
+        <div className="fa-aura-layer" style={{ color: 'var(--fa-primary)' }}>
+          <span className="fa-arc" style={{ width: 220, height: 220, borderWidth: 2, top: -120, left: -60 }} />
+          <span className="fa-arc" style={{ width: 150, height: 150, borderWidth: 2, top: -30, right: -36, opacity: .35 }} />
+        </div>
+        <span className="fa-nudge-gift"><Icon name="user" size={30} /></span>
+      </div>
+      <div className="fa-nudge-body">
+        <h2 className="fa-nudge-title">Complete seu cadastro</h2>
+        <p className="fa-nudge-sub">{subtitle}</p>
+        <ul className="fa-nudge-list" aria-label="Dados do cadastro">
+          {PROFILE_NUDGE_FIELDS.map((field, index) => {
+            const done = !nudge.missingFields.includes(field.key);
+            return (
+              <li key={field.key} className={'fa-nudge-chip' + (done ? ' is-done' : '')} style={{ '--i': index }}>
+                <Icon name={done ? 'check' : field.icon} size={14} stroke={done ? 2.6 : 2} />
+                {field.label}
+                <span className="fa-sr-only">{done ? ' (preenchido)' : ' (falta preencher)'}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <button className="fa-btn fa-btn-primary fa-btn-block fa-nudge-cta" onClick={goComplete}>
+          Completar meu cadastro<Icon name="arrowR" size={16} stroke={2.4} />
+        </button>
+        <p className="fa-nudge-fine">
+          Você pode preencher isso a qualquer momento em Minha Conta → Meu perfil.
+        </p>
+        <button className="fa-nudge-skip" onClick={dismiss}>Agora não</button>
+      </div>
+    </ModalShell>
+  );
+}
+
 function CardForm({ onSave, onCancel, saving }) {
   /** Render the saved-card creation form. */
 
@@ -1411,4 +1487,4 @@ function MyCards({ ctx }) {
   );
 }
 
-export { AccountSettings, AddressForm, Block, CardForm, MyCards, ProfileCompletionNudge, ProfileManage, TwoFactorModal };
+export { AccountSettings, AddressForm, Block, CardForm, GoogleWelcomeProfileModal, MyCards, ProfileCompletionNudge, ProfileManage, TwoFactorModal };

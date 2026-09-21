@@ -379,7 +379,9 @@ class PortalService:
         await self.session.commit()
         return user
 
-    async def resolve_or_link_marketplace_account_via_google(self, identity: GoogleIdentity) -> User:
+    async def resolve_or_link_marketplace_account_via_google(
+        self, identity: GoogleIdentity
+    ) -> tuple[User, bool]:
         """Find, auto-link, or create the marketplace account for a verified Google identity.
 
         Resolution order: (1) a user already linked to this Google account — returned
@@ -390,13 +392,17 @@ class PortalService:
         account with a google_sub before being rejected downstream; (3) a brand-new
         customer + user, created with no real password (has_password=False) since the
         person never chose one — password login simply has nothing to match against.
+
+        Returns (user, is_new_account) — the caller uses is_new_account to show a
+        one-time "complete your profile" prompt right after a fresh Google signup,
+        in place of the regular promotional nudge (see 00_Decisoes/2026-09-21-...).
         """
 
         user_repository = UserRepository(self.session)
         await apply_google_login_context(self.session, identity.provider_user_id)
         linked_user = await user_repository.get_by_google_sub(identity.provider_user_id)
         if linked_user is not None:
-            return linked_user
+            return linked_user, False
 
         require_verified_email(identity)
         await apply_first_access_context(self.session, identity.email)
@@ -408,7 +414,7 @@ class PortalService:
             existing_user.google_sub = identity.provider_user_id
             await user_repository.save(existing_user)
             await self.session.commit()
-            return existing_user
+            return existing_user, False
 
         tenant_id = await self._resolve_public_tenant_id()
         customer_repository = CustomerRepository(self.session)
@@ -440,7 +446,7 @@ class PortalService:
         )
         await user_repository.add(user)
         await self.session.commit()
-        return user
+        return user, True
 
     async def get_marketplace_bootstrap(self, subject: TokenSubject) -> PortalMarketplaceBootstrapResponse:
         """Return authenticated marketplace bootstrap data for one customer."""

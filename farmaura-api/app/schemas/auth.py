@@ -129,6 +129,10 @@ class AuthenticatedResponse(StrictModel):
 
     stage: str = "authenticated"
     token_pair: "TokenPair"
+    # Only ever true for the exact response that just created the account via Google Sign-In —
+    # the frontend uses this one-shot signal to show a "complete your profile" prompt in place
+    # of the regular promotional nudge on that first session. Never persisted, never set again.
+    is_new_google_account: bool = False
 
 
 class TwoFactorChallengeResponse(StrictModel):

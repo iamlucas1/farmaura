@@ -35,6 +35,14 @@ O produto irmão LumosMed já integra "Entrar com Google", mas via fluxo **serve
 - **Achado à parte, não corrigido aqui**: o botão "Alterar senha" em Configurações → Segurança (`account-profile-screen.jsx`) é hoje decorativo (só troca estado local, nenhuma chamada à API) — pré-existente, fora do escopo deste pedido, mas relevante porque uma conta 100% Google não tem hoje nenhum caminho funcional para ganhar uma senha própria. Ver [[../06_Pendencias/sem-fluxo-definir-senha-conta-google-only|pendência]].
 - Doze testes pré-existentes falhando na suíte (não tocados nem causados por esta mudança): `test_auth_required.py` espera o shape de erro antigo `{"detail": ...}` sem o campo `category` (adicionado em 2026-09-13, teste nunca atualizado) e dois testes de `is_discarded` em `test_brand_service.py`/`test_product_service.py` — confirmado que ambos já falhavam numa base sem estas mudanças (mesmo erro, mesmo arquivo intocado).
 
+## Extensão (mesmo dia): modal própria de "complete seu cadastro" para conta nova via Google
+
+Google só entrega nome/e-mail (e às vezes foto) — nenhum dos campos que a modal de nudge existente cobre (gênero, estado civil, filhos, endereço). Pedido do usuário: na primeira sessão de uma conta recém-criada via Google, mostrar uma modal própria pedindo esses dados, no lugar da "Ofertas feitas pra você" (`ProfileCompletionNudge`); só depois de dispensada (sem preencher), a conta volta a se comportar como qualquer outra e passa a ver a modal de ofertas normalmente.
+
+- **Sinal "conta acabou de nascer"**: `resolve_or_link_marketplace_account_via_google` passou a devolver `(User, is_new_account)`; a rota `/auth/login/google` marca `AuthenticatedResponse.is_new_google_account=True` só nessa resposta exata (nunca em logins seguintes, nem no login por senha).
+- **Nada persistido**: o frontend guarda isso só em memória (`justSignedUpViaGoogle` em `marketplace-app.jsx`, setado em `applyAuthenticatedFlow`, limpo no logout/invalidação de sessão) — como só existe no momento daquele carregamento de página, já satisfaz sozinho o requisito de "só na primeira sessão" sem precisar de uma coluna nova no banco.
+- **`GoogleWelcomeProfileModal`** (`account-profile-screen.jsx`), reaproveitando a mesma detecção de campos faltantes e o mesmo endpoint de dismiss/snooze (`profile_nudge_dismissed_at`) que `ProfileCompletionNudge` já usa — diferindo só na cópia ("Complete seu cadastro" em vez de "Ofertas feitas pra você") e sem o efeito colateral de opt-in em promoções que a modal de ofertas tem (essa é uma completude de cadastro neutra, não um convite a marketing). Dispensável com "Agora não", como pedido.
+
 ## Ver também
 
 - [[../02_Documentacao/Modulo_Auth|Modulo_Auth]] — fluxo de login completo, atualizado com os três estágios novos.

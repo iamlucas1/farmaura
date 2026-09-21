@@ -17,7 +17,7 @@ import { brl } from "./marketplace-components.jsx";
 import { Icon } from "./marketplace-icons.jsx";
 import { AccountScreen, LoginScreen, UnlockAccountScreen } from "../screens/account-screen.jsx";
 import { DataRetentionScreen, PrivacyScreen, TermsScreen } from "../screens/legal-screen.jsx";
-import { ProfileCompletionNudge } from "../screens/account-profile-screen.jsx";
+import { GoogleWelcomeProfileModal, ProfileCompletionNudge } from "../screens/account-profile-screen.jsx";
 import { CareScreen } from "../screens/care-screen.jsx";
 import { CartScreen } from "../screens/cart-screen.jsx";
 import { CheckoutScreen, ConfirmScreen } from "../screens/checkout-screen.jsx";
@@ -1332,6 +1332,7 @@ function App() {
   const [sessionChatThreadIds, setSessionChatThreadIds] = useState([]);
   const [pendingAuth, setPendingAuth] = useState(null);
   const [user, setUser] = useState(null);
+  const [justSignedUpViaGoogle, setJustSignedUpViaGoogle] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [recent, setRecent] = useState([]);
   const [subs, setSubs] = useState([]);
@@ -2010,6 +2011,7 @@ function App() {
   const invalidateMarketplaceSession = () => {
     authClient.clear();
     setUser(null);
+    setJustSignedUpViaGoogle(false);
     setOrders([]);
     setOrdersRevision('');
   };
@@ -2023,6 +2025,10 @@ function App() {
       throw new Error('Nao foi possivel concluir o acesso com as credenciais informadas.');
     }
     setUser(nextUser);
+    // One-shot, never persisted: only true for the exact response that just created the account
+    // via Google — gates a "complete seu cadastro" prompt in place of the regular offers nudge
+    // for this browser session only (see 00_Decisoes/2026-09-21-login-google-marketplace-id-token-flow).
+    setJustSignedUpViaGoogle(!!flow.is_new_google_account);
     window.FA_OBS.emit({
       portal: 'marketplace',
       type: 'auth',
@@ -2065,6 +2071,7 @@ function App() {
     window.FA_OBS.emit({ portal: 'marketplace', type: 'auth', action: 'auth.logout', route: route.name, userRole: user && user.role || '', accessScope: user && user.accessScope || '' });
     await authClient.logout();
     setUser(null);
+    setJustSignedUpViaGoogle(false);
     setOrders([]);
     setOrdersRevision('');
     setProducts([]);
@@ -2732,6 +2739,7 @@ function App() {
     homeTrends: portalData.homeTrends,
     dealOfTheDay: portalData.dealOfTheDay,
     profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, dismissProfileNudge, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
+    justSignedUpViaGoogle, clearGoogleWelcome: () => setJustSignedUpViaGoogle(false),
     googleOauthClientId: portalData.googleOauthClientId, linkGoogleAccount, unlinkGoogleAccount,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
     cards, tokenizeAndSaveCard, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,
@@ -2844,7 +2852,7 @@ function App() {
           onSwitchToPhysical={() => { setPrescriptionKind('physical'); setChatWidgetContext(null); }}
         />
       )}
-      {user && <ProfileCompletionNudge ctx={ctx} />}
+      {user && (justSignedUpViaGoogle ? <GoogleWelcomeProfileModal ctx={ctx} /> : <ProfileCompletionNudge ctx={ctx} />)}
 
       {/* toast */}
       {toast && (

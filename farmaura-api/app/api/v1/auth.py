@@ -161,15 +161,18 @@ async def login_google(
 
     identity = await verify_google_id_token(token=payload.id_token, client_id=settings.google_oauth_client_id)
     portal_service = PortalService(session)
-    user = await portal_service.resolve_or_link_marketplace_account_via_google(identity)
+    user, is_new_account = await portal_service.resolve_or_link_marketplace_account_via_google(identity)
     auth_service = AuthService(session=session, settings=settings)
-    return await auth_service.continue_login(
+    result = await auth_service.continue_login(
         user,
         portal=PortalName.MARKETPLACE,
         remember_session=payload.remember_session,
         ip_address=request.client.host if request.client else "",
         user_agent=request.headers.get("user-agent", ""),
     )
+    if is_new_account and isinstance(result, AuthenticatedResponse):
+        result.is_new_google_account = True
+    return result
 
 
 @router.post("/google/link", response_model=GoogleAccountStatusResponse)
