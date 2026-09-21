@@ -2309,9 +2309,9 @@ function App() {
     }
     let active = true;
     let retryTimer = null;
+    const canUsePrivateCatalog = !!(user && window.FA_ACCESS.canAccessMarketplace(user));
     async function syncMarketplaceData() {
       try {
-        const canUsePrivateCatalog = !!(user && window.FA_ACCESS.canAccessMarketplace(user));
         const publicBootstrapPayload = await authClient.publicRequest('/portal/marketplace/public-bootstrap', { method: 'GET' });
         if (!active) {
           return;
@@ -2420,6 +2420,17 @@ function App() {
           setOrdersRevision(ordersPayload.revision || '');
         }
       } catch (error) {
+        const status = Number(error && error.status || 0);
+        // The backend's own "orphaned session" guard: the access token decodes fine (not
+        // expired/tampered) but its user_id no longer matches any row — e.g. a browser tab left
+        // open across a database reset/reseed, or an account deleted server-side. Falling back to
+        // a blank cached shell here left the customer stuck looking "logged in" with an empty
+        // avatar/name and nothing working — logging out cleanly (same as clicking "Sair") is the
+        // only state that's actually recoverable, since there is nothing real left to show.
+        if (active && canUsePrivateCatalog && status === 404) {
+          invalidateMarketplaceSession();
+          return;
+        }
         if (active) {
           const fallbackProducts = resolveMarketplaceCatalogSnapshot();
           if (fallbackProducts.length) {
@@ -2433,7 +2444,6 @@ function App() {
           setCoupons(cachedBootstrap.coupons || []);
           setCustomerProfile(createMarketplaceProfileSnapshot(user));
         }
-        const status = Number(error && error.status || 0);
         if (active && retryTimer == null && [502, 503, 504].includes(status)) {
           retryTimer = window.setTimeout(() => {
             retryTimer = null;
