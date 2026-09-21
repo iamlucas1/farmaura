@@ -16,5 +16,6 @@ Observations:
 import "../react/marketplace/marketplace.css";
 import "../react/shared/access-control.js";
 import "../react/shared/api-client.js";
+import "../react/shared/google-identity.js";
 import "../react/shared/observability.js";
 import "../react/marketplace/core/marketplace-app.jsx";

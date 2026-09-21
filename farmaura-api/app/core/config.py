@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     jwt_private_key: str
     jwt_public_key: str
     jwt_algorithm: str = "HS256"
+    google_oauth_client_id: str = ""
     storage_root: Path = Path("farmaura-api/storage/private")
     storage_tmp_root: Path = Path("farmaura-api/storage/tmp")
     storage_quarantine_root: Path = Path("farmaura-api/storage/quarantine")

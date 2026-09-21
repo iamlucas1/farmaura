@@ -203,6 +203,13 @@ Observations:
           }),
         });
       },
+      async loginWithGoogle(payload) {
+        return rawRequest('/auth/login/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      },
       async verifyTwoFactor(payload) {
         return rawRequest('/auth/verify-2fa', {
           method: 'POST',
@@ -254,6 +261,18 @@ Observations:
         return authenticatedRequest('/auth/2fa/disable', {
           method: 'POST',
           body: JSON.stringify({ code }),
+        });
+      },
+      async linkGoogle(idToken) {
+        return authenticatedRequest('/auth/google/link', {
+          method: 'POST',
+          body: JSON.stringify({ id_token: idToken }),
+        });
+      },
+      async unlinkGoogle() {
+        return authenticatedRequest('/auth/google/unlink', {
+          method: 'POST',
+          body: JSON.stringify({}),
         });
       },
       async fetchSession() {

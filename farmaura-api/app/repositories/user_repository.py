@@ -39,6 +39,13 @@ class UserRepository:
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_by_google_sub(self, google_sub: str) -> User | None:
+        """Return an active user already linked to the given Google account."""
+
+        statement = select(User).where(User.google_sub == google_sub, User.is_active.is_(True))
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
     async def get_by_id(self, user_id: str) -> User | None:
         """Return an active user by identifier."""
 

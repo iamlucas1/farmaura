@@ -1,7 +1,7 @@
 /* FARMAURA — Account: LoginScreen + AccountScreen shell + Summary + Order pieces. */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { MARKETPLACE_LOGO_FULL_URL } from "../core/marketplace-assets.js";
-import { brl } from "../core/marketplace-components.jsx";
+import { AuraLayer, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { ConversationsInbox, HealthServices, MyOrders, SavedProducts } from "./account-health-screen.jsx";
 import { buildAddressLine, buildAddressSecondaryLine, normalizeAddress } from "../core/marketplace-address.js";
@@ -18,8 +18,10 @@ const LOGIN_MODE_ORDER = ['login', 'register', 'first-access'];
 const LOGIN_MODE_LABELS = { login: 'Entrar', register: 'Criar conta', 'first-access': 'Primeiro acesso' };
 
 function LoginScreen({ ctx }) {
-  const { onNav, authClient, finalizeAuthenticatedSession } = ctx;
-  const [mode, setMode] = useState('login'); // 'login' | 'register' | 'first-access'
+  const { onNav, authClient, finalizeAuthenticatedSession, route, googleOauthClientId } = ctx;
+  // Deep-link support (?mode=register) so a "Criar conta" CTA elsewhere (e.g. the logged-out
+  // account gate) can land straight on the register tab instead of always defaulting to login.
+  const [mode, setMode] = useState(route && route.mode === 'register' ? 'register' : 'login'); // 'login' | 'register' | 'first-access'
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [show, setShow] = useState(false);
@@ -91,20 +93,7 @@ function LoginScreen({ ctx }) {
         password: pass,
         remember_session: remember,
       });
-      if (flow.stage === 'two_factor_required') {
-        setChallengeToken(flow.challenge_token);
-        setStage('two_factor');
-        setCode('');
-        return;
-      }
-      if (flow.stage === 'password_change_required') {
-        setChallengeToken(flow.challenge_token);
-        setStage('password_change');
-        setNewPassword('');
-        setConfirmPassword('');
-        return;
-      }
-      await finalizeAuthenticatedSession(flow, remember);
+      await applyLoginFlow(flow);
     } catch (requestError) {
       setError(requestError && requestError.message ? requestError.message : 'Não foi possível autenticar sua sessão.');
     } finally {
@@ -125,6 +114,53 @@ function LoginScreen({ ctx }) {
       setFirstAccessBusy(false);
     }
   };
+
+  const googleButtonRef = useRef(null);
+  const [googleError, setGoogleError] = useState('');
+  const showGoogleButton = !!googleOauthClientId && (mode === 'register' || (mode === 'login' && stage === 'credentials'));
+
+  const applyLoginFlow = async (flow) => {
+    if (flow.stage === 'two_factor_required') {
+      setChallengeToken(flow.challenge_token);
+      setStage('two_factor');
+      setCode('');
+      return;
+    }
+    if (flow.stage === 'password_change_required') {
+      setChallengeToken(flow.challenge_token);
+      setStage('password_change');
+      setNewPassword('');
+      setConfirmPassword('');
+      return;
+    }
+    await finalizeAuthenticatedSession(flow, remember);
+  };
+
+  const handleGoogleCredential = async (idToken) => {
+    setGoogleError('');
+    setBusy(true);
+    try {
+      const flow = await authClient.loginWithGoogle({ id_token: idToken, remember_session: remember });
+      await applyLoginFlow(flow);
+    } catch (requestError) {
+      setGoogleError(requestError && requestError.message ? requestError.message : 'Não foi possível entrar com o Google agora.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showGoogleButton || !googleButtonRef.current || !window.FA_GOOGLE_IDENTITY) {
+      return;
+    }
+    window.FA_GOOGLE_IDENTITY.renderGoogleButton(googleButtonRef.current, {
+      clientId: googleOauthClientId,
+      text: mode === 'register' ? 'signup_with' : 'continue_with',
+      onCredential: handleGoogleCredential,
+      onError: () => setGoogleError('Não foi possível carregar o login do Google agora.'),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGoogleButton, mode]);
 
   const submitRegister = async (e) => {
     e.preventDefault();
@@ -167,6 +203,17 @@ function LoginScreen({ ctx }) {
             <React.Fragment>
               <h1 className="fa-h2" style={{ marginBottom: 6 }}>Vamos começar</h1>
               <p className="fa-muted" style={{ fontSize: 14, marginBottom: 22 }}>Crie sua conta em menos de um minuto.</p>
+              {showGoogleButton && (
+                <React.Fragment>
+                  <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center' }} />
+                  {googleError && <div className="fa-card" style={{ padding: '14px 16px', marginTop: 12, background: 'var(--fa-rose-soft)', color: 'var(--fa-primary)', fontWeight: 600, fontSize: 13.5 }}>{googleError}</div>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 4px', color: 'var(--fa-ink-3)', fontSize: 12, fontWeight: 600 }}>
+                    <span style={{ flex: 1, height: 1, background: 'var(--fa-mist)' }} />
+                    ou continue com e-mail
+                    <span style={{ flex: 1, height: 1, background: 'var(--fa-mist)' }} />
+                  </div>
+                </React.Fragment>
+              )}
               <form onSubmit={submitRegister} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div className="fa-field"><label htmlFor="register-name">Nome completo</label>
                   <input id="register-name" className="fa-input" value={registerName} onChange={(e) => setRegisterName(e.target.value)} placeholder="Seu nome" />
@@ -230,6 +277,18 @@ function LoginScreen({ ctx }) {
               <h1 className="fa-h2" style={{ marginBottom: 6 }}>{stage === 'password_change' ? 'Defina sua nova senha' : 'Bem-vinda de volta'}</h1>
               <p className="fa-muted" style={{ fontSize: 14, marginBottom: 22 }}>{stage === 'password_change' ? 'Este é o seu primeiro acesso — crie uma senha só sua para continuar.' : 'Acesse sua conta Farmaura.'}</p>
 
+              {showGoogleButton && (
+                <React.Fragment>
+                  <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center' }} />
+                  {googleError && <div className="fa-card" style={{ padding: '14px 16px', marginTop: 12, background: 'var(--fa-rose-soft)', color: 'var(--fa-primary)', fontWeight: 600, fontSize: 13.5 }}>{googleError}</div>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 4px', color: 'var(--fa-ink-3)', fontSize: 12, fontWeight: 600 }}>
+                    <span style={{ flex: 1, height: 1, background: 'var(--fa-mist)' }} />
+                    ou continue com e-mail
+                    <span style={{ flex: 1, height: 1, background: 'var(--fa-mist)' }} />
+                  </div>
+                </React.Fragment>
+              )}
+
               <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 {stage === 'credentials' && (
                   <React.Fragment>
@@ -285,11 +344,6 @@ function LoginScreen({ ctx }) {
                 </button>
               </form>
 
-              {stage === 'credentials' && (
-                <div className="fa-card" style={{ marginTop: 20, padding: '14px 16px', background: 'var(--fa-mist-2)', color: 'var(--fa-ink-2)', fontSize: 13.5, lineHeight: 1.5 }}>
-                  O acesso neste ambiente está habilitado apenas por e-mail e senha. Login social, incluindo Google, permanece desativado.
-                </div>
-              )}
               {stage === 'two_factor' && (
                 <p className="fa-muted" style={{ fontSize: 13, lineHeight: 1.5, marginTop: 18 }}>
                   A dupla autenticação está ativa para esta conta. Informe o código temporário do aplicativo autenticador para concluir o acesso.
@@ -545,10 +599,10 @@ function AccountScreen({ ctx }) {
   const [tab, setTab] = useState(route.tab || 'profile');
   useEffect(() => { if (route.tab) setTab(route.tab); }, [route.tab]);
 
-  const [profile, setProfile] = useState({ ...ctx.profile, name: ctx.profile.name || user.name, email: ctx.profile.email || user.email });
+  const [profile, setProfile] = useState({ ...ctx.profile, name: ctx.profile.name || (user && user.name), email: ctx.profile.email || (user && user.email) });
   useEffect(() => {
-    setProfile({ ...ctx.profile, name: ctx.profile.name || user.name, email: ctx.profile.email || user.email });
-  }, [ctx.profile, user.name, user.email]);
+    setProfile({ ...ctx.profile, name: ctx.profile.name || (user && user.name), email: ctx.profile.email || (user && user.email) });
+  }, [ctx.profile, user && user.name, user && user.email]);
   const [programs, setPrograms] = useState(ctx.privacyPrograms);
   const [channels, setChannels] = useState(ctx.commChannels);
   useEffect(() => { setPrograms(ctx.privacyPrograms); }, [ctx.privacyPrograms]);
@@ -558,11 +612,24 @@ function AccountScreen({ ctx }) {
 
   if (!user) {
     return (
-      <div className="fa-wrap fa-fadein" style={{ paddingTop: 60, paddingBottom: 80, textAlign: 'center' }}>
-        <span className="fa-iconbox" style={{ margin: '0 auto 18px', width: 72, height: 72 }}><Icon name="bag" size={32} /></span>
-        <h1 className="fa-h2">Entre para acessar sua conta</h1>
-        <p className="fa-lead" style={{ marginTop: 8 }}>Acompanhe pedidos, serviços de saúde, cartões e mais em um só lugar.</p>
-        <button className="fa-btn fa-btn-primary fa-btn-lg" style={{ marginTop: 22 }} onClick={() => onNav({ name: 'login' })}>Entrar na conta</button>
+      <div className="fa-wrap fa-fadein" style={{ paddingTop: 28, paddingBottom: 80 }}>
+        <section className="fa-card" style={{ position: 'relative', overflow: 'hidden', background: 'var(--fa-rose-soft)', border: 'none', padding: 'clamp(30px,5vw,52px)', minHeight: 'clamp(420px, 56vh, 620px)', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'center' }}>
+          <AuraLayer tone="var(--fa-primary)" />
+          <img className="fa-account-gate-mark" src={MARKETPLACE_LOGO_FULL_URL} alt="" aria-hidden="true" />
+          <div style={{ position: 'relative', zIndex: 1, maxWidth: 560, margin: '0 auto' }}>
+            <span className="fa-eyebrow">Sua conta Farmaura</span>
+            <h1 className="fa-h1" style={{ color: 'var(--fa-primary)', marginTop: 10 }}>Cuidado que acompanha cada compra</h1>
+            <p className="fa-lead" style={{ marginTop: 14, color: 'var(--fa-primary-ink)' }}>
+              Crie sua conta para acumular cashback, acompanhar pedidos e comprar com poucos cliques da próxima vez — leva menos de um minuto.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginTop: 26 }}>
+              <button type="button" className="fa-btn fa-btn-primary fa-btn-lg" onClick={() => onNav({ name: 'login', mode: 'register' })}>
+                Criar minha conta<Icon name="arrowR" size={16} />
+              </button>
+              <button type="button" className="fa-btn fa-btn-ghost fa-btn-lg" onClick={() => onNav({ name: 'login' })}>Já tenho conta</button>
+            </div>
+          </div>
+        </section>
       </div>
     );
   }

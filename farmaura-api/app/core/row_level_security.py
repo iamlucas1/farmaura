@@ -258,6 +258,15 @@ RLS_STATEMENTS: tuple[str, ...] = (
             $$;
     """,
     """
+    CREATE OR REPLACE FUNCTION app_private.current_login_google_sub()
+            RETURNS text
+            LANGUAGE sql
+            STABLE
+            AS $$
+                SELECT NULLIF(current_setting('app.current_login_google_sub', true), '')
+            $$;
+    """,
+    """
     CREATE OR REPLACE FUNCTION app_private.current_webhook_payment_id()
             RETURNS text
             LANGUAGE sql
@@ -439,6 +448,7 @@ RLS_STATEMENTS: tuple[str, ...] = (
             USING (
                 lower(email) = app_private.current_login_email()
                 OR lower(email) = app_private.current_first_access_email()
+                OR (google_sub IS NOT NULL AND google_sub = app_private.current_login_google_sub())
                 OR (
                     tenant_id = app_private.current_tenant_id()
                     AND (

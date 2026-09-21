@@ -47,6 +47,13 @@ class User(Base, UuidModel, TimestampedModel):
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    # False only for accounts created purely via Google Sign-In: password_hash still holds a
+    # random, never-issued Argon2 hash (keeps the column NOT NULL) but no real password exists,
+    # so password login always fails and unlinking Google is blocked to avoid a self-lockout.
+    has_password: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # The Google account's stable "sub" claim, once linked — never the e-mail (which the person
+    # could change on Google's side). NULL for accounts that never linked a Google Sign-In.
+    google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), default=UserRole.CUSTOMER.value, nullable=False)
     access_scope: Mapped[str] = mapped_column(

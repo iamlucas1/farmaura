@@ -75,6 +75,8 @@ Observations:
       avatar: source.avatar || '',
       twoFactorEnabled: !!source.twoFactorEnabled,
       uiTheme: normalizeUiTheme(source.uiTheme),
+      googleLinked: !!source.googleLinked,
+      hasPassword: source.hasPassword !== false,
     };
   }
 
@@ -91,6 +93,8 @@ Observations:
       avatar: buildAvatarLabel(source.full_name || source.email || ''),
       twoFactorEnabled: !!source.two_factor_enabled,
       uiTheme: normalizeUiTheme(source.ui_theme),
+      googleLinked: !!source.google_linked,
+      hasPassword: source.has_password !== false,
     });
   }
 

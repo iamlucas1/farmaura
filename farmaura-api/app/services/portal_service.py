@@ -30,9 +30,18 @@ from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.core.device_detection import detect_device_type
+from app.core.google_identity import GoogleIdentity, require_verified_email
 from app.core.password_hashing import hash_password
-from app.core.tenant_context import apply_first_access_context, apply_public_marketplace_context, apply_tenant_context
-from app.domain.enums import AccessScope, OrderStatus, UserRole
+from app.core.tenant_context import (
+    apply_authenticated_context,
+    apply_first_access_context,
+    apply_google_login_context,
+    apply_public_marketplace_context,
+    apply_tenant_context,
+)
+from app.domain.enums import AccessScope, OrderStatus, PortalName, UserRole
+from app.domain.errors import AuthenticationError
+from app.domain.permissions import can_access_portal
 from app.domain.validators import is_valid_email
 from app.schemas.deliveries import DeliveryRouteListResponse
 from app.repositories.category_repository import CategoryRepository
@@ -298,6 +307,7 @@ class PortalService:
             health_services=health_services,
             coupons=coupons,
             delivery_estimate=await self._resolve_marketplace_delivery_estimate(tenant_id=tenant_id),
+            google_oauth_client_id=get_settings().google_oauth_client_id,
         )
 
     async def request_marketplace_first_access(self, payload: PortalFirstAccessRequest) -> PortalFirstAccessResponse:
@@ -369,6 +379,69 @@ class PortalService:
         await self.session.commit()
         return user
 
+    async def resolve_or_link_marketplace_account_via_google(self, identity: GoogleIdentity) -> User:
+        """Find, auto-link, or create the marketplace account for a verified Google identity.
+
+        Resolution order: (1) a user already linked to this Google account — returned
+        as-is, no write; (2) an existing account with the same, Google-verified e-mail —
+        linked automatically (Google having verified the e-mail is exactly the signal
+        that makes an automatic merge safe), but only after confirming the account is
+        marketplace-eligible, so a Google login attempt can never tag an internal staff
+        account with a google_sub before being rejected downstream; (3) a brand-new
+        customer + user, created with no real password (has_password=False) since the
+        person never chose one — password login simply has nothing to match against.
+        """
+
+        user_repository = UserRepository(self.session)
+        await apply_google_login_context(self.session, identity.provider_user_id)
+        linked_user = await user_repository.get_by_google_sub(identity.provider_user_id)
+        if linked_user is not None:
+            return linked_user
+
+        require_verified_email(identity)
+        await apply_first_access_context(self.session, identity.email)
+        existing_user = await user_repository.get_by_email(identity.email)
+        if existing_user is not None:
+            if not can_access_portal(UserRole(existing_user.role), AccessScope(existing_user.access_scope), PortalName.MARKETPLACE):
+                raise AuthenticationError()
+            await apply_authenticated_context(self.session, tenant_id=existing_user.tenant_id, user_id=existing_user.id)
+            existing_user.google_sub = identity.provider_user_id
+            await user_repository.save(existing_user)
+            await self.session.commit()
+            return existing_user
+
+        tenant_id = await self._resolve_public_tenant_id()
+        customer_repository = CustomerRepository(self.session)
+        customer = await customer_repository.get_by_email(tenant_id=tenant_id, email=identity.email)
+        if customer is None:
+            customer = Customer(
+                id=str(uuid4()),
+                tenant_id=tenant_id,
+                external_code="web-" + uuid4().hex[:8],
+                full_name=identity.full_name or identity.email.split("@")[0],
+                email=identity.email,
+                avatar_url=identity.avatar_url,
+                member_since_label="Agora",
+                loyalty_tier="Novo",
+            )
+            await customer_repository.add(customer)
+
+        user = User(
+            id=str(uuid4()),
+            tenant_id=tenant_id,
+            email=identity.email,
+            password_hash=hash_password(uuid4().hex + uuid4().hex),
+            has_password=False,
+            google_sub=identity.provider_user_id,
+            full_name=identity.full_name or customer.full_name,
+            role=UserRole.CUSTOMER.value,
+            access_scope=AccessScope.MARKETPLACE.value,
+            must_change_password=False,
+        )
+        await user_repository.add(user)
+        await self.session.commit()
+        return user
+
     async def get_marketplace_bootstrap(self, subject: TokenSubject) -> PortalMarketplaceBootstrapResponse:
         """Return authenticated marketplace bootstrap data for one customer."""
 
@@ -398,6 +471,7 @@ class PortalService:
             subscriptions=subscriptions,
             coupons=coupons,
             delivery_estimate=await self._resolve_marketplace_delivery_estimate(tenant_id=str(customer.tenant_id)),
+            google_oauth_client_id=get_settings().google_oauth_client_id,
         )
 
     async def get_internal_bootstrap(self, subject: TokenSubject, *, requested_store_id: str = "") -> PortalInternalBootstrapResponse:

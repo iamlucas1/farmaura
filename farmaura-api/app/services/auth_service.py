@@ -22,6 +22,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.google_identity import require_verified_email, verify_google_id_token
 from app.core.jwt import (
     create_access_token,
     create_mfa_challenge_token,
@@ -51,6 +52,8 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.auth import (
     AuthenticatedResponse,
     CompletePasswordResetRequest,
+    GoogleAccountStatusResponse,
+    GoogleLinkRequest,
     LoginRequest,
     LogoutAllResponse,
     LogoutRequest,
@@ -115,9 +118,33 @@ class AuthService:
                 )
             raise AuthenticationError()
         await clear_failed_attempts(normalized_email)
+        return await self.continue_login(
+            user,
+            portal=payload.portal,
+            remember_session=payload.remember_session,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+    async def continue_login(
+        self,
+        user: User,
+        *,
+        portal: PortalName,
+        remember_session: bool,
+        ip_address: str,
+        user_agent: str,
+    ) -> AuthenticatedResponse | TwoFactorChallengeResponse | PasswordChangeRequiredResponse:
+        """Continue the login flow for an already-verified user (password or Google).
+
+        Shared tail of every credential-verification path: enforce the portal
+        check, branch into a mandatory password reset or MFA challenge exactly
+        like a password login would, or issue tokens directly.
+        """
+
         role = UserRole(user.role)
         access_scope = AccessScope(user.access_scope)
-        self._ensure_portal_login_allowed(role=role, access_scope=access_scope, portal=payload.portal)
+        self._ensure_portal_login_allowed(role=role, access_scope=access_scope, portal=portal)
         user_id = UUID(user.id)
         tenant_id = UUID(user.tenant_id)
         if user.must_change_password:
@@ -127,8 +154,8 @@ class AuthService:
                 tenant_id=tenant_id,
                 role=role,
                 access_scope=access_scope,
-                portal=payload.portal,
-                remember_session=payload.remember_session,
+                portal=portal,
+                remember_session=remember_session,
                 session_version=user.session_version,
             )
             return PasswordChangeRequiredResponse(
@@ -144,8 +171,8 @@ class AuthService:
                 tenant_id=tenant_id,
                 role=role,
                 access_scope=access_scope,
-                portal=payload.portal,
-                remember_session=payload.remember_session,
+                portal=portal,
+                remember_session=remember_session,
                 session_version=user.session_version,
             )
             return TwoFactorChallengeResponse(
@@ -158,7 +185,7 @@ class AuthService:
             role=role,
             access_scope=access_scope,
             session_version=user.session_version,
-            remember_session=payload.remember_session,
+            remember_session=remember_session,
             ip_address=ip_address,
             user_agent=user_agent,
             store_id=user.store_id,
@@ -319,6 +346,36 @@ class AuthService:
         await self.user_repository.save(user)
         await self.session.commit()
         return UserPreferencesResponse(ui_theme=payload.ui_theme)
+
+    async def link_google_account(self, subject: TokenSubject, payload: GoogleLinkRequest) -> GoogleAccountStatusResponse:
+        """Link the authenticated marketplace account to a verified Google identity."""
+
+        identity = await verify_google_id_token(token=payload.id_token, client_id=self.settings.google_oauth_client_id)
+        require_verified_email(identity)
+        user = await self._get_subject_user(subject)
+        existing_link = await self.user_repository.get_by_google_sub(identity.provider_user_id)
+        if existing_link is not None and existing_link.id != user.id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Esta conta Google já está vinculada a outro usuário.")
+        user.google_sub = identity.provider_user_id
+        await self.user_repository.save(user)
+        await self.session.commit()
+        return GoogleAccountStatusResponse(linked=True, email=identity.email)
+
+    async def unlink_google_account(self, subject: TokenSubject) -> GoogleAccountStatusResponse:
+        """Remove the Google Sign-In link from the authenticated marketplace account."""
+
+        user = await self._get_subject_user(subject)
+        if user.google_sub is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Esta conta não está vinculada ao Google.")
+        if not user.has_password:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Defina uma senha antes de desvincular sua conta Google, para não perder o acesso.",
+            )
+        user.google_sub = None
+        await self.user_repository.save(user)
+        await self.session.commit()
+        return GoogleAccountStatusResponse(linked=False)
 
     async def refresh(
         self,

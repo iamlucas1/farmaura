@@ -36,6 +36,26 @@ class LoginRequest(StrictModel):
     portal: PortalName
 
 
+class GoogleLoginRequest(StrictModel):
+    """Validate a Google Sign-In login/registration request."""
+
+    id_token: str = Field(min_length=32, max_length=4096)
+    remember_session: bool = False
+
+
+class GoogleLinkRequest(StrictModel):
+    """Validate a request to link a Google account to the authenticated user."""
+
+    id_token: str = Field(min_length=32, max_length=4096)
+
+
+class GoogleAccountStatusResponse(StrictModel):
+    """Represent the outcome of linking or unlinking a Google account."""
+
+    linked: bool
+    email: str = ""
+
+
 class TokenSubject(StrictModel):
     """Represent the authenticated token subject."""
 
@@ -57,6 +77,8 @@ class AuthSessionResponse(StrictModel):
     allowed_modules: list[str]
     two_factor_enabled: bool
     ui_theme: UiTheme = UiTheme.AUTO
+    google_linked: bool = False
+    has_password: bool = True
 
 
 class UserPreferencesRequest(StrictModel):

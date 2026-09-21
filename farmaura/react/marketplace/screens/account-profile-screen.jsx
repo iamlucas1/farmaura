@@ -1032,6 +1032,50 @@ function AccountSettings({ ctx, acct }) {
   const [twoFactorModalMode, setTwoFactorModalMode] = useState('');
   const [savedPass, setSavedPass] = useState(false);
 
+  const { user, googleOauthClientId, linkGoogleAccount, unlinkGoogleAccount } = ctx;
+  const googleLinked = !!(user && user.googleLinked);
+  const googleLinkButtonRef = useRef(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleError, setGoogleError] = useState('');
+  const showGoogleLinkButton = !!googleOauthClientId && !googleLinked;
+
+  const handleGoogleLinkCredential = async (idToken) => {
+    setGoogleError('');
+    setGoogleBusy(true);
+    try {
+      await linkGoogleAccount(idToken);
+    } catch (error) {
+      setGoogleError(error && error.message ? error.message : 'Não foi possível vincular sua conta Google agora.');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
+  const handleGoogleUnlink = async () => {
+    setGoogleError('');
+    setGoogleBusy(true);
+    try {
+      await unlinkGoogleAccount();
+    } catch (error) {
+      setGoogleError(error && error.message ? error.message : 'Não foi possível desvincular sua conta Google agora.');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showGoogleLinkButton || !googleLinkButtonRef.current || !window.FA_GOOGLE_IDENTITY) {
+      return;
+    }
+    window.FA_GOOGLE_IDENTITY.renderGoogleButton(googleLinkButtonRef.current, {
+      clientId: googleOauthClientId,
+      text: 'continue_with',
+      onCredential: handleGoogleLinkCredential,
+      onError: () => setGoogleError('Não foi possível carregar o login do Google agora.'),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGoogleLinkButton]);
+
   const toggleProgram = async (name, value) => {
     const next = programs.map((program) => program.name === name ? { ...program, enabled: value } : program);
     setPrograms(next);
@@ -1086,6 +1130,25 @@ function AccountSettings({ ctx, acct }) {
                 <span className="set-row-sub">Use um aplicativo autenticador para aprovar cada novo login com um código temporário.</span>
               </div>
               <div className="set-row-action"><Toggle on={!!profile.twoFactor} onChange={(value) => setTwoFactorModalMode(value ? 'enable' : 'disable')} ariaLabel="autenticação de dois fatores" /></div>
+            </div>
+            <div className="set-row">
+              <span className="set-row-icon"><Icon name="user" size={17} /></span>
+              <div className="set-row-info">
+                <span className="set-row-title">Conta Google{googleLinked ? <span className="set-badge is-on">Vinculada</span> : null}</span>
+                <span className="set-row-sub">
+                  {googleLinked ? 'Você também pode entrar com sua conta Google, além de e-mail e senha.' : 'Vincule para poder entrar também com sua conta Google, além de e-mail e senha.'}
+                </span>
+                {googleError && <span style={{ display: 'block', marginTop: 6, color: 'var(--fa-error)', fontSize: 12.5 }}>{googleError}</span>}
+              </div>
+              <div className="set-row-action">
+                {googleLinked ? (
+                  <button className="ghost-btn" type="button" disabled={googleBusy} onClick={handleGoogleUnlink}>
+                    {googleBusy ? 'Desvinculando...' : 'Desvincular'}
+                  </button>
+                ) : showGoogleLinkButton ? (
+                  <div ref={googleLinkButtonRef} />
+                ) : null}
+              </div>
             </div>
           </div>
         </section>

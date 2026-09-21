@@ -839,6 +839,7 @@ function normalizeMarketplacePortalData(payload) {
       freeAboveSubtotal: Number(source.delivery_estimate.free_above_subtotal || 0),
       baseFee: Number(source.delivery_estimate.base_fee || 0),
     } : { freeAboveSubtotal: 120, baseFee: 9.9 },
+    googleOauthClientId: source.google_oauth_client_id || '',
   };
 }
 
@@ -2702,6 +2703,20 @@ function App() {
     return response;
   };
 
+  const applyMarketplaceGoogleLinkState = (linked) => setUser((current) => current ? { ...current, googleLinked: !!linked } : current);
+
+  const linkGoogleAccount = async (idToken) => {
+    const response = await authClient.linkGoogle(idToken);
+    applyMarketplaceGoogleLinkState(response && response.linked);
+    return response;
+  };
+
+  const unlinkGoogleAccount = async () => {
+    const response = await authClient.unlinkGoogle();
+    applyMarketplaceGoogleLinkState(false);
+    return response;
+  };
+
   const ctx = {
     cats: portalData.categories, products, route, onNav, onSearch,
     items, coupon, setCoupon, addToCart, updateQty, removeItem, patchItem, toggleItemSub,
@@ -2717,6 +2732,7 @@ function App() {
     homeTrends: portalData.homeTrends,
     dealOfTheDay: portalData.dealOfTheDay,
     profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, dismissProfileNudge, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
+    googleOauthClientId: portalData.googleOauthClientId, linkGoogleAccount, unlinkGoogleAccount,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
     cards, tokenizeAndSaveCard, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,
     privacyPrograms: buildPrivacyPreferenceList(MARKETING_PROGRAM_CATALOG, customerProfile.marketingProgramPreferences, 'name'),

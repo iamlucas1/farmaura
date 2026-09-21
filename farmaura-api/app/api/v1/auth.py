@@ -24,16 +24,21 @@ from app.api.deps import (
     get_session,
     get_subject_session,
     require_internal_subject,
+    require_marketplace_subject,
 )
 from app.core.config import Settings
+from app.core.google_identity import verify_google_id_token
 from app.core.rate_limit import AUTH_RATE_LIMIT, rate_limit
-from app.domain.enums import UiTheme
+from app.domain.enums import PortalName, UiTheme
 from app.domain.permissions import get_allowed_modules, get_allowed_portals
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import (
     AuthSessionResponse,
     AuthenticatedResponse,
     CompletePasswordResetRequest,
+    GoogleAccountStatusResponse,
+    GoogleLinkRequest,
+    GoogleLoginRequest,
     LoginRequest,
     LogoutAllResponse,
     LogoutRequest,
@@ -139,6 +144,57 @@ async def register(
         ip_address=request.client.host if request.client else "",
         user_agent=request.headers.get("user-agent", ""),
     )
+
+
+@router.post(
+    "/login/google",
+    response_model=AuthenticatedResponse | TwoFactorChallengeResponse | PasswordChangeRequiredResponse,
+    dependencies=[Depends(rate_limit(AUTH_RATE_LIMIT))],
+)
+async def login_google(
+    payload: GoogleLoginRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> AuthenticatedResponse | TwoFactorChallengeResponse | PasswordChangeRequiredResponse:
+    """Authenticate (creating the account on first use) via Google Sign-In. Marketplace only."""
+
+    identity = await verify_google_id_token(token=payload.id_token, client_id=settings.google_oauth_client_id)
+    portal_service = PortalService(session)
+    user = await portal_service.resolve_or_link_marketplace_account_via_google(identity)
+    auth_service = AuthService(session=session, settings=settings)
+    return await auth_service.continue_login(
+        user,
+        portal=PortalName.MARKETPLACE,
+        remember_session=payload.remember_session,
+        ip_address=request.client.host if request.client else "",
+        user_agent=request.headers.get("user-agent", ""),
+    )
+
+
+@router.post("/google/link", response_model=GoogleAccountStatusResponse)
+async def link_google_account(
+    payload: GoogleLinkRequest,
+    subject: TokenSubject = Depends(require_marketplace_subject()),
+    session: AsyncSession = Depends(get_subject_session),
+    settings: Settings = Depends(get_app_settings),
+) -> GoogleAccountStatusResponse:
+    """Link the authenticated marketplace account to a verified Google identity."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.link_google_account(subject, payload)
+
+
+@router.post("/google/unlink", response_model=GoogleAccountStatusResponse)
+async def unlink_google_account(
+    subject: TokenSubject = Depends(require_marketplace_subject()),
+    session: AsyncSession = Depends(get_subject_session),
+    settings: Settings = Depends(get_app_settings),
+) -> GoogleAccountStatusResponse:
+    """Remove the Google Sign-In link from the authenticated marketplace account."""
+
+    service = AuthService(session=session, settings=settings)
+    return await service.unlink_google_account(subject)
 
 
 @router.post("/unlock-account", response_model=UnlockAccountResponse, dependencies=[Depends(rate_limit(AUTH_RATE_LIMIT))])
@@ -248,6 +304,8 @@ async def get_session_context(
         allowed_modules=get_allowed_modules(subject.role, subject.access_scope),
         two_factor_enabled=bool(user and user.two_factor_enabled),
         ui_theme=UiTheme(user.ui_theme) if user else UiTheme.AUTO,
+        google_linked=bool(user and user.google_sub),
+        has_password=bool(user.has_password) if user else True,
     )
 
 

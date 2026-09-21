@@ -998,6 +998,7 @@ class PortalMarketplaceBootstrapResponse(StrictModel):
     subscriptions: list[PortalSubscriptionResponse]
     coupons: list[PortalCouponResponse] = Field(default_factory=list)
     delivery_estimate: PortalMarketplaceDeliveryEstimateResponse = Field(default_factory=PortalMarketplaceDeliveryEstimateResponse)
+    google_oauth_client_id: str = ""
 
 
 class PortalMarketplacePublicBootstrapResponse(StrictModel):
@@ -1015,6 +1016,7 @@ class PortalMarketplacePublicBootstrapResponse(StrictModel):
     health_services: list[PortalHealthServiceResponse]
     coupons: list[PortalCouponResponse] = Field(default_factory=list)
     delivery_estimate: PortalMarketplaceDeliveryEstimateResponse = Field(default_factory=PortalMarketplaceDeliveryEstimateResponse)
+    google_oauth_client_id: str = ""
 
 
 class PortalFavoriteMutationRequest(StrictModel):

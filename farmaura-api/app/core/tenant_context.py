@@ -90,6 +90,26 @@ async def apply_login_context(session: AsyncSession, email: str) -> None:
     )
 
 
+async def apply_google_login_context(session: AsyncSession, google_sub: str) -> None:
+    """Apply transaction-local login context for a Google Sign-In lookup by subject id.
+
+    Mirrors apply_login_context exactly, keyed by the Google account's stable
+    "sub" claim instead of an e-mail address — grants read access to exactly
+    the one user row already linked to that Google account, nothing else.
+    """
+
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+    await session.execute(
+        text(
+            """
+            SELECT set_config('app.current_login_google_sub', :google_sub, true)
+            """
+        ),
+        {"google_sub": google_sub.strip()},
+    )
+
+
 async def apply_first_access_context(session: AsyncSession, email: str) -> None:
     """Apply transaction-local context for one unauthenticated marketplace account-provisioning request.
 
