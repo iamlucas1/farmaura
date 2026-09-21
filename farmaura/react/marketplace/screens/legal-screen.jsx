@@ -208,7 +208,7 @@ const PRIVACY_SECTIONS = [
         'Receitas médicas: quando você envia uma foto ou arquivo de prescrição para itens que exigem receita.',
         'Perfil pessoal (opcional): gênero, estado civil, número de filhos, seus nomes e idades — usados só para sugerir promoções e produtos mais relevantes para você e sua família.',
         'Uso do marketplace: páginas visitadas e eventos de navegação, coletados de forma agregada pelo Google Analytics.',
-        'Preferências de comunicação: os canais e assuntos que você optou por receber, configuráveis na sua conta.',
+        'Preferências de comunicação: os canais e assuntos que você optou por receber, configuráveis na sua conta, e a data em que você dispensou o convite para completar o cadastro (para não insistirmos logo em seguida).',
       ] },
     ],
   },

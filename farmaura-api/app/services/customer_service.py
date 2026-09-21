@@ -23,7 +23,9 @@ import calendar
 import re
 from datetime import UTC, datetime
 
+from app.core.client_ip import current_client_ip
 from app.core.tenant_context import apply_tenant_context
+from app.domain.profile_nudge import is_profile_nudge_due, missing_promotion_profile_fields
 from app.domain.validators import is_valid_cpf, normalize_cpf
 from app.models.cart_item import CartItem
 from app.models.customer_address import CustomerAddress
@@ -65,6 +67,7 @@ from app.schemas.customers import (
     CustomerProfileUpdateRequest,
     ProductAvailabilityAlertCreateRequest,
     ProductAvailabilityAlertResponse,
+    ProfileNudgeResponse,
 )
 
 
@@ -100,7 +103,24 @@ class CustomerService:
 
         user = await self._get_subject_user(subject)
         customer = await self.customer_repository.get_by_email(tenant_id=str(subject.tenant_id), email=user.email)
-        return self._build_profile_response(subject=subject, user=user, customer=customer)
+        return self._build_profile_response(
+            subject=subject, user=user, customer=customer, profile_nudge=await self._build_profile_nudge(customer),
+        )
+
+    async def dismiss_profile_nudge(self, subject: TokenSubject) -> ProfileNudgeResponse:
+        """Record that the customer snoozed the "complete your profile" popup, using the server clock.
+
+        Idempotent: repeating it just moves the snooze start to now. The popup stays away for
+        PROFILE_NUDGE_COOLDOWN (app/domain/profile_nudge.py) and comes back if fields are still missing.
+        """
+
+        customer = await self._resolve_customer(subject)
+        customer.profile_nudge_dismissed_at = datetime.now(UTC)
+        await self.customer_repository.save(customer)
+        await self.session.commit()
+        await apply_tenant_context(self.session, subject)
+        await self.session.refresh(customer)
+        return await self._build_profile_nudge(customer)
 
     async def get_prescription_status(self, subject: TokenSubject) -> CustomerPrescriptionStatusResponse:
         """Return the customer's most recent pre-order prescription submission status.
@@ -250,7 +270,9 @@ class CustomerService:
         await self.session.commit()
         await apply_tenant_context(self.session, subject)
         await self.session.refresh(customer)
-        return self._build_profile_response(subject=subject, user=user, customer=customer)
+        return self._build_profile_response(
+            subject=subject, user=user, customer=customer, profile_nudge=await self._build_profile_nudge(customer),
+        )
 
     async def update_profile(self, subject: TokenSubject, payload: CustomerProfileUpdateRequest) -> CustomerProfileResponse:
         """Persist the authenticated customer's real personal and document data."""
@@ -283,7 +305,9 @@ class CustomerService:
         await self.session.commit()
         await apply_tenant_context(self.session, subject)
         await self.session.refresh(customer)
-        return self._build_profile_response(subject=subject, user=user, customer=customer)
+        return self._build_profile_response(
+            subject=subject, user=user, customer=customer, profile_nudge=await self._build_profile_nudge(customer),
+        )
 
     # ------------------------------------------------------------------------
     # Addresses
@@ -494,6 +518,7 @@ class CustomerService:
                 asaas_client.tokenize_credit_card,
                 {
                     "customer": provider_customer_id,
+                    **({"remoteIp": current_client_ip()} if current_client_ip() else {}),
                     "creditCard": {
                         "holderName": payload.holder_name.strip(),
                         "number": payload.number,
@@ -764,7 +789,28 @@ class CustomerService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer session user was not found.")
         return user
 
-    def _build_profile_response(self, *, subject: TokenSubject, user: object, customer: object | None) -> CustomerProfileResponse:
+    async def _build_profile_nudge(self, customer: object | None) -> ProfileNudgeResponse:
+        """Decide, from persisted data only, whether the "complete your profile" popup is due."""
+
+        if customer is None:
+            return ProfileNudgeResponse()
+        addresses = await self.address_repository.list_for_customer(customer_id=customer.id)
+        missing = missing_promotion_profile_fields(
+            gender=customer.gender,
+            marital_status=customer.marital_status,
+            children_count=customer.children_count,
+            has_primary_address=any(address.is_primary for address in addresses),
+        )
+        return ProfileNudgeResponse(
+            should_show=is_profile_nudge_due(
+                missing=missing, dismissed_at=customer.profile_nudge_dismissed_at, now=datetime.now(UTC),
+            ),
+            missing_fields=missing,
+        )
+
+    def _build_profile_response(
+        self, *, subject: TokenSubject, user: object, customer: object | None, profile_nudge: ProfileNudgeResponse,
+    ) -> CustomerProfileResponse:
         """Build the customer profile response payload."""
 
         return CustomerProfileResponse(
@@ -787,4 +833,5 @@ class CustomerService:
             member_since_label=getattr(customer, "member_since_label", "") or "",
             marketing_program_preferences=list(getattr(customer, "marketing_program_preferences", None) or []),
             communication_channel_preferences=list(getattr(customer, "communication_channel_preferences", None) or []),
+            profile_nudge=profile_nudge,
         )

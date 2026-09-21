@@ -14,7 +14,7 @@ Observations:
 */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Modal, Toggle } from "../core/marketplace-components.jsx";
+import { Modal, ModalShell, Toggle } from "../core/marketplace-components.jsx";
 import {
   buildAddressLine,
   buildAddressSecondaryLine,
@@ -1141,50 +1141,45 @@ function AccountSettings({ ctx, acct }) {
   );
 }
 
-const PROFILE_NUDGE_DISMISS_KEY = 'farmaura_profile_nudge_dismissed_at';
-const PROFILE_NUDGE_COOLDOWN_DAYS = 14;
-
-/** Return whether the customer's promotion-relevant profile fields are still incomplete.
- *
- * This is a client-side UX heuristic only — it decides whether to show a friendly nudge, never
- * whether a promotion applies. The server always re-evaluates real eligibility from the
- * persisted Customer record (see pricing_promotion_service.py), so an outdated or bypassed
- * client check here has zero effect on what discount is actually applied.
- */
-function isCustomerPromotionProfileIncomplete(profile, addresses) {
-  if (!profile) return false;
-  const hasPrimaryAddress = Array.isArray(addresses) && addresses.some((address) => address && address.primary);
-  return !profile.gender || !profile.maritalStatus || profile.childrenCount === '' || profile.childrenCount == null || !hasPrimaryAddress;
-}
+// The four profile fields promotions can target. The keys are the ones the server reports in
+// profile_nudge.missing_fields (app/domain/profile_nudge.py).
+const PROFILE_NUDGE_FIELDS = [
+  { key: 'gender', label: 'Gênero', icon: 'user' },
+  { key: 'marital_status', label: 'Estado civil', icon: 'heart' },
+  { key: 'children', label: 'Filhos', icon: 'babyFace' },
+  { key: 'address', label: 'Endereço', icon: 'pin' },
+];
 
 function ProfileCompletionNudge({ ctx }) {
   /** Render a dismissible popup inviting the logged customer to complete their profile.
    *
+   * Whether it shows, which fields are missing and how long "Agora não" keeps it away are all
+   * decided and persisted by the server (profile.profileNudge, see app/domain/profile_nudge.py),
+   * never by the browser — clearing site data or switching device changes nothing. This is a
+   * friendly nudge only: promotion eligibility is always re-evaluated on the server from the
+   * persisted Customer record (pricing_promotion_service.py).
+   *
    * Clicking the primary action is an explicit opt-in: it marks the "Promoções e ofertas
    * personalizadas" program as accepted (persisted via saveCustomerPrivacyPreferences), the
    * same real consent record used everywhere else — this popup is just a friendlier entry
-   * point to it, not a separate consent mechanism.
+   * point to it, not a separate consent mechanism. Both actions snooze the popup on the server.
    */
 
-  const { user, profile, addresses, privacyPrograms, saveCustomerPrivacyPreferences, onNav } = ctx;
+  const { user, profile, privacyPrograms, saveCustomerPrivacyPreferences, dismissProfileNudge, onNav } = ctx;
   const [open, setOpen] = useState(false);
+  const nudge = (profile && profile.profileNudge) || { shouldShow: false, missingFields: [] };
+  const shouldShow = !!user && nudge.shouldShow;
 
   useEffect(() => {
-    if (!user) { setOpen(false); return; }
-    // Give the async profile/address fetch time to resolve after login before judging completeness.
-    const timer = window.setTimeout(() => {
-      if (!isCustomerPromotionProfileIncomplete(profile, addresses)) return;
-      const dismissedAt = Number(window.localStorage.getItem(PROFILE_NUDGE_DISMISS_KEY) || 0);
-      const cooldownMs = PROFILE_NUDGE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
-      if (dismissedAt && Date.now() - dismissedAt < cooldownMs) return;
-      setOpen(true);
-    }, 1500);
+    if (!shouldShow) { setOpen(false); return; }
+    // A short pause so the popup doesn't land on top of the page while it is still painting.
+    const timer = window.setTimeout(() => setOpen(true), 1200);
     return () => window.clearTimeout(timer);
-  }, [user, profile, addresses]);
+  }, [shouldShow]);
 
   const dismiss = () => {
-    window.localStorage.setItem(PROFILE_NUDGE_DISMISS_KEY, String(Date.now()));
     setOpen(false);
+    dismissProfileNudge();
   };
 
   const acceptAndComplete = async () => {
@@ -1194,25 +1189,47 @@ function ProfileCompletionNudge({ ctx }) {
     } catch (error) {
       // Best-effort: navigating to the profile screen still lets the customer complete it manually.
     }
-    window.localStorage.setItem(PROFILE_NUDGE_DISMISS_KEY, String(Date.now()));
     setOpen(false);
+    dismissProfileNudge();
     onNav({ name: 'account', tab: 'profile' });
   };
 
+  const remaining = nudge.missingFields.length;
+  const subtitle = (remaining === 1 ? 'Falta só 1 dado' : `Faltam só ${remaining} dados`) + ' e as ofertas passam a combinar com o seu perfil.';
+
   return (
-    <Modal open={open} onClose={dismiss} icon="gift" title="Quer promoções feitas pra você?"
-      sub="Complete seu cadastro — gênero, estado civil, filhos e endereço — e a gente mostra ofertas mais relevantes no seu perfil.">
-      <p className="fa-faint" style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 4, marginBottom: 18 }}>
-        Ao continuar, você concorda em receber promoções personalizadas da Farmaura no aplicativo. Você pode mudar de
-        ideia quando quiser em Minha Conta → Privacidade de dados.
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <button className="fa-btn fa-btn-primary fa-btn-block" style={{ whiteSpace: 'normal', textAlign: 'center', height: 'auto', minHeight: 46 }} onClick={acceptAndComplete}>
-          <Icon name="check" size={16} stroke={2.4} style={{ flex: 'none' }} />Completar cadastro e aceitar promoções
-        </button>
-        <button className="fa-btn fa-btn-soft fa-btn-block" onClick={dismiss}>Agora não</button>
+    <ModalShell open={open} onClose={dismiss} maxw={420} padded={false} className="fa-nudge">
+      <div className="fa-nudge-hero" aria-hidden="true">
+        <div className="fa-aura-layer" style={{ color: 'var(--fa-primary)' }}>
+          <span className="fa-arc" style={{ width: 220, height: 220, borderWidth: 2, top: -120, left: -60 }} />
+          <span className="fa-arc" style={{ width: 150, height: 150, borderWidth: 2, top: -30, right: -36, opacity: .35 }} />
+        </div>
+        <span className="fa-nudge-gift"><Icon name="percent" size={30} /></span>
       </div>
-    </Modal>
+      <div className="fa-nudge-body">
+        <h2 className="fa-nudge-title">Ofertas feitas pra você</h2>
+        <p className="fa-nudge-sub">{subtitle}</p>
+        <ul className="fa-nudge-list" aria-label="Dados do cadastro">
+          {PROFILE_NUDGE_FIELDS.map((field, index) => {
+            const done = !nudge.missingFields.includes(field.key);
+            return (
+              <li key={field.key} className={'fa-nudge-chip' + (done ? ' is-done' : '')} style={{ '--i': index }}>
+                <Icon name={done ? 'check' : field.icon} size={14} stroke={done ? 2.6 : 2} />
+                {field.label}
+                <span className="fa-sr-only">{done ? ' (preenchido)' : ' (falta preencher)'}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <button className="fa-btn fa-btn-primary fa-btn-block fa-nudge-cta" onClick={acceptAndComplete}>
+          Completar meu cadastro<Icon name="arrowR" size={16} stroke={2.4} />
+        </button>
+        <p className="fa-nudge-fine">
+          Ao continuar, você aceita receber promoções personalizadas. Mude quando quiser em Minha Conta → Privacidade.
+        </p>
+        <button className="fa-nudge-skip" onClick={dismiss}>Agora não</button>
+      </div>
+    </ModalShell>
   );
 }
 

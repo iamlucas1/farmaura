@@ -540,6 +540,16 @@ function createMarketplaceProfileSnapshot(user) {
     memberSince: '',
     marketingProgramPreferences: [],
     communicationChannelPreferences: [],
+    // Server verdict on the "complete your profile" popup — never decided in the browser.
+    profileNudge: { shouldShow: false, missingFields: [] },
+  };
+}
+
+function normalizeProfileNudge(raw) {
+  const source = raw || {};
+  return {
+    shouldShow: source.should_show === true,
+    missingFields: Array.isArray(source.missing_fields) ? source.missing_fields.map(String) : [],
   };
 }
 
@@ -563,6 +573,7 @@ function normalizeMarketplaceProfile(profilePayload, user) {
     memberSince: source.member_since_label || '',
     marketingProgramPreferences: Array.isArray(source.marketing_program_preferences) ? source.marketing_program_preferences : [],
     communicationChannelPreferences: Array.isArray(source.communication_channel_preferences) ? source.communication_channel_preferences : [],
+    profileNudge: normalizeProfileNudge(source.profile_nudge),
   };
 }
 
@@ -2538,6 +2549,18 @@ function App() {
     });
   };
 
+  const dismissProfileNudge = async () => {
+    /** Persist "Agora não" on the customer's account; the server owns the snooze window and the verdict. */
+
+    try {
+      const payload = await authClient.request('/customers/me/profile-nudge/dismiss', { method: 'POST' });
+      setCustomerProfile((current) => ({ ...current, profileNudge: normalizeProfileNudge(payload) }));
+    } catch {
+      // The popup still closes for this visit; the server never recorded the snooze, so it may come back on the next load.
+      setCustomerProfile((current) => ({ ...current, profileNudge: { ...current.profileNudge, shouldShow: false } }));
+    }
+  };
+
   const toBackendAddressPayload = (address) => ({
     label: address.label || 'Casa',
     postal_code: address.cep || '',
@@ -2693,7 +2716,7 @@ function App() {
     homeBrands: portalData.homeBrands,
     homeTrends: portalData.homeTrends,
     dealOfTheDay: portalData.dealOfTheDay,
-    profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
+    profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, dismissProfileNudge, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,
     cards, tokenizeAndSaveCard, deleteCustomerPaymentMethod, setPrimaryCustomerPaymentMethod,
     privacyPrograms: buildPrivacyPreferenceList(MARKETING_PROGRAM_CATALOG, customerProfile.marketingProgramPreferences, 'name'),

@@ -286,3 +286,20 @@ def test_preferences_reject_overposted_fields(client: object) -> None:
         json={"ui_theme": "dark", "role": "admin", "access_scope": "hybrid"},
     )
     assert response.status_code == 422
+
+
+def test_profile_nudge_dismiss_requires_authentication(client: object) -> None:
+    """Verify snoozing the profile popup rejects anonymous requests."""
+
+    response = client.post("/api/v1/customers/me/profile-nudge/dismiss")
+    assert response.status_code == 401
+
+
+def test_profile_nudge_dismiss_rejects_internal_staff_session(client: object) -> None:
+    """Verify an internal session cannot write a customer's popup snooze."""
+
+    response = client.post(
+        "/api/v1/customers/me/profile-nudge/dismiss",
+        headers=build_auth_headers(role=UserRole.PHARMACIST, access_scope=AccessScope.INTERNAL),
+    )
+    assert response.status_code == 403

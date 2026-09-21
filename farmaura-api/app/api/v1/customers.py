@@ -39,6 +39,7 @@ from app.schemas.customers import (
     CustomerProfileUpdateRequest,
     ProductAvailabilityAlertCreateRequest,
     ProductAvailabilityAlertResponse,
+    ProfileNudgeResponse,
 )
 from app.services.customer_service import CustomerService
 
@@ -117,6 +118,17 @@ async def update_customer_avatar(
 
     service = CustomerService(session)
     return await service.update_avatar(subject, payload)
+
+
+@router.post("/me/profile-nudge/dismiss", response_model=ProfileNudgeResponse)
+async def dismiss_profile_nudge(
+    subject: TokenSubject = Depends(require_marketplace_subject(UserRole.CUSTOMER)),
+    session: AsyncSession = Depends(get_subject_session),
+) -> ProfileNudgeResponse:
+    """Snooze the "complete your profile" popup for the authenticated customer (server clock, persisted)."""
+
+    service = CustomerService(session)
+    return await service.dismiss_profile_nudge(subject)
 
 
 @router.put("/me/profile", response_model=CustomerProfileResponse)

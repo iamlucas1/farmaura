@@ -88,3 +88,7 @@ class Customer(Base, UuidModel, TimestampedModel):
     chat_violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     chat_blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     chat_permanently_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # When the customer last snoozed the "complete your profile" popup (NULL = never). Lives here,
+    # not in the browser, so it survives a cleared browser or a second device — see
+    # app/domain/profile_nudge.py for the rule that turns it into "show / don't show".
+    profile_nudge_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

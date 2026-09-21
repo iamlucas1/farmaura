@@ -131,6 +131,7 @@ o client já tem acesso legítimo à lista completa de cupons via bootstrap.
 
 ## Atualizações
 
+- 2026-09-20: modal "completar cadastro" do marketplace passou a ter estado no servidor — coluna `customers.profile_nudge_dismissed_at`, regra pura em `app/domain/profile_nudge.py` (campos faltantes + prazo de 14 dias), `profile_nudge` em `GET /customers/me` (e nas respostas de `PUT /me/profile` e `PUT /me/avatar`) e `POST /customers/me/profile-nudge/dismiss`. Ver [[../00_Decisoes/2026-09-20-modal-completar-cadastro-estado-no-servidor|ADR]] e [[../06_Pendencias/aplicar-migration-profile-nudge-em-producao|migration pendente em produção]].
 - 2026-09-04: cashback real no marketplace — novo `CashbackService`, `GET /customers/me/cashback`,
   ganho pendente→liberado, resgate abatendo o pagamento real, teto configurável, RLS adicionada a
   `customer_cashback_wallets`/`cashback_transaction_lines`. Ver

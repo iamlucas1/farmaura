@@ -20,12 +20,20 @@ from uuid import UUID
 from pydantic import Field
 
 from app.domain.enums import AccessScope, UserRole
+from app.domain.profile_nudge import ProfileNudgeField
 from app.schemas.common import StrictModel
 
 
 # ============================================================================
 # CUSTOMER SCHEMAS
 # ============================================================================
+
+
+class ProfileNudgeResponse(StrictModel):
+    """Server-side verdict on the "complete your profile" popup: show it, and which fields are still missing."""
+
+    should_show: bool = False
+    missing_fields: list[ProfileNudgeField] = Field(default_factory=list)
 
 
 class CustomerProfileResponse(StrictModel):
@@ -53,6 +61,7 @@ class CustomerProfileResponse(StrictModel):
     member_since_label: str = ""
     marketing_program_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
     communication_channel_preferences: list[dict[str, bool | str]] = Field(default_factory=list)
+    profile_nudge: ProfileNudgeResponse = Field(default_factory=ProfileNudgeResponse)
 
 
 class CustomerAvatarUpdateRequest(StrictModel):

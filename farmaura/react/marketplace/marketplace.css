@@ -1409,6 +1409,47 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
   .fa-modal { max-height: calc(100vh - 24px); padding: 22px 18px; }
 }
 
+/* Profile completion nudge ("Ofertas feitas pra você") — one rosé hero band carrying the aura arcs,
+   then a short body: title, one line, the four fields as done/missing pills, one CTA. Copy stays
+   minimal on purpose; the pills do the persuading by showing how little is left. */
+.fa-nudge { text-align: center; }
+.fa-nudge .fa-modal-x { z-index: 2; background: rgba(255,255,255,.72); }
+.fa-nudge .fa-modal-x:hover { background: #fff; }
+.fa-nudge-hero { position: relative; height: 132px; display: grid; place-items: center; overflow: hidden; background: var(--fa-rose-soft); }
+.fa-nudge-gift {
+  position: relative; z-index: 1; width: 68px; height: 68px; display: grid; place-items: center;
+  border-radius: var(--fa-r-icon); background: var(--fa-surface); color: var(--fa-primary);
+  box-shadow: 0 10px 22px -12px rgba(43,26,26,.45), 0 2px 6px rgba(43,26,26,.08);
+}
+.fa-nudge-body { padding: 24px 28px 22px; }
+.fa-nudge-title { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.15; letter-spacing: -.01em; text-wrap: balance; }
+.fa-nudge-sub { margin: 8px auto 0; max-width: 31ch; font-size: 14.5px; line-height: 1.5; color: var(--fa-ink-2); text-wrap: balance; }
+.fa-nudge-list { list-style: none; margin: 18px 0 22px; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.fa-nudge-chip {
+  display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 13px; border-radius: var(--fa-r-pill, 999px);
+  font-size: 13px; font-weight: 700; line-height: 1; color: var(--fa-primary-ink);
+  background: var(--fa-surface); border: 1px solid var(--fa-rose);
+  animation: faNudgeChip .34s cubic-bezier(.2,.8,.3,1) both; animation-delay: calc(var(--i, 0) * 60ms + 140ms);
+}
+.fa-nudge-chip.is-done { color: var(--fa-ink); background: var(--fa-success-soft); border-color: transparent; }
+.fa-nudge-chip.is-done svg { color: var(--fa-success); }
+@keyframes faNudgeChip { from { opacity: 0; transform: translateY(6px) scale(.96); } to { opacity: 1; transform: none; } }
+.fa-nudge-cta { min-height: 50px; font-size: 15px; }
+.fa-nudge-fine { margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--fa-ink-3); text-wrap: balance; }
+.fa-nudge-skip {
+  display: block; width: 100%; min-height: 44px; margin-top: 8px; border: none; border-radius: var(--fa-r-btn);
+  background: transparent; color: var(--fa-ink-2); font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.fa-nudge-skip:hover { background: var(--fa-mist-2); color: var(--fa-ink); }
+.fa-nudge-skip:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--fa-rose-soft); }
+@media (max-width: 560px) {
+  .fa-nudge-hero { height: 112px; }
+  .fa-nudge-body { padding: 20px 18px 16px; }
+  .fa-nudge-title { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .fa-nudge-chip { animation: none; } }
+
 /* 6-digit code input */
 .fa-code { width: 100%; text-align: center; font-family: 'Spline Sans Mono', monospace; font-size: 26px; letter-spacing: .5em;
   font-weight: 600; height: 60px; border: 1.5px solid var(--fa-mist); border-radius: var(--fa-r-input); background: var(--fa-mist-2);
