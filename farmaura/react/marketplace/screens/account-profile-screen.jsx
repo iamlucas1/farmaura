@@ -967,9 +967,9 @@ function ProfileManage({ ctx, acct }) {
               </div>
               {infoError ? <div style={{ marginTop: 12, color: 'var(--fa-error)', fontSize: 12.5 }}>{infoError}</div> : null}
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                {/* CPF is optional (a Google-only account starts without one) — only block saving
-                    when it's partially typed, not when it's simply empty. */}
-                <button className="fa-btn fa-btn-primary" disabled={savingInfo || !draft.name.trim() || (draft.cpf.replace(/\D/g, '').length > 0 && draft.cpf.replace(/\D/g, '').length !== 11)} onClick={saveInfo}><Icon name="check" size={16} stroke={2.4} />{savingInfo ? 'Salvando...' : 'Salvar alterações'}</button>
+                {/* CPF is mandatory: the customer must be identifiable by CPF at the physical
+                    store counter, so profile completion cannot be saved without a real one. */}
+                <button className="fa-btn fa-btn-primary" disabled={savingInfo || !draft.name.trim() || draft.cpf.replace(/\D/g, '').length !== 11} onClick={saveInfo}><Icon name="check" size={16} stroke={2.4} />{savingInfo ? 'Salvando...' : 'Salvar alterações'}</button>
                 <button className="fa-btn fa-btn-soft" disabled={savingInfo} onClick={() => { setDraft(profile); setInfoError(''); setEditingPersonal(false); }}>Cancelar</button>
               </div>
             </>
