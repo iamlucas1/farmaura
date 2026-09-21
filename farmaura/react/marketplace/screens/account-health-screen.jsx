@@ -460,12 +460,13 @@ function MyOrders({ ctx }) {
           <div className="review-prompt-list">
             {reviewCandidates.map(({ item, order, product }) => (
               <div className="review-prompt-card" key={order.id + '_' + item.id}>
-                <span className="order-summary-thumb" style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden' }}><ProductVisual product={product} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} /></span>
+                <span className="review-prompt-visual"><ProductVisual product={product} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} /></span>
                 <div className="review-prompt-body">
                   <span className="review-prompt-title">{product.name}</span>
                   <span className="review-prompt-sub">Pedido #{order.id} · {order.date}</span>
                 </div>
                 <div className="review-prompt-action">
+                  <span className="review-prompt-hint">Como foi?</span>
                   <StarPicker size={19} value={0} onChange={(rating) => setReviewTarget({ item, order, initialRating: rating })} />
                 </div>
               </div>

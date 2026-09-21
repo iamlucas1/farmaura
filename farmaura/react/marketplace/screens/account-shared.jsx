@@ -179,7 +179,7 @@ function faCashback(orders, products) {
 
 function OrderTracker({ step, fulfillment }) {
   const isPickup = fulfillment === "pickup";
-  const stages = [["bag", "Aguardando confirmação"], ["clock", "Preparando"], [isPickup ? "store" : "truck", isPickup ? "Retirada na loja" : "A caminho"], ["check", "Entregue"]];
+  const stages = [["bag", "Aguardando confirmação"], ["clock", "Preparando"], [isPickup ? "pin" : "truck", isPickup ? "Retirada na loja" : "A caminho"], ["check", "Entregue"]];
   const active = Number.isFinite(Number(step)) ? Number(step) : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", margin: "4px 0 2px" }}>
@@ -199,18 +199,24 @@ function OrderTracker({ step, fulfillment }) {
   );
 }
 
-// Compact 4-step rail for the order-card summary (marketplace.css .order-progress) — same
-// stage/step logic as OrderTracker above (kept for the richer OrderSupportDrawer view), just a
-// thinner visual treatment for an already-expanded card.
+// Compact 4-step rail for the order-card "andamento" panel (marketplace.css .order-progress) —
+// same stage/step logic as OrderTracker above (kept for the richer OrderSupportDrawer view), but
+// with an icon inside each step dot instead of a plain circle, so the rail reads at a glance
+// without needing the label underneath.
 function OrderProgressRail({ step, fulfillment }) {
   const isPickup = fulfillment === "pickup";
-  const stages = ["Confirmado", "Separação", isPickup ? "Pronto p/ retirada" : "A caminho", isPickup ? "Retirado" : "Entregue"];
+  const stages = [
+    ["bag", "Confirmado"],
+    ["clock", "Separação"],
+    [isPickup ? "pin" : "truck", isPickup ? "Pronto p/ retirada" : "A caminho"],
+    ["check", isPickup ? "Retirado" : "Entregue"],
+  ];
   const active = Number.isFinite(Number(step)) ? Number(step) : 0;
   return (
     <ol className="order-progress">
-      {stages.map((label, index) => (
+      {stages.map(([iconName, label], index) => (
         <li key={label} className={index < active ? "is-done" : index === active ? "is-current" : ""}>
-          <span className="order-progress-dot" />{label}
+          <span className="order-progress-dot"><Icon name={iconName} size={14} stroke={2.2} /></span>{label}
         </li>
       ))}
     </ol>
@@ -301,6 +307,16 @@ function OrderCard({ order, products, statusMap, onReorder, onOpenProduct, onTra
   const VISIBLE_ITEMS = 2;
   const visibleItems = showAllItems ? resolvedItems : resolvedItems.slice(0, VISIBLE_ITEMS);
   const hiddenCount = resolvedItems.length - VISIBLE_ITEMS;
+  const extraThumbCount = resolvedItems.length - 3;
+
+  // Same plain-language status line OrderSupportDrawer shows above its own tracker — repeated
+  // here so "how's my order doing" never requires opening the drawer just to find out.
+  const progressNote = cancelled
+    ? "Este pedido foi cancelado" + (order.paymentStatus !== "approved" ? " e não foi cobrado" : "") + "."
+    : delivered
+    ? (pickup ? "Retirado com sucesso." : "Entregue com sucesso.")
+    : (order.eta || (pickup ? "Aguardando liberação para retirada." : "Aguardando atualização da entrega."));
+  const progressIcon = cancelled ? "close" : delivered ? "check" : pickup ? "bag" : "truck";
 
   return (
     <article className="order-card">
@@ -309,28 +325,28 @@ function OrderCard({ order, products, statusMap, onReorder, onOpenProduct, onTra
           {resolvedItems.slice(0, 3).map(({ item, product }) => (
             <span className="order-summary-thumb" key={item.id}><ProductVisual product={product} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} /></span>
           ))}
+          {extraThumbCount > 0 && <span className="order-summary-thumb order-summary-thumb-more">+{extraThumbCount}</span>}
         </span>
         <span className="order-summary-main">
           <span className="order-card-code">#{order.id}</span>
-          <span className="order-card-date">{order.date}</span>
+          <span className="order-card-date">{order.date} · {resolvedItems.length} {resolvedItems.length === 1 ? "item" : "itens"}</span>
         </span>
-        <span className={"order-status " + pillClass}>{status.label}</span>
+        <span className={"order-status " + pillClass}><Icon name={status.icon} size={12} stroke={2.4} />{status.label}</span>
         <span className="order-summary-total">{brl(total)}</span>
         <span className="order-summary-chevron"><Icon name="chevD" size={16} /></span>
       </button>
 
       {open && (
         <div className="order-card-details">
-          {cancelled ? (
-            <div className="order-canceled-note"><Icon name="close" size={18} /><span>Este pedido foi cancelado{order.paymentStatus !== 'approved' ? ' e não foi cobrado' : ''}.</span></div>
-          ) : (
-            <OrderProgressRail step={status.step} fulfillment={order.fulfillment} />
-          )}
+          <div className="order-progress-panel" data-state={cancelled ? "cancelled" : delivered ? "done" : "active"}>
+            {!cancelled && <OrderProgressRail step={status.step} fulfillment={order.fulfillment} />}
+            <p className="order-progress-note"><Icon name={progressIcon} size={15} stroke={2.2} />{progressNote}</p>
+          </div>
 
           <div className="order-meta-grid">
-            <div className="order-meta-item"><span className="k">Pagamento</span><span className="v">{order.payment || "Não informado"}</span></div>
+            <div className="order-meta-item"><span className="k"><Icon name="card" size={13} />Pagamento</span><span className="v">{order.payment || "Não informado"}</span></div>
             <div className="order-meta-item">
-              <span className="k">{pickup ? "Retirada" : "Entrega"}</span>
+              <span className="k"><Icon name={pickup ? "bag" : "truck"} size={13} />{pickup ? "Retirada" : "Entrega"}</span>
               <span className="v">{pickup ? (order.store || "Loja Farmaura") : (order.address || "Endereço não informado")}</span>
             </div>
           </div>
@@ -374,11 +390,11 @@ function OrderCard({ order, products, statusMap, onReorder, onOpenProduct, onTra
           {!cancelled && (
             <div className="order-actions-row">
               {!delivered && (
-                <button type="button" className="order-action-btn" onClick={() => onTrackOrder && onTrackOrder(order)}><Icon name="pin" size={14} />Rastrear pedido</button>
+                <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => onTrackOrder && onTrackOrder(order)}><Icon name="pin" size={14} />Rastrear pedido</button>
               )}
-              <button type="button" className="order-action-btn" onClick={() => onOpenSupport && onOpenSupport(order)}><Icon name="chat" size={14} />Falar com farmacêutico</button>
+              <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => onOpenSupport && onOpenSupport(order)}><Icon name="chat" size={14} />Falar com farmacêutico</button>
               {order.fiscalDocument && onDownloadFiscalDocument && (
-                <button type="button" className="order-action-btn" onClick={() => onDownloadFiscalDocument(order)}><Icon name="receipt" size={14} />Baixar nota fiscal</button>
+                <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => onDownloadFiscalDocument(order)}><Icon name="receipt" size={14} />Baixar nota fiscal</button>
               )}
             </div>
           )}

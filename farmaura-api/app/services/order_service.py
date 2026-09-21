@@ -27,6 +27,7 @@ from app.core.cache import invalidate_cache_scope
 from app.core.device_detection import detect_device_type
 from app.core.tenant_context import apply_public_marketplace_context
 from app.domain.enums import OrderStatus, UserRole
+from app.domain.payment_labels import build_online_payment_label
 from app.domain.validators import is_valid_cpf
 from app.models.coupon_campaign import CouponCampaign
 from app.models.customer import Customer
@@ -1066,13 +1067,7 @@ class OrderService:
     def _build_payment_label(self, method: str) -> str:
         """Return the customer-facing payment label for the selected payment method."""
 
-        labels = {
-            'pix': 'Pix',
-            'credit_card': 'Cartão de crédito',
-            'debit_card': 'Cartão de débito',
-            'pickup_cash': 'Pagamento na retirada',
-        }
-        return labels.get(method, 'Pagamento')
+        return build_online_payment_label(method)
 
     def _build_marketplace_note(self, payload: CheckoutOrderRequest, *, coupon: CouponCampaign | None, discount_amount: Decimal) -> str:
         """Return the marketplace note snapshot from checkout data."""

@@ -38,6 +38,7 @@ from app.core.row_level_security import apply_row_level_security
 from app.core.password_hashing import hash_password
 from app.core.token_fingerprints import hash_refresh_token
 from app.domain.enums import AccessScope, FileStatus, OrderStatus, UserRole
+from app.domain.payment_labels import build_online_payment_label
 from app.models.audit_event import AuditEvent
 from app.models.cashback_rule import CashbackRule
 from app.models.cashback_transaction import CashbackTransaction
@@ -3925,7 +3926,7 @@ def build_orders(
             status=OrderStatus.DELIVERED.value,
             fulfillment_type="delivery",
             priority="normal",
-            payment_method_label="credit_card",
+            payment_method_label=build_online_payment_label("credit_card"),
             payment_status="paid",
             customer_display_name=customers["mariana"].full_name,
             customer_document_snapshot=customers["mariana"].cpf,
@@ -3959,7 +3960,7 @@ def build_orders(
             status=OrderStatus.DISPATCHED.value,
             fulfillment_type="delivery",
             priority="high",
-            payment_method_label="pix",
+            payment_method_label=build_online_payment_label("pix"),
             payment_status="paid",
             customer_display_name=customers["rafael"].full_name,
             customer_document_snapshot=customers["rafael"].cpf,
@@ -3993,7 +3994,7 @@ def build_orders(
             status=OrderStatus.READY.value,
             fulfillment_type="pickup",
             priority="normal",
-            payment_method_label="credit_card",
+            payment_method_label=build_online_payment_label("credit_card"),
             payment_status="paid",
             customer_display_name=customers["camila"].full_name,
             customer_document_snapshot=customers["camila"].cpf,
@@ -4027,7 +4028,7 @@ def build_orders(
             status=OrderStatus.CANCELLED.value,
             fulfillment_type="delivery",
             priority="normal",
-            payment_method_label="pix",
+            payment_method_label=build_online_payment_label("pix"),
             payment_status="refunded",
             customer_display_name=customers["bianca"].full_name,
             customer_document_snapshot=customers["bianca"].cpf,
@@ -4061,7 +4062,7 @@ def build_orders(
             status=OrderStatus.NEW.value,
             fulfillment_type="delivery",
             priority="high",
-            payment_method_label="credit_card",
+            payment_method_label=build_online_payment_label("credit_card"),
             payment_status="authorized",
             customer_display_name=customers["lucas"].full_name,
             customer_document_snapshot=customers["lucas"].cpf,
@@ -4629,7 +4630,7 @@ def build_purchase_analytics_history(
                 channel="app",
                 status=OrderStatus.DELIVERED.value,
                 fulfillment_type="pickup",
-                payment_method_label="pix",
+                payment_method_label=build_online_payment_label("pix"),
                 payment_status="paid",
                 customer_display_name="Cliente app",
                 customer_document_snapshot="",
@@ -5379,7 +5380,7 @@ def build_daily_operations(
             status=status_value,
             fulfillment_type=fulfillment_type,
             priority="normal",
-            payment_method_label=payment_method,
+            payment_method_label=build_online_payment_label(payment_method),
             payment_status="refunded" if order_status == "cancelled" else "paid",
             customer_display_name=customer.full_name,
             customer_document_snapshot=customer.cpf,

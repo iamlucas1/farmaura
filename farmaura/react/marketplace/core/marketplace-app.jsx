@@ -386,11 +386,14 @@ function normalizeMarketplaceCoupon(item) {
   };
 }
 
+// icon must be a real key in FA_ICON_PATHS (marketplace-icons.jsx) — an unknown name renders
+// nothing, silently (Icon returns null), so a typo here just leaves a quiet gap in the status
+// pill instead of an error. "box" and "store" never existed; fixed to real icons below.
 const MARKETPLACE_ORDER_STATUS_MAP = {
   awaiting_confirmation: { label: "Aguardando confirmação", cls: "fa-badge-warn", icon: "clock", step: 0 },
-  preparing: { label: "Em separação", cls: "fa-badge-rx", icon: "box", step: 1 },
+  preparing: { label: "Em separação", cls: "fa-badge-rx", icon: "bag", step: 1 },
   ready: { label: "Pronto para envio", cls: "fa-badge-rx", icon: "truck", step: 1 },
-  ready_for_pickup: { label: "Pronto para retirada", cls: "fa-badge-health", icon: "store", step: 2 },
+  ready_for_pickup: { label: "Pronto para retirada", cls: "fa-badge-health", icon: "pin", step: 2 },
   transit: { label: "Saiu para entrega", cls: "fa-badge-rx", icon: "truck", step: 2 },
   delivered: { label: "Concluído", cls: "fa-badge-health", icon: "check", step: 3 },
   cancelled: { label: "Pedido cancelado", cls: "fa-badge-vital", icon: "close", step: 0 },

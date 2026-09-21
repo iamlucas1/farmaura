@@ -1127,6 +1127,16 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
   -webkit-backdrop-filter: blur(18px);
 }
 
+/* Same isotipo-as-watermark device as the login card above, scoped to a bounded card (the
+   logged-out account gate) instead of a full-bleed page — sized relative to the card, not the
+   viewport. */
+.fa-account-gate-mark {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 0; pointer-events: none; user-select: none;
+  width: min(96%, 760px); height: auto;
+  opacity: calc(var(--fa-aura) * .1);
+}
+
 /* ============================================================
    LEGAL — Termos de Uso / Política de Privacidade (leitura longa)
    Vitral: mesmo halo de --fa-aura da tela de login, cartão de conteúdo em vidro fosco,
@@ -1309,16 +1319,21 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .orders-hero-recurrence .fa-btn { align-self: flex-start; margin-top: 4px; }
 @media (max-width: 640px) { .orders-hero { flex-direction: column; align-items: flex-start; } .orders-hero-divider { display: none; } }
 
-/* review prompt: low-friction rating hook for recently delivered products */
+/* review prompt: low-friction rating hook for recently delivered products — a horizontal row of
+   real product-visual cards (not a list of tiny thumbnails), each a self-contained "rate this"
+   unit: image, what/when, and a one-tap star picker under a plain-language hint. */
 .review-prompt-section { margin: 4px 0 0; }
 .review-prompt-heading { font-size: 18px; font-weight: 800; margin: 0 0 14px; }
-.review-prompt-list { display: flex; flex-direction: column; gap: 10px; }
-.review-prompt-card { display: flex; align-items: center; gap: 14px; background: var(--fa-rose-soft); border: 1px solid var(--fa-rose); border-radius: var(--fa-r-card); padding: 14px 18px; }
-.review-prompt-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.review-prompt-title { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-prompt-list { display: flex; gap: 14px; overflow-x: auto; padding: 2px 2px 10px; margin: -2px -2px -8px; scroll-snap-type: x proximity; }
+.review-prompt-card { flex: 0 0 220px; scroll-snap-align: start; display: flex; flex-direction: column; gap: 12px; background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 14px; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.review-prompt-card:hover { border-color: var(--fa-rose); box-shadow: var(--fa-shadow-md); transform: translateY(-2px); }
+.review-prompt-visual { width: 100%; aspect-ratio: 1/1; }
+.review-prompt-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.review-prompt-title { font-size: 13.5px; font-weight: 700; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .review-prompt-sub { font-size: 12px; color: var(--fa-ink-3); }
-.review-prompt-action { flex: none; display: flex; align-items: center; }
-@media (max-width: 560px) { .review-prompt-card { flex-wrap: wrap; } .review-prompt-action { width: 100%; justify-content: flex-end; } }
+.review-prompt-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--fa-mist); }
+.review-prompt-hint { font-size: 12px; font-weight: 700; color: var(--fa-ink-2); }
+@media (max-width: 560px) { .review-prompt-card { flex-basis: 180px; } }
 
 .orders-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .orders-count { font-size: 13px; font-weight: 700; color: var(--fa-ink-3); }
@@ -1329,8 +1344,9 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .order-card-summary { width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px 20px; border: none; background: none; cursor: pointer; font-family: inherit; text-align: left; }
 .order-card-summary:hover { background: var(--fa-mist-2); }
 .order-summary-thumbs { display: flex; flex: none; }
-.order-summary-thumb { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: var(--fa-ink-3); border: 2px solid var(--fa-surface); margin-left: -10px; flex: none; overflow: hidden; }
+.order-summary-thumb { width: 44px; height: 44px; border-radius: 11px; display: flex; align-items: center; justify-content: center; color: var(--fa-ink-3); border: 2px solid var(--fa-surface); margin-left: -14px; flex: none; overflow: hidden; background: var(--fa-mist-2); }
 .order-summary-thumb:first-child { margin-left: 0; }
+.order-summary-thumb-more { font-family: var(--fa-mono); font-size: 12px; font-weight: 700; color: var(--fa-ink-2); }
 .order-summary-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .order-summary-total { font-family: var(--fa-mono); font-weight: 700; font-size: 14px; color: var(--fa-ink); flex: none; }
 .order-summary-chevron { display: flex; color: var(--fa-ink-3); flex: none; transition: transform .2s; }
@@ -1338,29 +1354,35 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .order-card-details { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 16px; border-top: 1px solid var(--fa-mist); }
 .order-card-code { font-family: var(--fa-mono); font-weight: 700; font-size: 14.5px; }
 .order-card-date { font-size: 12.5px; color: var(--fa-ink-3); margin-top: 3px; }
-.order-status { flex: none; font-size: 11.5px; font-weight: 800; letter-spacing: .01em; padding: 5px 12px; border-radius: 999px; white-space: nowrap; }
+.order-status { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 800; letter-spacing: .01em; padding: 5px 12px; border-radius: 999px; white-space: nowrap; }
 .order-status.is-delivered { background: var(--fa-success-soft); color: var(--fa-success); }
 .order-status.is-transit { background: var(--fa-info-soft); color: var(--fa-info); }
 .order-status.is-preparing { background: var(--fa-warn-soft); color: var(--fa-warn-ink); }
 .order-status.is-canceled { background: var(--fa-mist-2); color: var(--fa-ink-3); }
 @media (max-width: 560px) { .order-card-summary { flex-wrap: wrap; padding: 14px 16px; } .order-summary-total { order: 3; margin-left: auto; } }
 
-/* in-card status rail (reuses OrderTracker's 4-step logic, restyled to the demo's compact rail) */
+/* in-card "andamento" panel: the progress rail plus a plain-language status line, in the same
+   Rosé Cuidado surface OrderSupportDrawer uses for the same concept, so "how's my order doing"
+   reads as one consistent moment whether it's seen here or in the full tracking drawer. */
+.order-progress-panel { background: var(--fa-rose-soft); border-radius: var(--fa-r-card); padding: 16px 16px 14px; }
+.order-progress-panel[data-state="cancelled"] { background: var(--fa-mist-2); }
 .order-progress { display: flex; list-style: none; margin: 0; padding: 0; }
-.order-progress li { flex: 1; position: relative; padding-top: 20px; font-size: 11.5px; font-weight: 700; color: var(--fa-ink-3); text-align: center; }
-.order-progress li::before { content: ""; position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: var(--fa-mist); z-index: 0; }
+.order-progress li { flex: 1; position: relative; padding-top: 40px; font-size: 11px; font-weight: 700; color: var(--fa-ink-3); text-align: center; }
+.order-progress li::before { content: ""; position: absolute; top: 15px; left: -50%; width: 100%; height: 3px; border-radius: 2px; background: var(--fa-rose); z-index: 0; }
 .order-progress li:first-child::before { display: none; }
-.order-progress-dot { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; background: var(--fa-mist); border: 2px solid var(--fa-surface); z-index: 1; }
+.order-progress-dot { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--fa-surface); color: var(--fa-ink-3); border: 2px solid var(--fa-rose); z-index: 1; }
 .order-progress li.is-done { color: var(--fa-ink-2); }
-.order-progress li.is-done .order-progress-dot { background: var(--fa-success); }
-.order-progress li.is-done::before { background: var(--fa-success); }
-.order-progress li.is-current { color: var(--fa-primary); }
-.order-progress li.is-current .order-progress-dot { background: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
-.order-canceled-note { display: flex; align-items: center; gap: 10px; background: var(--fa-mist-2); color: var(--fa-ink-2); border-radius: var(--fa-r-input); padding: 12px 14px; font-size: 13px; }
+.order-progress li.is-done .order-progress-dot { background: var(--fa-primary); color: #fff; border-color: var(--fa-primary); }
+.order-progress li.is-done::before { background: var(--fa-primary); }
+.order-progress li.is-current { color: var(--fa-primary-ink); font-weight: 800; }
+.order-progress li.is-current .order-progress-dot { border-color: var(--fa-primary); color: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
+.order-progress-note { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; font-size: 13px; font-weight: 600; color: var(--fa-primary-ink); }
+.order-progress-panel[data-state="cancelled"] .order-progress-note { color: var(--fa-ink-2); }
+.order-progress-panel[data-state="done"] .order-progress-note { color: var(--fa-success); }
 
 .order-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 20px; }
 .order-meta-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.order-meta-item .k { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); }
+.order-meta-item .k { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); }
 /* min-width: 0 above lets the grid track actually shrink to its column instead of growing to fit
    an unbreakable value (a long e-mail was overflowing into the next column); break-word here is
    the fallback for values still too long once the column is at minmax()'s floor. */
@@ -1380,10 +1402,10 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .order-card-total-wrap { display: flex; align-items: baseline; gap: 8px; }
 .order-card-total-wrap .k { font-size: 12px; font-weight: 700; color: var(--fa-ink-3); }
 .order-card-total { font-family: var(--fa-mono); font-size: 16px; font-weight: 700; color: var(--fa-ink); }
-.order-actions-row { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.order-actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .order-action-btn { border: none; background: none; padding: 0; font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; text-decoration: none; }
 .order-action-btn:hover { color: var(--fa-primary); }
-@media (max-width: 560px) { .order-card-foot { flex-direction: column; align-items: stretch; } .order-card-foot .fa-btn { width: 100%; } .order-progress li { font-size: 10px; } }
+@media (max-width: 560px) { .order-card-foot { flex-direction: column; align-items: stretch; } .order-card-foot .fa-btn { width: 100%; } .order-actions-row .fa-btn { flex: 1; } .order-progress li { font-size: 9.5px; padding-top: 36px; } .order-progress-dot { width: 26px; height: 26px; } }
 
 .orders-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 8px 0 4px; }
 .orders-page-nav { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--fa-mist); background: var(--fa-surface); color: var(--fa-ink-2); display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; transition: border-color .15s, color .15s; }
@@ -1946,12 +1968,16 @@ body.pd-sticky-bar-active .fa-chat-widget { bottom: calc(80px + env(safe-area-in
 
 .account-main { min-width: 0; }
 
-@media (max-width: 880px) { .account-shell { grid-template-columns: 1fr; } .account-nav { position: static; } }
+@media (max-width: 880px) { .account-shell { grid-template-columns: 1fr; } }
 
 .account-nav { background: var(--fa-surface); border: 1px solid var(--fa-mist); border-radius: var(--fa-r-card); padding: 18px; position: sticky; top: 20px; display: flex; flex-direction: column; gap: 4px; }
 
 /* JS toggles these two when the stage's own clipping ancestor breaks native position:sticky */
 .account-nav.is-pinned { position: fixed; z-index: 25; margin: 0; }
+
+/* Must come after the base/is-pinned rules above: single-column mobile layout stacks the nav
+   above the page content, so a sticky or JS-pinned nav would float over content while scrolling. */
+@media (max-width: 880px) { .account-nav, .account-nav.is-pinned { position: static; margin: 0; } }
 
 .account-nav-user { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; margin-bottom: 8px; border-bottom: 1px solid var(--fa-mist-2); }
 
