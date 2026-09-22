@@ -1566,8 +1566,10 @@ function App() {
     if (Object.prototype.hasOwnProperty.call(patch, 'qty')) payload.quantity = Math.max(1, Number(patch.qty || 1));
     if (Object.prototype.hasOwnProperty.call(patch, 'freq')) payload.frequency_days = Math.max(1, Number(patch.freq || 30));
     if (Object.prototype.hasOwnProperty.call(patch, 'paused')) payload.is_paused = !!patch.paused;
+    // The route is PUT (see api/v1/portal.py update_subscription) — PATCH 405s silently here,
+    // which is why qty/frequency/pause changes never actually persisted before this fix.
     const response = await authClient.request('/portal/marketplace/subscriptions/' + encodeURIComponent(id), {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify(payload),
     });
     const nextSubs = Array.isArray(response) ? response.map(normalizeMarketplaceSubscription).filter(Boolean) : [];
@@ -1586,7 +1588,7 @@ function App() {
   };
   const skipNextSub = async (id) => {
     const response = await authClient.request('/portal/marketplace/subscriptions/' + encodeURIComponent(id), {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify({ skip_next_cycle: true }),
     });
     setSubs(Array.isArray(response) ? response.map(normalizeMarketplaceSubscription).filter(Boolean) : []);

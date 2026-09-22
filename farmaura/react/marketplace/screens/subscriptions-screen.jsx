@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ModalShell, ProductVisual, QtyStepper, RecurrenceOffModal, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { AccountNavShell } from "./account-shared.jsx";
@@ -13,7 +13,7 @@ function faDateIn(days) {
   return date.getDate() + ' ' + FA_MONTHS[date.getMonth()];
 }
 
-const FA_FREQS = [{ v: 30, l: 'Todo mês' }, { v: 60, l: 'A cada 2 meses' }, { v: 90, l: 'A cada 3 meses' }];
+const FA_FREQS = [{ v: 15, l: 'A cada 15 dias' }, { v: 30, l: 'Todo mês' }, { v: 45, l: 'A cada 45 dias' }, { v: 60, l: 'A cada 2 meses' }];
 const faFreqLabel = (value) => (FA_FREQS.find((entry) => entry.v === value) || FA_FREQS[0]).l;
 
 const SUB_CANCEL_REASON_LABEL = {
@@ -31,8 +31,129 @@ function resolveSubProduct(sub, products) {
   return { id: sub.id, name: sub.name || 'Produto', brand: '', price: sub.unitPrice, cat: 'medicamentos', real: false };
 }
 
+// One subscription card. Quantity and frequency are staged locally and only sent to the server
+// when "Salvar" is pressed — patching on every stepper click spammed the API with one request per
+// increment, so this batches both fields into a single PATCH instead.
+function SubscriptionCard({ s, p, onNav, onPatch, onRequestConfirm, showToast }) {
+  const [qty, setQty] = useState(s.qty);
+  const [freq, setFreq] = useState(s.freq);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setQty(s.qty); setFreq(s.freq); }, [s.qty, s.freq]);
+
+  const unit = p.price * 0.85;
+  const pendingCard = s.status === 'pending_card';
+  const cancelled = s.status === 'cancelled';
+  const dirty = qty !== s.qty || freq !== s.freq;
+  const goToProduct = () => p.real && onNav({ name: 'product', id: p.id });
+  const pillClass = cancelled ? 'is-canceled' : pendingCard ? 'is-preparing' : s.paused ? 'is-paused' : 'is-delivered';
+  const pillIcon = cancelled ? 'close' : pendingCard ? 'card' : s.paused ? 'pause' : 'check';
+  const pillLabel = cancelled ? 'Cancelada' : pendingCard ? 'Aguardando cartão' : s.paused ? 'Pausada' : 'Ativa';
+  const noteState = cancelled ? 'cancelled' : pendingCard ? 'warn' : s.paused ? 'paused' : undefined;
+  const noteIcon = cancelled ? 'close' : pendingCard ? 'card' : s.paused ? 'pause' : 'truck';
+  const noteText = cancelled
+    ? (SUB_CANCEL_REASON_LABEL[s.cancelReason] || 'Essa assinatura foi cancelada.')
+    : pendingCard
+    ? `Cadastre um cartão até ${s.dueDateLabel || 'a data prevista'} para não perder o desconto — enviamos lembretes por e-mail.`
+    : s.paused
+    ? 'Assinatura pausada — retome quando quiser para voltar a receber automaticamente.'
+    : `Próxima entrega ${s.nextInDays === 0 ? 'hoje' : `em ${s.nextInDays} ${s.nextInDays === 1 ? 'dia' : 'dias'}`} · ${faDateIn(s.nextInDays)}`;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onPatch(s.id, { qty, freq });
+    } catch (error) {
+      showToast((error && error.message) || 'Não foi possível salvar as alterações agora.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resume = async () => {
+    try {
+      await onPatch(s.id, { paused: false });
+    } catch (error) {
+      showToast((error && error.message) || 'Não foi possível retomar a assinatura agora.');
+    }
+  };
+
+  return (
+    <article className="order-card">
+      <div className="order-card-summary sub-card-summary">
+        <span className="order-summary-thumb" style={{ cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>
+          <ProductVisual product={p} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} />
+        </span>
+        <span className="order-summary-main">
+          <span className="sub-name" style={{ cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>{p.name}</span>
+          <span className="order-card-date">{p.brand ? p.brand + ' · ' : ''}{faFreqLabel(s.freq)} · Qtd {s.qty}</span>
+        </span>
+        <span className={'order-status ' + pillClass}><Icon name={pillIcon} size={12} stroke={2.4} />{pillLabel}</span>
+        <span className="order-summary-total">{brl(unit * s.qty)}</span>
+      </div>
+
+      <div className="order-card-details">
+        <div className="order-progress-panel" data-state={noteState}>
+          <p className="order-progress-note"><Icon name={noteIcon} size={15} stroke={2.2} />{noteText}</p>
+          {pendingCard && (
+            <button className="fa-btn fa-btn-primary fa-btn-sm" style={{ marginTop: 10 }} onClick={() => onNav({ name: 'account' })}>
+              <Icon name="plus" size={13} />Cadastrar cartão
+            </button>
+          )}
+        </div>
+
+        <div className="order-meta-grid sub-meta-grid">
+          <div className="order-meta-item"><span className="k"><Icon name="repeat" size={13} />Frequência</span><span className="v">{faFreqLabel(s.freq)}</span></div>
+          <div className="order-meta-item"><span className="k"><Icon name="calendar" size={13} />Assinante desde</span><span className="v">{s.since}</span></div>
+          <div className="order-meta-item">
+            <span className="k"><Icon name="tag" size={13} />Preço por entrega</span>
+            <span className="v sub-price-value">
+              <span className="sub-price-was">{brl(p.price * s.qty)}</span>
+              <span className="sub-price-now">{brl(unit * s.qty)}</span>
+              <span className="sub-price-off">-15%</span>
+            </span>
+          </div>
+        </div>
+
+        {!pendingCard && !cancelled && (
+          <div className="sub-controls-row">
+            <label className="sub-control">
+              Quantidade
+              <QtyStepper value={qty} onChange={setQty} />
+            </label>
+            <label className="sub-control">
+              Frequência
+              <select className="fa-input" value={freq} onChange={(event) => setFreq(Number(event.target.value))} style={{ height: 38, width: 'auto', paddingRight: 30, fontSize: 13 }}>
+                {FA_FREQS.map((option) => <option key={option.v} value={option.v}>{option.l}</option>)}
+              </select>
+            </label>
+            <button type="button" className="fa-btn fa-btn-primary fa-btn-sm" disabled={!dirty || saving} onClick={save}>
+              <Icon name="check" size={13} />{saving ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        )}
+
+        {!pendingCard && !cancelled && (
+          <div className="order-card-foot">
+            <div className="order-card-total-wrap"><span className="k">Total por entrega</span><span className="order-card-total">{brl(unit * s.qty)}</span></div>
+            {s.paused && (
+              <button className="fa-btn fa-btn-primary" onClick={resume}><Icon name="play" size={16} />Retomar assinatura</button>
+            )}
+          </div>
+        )}
+
+        {!pendingCard && !cancelled && (
+          <div className="order-actions-row">
+            {!s.paused && <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => onRequestConfirm({ id: s.id, action: 'pause' })}><Icon name="pause" size={14} />Pausar assinatura</button>}
+            <button type="button" className="sub-remove-btn" onClick={() => onRequestConfirm({ id: s.id, action: 'cancel' })}><Icon name="trash" size={14} />Cancelar assinatura</button>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function SubscriptionsScreen({ ctx }) {
-  const { user, onNav, products, subs, patchSub, removeSub, addSub, skipNextSub } = ctx;
+  const { user, onNav, products, subs, patchSub, removeSub, addSub, showToast } = ctx;
   const [adding, setAdding] = useState(false);
   const [confirmingSub, setConfirmingSub] = useState(null); // { id, action: 'pause' | 'cancel' }
 
@@ -64,96 +185,9 @@ function SubscriptionsScreen({ ctx }) {
         </div>
       ) : (
         <div className="subs-list">
-          {rows.map(({ s, p }) => {
-            const unit = p.price * 0.85;
-            const pendingCard = s.status === 'pending_card';
-            const cancelled = s.status === 'cancelled';
-            const goToProduct = () => p.real && onNav({ name: 'product', id: p.id });
-            const pillClass = cancelled ? 'is-canceled' : pendingCard ? 'is-preparing' : s.paused ? 'is-paused' : 'is-delivered';
-            const pillIcon = cancelled ? 'close' : pendingCard ? 'card' : s.paused ? 'pause' : 'check';
-            const pillLabel = cancelled ? 'Cancelada' : pendingCard ? 'Aguardando cartão' : s.paused ? 'Pausada' : 'Ativa';
-            const noteState = cancelled ? 'cancelled' : pendingCard ? 'warn' : s.paused ? 'paused' : undefined;
-            const noteIcon = cancelled ? 'close' : pendingCard ? 'card' : s.paused ? 'pause' : 'truck';
-            const noteText = cancelled
-              ? (SUB_CANCEL_REASON_LABEL[s.cancelReason] || 'Essa assinatura foi cancelada.')
-              : pendingCard
-              ? `Cadastre um cartão até ${s.dueDateLabel || 'a data prevista'} para não perder o desconto — enviamos lembretes por e-mail.`
-              : s.paused
-              ? 'Assinatura pausada — retome quando quiser para voltar a receber automaticamente.'
-              : `Próxima entrega ${s.nextInDays === 0 ? 'hoje' : `em ${s.nextInDays} ${s.nextInDays === 1 ? 'dia' : 'dias'}`} · ${faDateIn(s.nextInDays)}`;
-            return (
-              <article className="order-card" key={s.id}>
-                <div className="order-card-summary sub-card-summary">
-                  <span className="order-summary-thumb" style={{ cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>
-                    <ProductVisual product={p} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} />
-                  </span>
-                  <span className="order-summary-main">
-                    <span className="sub-name" style={{ cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>{p.name}</span>
-                    <span className="order-card-date">{p.brand ? p.brand + ' · ' : ''}{faFreqLabel(s.freq)} · Qtd {s.qty}</span>
-                  </span>
-                  <span className={'order-status ' + pillClass}><Icon name={pillIcon} size={12} stroke={2.4} />{pillLabel}</span>
-                  <span className="order-summary-total">{brl(unit * s.qty)}</span>
-                </div>
-
-                <div className="order-card-details">
-                  <div className="order-progress-panel" data-state={noteState}>
-                    <p className="order-progress-note"><Icon name={noteIcon} size={15} stroke={2.2} />{noteText}</p>
-                    {pendingCard && (
-                      <button className="fa-btn fa-btn-primary fa-btn-sm" style={{ marginTop: 10 }} onClick={() => onNav({ name: 'account' })}>
-                        <Icon name="plus" size={13} />Cadastrar cartão
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="order-meta-grid sub-meta-grid">
-                    <div className="order-meta-item"><span className="k"><Icon name="repeat" size={13} />Frequência</span><span className="v">{faFreqLabel(s.freq)}</span></div>
-                    <div className="order-meta-item"><span className="k"><Icon name="calendar" size={13} />Assinante desde</span><span className="v">{s.since}</span></div>
-                    <div className="order-meta-item">
-                      <span className="k"><Icon name="tag" size={13} />Preço por entrega</span>
-                      <span className="v sub-price-value">
-                        <span className="sub-price-was">{brl(p.price * s.qty)}</span>
-                        <span className="sub-price-now">{brl(unit * s.qty)}</span>
-                        <span className="sub-price-off">-15%</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {!pendingCard && !cancelled && (
-                    <div className="sub-controls-row">
-                      <label className="sub-control">
-                        Quantidade
-                        <QtyStepper value={s.qty} onChange={(qty) => patchSub(s.id, { qty: Math.max(1, qty) })} />
-                      </label>
-                      <label className="sub-control">
-                        Frequência
-                        <select className="fa-input" value={s.freq} onChange={(event) => patchSub(s.id, { freq: Number(event.target.value) })} style={{ height: 38, width: 'auto', paddingRight: 30, fontSize: 13 }}>
-                          {FA_FREQS.map((freq) => <option key={freq.v} value={freq.v}>{freq.l}</option>)}
-                        </select>
-                      </label>
-                    </div>
-                  )}
-
-                  {!pendingCard && !cancelled && (
-                    <div className="order-card-foot">
-                      <div className="order-card-total-wrap"><span className="k">Total por entrega</span><span className="order-card-total">{brl(unit * s.qty)}</span></div>
-                      {s.paused ? (
-                        <button className="fa-btn fa-btn-primary" onClick={() => patchSub(s.id, { paused: false })}><Icon name="play" size={16} />Retomar assinatura</button>
-                      ) : (
-                        <button className="fa-btn fa-btn-primary" onClick={() => skipNextSub(s.id)}><Icon name="chevR" size={16} />Pular próxima entrega</button>
-                      )}
-                    </div>
-                  )}
-
-                  {!pendingCard && !cancelled && (
-                    <div className="order-actions-row">
-                      {!s.paused && <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setConfirmingSub({ id: s.id, action: 'pause' })}><Icon name="pause" size={14} />Pausar assinatura</button>}
-                      <button type="button" className="sub-remove-btn" onClick={() => setConfirmingSub({ id: s.id, action: 'cancel' })}><Icon name="trash" size={14} />Cancelar assinatura</button>
-                    </div>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+          {rows.map(({ s, p }) => (
+            <SubscriptionCard key={s.id} s={s} p={p} onNav={onNav} onPatch={patchSub} onRequestConfirm={setConfirmingSub} showToast={showToast} />
+          ))}
         </div>
       )}
       <div className="fa-card" style={{ padding: 22, marginTop: 24, background: 'var(--fa-success-soft)', border: 'none' }}>
@@ -204,10 +238,15 @@ function SubscriptionsScreen({ ctx }) {
         qty={confirmingRow ? confirmingRow.s.qty : 1}
         freqDays={confirmingRow ? confirmingRow.s.freq : 30}
         onClose={() => setConfirmingSub(null)}
-        onConfirm={() => {
-          if (confirmingSub.action === 'cancel') removeSub(confirmingSub.id);
-          else patchSub(confirmingSub.id, { paused: true });
+        onConfirm={async () => {
+          const { id, action } = confirmingSub;
           setConfirmingSub(null);
+          try {
+            if (action === 'cancel') await removeSub(id);
+            else await patchSub(id, { paused: true });
+          } catch (error) {
+            showToast((error && error.message) || 'Não foi possível concluir a ação agora.');
+          }
         }}
       />
     </AccountNavShell>
