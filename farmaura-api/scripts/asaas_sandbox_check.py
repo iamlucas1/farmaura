@@ -41,9 +41,13 @@ from app.services.asaas_client import AsaasClient, AsaasError, build_invoice_pay
 from app.services.payment_service import PaymentService
 
 OK, FAIL, WARN = "[ OK ]", "[FALHA]", "[ AVISO ]"
+# PAYMENT_RECEIVED_IN_CASH deliberately left out: POST /v3/webhooks rejects it as an invalid event
+# name on this account ("O evento [PAYMENT_RECEIVED_IN_CASH] é inválido") even though it's a real,
+# documented Asaas payment status — PaymentService still handles it defensively if it ever arrives
+# under a differently-named event, it's just not something this account can subscribe to today.
 WEBHOOK_EVENTS = [
     "PAYMENT_CONFIRMED", "PAYMENT_RECEIVED", "PAYMENT_OVERDUE", "PAYMENT_DELETED", "PAYMENT_REFUNDED",
-    "PAYMENT_RECEIVED_IN_CASH", "INVOICE_CREATED", "INVOICE_SYNCHRONIZED", "INVOICE_AUTHORIZED", "INVOICE_ERROR",
+    "INVOICE_CREATED", "INVOICE_SYNCHRONIZED", "INVOICE_AUTHORIZED", "INVOICE_ERROR",
 ]
 # Documented by Asaas as the declined test cards (docs.asaas.com "Testando pagamento com cartão de crédito").
 DECLINE_CARD = "5184019740373151"
