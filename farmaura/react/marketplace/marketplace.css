@@ -1289,6 +1289,24 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .fa-paycard[data-brand="Mastercard"] { background: linear-gradient(135deg, #3a2230, #1d1016); }
 .fa-paycard[data-brand="Elo"] { background: linear-gradient(135deg, #2b2b2b, #111); }
 
+/* Card network marks — see CardBrandMark (account-profile-screen.jsx) for why Mastercard/Elo are
+   drawn as simple overlapping circles instead of a wordmark: it's the network's own mark geometry,
+   just never the literal trademarked artwork/typeface. */
+.fa-paycard-brandmark { display: inline-flex; align-items: center; color: #fff; }
+.fa-paycard-brandmark-visa { font-style: italic; font-weight: 800; font-size: 16px; letter-spacing: .01em; }
+.fa-paycard-brandmark-amex { font-weight: 800; font-size: 11px; letter-spacing: .05em; padding: 3px 7px; border: 1.5px solid rgba(255,255,255,.7); border-radius: 4px; }
+.fa-paycard-brandmark-hiper { font-weight: 800; font-style: italic; font-size: 13px; }
+.fa-paycard-brandmark-generic { opacity: .85; gap: 7px; font-weight: 800; letter-spacing: .04em; }
+.fa-paycard-brandmark-mc { width: 34px; height: 22px; position: relative; flex: none; }
+.fa-paycard-brandmark-mc .c { position: absolute; top: 0; width: 22px; height: 22px; border-radius: 50%; }
+.fa-paycard-brandmark-mc .c1 { left: 0; background: #EB001B; }
+.fa-paycard-brandmark-mc .c2 { left: 12px; background: #F79E1B; mix-blend-mode: screen; }
+.fa-paycard-brandmark-elo { flex: none; }
+.fa-paycard-brandmark-elo .d { display: inline-block; width: 13px; height: 13px; border-radius: 50%; margin-left: -5px; }
+.fa-paycard-brandmark-elo .d1 { margin-left: 0; background: #FFCB05; }
+.fa-paycard-brandmark-elo .d2 { background: #00A4E0; mix-blend-mode: screen; }
+.fa-paycard-brandmark-elo .d3 { background: #EF4123; mix-blend-mode: screen; }
+
 @media (max-width: 880px) {
   .fa-acct-grid { grid-template-columns: 1fr; gap: 18px; }
   .fa-acct-side { position: static; flex-direction: column; }

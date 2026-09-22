@@ -677,6 +677,25 @@ function ProfileManage({ ctx, acct }) {
     setSavedInfo(false);
     setInfoError('');
   };
+  // Client-side port of the backend's real check-digit algorithm (app/domain/validators.py
+  // is_valid_cpf) — the profile "Salvar" button used to only check for 11 digits, so a CPF that
+  // is present but fails the real checksum (e.g. seed/test data, or a typo) saved as if it were
+  // complete. That only surfaced later as an opaque "Informe um CPF válido" error when trying to
+  // add a card (Asaas needs a checksum-valid CPF to tokenize one) — this validates at the source
+  // instead, so the profile itself is the one place that ever needs to catch it.
+  const isValidCpfChecksum = (value) => {
+    const digits = (value || '').replace(/\D/g, '');
+    if (digits.length !== 11 || /^(\d)\1{10}$/.test(digits)) return false;
+    const nums = digits.split('').map(Number);
+    for (const checkIndex of [9, 10]) {
+      let total = 0;
+      for (let i = 0; i < checkIndex; i += 1) total += nums[i] * (checkIndex + 1 - i);
+      let remainder = (total * 10) % 11;
+      if (remainder === 10) remainder = 0;
+      if (remainder !== nums[checkIndex]) return false;
+    }
+    return true;
+  };
   const maskCpfInput = (value) => {
     const digits = (value || '').replace(/\D/g, '').slice(0, 11);
     if (digits.length > 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
@@ -884,7 +903,15 @@ function ProfileManage({ ctx, acct }) {
                 <div className="fa-field fa-span2"><label htmlFor="profile-name">Nome completo</label><input id="profile-name" className="fa-input" value={draft.name} onChange={(event) => setDraftField('name', event.target.value)} /></div>
                 <div className="fa-field"><label htmlFor="profile-email">E-mail</label><input id="profile-email" className="fa-input" type="email" value={draft.email} onChange={(event) => setDraftField('email', event.target.value)} /></div>
                 <div className="fa-field"><label htmlFor="profile-phone">Telefone</label><input id="profile-phone" className="fa-input" inputMode="numeric" placeholder="(00) 00000-0000" value={draft.phone} onChange={(event) => setDraftField('phone', maskPhoneInput(event.target.value))} /></div>
-                <div className="fa-field"><label htmlFor="profile-cpf">CPF</label><input id="profile-cpf" className="fa-input fa-mono" inputMode="numeric" maxLength={14} placeholder="000.000.000-00" value={draft.cpf} onChange={(event) => setDraftField('cpf', maskCpfInput(event.target.value))} /></div>
+                <div className="fa-field">
+                  <label htmlFor="profile-cpf">CPF</label>
+                  <input id="profile-cpf" className="fa-input fa-mono" inputMode="numeric" maxLength={14} placeholder="000.000.000-00" value={draft.cpf} onChange={(event) => setDraftField('cpf', maskCpfInput(event.target.value))} />
+                  {draft.cpf.replace(/\D/g, '').length === 11 && !isValidCpfChecksum(draft.cpf) && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, fontSize: 12, color: 'var(--fa-error)' }}>
+                      <Icon name="info" size={13} />Esse CPF não é válido — confira os números.
+                    </span>
+                  )}
+                </div>
                 <div className="fa-field"><label htmlFor="profile-birth">Data de nascimento</label><input id="profile-birth" className="fa-input" type="date" value={draft.birth} onChange={(event) => setDraftField('birth', event.target.value)} /></div>
                 <div className="fa-field"><label htmlFor="profile-gender">Gênero</label>
                   <select id="profile-gender" className="fa-select" value={draft.gender} onChange={(event) => setDraftField('gender', event.target.value)}>
@@ -968,15 +995,25 @@ function ProfileManage({ ctx, acct }) {
               {infoError ? <div style={{ marginTop: 12, color: 'var(--fa-error)', fontSize: 12.5 }}>{infoError}</div> : null}
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                 {/* CPF is mandatory: the customer must be identifiable by CPF at the physical
-                    store counter, so profile completion cannot be saved without a real one. */}
-                <button className="fa-btn fa-btn-primary" disabled={savingInfo || !draft.name.trim() || draft.cpf.replace(/\D/g, '').length !== 11} onClick={saveInfo}><Icon name="check" size={16} stroke={2.4} />{savingInfo ? 'Salvando...' : 'Salvar alterações'}</button>
+                    store counter, so profile completion cannot be saved without a real one —
+                    and it must pass the real check-digit algorithm, not just be 11 digits long,
+                    or an invalid CPF saves as if it were complete (see isValidCpfChecksum above). */}
+                <button className="fa-btn fa-btn-primary" disabled={savingInfo || !draft.name.trim() || !isValidCpfChecksum(draft.cpf)} onClick={saveInfo}><Icon name="check" size={16} stroke={2.4} />{savingInfo ? 'Salvando...' : 'Salvar alterações'}</button>
                 <button className="fa-btn fa-btn-soft" disabled={savingInfo} onClick={() => { setDraft(profile); setInfoError(''); setEditingPersonal(false); }}>Cancelar</button>
               </div>
             </>
           ) : (
             <div className="order-meta-grid" style={{ marginTop: 4 }}>
               {PERSONAL_FIELDS.map(([key, label, value]) => (
-                <div className="order-meta-item" key={key}><span className="k">{label}</span><span className="v">{value}</span></div>
+                <div className="order-meta-item" key={key}>
+                  <span className="k">{label}</span>
+                  <span className="v">{value}</span>
+                  {key === 'cpf' && draft.cpf && !isValidCpfChecksum(draft.cpf) && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, fontSize: 11.5, fontWeight: 700, color: 'var(--fa-error)' }}>
+                      <Icon name="info" size={12} />CPF inválido — corrija para poder salvar cartões
+                    </span>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -1401,25 +1438,88 @@ function GoogleWelcomeProfileModal({ ctx }) {
   );
 }
 
+// Recognizable network mark for a saved card, resolved from Asaas's own `creditCardBrand` value
+// (raw, case varies by environment — sandbox/production casing isn't normalized anywhere before
+// this, so match case-insensitively). Mastercard/Elo are drawn as simple overlapping-circle marks
+// (the network's own mark is exactly that geometry, and this is the same level of simplification
+// every icon-font/payment-UI kit uses — never the network's actual wordmark artwork/typeface) so a
+// saved card reads as "this is really a Visa/Mastercard/etc." at a glance, per DESIGN.md's own
+// payment-card-mockup exception (a saved card is meant to look like the real network, not Farmaura).
+// This is the ONLY brand label rendered on a saved card now — it used to sit next to a plain-text
+// {card.brand} span, which read as a duplicate ("VISA Visa") for every brand with a text mark.
+// Icon-only marks (Mastercard, Elo) carry the brand via aria-label instead, since there's no
+// visible text to announce.
+function CardBrandMark({ brand }) {
+  const normalized = String(brand || '').trim().toUpperCase();
+  const label = String(brand || 'Cartão').trim();
+  if (normalized.includes('MASTERCARD') || normalized === 'MC') {
+    return (
+      <span className="fa-paycard-brandmark fa-paycard-brandmark-mc" role="img" aria-label={label}>
+        <span className="c c1" /><span className="c c2" />
+      </span>
+    );
+  }
+  if (normalized.includes('VISA')) {
+    return <span className="fa-paycard-brandmark fa-paycard-brandmark-visa">VISA</span>;
+  }
+  if (normalized.includes('ELO')) {
+    return (
+      <span className="fa-paycard-brandmark fa-paycard-brandmark-elo" role="img" aria-label={label}>
+        <span className="d d1" /><span className="d d2" /><span className="d d3" />
+      </span>
+    );
+  }
+  if (normalized.includes('AMEX') || normalized.includes('AMERICAN EXPRESS')) {
+    return <span className="fa-paycard-brandmark fa-paycard-brandmark-amex">AMEX</span>;
+  }
+  if (normalized.includes('HIPER')) {
+    return <span className="fa-paycard-brandmark fa-paycard-brandmark-hiper">hiper</span>;
+  }
+  if (normalized.includes('DINERS')) {
+    return <span className="fa-paycard-brandmark fa-paycard-brandmark-generic">Diners</span>;
+  }
+  return (
+    <span className="fa-paycard-brandmark fa-paycard-brandmark-generic">
+      <Icon name="card" size={16} />{label}
+    </span>
+  );
+}
+
+// "0000 0000 0000 0000" as you type — a raw 19-digit blob is hard to proofread against the
+// physical card, same reasoning as maskCpfInput/maskPhoneInput elsewhere in this file. The
+// grouped spaces never leave this component: canSubmit/onSave both strip back to raw digits.
+function maskCardNumberInput(value) {
+  const digits = (value || '').replace(/\D/g, '').slice(0, 19);
+  return digits.replace(/(\d{4})(?=\d)/g, '$1 ');
+}
+
+// "MM/AA" — auto-inserts the slash once 2 digits are typed, instead of asking the customer to
+// type it themselves.
+function maskCardExpiryInput(value) {
+  const digits = (value || '').replace(/\D/g, '').slice(0, 4);
+  return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+}
+
 function CardForm({ onSave, onCancel, saving }) {
   /** Render the saved-card creation form. */
 
   const [card, setCard] = useState({ number: '', holder: '', exp: '', cvv: '' });
   const setCardField = (field, value) => setCard((current) => ({ ...current, [field]: value }));
+  const numberDigits = card.number.replace(/\D/g, '');
   const digits = card.exp.replace(/\D/g, '').slice(0, 4);
   const expiryMonth = digits.slice(0, 2);
   const expiryYear = digits.slice(2, 4) ? '20' + digits.slice(2, 4) : '';
-  const canSubmit = card.number.length >= 12 && card.holder.trim() && expiryMonth.length === 2 && expiryYear.length === 4 && card.cvv.length >= 3;
+  const canSubmit = numberDigits.length >= 12 && card.holder.trim() && expiryMonth.length === 2 && expiryYear.length === 4 && card.cvv.length >= 3;
   return (
     <div style={{ background: 'var(--fa-mist-2)', borderRadius: 'var(--fa-r-card)', padding: 18 }}>
       <div className="fa-form2">
-        <div className="fa-field fa-span2"><label htmlFor="card-number">Número do cartão</label><input id="card-number" className="fa-input" value={card.number} onChange={(event) => setCardField('number', event.target.value.replace(/[^0-9]/g, '').slice(0, 19))} placeholder="0000 0000 0000 0000" /></div>
+        <div className="fa-field fa-span2"><label htmlFor="card-number">Número do cartão</label><input id="card-number" className="fa-input fa-mono" inputMode="numeric" value={card.number} onChange={(event) => setCardField('number', maskCardNumberInput(event.target.value))} placeholder="0000 0000 0000 0000" /></div>
         <div className="fa-field fa-span2"><label htmlFor="card-holder">Nome impresso no cartão</label><input id="card-holder" className="fa-input" value={card.holder} onChange={(event) => setCardField('holder', event.target.value.toUpperCase())} placeholder="NOME COMPLETO" /></div>
-        <div className="fa-field"><label htmlFor="card-exp">Validade</label><input id="card-exp" className="fa-input" value={card.exp} onChange={(event) => setCardField('exp', event.target.value.replace(/[^0-9/]/g, '').slice(0, 5))} placeholder="MM/AA" /></div>
-        <div className="fa-field"><label htmlFor="card-cvv">CVV</label><input id="card-cvv" className="fa-input" value={card.cvv} onChange={(event) => setCardField('cvv', event.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="000" /></div>
+        <div className="fa-field"><label htmlFor="card-exp">Validade</label><input id="card-exp" className="fa-input fa-mono" inputMode="numeric" value={card.exp} onChange={(event) => setCardField('exp', maskCardExpiryInput(event.target.value))} placeholder="MM/AA" /></div>
+        <div className="fa-field"><label htmlFor="card-cvv">CVV</label><input id="card-cvv" className="fa-input fa-mono" inputMode="numeric" value={card.cvv} onChange={(event) => setCardField('cvv', event.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="000" /></div>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-        <button className="fa-btn fa-btn-primary" disabled={!canSubmit || saving} onClick={() => onSave({ number: card.number, holderName: card.holder, expiryMonth, expiryYear, cvv: card.cvv })}>
+        <button className="fa-btn fa-btn-primary" disabled={!canSubmit || saving} onClick={() => onSave({ number: numberDigits, holderName: card.holder, expiryMonth, expiryYear, cvv: card.cvv })}>
           <Icon name="check" size={16} stroke={2.4} />{saving ? 'Salvando...' : 'Adicionar cartão'}
         </button>
         <button className="fa-btn fa-btn-soft" onClick={onCancel}>Cancelar</button>
@@ -1485,9 +1585,9 @@ function MyCards({ ctx }) {
                 <div key={card.id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div className="fa-paycard" data-brand={card.brand}>
                     {card.primary && <span className="fa-badge" style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,.2)', color: '#fff' }}>Principal</span>}
-                    <div style={{ fontWeight: 800, letterSpacing: '.04em' }}>{card.brand}</div>
+                    <CardBrandMark brand={card.brand} />
                     <div className="fa-mono" style={{ fontSize: 18, letterSpacing: '.14em' }}>•••• •••• •••• {card.last4}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, opacity: .85 }}><span>{card.holder}</span><span>val {card.exp}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, opacity: .85 }}><span>{card.holder}</span><span>{card.exp}</span></div>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     {!card.primary && <button className="fa-btn fa-btn-soft fa-btn-sm" style={{ flex: 1 }} onClick={() => setPrimary(card.id)}>Tornar principal</button>}
