@@ -1082,12 +1082,16 @@ class PortalService:
         resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=product_ref)
         listing_ref, inventory_ref, real_name = resolved if resolved is not None else (None, None, product_ref)
         saved_products = await self._fetch_saved_product_models(customer=customer)
-        already_saved = any(
-            (inventory_ref is not None and item.inventory_item_id == inventory_ref)
-            or (listing_ref is not None and item.marketplace_listing_id == listing_ref)
-            or self._saved_product_ref(item) == product_ref
-            for item in saved_products
-        )
+        already_saved = False
+        for item in saved_products:
+            if (inventory_ref is not None and item.inventory_item_id == inventory_ref) or (
+                listing_ref is not None and item.marketplace_listing_id == listing_ref
+            ):
+                already_saved = True
+                break
+            if await self._saved_product_ref(customer.tenant_id, item) == product_ref:
+                already_saved = True
+                break
         if already_saved:
             return await self._list_saved_products(customer=customer)
         record = SavedProduct(
@@ -1113,11 +1117,12 @@ class PortalService:
         listing_ref, inventory_ref, _real_name = resolved if resolved is not None else (None, None, "")
         saved_products = await self._fetch_saved_product_models(customer=customer)
         for record in saved_products:
-            if (
-                self._saved_product_ref(record) == normalized_ref
-                or (inventory_ref is not None and record.inventory_item_id == inventory_ref)
-                or (listing_ref is not None and record.marketplace_listing_id == listing_ref)
-            ):
+            match = (inventory_ref is not None and record.inventory_item_id == inventory_ref) or (
+                listing_ref is not None and record.marketplace_listing_id == listing_ref
+            )
+            if not match:
+                match = await self._saved_product_ref(customer.tenant_id, record) == normalized_ref
+            if match:
                 await self.session.delete(record)
         await self.session.commit()
         await apply_tenant_context(self.session, subject)
@@ -1137,16 +1142,16 @@ class PortalService:
         resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=product_ref)
         listing_ref, inventory_ref, real_name = resolved if resolved is not None else (None, None, product_ref)
         subscriptions = await self._fetch_subscription_models(customer=customer)
-        existing = next(
-            (
-                record
-                for record in subscriptions
-                if (inventory_ref is not None and record.inventory_item_id == inventory_ref)
-                or (listing_ref is not None and record.marketplace_listing_id == listing_ref)
-                or self._subscription_ref(record) == product_ref
-            ),
-            None,
-        )
+        existing = None
+        for record in subscriptions:
+            if (inventory_ref is not None and record.inventory_item_id == inventory_ref) or (
+                listing_ref is not None and record.marketplace_listing_id == listing_ref
+            ):
+                existing = record
+                break
+            if await self._subscription_ref(customer.tenant_id, record) == product_ref:
+                existing = record
+                break
         if existing is not None:
             existing.quantity = payload.quantity
             existing.frequency_days = payload.frequency_days
@@ -1186,16 +1191,16 @@ class PortalService:
         resolved = await self._resolve_grouped_product_ref(tenant_id=customer.tenant_id, product_ref=normalized_ref)
         listing_ref, inventory_ref, _real_name = resolved if resolved is not None else (None, None, "")
         subscriptions = await self._fetch_subscription_models(customer=customer)
-        record = next(
-            (
-                item
-                for item in subscriptions
-                if self._subscription_ref(item) == normalized_ref
-                or (inventory_ref is not None and item.inventory_item_id == inventory_ref)
-                or (listing_ref is not None and item.marketplace_listing_id == listing_ref)
-            ),
-            None,
-        )
+        record = None
+        for item in subscriptions:
+            if (inventory_ref is not None and item.inventory_item_id == inventory_ref) or (
+                listing_ref is not None and item.marketplace_listing_id == listing_ref
+            ):
+                record = item
+                break
+            if await self._subscription_ref(customer.tenant_id, item) == normalized_ref:
+                record = item
+                break
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscription not found.')
         if payload.quantity is not None:
@@ -1222,11 +1227,12 @@ class PortalService:
         listing_ref, inventory_ref, _real_name = resolved if resolved is not None else (None, None, "")
         subscriptions = await self._fetch_subscription_models(customer=customer)
         for record in subscriptions:
-            if (
-                self._subscription_ref(record) == normalized_ref
-                or (inventory_ref is not None and record.inventory_item_id == inventory_ref)
-                or (listing_ref is not None and record.marketplace_listing_id == listing_ref)
-            ):
+            match = (inventory_ref is not None and record.inventory_item_id == inventory_ref) or (
+                listing_ref is not None and record.marketplace_listing_id == listing_ref
+            )
+            if not match:
+                match = await self._subscription_ref(customer.tenant_id, record) == normalized_ref
+            if match:
                 await self.session.delete(record)
         await self.session.commit()
         await apply_tenant_context(self.session, subject)
@@ -1834,7 +1840,8 @@ class PortalService:
     async def _list_saved_products(self, customer: Customer) -> list[PortalFavoriteResponse]:
         """Return serialized saved product references for one customer."""
 
-        return [PortalFavoriteResponse(product_ref=self._saved_product_ref(item)) for item in await self._fetch_saved_product_models(customer=customer)]
+        items = await self._fetch_saved_product_models(customer=customer)
+        return [PortalFavoriteResponse(product_ref=await self._saved_product_ref(customer.tenant_id, item)) for item in items]
 
     async def _fetch_subscription_models(self, customer: Customer) -> list[Subscription]:
         """Return subscription models for one customer."""
@@ -1845,9 +1852,10 @@ class PortalService:
     async def _list_subscriptions(self, customer: Customer) -> list[PortalSubscriptionResponse]:
         """Return serialized subscriptions for one customer."""
 
+        items = await self._fetch_subscription_models(customer=customer)
         return [
             PortalSubscriptionResponse(
-                product_ref=self._subscription_ref(item),
+                product_ref=await self._subscription_ref(customer.tenant_id, item),
                 quantity=int(item.quantity or 1),
                 frequency_days=int(item.frequency_days or 30),
                 is_paused=bool(item.is_paused),
@@ -1859,7 +1867,7 @@ class PortalService:
                 product_name=item.product_name_snapshot or '',
                 unit_price=item.unit_price_snapshot or Decimal('0.00'),
             )
-            for item in await self._fetch_subscription_models(customer=customer)
+            for item in items
         ]
 
     async def _list_coupon_campaigns(self, *, tenant_id: str, active_only: bool) -> list[PortalCouponResponse]:
@@ -2297,23 +2305,56 @@ class PortalService:
             return None
         return parsed if parsed.tzinfo is not None else parsed.astimezone()
 
-    def _saved_product_ref(self, record: SavedProduct) -> str:
+    async def _grouped_ref_for_saved_reference(
+        self, tenant_id: str, *, inventory_item_id: str | None, marketplace_listing_id: str | None, fallback: str,
+    ) -> str:
+        """Recompute the catalog's grouped product id for a saved-favorite/subscription record.
+
+        `product.id` on the frontend is always the grouped "mkt-<name>-<brand>" id (see
+        build_marketplace_product_id) — never the internal inv-/listing- prefixed form these
+        records are stored against. The 2026-09-16 fix made POST /favorites and POST
+        /subscriptions accept a real product_ref without crashing, but the *response* still
+        echoed the internal prefixed ref, which never equals product.id on round-trip — so
+        the heart/subscription state never showed as active and "Produtos salvos" stayed
+        empty even though the record was saved correctly. This resolves the linked inventory
+        item (through the listing, when the record only has a listing id) and recomputes the
+        same grouped id the catalog itself uses, falling back to the old prefixed form only
+        when the underlying item can no longer be found (discontinued product).
+        """
+
+        item_id = inventory_item_id
+        if item_id is None and marketplace_listing_id is not None:
+            listing = await self.session.get(MarketplaceListing, marketplace_listing_id)
+            item_id = listing.inventory_item_id if listing else None
+        if item_id is not None:
+            item = await InventoryRepository(self.session).get_item_by_id(tenant_id=tenant_id, item_id=item_id)
+            if item is not None:
+                return build_marketplace_product_id(item.name, item.brand_name)
+        if inventory_item_id:
+            return 'inv-' + str(inventory_item_id)
+        if marketplace_listing_id:
+            return 'listing-' + str(marketplace_listing_id)
+        return fallback
+
+    async def _saved_product_ref(self, tenant_id: str, record: SavedProduct) -> str:
         """Return the product reference used by the frontend for one saved product."""
 
-        if record.inventory_item_id:
-            return 'inv-' + str(record.inventory_item_id)
-        if record.marketplace_listing_id:
-            return 'listing-' + str(record.marketplace_listing_id)
-        return str(record.product_name_snapshot or record.id)
+        return await self._grouped_ref_for_saved_reference(
+            tenant_id,
+            inventory_item_id=record.inventory_item_id,
+            marketplace_listing_id=record.marketplace_listing_id,
+            fallback=str(record.product_name_snapshot or record.id),
+        )
 
-    def _subscription_ref(self, record: Subscription) -> str:
+    async def _subscription_ref(self, tenant_id: str, record: Subscription) -> str:
         """Return the product reference used by the frontend for one subscription."""
 
-        if record.inventory_item_id:
-            return 'inv-' + str(record.inventory_item_id)
-        if record.marketplace_listing_id:
-            return 'listing-' + str(record.marketplace_listing_id)
-        return str(record.product_name_snapshot or record.id)
+        return await self._grouped_ref_for_saved_reference(
+            tenant_id,
+            inventory_item_id=record.inventory_item_id,
+            marketplace_listing_id=record.marketplace_listing_id,
+            fallback=str(record.product_name_snapshot or record.id),
+        )
 
     def _split_product_ref(self, product_ref: str) -> tuple[str | None, str | None]:
         """Split one frontend product reference into persisted foreign keys, if it is one.

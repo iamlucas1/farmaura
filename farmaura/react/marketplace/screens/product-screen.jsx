@@ -285,6 +285,7 @@ let lastPickedQty = { variantGroupId: null, qty: 1 };
 function ProductScreen({ ctx }) {
   const { user, products, route, onNav, addToCart, fav, toggleFav, availabilityAlerts, subscribeAvailabilityAlert, cardVariant, paymentRules, authClient } = ctx;
   const product = products.find((entry) => entry.id === route.id) || products[0];
+  const isFav = !!(product && fav.includes(product.id));
   const [qty, setQty] = useState(() => (
     product && product.variantGroupId && product.variantGroupId === lastPickedQty.variantGroupId
       ? lastPickedQty.qty
@@ -446,6 +447,10 @@ function ProductScreen({ ctx }) {
             <button className="fa-btn fa-btn-ghost pd-add-btn" onClick={handleAddToCart}><Icon name="cart" size={16} stroke={2.2} />Adicionar ao carrinho</button>
           </>
         )}
+        <button type="button" className="fa-btn fa-btn-soft pd-add-btn pd-save-btn" onClick={() => toggleFav(product.id)}>
+          <Icon name="heart" size={16} stroke={2.2} style={isFav ? { fill: 'currentColor', color: 'var(--fa-vital)' } : undefined} />
+          {isFav ? 'Nos seus desejos' : 'Adicionar aos desejos'}
+        </button>
       </div>
       <BulaCta product={product} onNav={onNav} />
     </div>
