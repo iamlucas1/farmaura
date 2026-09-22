@@ -1,22 +1,34 @@
 import React, { useState } from "react";
-import { brl } from "../core/marketplace-components.jsx";
+import { AuraLayer, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
-import { MARKETPLACE_LOGO_MARK_URL } from "../core/marketplace-assets.js";
+import { MARKETPLACE_LOGO_FULL_URL, MARKETPLACE_LOGO_MARK_URL } from "../core/marketplace-assets.js";
 import { AccountNavShell } from "./account-shared.jsx";
 import { ShopScreen } from "./shop-screen.jsx";
 
 /* FARMAURA — Telas extras: Saldo de cashback + Mais buscados/Favoritos. */
 
+// Same logged-out gate treatment as AccountScreen's own (account-screen.jsx): rose-soft hero card,
+// Aura decoration, full-lockup watermark, eyebrow/headline/lead, primary+ghost CTA pair — reused
+// here so every "entre para..." gate across the account area (cashback, assinaturas, salvos,
+// mensagens) shares one visual standard instead of the plain icon-and-paragraph layout this used
+// to be.
 function LoginGate({ icon, title, sub, cta, onNav }) {
   return (
-    <div className="fa-wrap fa-fadein" style={{ paddingTop: 60, paddingBottom: 80, textAlign: 'center' }}>
-      <span className="fa-iconbox" style={{ margin: '0 auto 18px', width: 72, height: 72 }}><Icon name={icon} size={32} /></span>
-      <h1 className="fa-h2">{title}</h1>
-      <p className="fa-lead" style={{ marginTop: 8, maxWidth: 460, marginInline: 'auto' }}>{sub}</p>
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 24 }}>
-        <button className="fa-btn fa-btn-primary fa-btn-lg" onClick={() => onNav({ name: 'login' })}>{cta}</button>
-        <button className="fa-btn fa-btn-ghost fa-btn-lg" onClick={() => onNav({ name: 'home' })}>Voltar ao início</button>
-      </div>
+    <div className="fa-wrap fa-fadein" style={{ paddingTop: 28, paddingBottom: 80 }}>
+      <section className="fa-card" style={{ position: 'relative', overflow: 'hidden', background: 'var(--fa-rose-soft)', border: 'none', padding: 'clamp(30px,5vw,52px)', minHeight: 'clamp(380px, 50vh, 540px)', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'center' }}>
+        <AuraLayer tone="var(--fa-primary)" />
+        <img className="fa-account-gate-mark" src={MARKETPLACE_LOGO_FULL_URL} alt="" aria-hidden="true" />
+        <div style={{ position: 'relative', zIndex: 1, maxWidth: 520, margin: '0 auto' }}>
+          <span className="fa-iconbox" style={{ margin: '0 auto 18px', width: 64, height: 64, background: '#fff' }}><Icon name={icon} size={28} /></span>
+          <span className="fa-eyebrow">Sua conta Farmaura</span>
+          <h1 className="fa-h1" style={{ color: 'var(--fa-primary)', marginTop: 10, fontSize: 'clamp(24px, 3vw, 34px)' }}>{title}</h1>
+          <p className="fa-lead" style={{ marginTop: 14, color: 'var(--fa-primary-ink)' }}>{sub}</p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginTop: 26 }}>
+            <button type="button" className="fa-btn fa-btn-primary fa-btn-lg" onClick={() => onNav({ name: 'login' })}>{cta}</button>
+            <button type="button" className="fa-btn fa-btn-ghost fa-btn-lg" onClick={() => onNav({ name: 'login', mode: 'register' })}>Criar conta</button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
