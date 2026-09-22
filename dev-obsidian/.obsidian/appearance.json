@@ -1,6 +1,7 @@
 {
   "theme": "obsidian",
   "enabledCssSnippets": [
-    "autoria-cores"
+    "autoria-cores",
+    "logs-chat"
   ]
 }

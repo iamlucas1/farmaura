@@ -1,0 +1,202 @@
+/* Leitura dos logs automáticos de chat (_Logs_Chat/) e execução (_Logs_Execucao/):
+   separa visualmente os turnos por horário e quem escreveu cada trecho.
+   Ativa via `.obsidian/appearance.json` (enabledCssSnippets). Ver dev-obsidian/CLAUDE.md.
+   Reaproveita as cores de autoria já definidas em autoria-cores.css (laranja = IA, azul = usuário). */
+
+:root {
+  --autoria-ia: #e8821a;
+  --autoria-usuario: #3b82f6;
+}
+
+/* --- Divisor entre turnos (## HH:MM) --- */
+.chat-log h2,
+.exec-log h2 {
+  margin-top: 2em;
+  padding: 0.15em 0.6em;
+  font-size: 0.95em;
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+  background-color: var(--background-secondary);
+  border-radius: 6px;
+  display: inline-block;
+}
+
+/* Linha "---" que separa um turno do próximo: mais discreta que o hr padrão */
+.chat-log hr,
+.exec-log hr {
+  margin: 1.6em 0;
+  border: none;
+  border-top: 1px dashed var(--background-modifier-border);
+}
+
+/* --- Rótulo "Você" / "Claude" / "Codex" --- */
+.chat-role {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 0.85em;
+  letter-spacing: 0.02em;
+  padding: 0.05em 0.55em;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.chat-role-user {
+  background-color: var(--autoria-usuario);
+}
+
+.chat-role-ai {
+  background-color: var(--autoria-ia);
+}
+
+.chat-empty {
+  color: var(--text-faint);
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+/* --- Ativação de slash command (skill, prompt, etc.) em vez de mensagem livre --- */
+.chat-command {
+  display: inline-block;
+  margin-top: 0.4em;
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  font-weight: 600;
+  padding: 0.1em 0.6em;
+  border-radius: 6px;
+  background-color: var(--background-secondary);
+  color: var(--text-accent);
+  border: 1px solid var(--background-modifier-border);
+}
+
+/* --- Mensagem enviada enquanto o turno anterior ainda estava em andamento --- */
+.chat-midturn-note {
+  display: block;
+  margin: 0.6em 0 0.2em 0;
+  padding: 0.2em 0.6em;
+  font-size: 0.85em;
+  font-style: italic;
+  color: var(--text-muted);
+  background-color: var(--background-secondary);
+  border-left: 3px dashed var(--autoria-usuario);
+  border-radius: 0 4px 4px 0;
+  width: fit-content;
+}
+
+/* --- Link entre o turno do log de chat e o turno correspondente no log de
+   execução (e vice-versa) — parágrafo próprio logo abaixo do título do turno --- */
+.log-crosslink {
+  display: inline-block;
+  margin-top: -0.5em;
+  margin-bottom: 0.4em;
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+.log-crosslink a {
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--text-faint);
+}
+
+/* --- Log de execução: seções "Comandos" / "Arquivos" --- */
+.exec-section {
+  display: block;
+  margin-top: 0.8em;
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* Rótulo do que aconteceu com cada arquivo (leitura/criado/sobrescrito/editado/removido) */
+.exec-file-op {
+  display: inline-block;
+  font-size: 0.8em;
+  font-weight: 600;
+  padding: 0.02em 0.5em;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.exec-file-op-read {
+  background-color: var(--text-faint);
+}
+
+.exec-file-op-create {
+  background-color: #22a06b;
+}
+
+.exec-file-op-update {
+  background-color: var(--autoria-ia);
+}
+
+.exec-file-op-delete {
+  background-color: #d1453b;
+}
+
+/* Marca de comando que terminou em erro */
+.exec-fail {
+  display: inline-block;
+  font-size: 0.8em;
+  font-weight: 700;
+  padding: 0.02em 0.5em;
+  border-radius: 999px;
+  color: #fff;
+  background-color: #d1453b;
+}
+
+/* --- Diff estilo git (como estava antes × como ficou depois) --- */
+.chat-diff {
+  display: block;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: var(--font-monospace);
+  font-size: 0.82em;
+  line-height: 1.5;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 0.6em 0.8em;
+  margin: 0.2em 0 0.9em 0;
+}
+
+.chat-diff span {
+  display: block;
+  padding: 0 0.3em;
+  border-radius: 3px;
+}
+
+.chat-diff .diff-add {
+  color: #1a7f4e;
+  background-color: rgba(34, 160, 107, 0.15);
+}
+
+.chat-diff .diff-del {
+  color: #a83228;
+  background-color: rgba(209, 69, 59, 0.15);
+}
+
+.chat-diff .diff-hunk {
+  color: var(--text-faint);
+  opacity: 0.85;
+}
+
+.chat-diff .diff-file {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.chat-diff .diff-ctx {
+  color: var(--text-muted);
+}
+
+/* Obsidian marca o tema ativo com .theme-dark/.theme-light no body — cores
+   mais claras no escuro pra manter contraste (as de cima já servem no claro) */
+.theme-dark .chat-diff .diff-add {
+  color: #4ed99a;
+}
+
+.theme-dark .chat-diff .diff-del {
+  color: #ff8a80;
+}
