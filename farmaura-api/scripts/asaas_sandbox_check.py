@@ -208,7 +208,10 @@ async def main() -> int:
                     "creditCard": {"holderName": "CLIENTE TESTE", "number": number, "expiryMonth": "12", "expiryYear": str(expiry), "ccv": "123"},
                     "creditCardHolderInfo": {
                         "name": "Cliente Teste Sandbox", "email": "cliente.sandbox@example.com", "cpfCnpj": generate_cpf(),
-                        "postalCode": "70306915", "addressNumber": "100", "phone": "6133334444",
+                        # 70306915 (the old value here) is now rejected by Asaas as an invalid CEP —
+                        # this is a real, current Taguatinga Sul/DF CEP (same one a real seeded
+                        # customer address in this project already uses successfully).
+                        "postalCode": "72015530", "addressNumber": "100", "phone": "6133334444",
                     },
                 })
             except AsaasError as error:
