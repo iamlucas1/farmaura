@@ -6,13 +6,15 @@ cssclasses: ia-nota
 
 Mapa único de **como uma venda vira pagamento e como vira nota fiscal** hoje. Há **dois caminhos** diferentes, com mecanismos e maturidade diferentes. Detalhes: [[Modulo_Fiscal]], [[Modulo_PDV]], [[Modulo_Carrinho_Pedidos]], [[../05_Integracoes_Infra/Asaas|Asaas]], [[../05_Integracoes_Infra/SEFAZ_NFCe_SVRS_DF|SEFAZ_NFCe_SVRS_DF]]. Docs técnicos no repositório: `farmaura-api/docs/fiscal/NFCE.md` e `farmaura-api/docs/asaas/ASAAS.md`.
 
-| | **Balcão (PDV)** | **Marketplace (online)** |
-|---|---|---|
-| Pagamento | Dinheiro / Pix / débito / crédito na maquininha, ou cartão salvo cobrado no Asaas (`marketplace_card`) | Pix ou cartão salvo, sempre pelo Asaas |
-| Documento fiscal | **NFC-e real** (SEFAZ-DF via SVRS) | **Documento simulado** (`LEGACY_SIMULATED`) + nota de serviço agendada no Asaas |
-| Quando | Na hora, logo após a venda (assíncrono, segundos) | Diferido: `APP_FISCAL_ISSUANCE_DELAY_DAYS` após o pagamento (padrão 7 = janela do CDC) |
-| Maturidade | Testado offline; homologação real pendente ([[../06_Pendencias/nfce-homologacao-real-pendente-credenciais|pendência]]) | Preparado para sandbox; nada executado ([[../06_Pendencias/asaas-sandbox-pendencias-apos-preparacao|pendências]]) |
-| Adequação | Documento correto para varejo de mercadoria | **NFS-e é nota de serviço**: validar com o contador ([[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]]) |
+| | **Balcão (PDV)** | **Marketplace — retirada (`pickup`)** | **Marketplace — entrega (`delivery`/`shipping`)** |
+|---|---|---|---|
+| Pagamento | Dinheiro / Pix / débito / crédito na maquininha, ou cartão salvo cobrado no Asaas (`marketplace_card`) | Pix ou cartão salvo, sempre pelo Asaas | Pix ou cartão salvo, sempre pelo Asaas |
+| Documento fiscal | **NFC-e real** (SEFAZ-DF via SVRS) | **NFC-e real** (SEFAZ-DF via SVRS, mesmo motor do PDV) | **Nenhum documento** (fica sem nota até decisão do contador sobre frete/`indPres`) |
+| Quando | Na hora, logo após a venda (assíncrono, segundos) | Diferido: `APP_FISCAL_ISSUANCE_DELAY_DAYS` após o pagamento (padrão 7 = janela do CDC) | — |
+| Maturidade | Testado offline; homologação real pendente ([[../06_Pendencias/nfce-homologacao-real-pendente-credenciais|pendência]]) | Testado (50/50 nos testes de fluxo); homologação real bloqueada pelo certificado A1 ([[../06_Pendencias/certificado-a1-farmaura-ainda-nao-fornecido|pendência]]) | Sem implementação |
+| Adequação | Documento correto para varejo de mercadoria | Documento correto para varejo de mercadoria — Asaas saiu do caminho fiscal, só cobra pagamento | Pendente decisão contábil ([[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]]) |
+
+> Até 2026-09-22, todo pedido de marketplace usava um caminho único: documento simulado (`LEGACY_SIMULATED`) + NFS-e (nota de **serviço**, errada para venda de mercadoria) agendada no Asaas. Isso foi substituído para pedidos `pickup` — ver [[../00_Decisoes/2026-09-22-nfce-real-para-pedidos-marketplace-pickup|ADR]]. O código antigo (`issue_for_order`/`_schedule_asaas_invoice`) continua existindo, sem nenhum chamador, só para servir documentos `LEGACY_SIMULATED` já persistidos antes dessa data.
 
 ## 1. Balcão: venda → NFC-e
 
@@ -47,23 +49,25 @@ flowchart TD
   B -->|cashback cobre tudo| Z[approved]
   B -->|Pix| C[charge_pix: cobrança + QR Code, pending]
   B -->|cartão salvo| D[charge_card: captura na hora, CONFIRMED]
-  B -->|receita física| P[pending_pickup: cobra na retirada]
+  B -->|receita física / pickup| P[pending_pickup: cobra na retirada]
   C --> W[Webhook PAYMENT_CONFIRMED/RECEIVED]
   W --> Z
   D --> Z
   P --> Z
   Z --> T[payment_confirmed_at gravado]
-  T --> S[fiscal_scheduler a cada 15 min: passou DELAY_DAYS?]
-  S --> F1[Cria fiscal_documents simulado LEGACY_SIMULATED]
-  S --> F2[POST /v3/invoices ligada à cobrança pay_…]
-  S --> F3[E-mail ao cliente]
-  F2 --> N[INVOICE_AUTHORIZED no webhook, emissão em até ~15 min]
+  T --> S{fiscal_scheduler a cada 15 min: passou DELAY_DAYS?}
+  S -->|fulfillment_type = pickup| E1[enqueue_order: snapshot fiscal + fiscal_documents = DRAFT]
+  S -->|fulfillment_type = delivery/shipping| E2[fora de escopo: nenhum documento criado]
+  E1 --> KK[kick_emission: acorda o worker genérico do outbox fiscal]
+  KK --> AU[worker assina + transmite à SEFAZ-DF, igual ao balcão]
+  AU -->|AUTHORIZED| MAIL[_finalize_authorized envia e-mail da nota ao cliente]
 ```
 
-- `gateway_payment_id` (`pay_…`) é a chave que liga **pedido ↔ webhook ↔ nota**.
-- Cobrança de cartão/Pix leva `dueDate`; cartão leva também `remoteIp` (exigências da API do Asaas).
-- Falha na nota **não falha o pedido**: fica no log (`asaas invoice skipped/failed …`).
-- O documento **simulado** existe porque o marketplace ainda não tem NFC-e/NF-e real; o cliente pode "baixá-lo" e ele **não é válido fiscalmente**.
+- `gateway_payment_id` (`pay_…`) segue sendo a chave que liga **pedido ↔ webhook ↔ pagamento**; a nota fiscal, para `pickup`, não depende mais dele — usa o mesmo outbox/worker do PDV (`app/fiscal/`), direto à SEFAZ-DF.
+- Cobrança de cartão/Pix leva `dueDate`; cartão leva também `remoteIp` (exigências da API do Asaas) — isso não mudou, o Asaas continua sendo o gateway de **pagamento**.
+- `Order.payment_method` (código bruto do checkout) mapeia para o `tpag` fiscal via `ONLINE_PAYMENT_METHOD_TO_TPAG` (`app/domain/fiscal.py`).
+- Pedidos `pickup` sem vínculo de estoque (`inventory_item_id`) ou sem `ProductFiscalProfile` cadastrado bloqueiam a emissão (mesma regra do balcão) — o pedido em si não é afetado, só a nota fica pendente até o dado ser corrigido.
+- Pedidos `delivery`/`shipping` **não geram nenhum documento fiscal hoje** (nem simulado, nem real) — ver [[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]].
 
 ## 3. Ambientes
 
@@ -80,12 +84,13 @@ flowchart TD
 
 ## 5. O que ainda falta (visão consolidada)
 
-1. Credenciais e primeira execução real (Asaas sandbox e SEFAZ homologação).
+1. Certificado A1 real da FARMAURA LTDA (`.pfx`/`.p12`) — sem ele, nenhuma emissão real (balcão ou marketplace) passa de `SIGNING`, nem em homologação ([[../06_Pendencias/certificado-a1-farmaura-ainda-nao-fornecido|pendência]]).
 2. Perfil tributário dos produtos e CRT (contador).
-3. Decisão sobre a nota do marketplace (simulada × NFC-e/NF-e × NFS-e do Asaas).
-4. Migration `20260920_05` em Postgres real, `uv lock`, build do front ([[../06_Pendencias/aplicar-migration-nfce-fiscal-em-producao|migration]], [[../06_Pendencias/nfce-schemas-pl-010f-uv-lock-e-front-nao-buildado|lock e front]]).
+3. Decisão sobre a nota de pedidos `delivery`/`shipping` (tratamento fiscal do frete e `indPres` de venda não presencial) — [[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]].
+4. Migration `20260920_05` em Postgres real, `uv lock`, build do front ([[../06_Pendencias/aplicar-migration-nfce-fiscal-em-producao|migration]], [[../06_Pendencias/nfce-schemas-pl-010f-uv-lock-e-front-nao-buildado|lock e front]]); também a migration `20260922_01` (`orders.payment_method`) ([[../06_Pendencias/aplicar-migration-order-payment-method-em-producao|pendência]]).
 5. Contingência offline (fórmula do QR v3) e IP real atrás do gateway ([[../04_Seguranca_Riscos/webhook-asaas-ip-allowlist-valida-ip-interno-errado|nota de segurança]]).
 
 ## Atualizações
 
+- 2026-09-22: pedidos de marketplace com retirada em loja (`pickup`) passaram a emitir NFC-e real, direto à SEFAZ-DF, pelo mesmo motor do PDV — o Asaas saiu do caminho fiscal (continua só para pagamento). Pedidos `delivery`/`shipping` ficam sem nenhum documento até decisão do contador. Ver [[../00_Decisoes/2026-09-22-nfce-real-para-pedidos-marketplace-pickup|ADR]].
 - 2026-09-20: nota criada — visão única dos dois caminhos (balcão/NFC-e e marketplace/Asaas) depois do módulo NFC-e e do preparo do sandbox. Decisões: [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|NFC-e]], [[../00_Decisoes/2026-09-20-asaas-sandbox-guarda-remoteip-e-nota-no-formato-real|Asaas]].
