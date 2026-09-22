@@ -1,8 +1,14 @@
 import React, { useState } from "react";
 import { brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
+import { MARKETPLACE_LOGO_MARK_URL } from "../core/marketplace-assets.js";
 import { AccountNavShell } from "./account-shared.jsx";
 import { ShopScreen } from "./shop-screen.jsx";
+
+// Cents formatting shared with `brl` (marketplace-components.jsx), minus the "R$ " prefix — the
+// hero balance card below swaps that prefix for the Farmaura mark itself instead of leaving it as
+// plain text next to a logo, so only the digits come from here.
+const cashbackDigits = (n) => n.toFixed(2).replace('.', ',');
 
 /* FARMAURA — Telas extras: Saldo de cashback + Mais buscados/Favoritos. */
 
@@ -54,7 +60,10 @@ function CashbackScreen({ ctx }) {
           <span className="cb-balance-coin" aria-hidden="true" />
           <div className="cb-balance-info">
             <span className="cb-balance-label">Saldo disponível</span>
-            <span className="cb-balance-value">{brl(wallet.availableBalance)}</span>
+            <span className="cb-balance-value">
+              <img className="cb-balance-mark" src={MARKETPLACE_LOGO_MARK_URL} alt="" aria-hidden="true" />
+              {cashbackDigits(wallet.availableBalance)}
+            </span>
             <span className="cb-balance-sub">
               {wallet.pendingBalance > 0
                 ? `+ ${brl(wallet.pendingBalance)} a liberar quando seus pedidos forem entregues/retirados`
