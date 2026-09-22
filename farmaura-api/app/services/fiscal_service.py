@@ -53,6 +53,7 @@ from app.domain.fiscal import (
     DUPLICATE_CSTAT,
     EVENT_ACCEPTED_CSTATS,
     INUTILIZATION_ACCEPTED_CSTAT,
+    ONLINE_PAYMENT_METHOD_TO_TPAG,
     PAYMENT_METHOD_TO_TPAG,
     TERMINAL_STATUSES,
     FiscalDataError,
@@ -94,6 +95,7 @@ from app.models.fiscal_document import FiscalDocument
 from app.models.fiscal_support_tables import FiscalAttempt, FiscalEvent, FiscalInutilization
 from app.models.inventory_item import InventoryItem
 from app.models.order import Order
+from app.models.order_item import OrderItem
 from app.models.pdv_sale import PdvSale
 from app.models.pdv_sale_item import PdvSaleItem
 from app.models.store import Store
@@ -270,24 +272,35 @@ class FiscalService:
         return document
 
     async def reprocess(self, document_id: str) -> FiscalDocument:
-        """Re-snapshot the sale from current product profiles and queue the document again.
+        """Re-snapshot the sale/order from current product profiles and queue the document again.
 
         Allowed for ERROR and REJECTED documents; keeps the number and access key so SEFAZ never sees a hole.
+        Works for both PDV-origin (pdv_sale_id) and marketplace-origin (order_id) documents.
         """
 
         document = await self.get_document(document_id=document_id)
         if document.status not in (FiscalDocumentStatus.ERROR.value, FiscalDocumentStatus.REJECTED.value):
             raise HTTPException(status.HTTP_409_CONFLICT, "Somente notas com erro ou rejeitadas podem ser reprocessadas.")
-        if document.pdv_sale_id is None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Documento sem venda de origem para reprocessar.")
-        sale = await self.session.get(PdvSale, document.pdv_sale_id)
-        if sale is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Venda de origem não encontrada.")
-        items = list(
-            (await self.session.execute(select(PdvSaleItem).where(PdvSaleItem.pdv_sale_id == sale.id))).scalars().all()
-        )
+        if document.pdv_sale_id is not None:
+            sale = await self.session.get(PdvSale, document.pdv_sale_id)
+            if sale is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Venda de origem não encontrada.")
+            items = list(
+                (await self.session.execute(select(PdvSaleItem).where(PdvSaleItem.pdv_sale_id == sale.id))).scalars().all()
+            )
+            snapshot_coro = self._snapshot_pdv_sale(sale, items)
+        elif document.order_id is not None:
+            order = await self.session.get(Order, document.order_id)
+            if order is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Pedido de origem não encontrado.")
+            order_items = list(
+                (await self.session.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+            )
+            snapshot_coro = self._snapshot_marketplace_order(order, order_items)
+        else:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Documento sem venda ou pedido de origem para reprocessar.")
         try:
-            document.payload_snapshot = snapshot_to_dict(await self._snapshot_pdv_sale(sale, items))
+            document.payload_snapshot = snapshot_to_dict(await snapshot_coro)
         except FiscalError as exc:
             self._mark_failed(document, exc)
             await self.session.commit()
@@ -381,6 +394,127 @@ class FiscalService:
         return FiscalSnapshot(
             items=items, payments=payments, change_amount=Decimal("0.00"), recipient=recipient,
             additional_info=f"Venda PDV {sale.sale_code}",
+        )
+
+    async def enqueue_order(self, *, order: Order, order_items: list[OrderItem]) -> FiscalDocument | None:
+        """Queue the real NFC-e for one paid marketplace pickup order; idempotent per order.
+
+        Scope: only fulfillment_type == "pickup" — the customer collects in person, so it is
+        fiscally identical to a PDV counter sale (indPres=1, presencial, no freight) and fits this
+        engine with zero new tax-policy risk. delivery/shipping orders are deliberately skipped
+        (return None, no document, no error) until the accountant defines the tax treatment of the
+        delivery fee and the correct indPres for a non-presencial sale — see the linked pendência
+        in dev-obsidian. A no-op skip here (rather than an ERROR document) matters: it keeps
+        fiscal_scheduler.py from retrying an out-of-scope order forever.
+        """
+
+        if not self.module_enabled():
+            return None
+        if order.fulfillment_type != "pickup":
+            return None
+        existing = await self.repository.get_by_order_id(order.id)
+        if existing is not None:
+            return existing
+        document = FiscalDocument(
+            id=str(uuid4()), tenant_id=order.tenant_id, store_id=order.store_id, document_type="nfce",
+            source_channel="marketplace", pdv_sale_id=None, order_id=order.id, issued_by_user_id=None,
+            customer_id=order.customer_id, status=FiscalDocumentStatus.DRAFT.value, model="65",
+            environment=self.fiscal.fiscal_env, emitter_cnpj=self.fiscal.emitter_cnpj_digits or None,
+            payment_method_snapshot=order.payment_method,
+            recipient_name_snapshot=order.customer_display_name,
+            recipient_document_snapshot=order.customer_document_snapshot,
+            gross_total_amount=Decimal(order.total_amount or 0),
+            error_details=[], payload_snapshot=None,
+        )
+        try:
+            snapshot = await self._snapshot_marketplace_order(order, order_items)
+            document.payload_snapshot = snapshot_to_dict(snapshot)
+        except FiscalError as exc:
+            self._mark_failed(document, exc)
+        await self.repository.add(document)
+        return document
+
+    async def _snapshot_marketplace_order(self, order: Order, order_items: list[OrderItem]) -> FiscalSnapshot:
+        problems: list[str] = list(self.configuration_problems())
+        if problems:
+            raise FiscalDataError("Configuração fiscal incompleta ou bloqueada.", details=problems)
+        store = await self.session.get(Store, order.store_id)
+        store_cnpj = re.sub(r"\D", "", store.cnpj) if store is not None else ""
+        if store_cnpj and store_cnpj != self.fiscal.emitter_cnpj_digits:
+            raise FiscalDataError(
+                "A loja do pedido não é o estabelecimento emitente configurado.",
+                details=[f"CNPJ da loja {store_cnpj} difere de NFCE_CNPJ."],
+            )
+        if Decimal(order.delivery_fee_amount or 0) > 0:
+            raise FiscalDataError(
+                "Pedido com taxa de entrega: o tratamento fiscal da taxa depende de definição do contador.",
+                details=["Taxa de entrega não é emitida na NFC-e de mercadorias sem decisão contábil."],
+            )
+        if not order_items:
+            raise FiscalDataError("O pedido não possui itens.")
+
+        inventory_items: dict[str, InventoryItem] = {}
+        for line in order_items:
+            if line.inventory_item_id is None:
+                raise FiscalDataError("Item do pedido sem vínculo com o estoque.", details=[line.item_name_snapshot])
+            item = await self.session.get(InventoryItem, line.inventory_item_id)
+            if item is None:
+                raise FiscalDataError("Item do estoque não encontrado.", details=[line.item_name_snapshot])
+            inventory_items[line.id] = item
+        profiles = await self.repository.profiles_by_product([str(i.product_id) for i in inventory_items.values()])
+
+        lines: list[tuple[OrderItem, InventoryItem, TaxProfile, Decimal, Decimal]] = []
+        blockers: list[str] = []
+        for line in order_items:
+            item = inventory_items[line.id]
+            profile = profiles.get(str(item.product_id))
+            gross = money(Decimal(line.quantity) * Decimal(line.unit_price))
+            item_discount = money(gross - Decimal(line.line_total))
+            if item_discount < 0:
+                raise FiscalDataError("Valor da linha maior que quantidade x preço.", details=[line.item_name_snapshot])
+            if profile is None:
+                blockers.append(f"Produto {line.item_sku} - {line.item_name_snapshot}: sem cadastro fiscal (NCM, CFOP, CST/CSOSN...)")
+                continue
+            tax = self._tax_from_profile(profile)
+            missing = missing_tax_fields(tax, crt=self.fiscal.nfce_crt)
+            if missing:
+                blockers.append(f"Produto {line.item_sku} - {line.item_name_snapshot}: faltam " + ", ".join(missing))
+                continue
+            lines.append((line, item, tax, gross, item_discount))
+        if blockers:
+            raise FiscalDataError("Dados fiscais ausentes: não foi possível emitir a NFC-e.", details=blockers)
+
+        order_discount = money(Decimal(order.discount_amount or 0) + Decimal(order.cashback_applied_amount or 0))
+        gross_total = sum((g for _, _, _, g, _ in lines), Decimal("0.00"))
+        item_discount_total = sum((d for *_, d in lines), Decimal("0.00"))
+        expected_total = money(gross_total - item_discount_total - order_discount)
+        if expected_total != money(Decimal(order.total_amount or 0)):
+            raise FiscalDataError(
+                "O total do pedido não fecha com os itens e descontos.",
+                details=[f"itens={expected_total} pedido={money(Decimal(order.total_amount or 0))}"],
+            )
+        net_lines = [g - d for *_, g, d in lines]
+        shares = apportion_discount(net_lines, order_discount)
+        items = [
+            ItemData(
+                code=line.item_sku, ean=(line.ean_code_snapshot or "").strip(), description=line.item_name_snapshot,
+                quantity=Decimal(line.quantity), unit_price=Decimal(line.unit_price),
+                discount=money(item_discount + share), tax=tax,
+            )
+            for (line, item, tax, _gross, item_discount), share in zip(lines, shares, strict=True)
+        ]
+        total = money(gross_total - item_discount_total - order_discount)
+        tpag = ONLINE_PAYMENT_METHOD_TO_TPAG.get(order.payment_method)
+        if tpag is None:
+            raise FiscalDataError("Forma de pagamento sem código fiscal.", details=[order.payment_method])
+        payments = [PaymentData(tpag=tpag, amount=total, card_integration="2" if tpag in CARD_TPAGS else "")]
+        recipient = None
+        cpf = re.sub(r"\D", "", order.customer_document_snapshot or "")
+        if cpf and is_valid_cpf(cpf):
+            recipient = RecipientData(cpf=cpf, name=order.customer_display_name)
+        return FiscalSnapshot(
+            items=items, payments=payments, change_amount=Decimal("0.00"), recipient=recipient,
+            additional_info=f"Pedido {order.order_code}",
         )
 
     @staticmethod
@@ -1048,6 +1182,20 @@ class FiscalService:
         except Exception:  # the DANFE can always be regenerated from the stored authorized XML
             logger.exception("fiscal danfe generation failed document=%s", document.id)
         logger.info("fiscal authorized document=%s key=%s protocol=%s", document.id, document.access_key, document.protocol)
+        if document.source_channel == "marketplace" and document.customer_id:
+            # Best-effort, never affects the authorization outcome above. Marketplace customers are
+            # remote (unlike a PDV counter sale, where the DANFE prints on the spot) — this is their
+            # only notification that the note is ready, so it fires here rather than at enqueue
+            # time, when the document is still an unsigned DRAFT with nothing to show them yet.
+            try:
+                customer = await self.session.get(Customer, document.customer_id)
+                if customer and customer.email:
+                    self.notification_service.send_fiscal_document_email(
+                        document=document, email=customer.email,
+                        printable_html_url=f"/api/v1/fiscal/nfce/{document.id}/printable",
+                    )
+            except Exception:
+                logger.exception("fiscal authorization email failed document=%s", document.id)
 
     async def _mark_canceled_from_sefaz(self, document: FiscalDocument, result: messages.ConsultResult) -> None:
         if document.status != FiscalDocumentStatus.CANCELED.value:

@@ -55,6 +55,10 @@ class FiscalRepository:
         statement = select(FiscalDocument).where(FiscalDocument.pdv_sale_id == sale_id).limit(1)
         return (await self.session.execute(statement)).scalar_one_or_none()
 
+    async def get_by_order_id(self, order_id: str) -> FiscalDocument | None:
+        statement = select(FiscalDocument).where(FiscalDocument.order_id == order_id).limit(1)
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
     async def get_by_access_key(self, access_key: str) -> FiscalDocument | None:
         statement = select(FiscalDocument).where(FiscalDocument.access_key == access_key).limit(1)
         return (await self.session.execute(statement)).scalar_one_or_none()

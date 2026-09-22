@@ -55,6 +55,8 @@ from app.models.fiscal_support_tables import (
 )
 from app.models.inventory_item import InventoryItem
 from app.models.inventory_product import InventoryProduct
+from app.models.order import Order
+from app.models.order_item import OrderItem
 from app.models.pdv_sale import PdvSale
 from app.models.pdv_sale_item import PdvSaleItem
 from app.models.store import Store
@@ -69,6 +71,7 @@ NS = "http://www.portalfiscal.inf.br/nfe"
 TABLES = [
     FiscalDocument.__table__, FiscalNumberSequence.__table__, FiscalEvent.__table__, FiscalAttempt.__table__,
     FiscalInutilization.__table__, ProductFiscalProfile.__table__, PdvSale.__table__, PdvSaleItem.__table__,
+    Order.__table__, OrderItem.__table__,
     Store.__table__, InventoryItem.__table__, InventoryProduct.__table__, Brand.__table__, Category.__table__,
     TherapeuticClass.__table__,
 ]
@@ -928,6 +931,178 @@ async def test_reprocess_is_refused_for_authorized_notes(factory) -> None:
         with pytest.raises(HTTPException) as refused:
             await service.reprocess(document.id)
     assert refused.value.status_code == 409
+
+
+# ============================================================================
+# MARKETPLACE ORDER SNAPSHOT (pickup only — see FiscalService.enqueue_order)
+# ============================================================================
+
+
+async def seed_order(
+    session: AsyncSession, *, profile: bool = True, delivery_fee: str = "0.00", discount: str = "0.00",
+    cashback: str = "0.00", total: str | None = None, cpf: str = "529.982.247-25", store_cnpj: str = "",
+    fulfillment_type: str = "pickup", payment_method: str = "pix", missing_inventory_link: bool = False,
+) -> tuple[Order, list[OrderItem]]:
+    store = Store(id=str(uuid4()), tenant_id=TENANT, code=f"L{uuid4().hex[:4]}", name="Loja Asa Sul", cnpj=store_cnpj)
+    product = InventoryProduct(id=str(uuid4()), tenant_id=TENANT, sku=f"SKU-{uuid4().hex[:6]}", ean_code=next_valid_gtin13(), name="DIPIRONA 500MG")
+    session.add_all([store, product])
+    await session.flush()
+    item = InventoryItem(
+        id=str(uuid4()), tenant_id=TENANT, store_id=store.id, product_id=product.id, storage_location="A1",
+        quantity=10, sale_price=Decimal("12.50"),
+    )
+    session.add(item)
+    if profile:
+        session.add(ProductFiscalProfile(
+            id=str(uuid4()), tenant_id=TENANT, product_id=product.id, ncm="30049099", cest="1300100", cfop="5102",
+            origin="0", commercial_unit="UN", icms_csosn="102", pis_cst="49", pis_rate=Decimal("0"),
+            cofins_cst="49", cofins_rate=Decimal("0"),
+        ))
+    gross = Decimal("25.00")
+    expected = gross - Decimal(discount) - Decimal(cashback) + Decimal(delivery_fee)
+    order = Order(
+        id=str(uuid4()), tenant_id=TENANT, store_id=store.id, order_code="ORD-" + uuid4().hex[:8].upper(),
+        fulfillment_type=fulfillment_type, payment_method=payment_method, payment_method_label="Pix",
+        payment_status="approved", customer_display_name="Maria Silva", customer_document_snapshot=cpf,
+        subtotal_amount=gross, discount_amount=Decimal(discount), cashback_applied_amount=Decimal(cashback),
+        total_amount=Decimal(total) if total else expected, delivery_fee_amount=Decimal(delivery_fee),
+    )
+    session.add(order)
+    line = OrderItem(
+        id=str(uuid4()), order_id=order.id, inventory_item_id=None if missing_inventory_link else item.id,
+        item_sku=product.sku, item_name_snapshot="DIPIRONA 500MG 10 COMPRIMIDOS",
+        quantity=2, unit_price=Decimal("12.50"), line_total=gross,
+    )
+    session.add(line)
+    await session.commit()
+    return order, [line]
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_builds_snapshot_with_discount_cashback_and_valid_cpf(factory) -> None:
+    async with factory() as session:
+        order, lines = await seed_order(session, discount="2.50", cashback="1.00", cpf="529.982.247-25")
+        service = make_service(session, FakeGateway(), Storage(), Clock())
+        document = await service.enqueue_order(order=order, order_items=lines)
+        await session.commit()
+        assert document is not None and document.status == "DRAFT" and document.payload_snapshot is not None
+        snap = document.payload_snapshot
+        assert Decimal(snap["items"][0]["discount"]) == Decimal("3.50")
+        assert snap["payments"][0] == {"tpag": "17", "amount": "21.50", "card_integration": ""}
+        assert snap["recipient"]["cpf"] == "52998224725"
+        again = await service.enqueue_order(order=order, order_items=lines)
+    assert again is not None and again.id == document.id  # idempotent per order
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_maps_online_payment_methods_to_tpag(factory) -> None:
+    async with factory() as session:
+        service = make_service(session, FakeGateway(), Storage(), Clock())
+        card, card_lines = await seed_order(session, payment_method="credit_card")
+        pickup_cash, pickup_cash_lines = await seed_order(session, payment_method="pickup_cash")
+        card_doc = await service.enqueue_order(order=card, order_items=card_lines)
+        pickup_cash_doc = await service.enqueue_order(order=pickup_cash, order_items=pickup_cash_lines)
+    assert card_doc.payload_snapshot["payments"][0]["tpag"] == "03"
+    # Despite the name, pickup_cash is charged on the customer's saved card at pickup confirmation
+    # (never physical cash) — tpag "03" (credit card), not "01" (cash), is the correct mapping.
+    assert pickup_cash_doc.payload_snapshot["payments"][0]["tpag"] == "03"
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_skips_delivery_and_shipping_fulfillment(factory) -> None:
+    async with factory() as session:
+        service = make_service(session, FakeGateway(), Storage(), Clock())
+        delivery, delivery_lines = await seed_order(session, fulfillment_type="delivery")
+        shipping, shipping_lines = await seed_order(session, fulfillment_type="shipping")
+        delivery_doc = await service.enqueue_order(order=delivery, order_items=delivery_lines)
+        shipping_doc = await service.enqueue_order(order=shipping, order_items=shipping_lines)
+        pending = (await session.execute(select(FiscalDocument))).first()
+    # No document at all — not an ERROR row either — so the scheduler never retries these forever.
+    assert delivery_doc is None and shipping_doc is None and pending is None
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_missing_inventory_link_blocks(factory) -> None:
+    async with factory() as session:
+        order, lines = await seed_order(session, missing_inventory_link=True)
+        service = make_service(session, FakeGateway(), Storage(), Clock())
+        document = await service.enqueue_order(order=order, order_items=lines)
+    assert document.status == "ERROR"
+    assert "sem vínculo com o estoque" in document.status_message
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_missing_fiscal_data_blocks_emission_and_names_the_product(factory) -> None:
+    async with factory() as session:
+        order, lines = await seed_order(session, profile=False)
+        service = make_service(session, FakeGateway(), Storage(), Clock())
+        document = await service.enqueue_order(order=order, order_items=lines)
+    assert document.status == "ERROR" and document.error_category == "MISSING_FISCAL_DATA"
+    assert "não foi possível emitir a NFC-e" in document.status_message
+    assert any("DIPIRONA 500MG 10 COMPRIMIDOS" in d and "sem cadastro fiscal" in d for d in document.error_details)
+    assert document.payload_snapshot is None
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_incomplete_profile_lists_each_missing_field(factory) -> None:
+    async with factory() as session:
+        order, lines = await seed_order(session)
+        profile = (await session.execute(select(ProductFiscalProfile))).scalar_one()
+        profile.ncm, profile.cfop, profile.icms_csosn = "", "", ""
+        await session.commit()
+        document = await make_service(session, FakeGateway(), Storage(), Clock()).enqueue_order(order=order, order_items=lines)
+    detail = " ".join(document.error_details)
+    assert "NCM (8 dígitos)" in detail and "CFOP (4 dígitos)" in detail and "CSOSN" in detail
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_delivery_fee_total_mismatch_and_foreign_store_are_refused(factory) -> None:
+    # These construct a pickup order with a delivery fee anyway — not a real checkout scenario
+    # (pickup orders never carry a fee), but proves _snapshot_marketplace_order's own defense-in-depth
+    # guard still refuses it even if a caller ever bypassed the scheduler's fulfillment_type filter.
+    async with factory() as session:
+        service = make_service(session, FakeGateway(), Storage(), Clock())
+        fee, fee_lines = await seed_order(session, delivery_fee="8.00")
+        drift, drift_lines = await seed_order(session, total="24.00")
+        foreign, foreign_lines = await seed_order(session, store_cnpj="99.888.777/0001-61")
+        results = [
+            await service.enqueue_order(order=fee, order_items=fee_lines),
+            await service.enqueue_order(order=drift, order_items=drift_lines),
+            await service.enqueue_order(order=foreign, order_items=foreign_lines),
+        ]
+    assert [d.status for d in results] == ["ERROR", "ERROR", "ERROR"]
+    assert "taxa de entrega" in results[0].status_message
+    assert "não fecha" in results[1].status_message
+    assert "estabelecimento emitente" in results[2].status_message
+
+
+@pytest.mark.anyio
+async def test_enqueue_order_module_disabled_creates_no_fiscal_document(factory) -> None:
+    async with factory() as session:
+        order, lines = await seed_order(session)
+        service = make_service(session, FakeGateway(), Storage(), Clock(), nfce_enabled=False)
+        assert await service.enqueue_order(order=order, order_items=lines) is None
+        assert (await session.execute(select(FiscalDocument))).first() is None
+
+
+@pytest.mark.anyio
+async def test_reprocess_order_after_fixing_profile_requeues_and_reuses_the_number(factory) -> None:
+    gateway, storage, clock = FakeGateway(), Storage(), Clock()
+    gateway.authorize_script = [("rejected", 778, "Rejeicao: NCM inexistente")]
+    async with factory() as session:
+        order, lines = await seed_order(session)
+        service = make_service(session, gateway, storage, clock)
+        document = await service.enqueue_order(order=order, order_items=lines)
+        await session.commit()
+        await service.process_document(document.id)
+        await session.refresh(document)
+        assert document.status == "REJECTED"
+        number = document.number
+        queued_again = await service.reprocess(document.id)
+        assert queued_again.status == "DRAFT" and queued_again.error_category == ""
+        await service.process_document(document.id)
+        await session.refresh(document)
+    assert document.status == "AUTHORIZED" and document.number == number
 
 
 # ============================================================================

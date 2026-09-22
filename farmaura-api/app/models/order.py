@@ -67,6 +67,11 @@ class Order(Base, UuidModel, TimestampedModel):
     status: Mapped[str] = mapped_column(String(24), default=OrderStatus.NEW.value, nullable=False)
     fulfillment_type: Mapped[str] = mapped_column(String(24), nullable=False)
     priority: Mapped[str] = mapped_column(String(24), default="normal", nullable=False)
+    # Raw checkout code ("pix"/"credit_card"/"debit_card"/"pickup_cash" — see
+    # CheckoutPaymentRequest.method), kept alongside the humanized payment_method_label below.
+    # Needed so fiscal issuance can map to a real tpag code (ONLINE_PAYMENT_METHOD_TO_TPAG in
+    # app/domain/fiscal.py) instead of pattern-matching a display string.
+    payment_method: Mapped[str] = mapped_column(String(24), default="", nullable=False)
     payment_method_label: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     payment_status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
     coupon_code: Mapped[str] = mapped_column(String(24), default="", nullable=False)

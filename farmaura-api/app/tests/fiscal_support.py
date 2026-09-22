@@ -54,7 +54,12 @@ def make_certificate(*, days_valid: int = 365, cnpj: str = TEST_CNPJ) -> LoadedC
         .issuer_name(subject)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
+        # A generous 10-year back-date, not "yesterday": test_fiscal_flow.py checks this
+        # certificate against a FIXED simulated Clock (2026-09-20), not real wall-clock time —
+        # "yesterday" relative to the real now() stopped covering that fixed date once real time
+        # caught up to and passed it, making every authorization-flow test fail with "certificado
+        # ... está expirado" for reasons that had nothing to do with the code under test.
+        .not_valid_before(now - timedelta(days=3650))
         .not_valid_after(now + timedelta(days=days_valid))
         .add_extension(
             x509.SubjectAlternativeName([x509.OtherName(ObjectIdentifier("2.16.76.1.3.3"), der_cnpj)]),

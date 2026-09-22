@@ -352,6 +352,7 @@ class OrderService:
                 else 'delivery'
             ),
             priority='express' if payload.delivery.method == 'express' else 'normal',
+            payment_method=payload.payment.method,
             payment_method_label=self._build_payment_label(payload.payment.method),
             payment_status='pending',
             customer_display_name=customer.full_name,

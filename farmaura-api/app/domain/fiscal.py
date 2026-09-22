@@ -217,6 +217,20 @@ PAYMENT_METHOD_TO_TPAG: dict[str, str] = {
     "marketplace_card": "03",
 }
 
+# Marketplace checkout payment method (Order.payment_method, see CheckoutPaymentRequest.method in
+# app/schemas/orders.py) -> NFC-e tPag. Separate map from PAYMENT_METHOD_TO_TPAG above because the
+# two channels use different code vocabularies ("credit" vs "credit_card", etc), not because the
+# underlying tpag values differ.
+ONLINE_PAYMENT_METHOD_TO_TPAG: dict[str, str] = {
+    "pix": "17",
+    "credit_card": "03",
+    "debit_card": "04",
+    # Despite the name, this is never physical cash: OrderService.confirm_internal_pickup charges
+    # the customer's saved card at pickup-confirmation time, so it's a credit-card payment (03) —
+    # mapping the literal name to "01" (dinheiro) would be a real fiscal-classification bug.
+    "pickup_cash": "03",
+}
+
 CARD_TPAGS = frozenset({"03", "04"})
 
 
