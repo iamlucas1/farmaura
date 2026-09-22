@@ -37,7 +37,6 @@ const ACCOUNT_NAV_LINKS = [
   { key: "orders", icon: "bag", label: "Meus pedidos", kind: "tab", tab: "orders" },
   { key: "cashback", icon: "gift", label: "Cashback", kind: "route", route: "cashback" },
   { key: "subscriptions", icon: "repeat", label: "Assinaturas", kind: "route", route: "subscriptions" },
-  { key: "saved", icon: "heart", label: "Produtos salvos", kind: "tab", tab: "saved" },
   { key: "payments", icon: "card", label: "Pagamentos", kind: "tab", tab: "cards" },
   { key: "messages", icon: "chat", label: "Mensagens", kind: "tab", tab: "conversations" },
   { key: "health", icon: "activity", label: "Serviços de saúde", kind: "tab", tab: "health" },

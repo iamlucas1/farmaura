@@ -22,6 +22,7 @@ const FA_CATEGORY_ACCENT_BY_LABEL = [
   ['servicos', 'var(--fa-ink-2)'],
   ['ofertas', 'var(--fa-vital)'],
   ['mais buscados', 'var(--fa-success)'],
+  ['produtos salvos', 'var(--fa-primary-ink)'],
 ];
 const FA_DIACRITIC_RE = new RegExp('[̀-ͯ]', 'g');
 const normalizeCategoryLabel = (label) => String(label || '').toLowerCase().normalize('NFD').replace(FA_DIACRITIC_RE, '');
@@ -31,16 +32,17 @@ const categoryAccent = (index, label) => {
   return match ? match[1] : FA_CATEGORY_ACCENTS[index % FA_CATEGORY_ACCENTS.length];
 };
 
-// The demo only ever rails real categories + Serviços de saúde, but the real app also has two
-// more "browse everything" listing modes (Ofertas, Mais buscados) that deserve the same always-
-// visible submenu treatment — so the rail here is real categories plus those three fixed routes,
-// in the same order they already appear across the header nav / drawer.
+// The demo only ever rails real categories + Serviços de saúde, but the real app also has more
+// "browse everything" listing modes (Ofertas, Mais buscados, Produtos salvos) that deserve the
+// same always-visible submenu treatment — so the rail here is real categories plus those fixed
+// routes, in the same order they already appear across the header nav / drawer.
 function buildRailItems(cats) {
   return [
     ...cats.map((cat) => ({ id: cat.id, label: cat.label, route: { name: 'category', cat: cat.id } })),
     { id: '__offers__', label: 'Ofertas', route: { name: 'offers' } },
     { id: '__mostsearched__', label: 'Mais buscados', route: { name: 'discover' } },
     { id: '__services__', label: 'Serviços de saúde', route: { name: 'services' } },
+    { id: '__saved__', label: 'Produtos salvos', route: { name: 'saved' } },
   ];
 }
 
@@ -289,14 +291,14 @@ function ShopScreen({ ctx, mode }) {
 
   const cardProps = { variant: cardVariant, onOpen: (product) => onNav({ name: 'product', id: product.id }), onAdd: addToCart, onBuyNow: (product) => { addToCart(product); onNav({ name: 'cart' }); }, onFav: toggleFav, onNotify: subscribeAvailabilityAlert };
 
-  // Category/Ofertas/Mais buscados all get the demo's plain (uncolored) crumb + two-tone masthead
-  // + submenu rail — distinct from every other listing mode here, which keeps the full-bleed band
-  // treatment the demo doesn't define an equivalent page for. The rail itself always lists every
-  // real category plus Ofertas/Mais buscados/Serviços de saúde, so switching between any of them
-  // never requires a trip back to the header nav.
-  const isRailMode = mode === 'category' || mode === 'offers' || mode === 'mostsearched';
+  // Category/Ofertas/Mais buscados/Produtos salvos all get the demo's plain (uncolored) crumb +
+  // two-tone masthead + submenu rail — distinct from every other listing mode here, which keeps
+  // the full-bleed band treatment the demo doesn't define an equivalent page for. The rail itself
+  // always lists every real category plus Ofertas/Mais buscados/Serviços de saúde/Produtos
+  // salvos, so switching between any of them never requires a trip back to the header nav.
+  const isRailMode = mode === 'category' || mode === 'offers' || mode === 'mostsearched' || mode === 'saved';
   const railItems = buildRailItems(cats);
-  const activeRailId = mode === 'category' ? route.cat : mode === 'offers' ? '__offers__' : mode === 'mostsearched' ? '__mostsearched__' : null;
+  const activeRailId = mode === 'category' ? route.cat : mode === 'offers' ? '__offers__' : mode === 'mostsearched' ? '__mostsearched__' : mode === 'saved' ? '__saved__' : null;
   const activeRailIndex = Math.max(0, railItems.findIndex((item) => item.id === activeRailId));
   const acc = categoryAccent(activeRailIndex, header.title);
 

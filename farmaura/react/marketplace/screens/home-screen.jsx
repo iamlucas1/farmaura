@@ -43,13 +43,15 @@ const CATEGORY_ORDER = ['Medicamentos', 'Vitaminas e Suplementos', 'Higiene', 'I
 
 function QuickCategories({ cats, onNav }) {
   // One single row: real, backend-driven shortcuts first, then the tenant's real category catalog
-  // (managed in Catálogo → Categorias), then "Serviços de saúde" last — same position it holds in
-  // the demo's own category shelf. Every tile here navigates somewhere backed by real data:
+  // (managed in Catálogo → Categorias), then "Serviços de saúde"/"Produtos salvos" last — same
+  // position "Serviços de saúde" holds in the demo's own category shelf. Every tile here navigates
+  // somewhere backed by real data:
   // - "Ofertas" is products with an active PricingPromotion/product_discount applied.
   // - "Mais buscados" ranks by real sales volume (online + PDV), see catalog_service.list_most_searched_products.
   // - "Serviços de saúde" is the real procedure catalog managed in Catálogo → Serviços de saúde.
-  // "Produtos salvos" moved out of this row into the account dropdown (AccountMenu) — still the
-  // customer's real favorites list, just one less tile here, per explicit request.
+  // - "Produtos salvos" is the customer's real favorites list (see toggleFav) — back in this row
+  //   per explicit request (it had been moved out into just the account dropdown); the tile itself
+  //   works logged-out too, since the destination screen's own LoginGate handles that.
   const leadingShortcuts = [
     { id: 'sc-ofertas', label: 'Ofertas', glyph: 'percent', acc: 'var(--fa-vital)', go: { name: 'offers' } },
     { id: 'sc-buscados', label: 'Mais buscados', glyph: 'search', acc: 'var(--fa-info)', go: { name: 'discover' } },
@@ -71,6 +73,7 @@ function QuickCategories({ cats, onNav }) {
   });
   const trailingShortcuts = [
     { id: 'sc-servicos', label: 'Serviços de saúde', glyph: 'activity', acc: 'var(--fa-ink-2)', go: { name: 'services' } },
+    { id: 'sc-salvos', label: 'Produtos salvos', glyph: 'heart', acc: 'var(--fa-primary-ink)', go: { name: 'saved' } },
   ];
   const items = [...leadingShortcuts, ...categoryItems, ...trailingShortcuts];
   return (

@@ -1,8 +1,8 @@
-/* FARMAURA — Account tabs: Serviços de saúde, Produtos salvos, Meus pedidos. */
+/* FARMAURA — Account tabs: Serviços de saúde, Meus pedidos. */
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { PharmacistChatInbox } from "../core/marketplace-care-actions.jsx";
-import { Modal, ProductCard, ProductVisual, StarPicker, brl, useModalStack } from "../core/marketplace-components.jsx";
+import { Modal, ProductVisual, StarPicker, brl, useModalStack } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { OrderCard, OrderTracker, ProductReviewModal, resolveOrderLineProduct, resolveOrderLineTotal, resolveOrderPillClass, resolveOrderStatusMeta } from "./account-shared.jsx";
 
@@ -164,39 +164,6 @@ function HealthServices({ ctx }) {
             );
           })}
           <button className="fa-btn fa-btn-primary" style={{ alignSelf: 'flex-start', marginTop: 6 }} onClick={() => setView('explore')}><Icon name="plus" size={16} />Agendar novo serviço</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ============== PRODUTOS SALVOS ============== */
-function SavedProducts({ ctx }) {
-  const { products, fav, toggleFav, addToCart, onNav, availabilityAlerts, subscribeAvailabilityAlert } = ctx;
-  const saved = products.filter((p) => fav.includes(p.id));
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="fa-acct-head" style={{ marginBottom: 0 }}>
-        <div style={{ flex: 1 }}><h1 className="fa-h2">Produtos salvos</h1><p className="fa-muted" style={{ fontSize: 14, marginTop: 4 }}>{saved.length} {saved.length === 1 ? 'item favoritado' : 'itens favoritados'}</p></div>
-      </div>
-
-      {saved.length === 0 ? (
-        <div className="fa-card" style={{ padding: 48, textAlign: 'center' }}>
-          <span className="fa-iconbox" style={{ width: 64, height: 64, margin: '0 auto 16px' }}><Icon name="heart" size={30} /></span>
-          <h2 className="fa-h3" style={{ fontSize: 18 }}>Nenhum produto salvo ainda</h2>
-          <p className="fa-muted" style={{ marginTop: 8, fontSize: 14 }}>Toque no coração de qualquer produto para guardá-lo aqui.</p>
-          <button className="fa-btn fa-btn-primary" style={{ marginTop: 18 }} onClick={() => onNav({ name: 'home' })}>Explorar a loja</button>
-        </div>
-      ) : (
-        <div className="fa-grid" style={{ '--fa-grid-min': '220px' }}>
-          {saved.map((p) => (
-            <ProductCard key={p.id} product={p} variant="standard"
-              onOpen={(pr) => onNav({ name: 'product', id: pr.id })}
-              onAdd={(pr) => addToCart(pr)} onBuyNow={(pr) => { addToCart(pr); onNav({ name: 'cart' }); }}
-              fav={true} onFav={toggleFav}
-              notified={availabilityAlerts.includes(p.id)} onNotify={subscribeAvailabilityAlert} />
-          ))}
         </div>
       )}
     </div>
@@ -517,4 +484,4 @@ function MyOrders({ ctx }) {
 
 function addReorderItem(ctx, p) { ctx.addToCart(p); }
 
-export { ConversationsInbox, HealthServices, MyOrders, OrderSupportDrawer, SavedProducts, addReorderItem };
+export { ConversationsInbox, HealthServices, MyOrders, OrderSupportDrawer, addReorderItem };

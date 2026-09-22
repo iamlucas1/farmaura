@@ -406,6 +406,7 @@ function MobileDrawer({ cats, user, onNav, onClose, onChat, onPrescription, onSe
               {c.label}
             </button>
           ))}
+          <a className="fa-drawer-cat" onClick={() => onNav({ name: 'saved' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-primary-ink)' }}><Icon name="heart" size={17} /></span>Produtos salvos</a>
         </nav>
         <div className="fa-drawer-section-title">Mais</div>
         <nav className="fa-drawer-cats" style={{ paddingBottom: 20 }}>
@@ -413,7 +414,6 @@ function MobileDrawer({ cats, user, onNav, onClose, onChat, onPrescription, onSe
           <a className="fa-drawer-cat" onClick={() => onNav({ name: 'services' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-info)' }}><Icon name="activity" size={17} /></span>Serviços de saúde</a>
           {user && <a className="fa-drawer-cat" onClick={() => onNav({ name: 'cashback' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-warn-ink)' }}><Icon name="gift" size={17} /></span>Cashback</a>}
           {user && <a className="fa-drawer-cat" onClick={() => onNav({ name: 'subscriptions' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-primary-ink)' }}><Icon name="repeat" size={17} /></span>Compras recorrentes</a>}
-          {user && <a className="fa-drawer-cat" onClick={() => onNav({ name: 'saved' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-ink-2)' }}><Icon name="heart" size={17} /></span>Produtos salvos</a>}
           <a className="fa-drawer-cat" onClick={() => onPrescription && onPrescription()}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-primary)' }}><Icon name="rx" size={17} /></span>Receita digital</a>
           <a className="fa-drawer-cat" onClick={() => onChat && onChat()}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-success)' }}><Icon name="chat" size={17} /></span>Falar com farmacêutico</a>
           <a className="fa-drawer-cat" onClick={() => onNav({ name: user ? 'account' : 'login', tab: 'orders' })}><span className="fa-drawer-cat-icon" style={{ background: 'var(--fa-vital)' }}><Icon name="bag" size={17} /></span>{user ? 'Meus pedidos' : 'Entrar / Criar conta'}</a>

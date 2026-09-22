@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { MARKETPLACE_LOGO_FULL_URL } from "../core/marketplace-assets.js";
 import { AuraLayer, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
-import { ConversationsInbox, HealthServices, MyOrders, SavedProducts } from "./account-health-screen.jsx";
+import { ConversationsInbox, HealthServices, MyOrders } from "./account-health-screen.jsx";
 import { buildAddressLine, buildAddressSecondaryLine, normalizeAddress } from "../core/marketplace-address.js";
 import { AccountSettings, MyCards, ProfileManage } from "./account-profile-screen.jsx";
 import { ACCOUNT_NAV_LINKS, AccountNavShell } from "./account-shared.jsx";
@@ -641,7 +641,6 @@ function AccountScreen({ ctx }) {
     case 'orders': content = <MyOrders ctx={ctx} />; break;
     case 'conversations': content = <ConversationsInbox ctx={ctx} />; break;
     case 'health': content = <HealthServices ctx={ctx} />; break;
-    case 'saved': content = <SavedProducts ctx={ctx} />; break;
     case 'cards': content = <MyCards ctx={ctx} acct={acct} />; break;
     default: content = <ProfileManage ctx={ctx} acct={acct} />;
   }
