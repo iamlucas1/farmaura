@@ -92,7 +92,7 @@ function SubscriptionCard({ s, p, onNav, onPatch, onRequestConfirm, showToast })
       </div>
 
       <div className="order-card-details">
-        <div className="order-progress-panel" data-state={noteState}>
+        <div className="order-progress-panel sub-note-panel" data-state={noteState}>
           <p className="order-progress-note"><Icon name={noteIcon} size={15} stroke={2.2} />{noteText}</p>
           {pendingCard && (
             <button className="fa-btn fa-btn-primary fa-btn-sm" style={{ marginTop: 10 }} onClick={() => onNav({ name: 'account' })}>

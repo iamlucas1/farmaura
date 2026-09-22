@@ -1386,6 +1386,12 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .order-progress li.is-current { color: var(--fa-primary-ink); font-weight: 800; }
 .order-progress li.is-current .order-progress-dot { border-color: var(--fa-primary); color: var(--fa-primary); box-shadow: 0 0 0 4px var(--fa-rose-soft); }
 .order-progress-note { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; font-size: 13px; font-weight: 600; color: var(--fa-primary-ink); }
+/* Subscriptions only: this panel never has the .order-progress rail above it (there's no
+   multi-step fulfillment to track), so the note's 14px top margin — meant to separate it from
+   that rail — just left a tall, mostly-empty box around one line of text. Tighter padding and no
+   extra top margin instead. */
+.sub-note-panel { padding: 13px 16px; }
+.sub-note-panel .order-progress-note { margin-top: 0; }
 .order-progress-panel[data-state="cancelled"] .order-progress-note { color: var(--fa-ink-2); }
 .order-progress-panel[data-state="done"] .order-progress-note { color: var(--fa-success); }
 
