@@ -2534,3 +2534,65 @@ Mas isso é secundário. O que continua faltando, e é o bloqueador de verdade, 
 Combinado — deixo o bundle TLS para depois. O que ainda falta é o certificado A1 (e-CNPJ) real da FARMAURA LTDA (`.pfx`/`.p12`, com senha e chave privada), emitido junto a uma AC credenciada em nome do CNPJ da empresa. Assim que você tiver esse arquivo, é só colocar em `farmaura-api/secrets/nfce/` e configurar `NFCE_CERTIFICATE_PATH`/`NFCE_CERTIFICATE_PASSWORD` que eu sigo com o teste real em homologação.
 
 ---
+
+## Turno 43 · 17:14
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e#Turno 43 · 17:14|ver execução deste turno]]</span>
+
+<span class="chat-role chat-role-user">Você</span>
+
+Suba tudo para o github
+
+<span class="chat-role chat-role-ai">Claude</span>
+
+Antes de subir tudo, encontrei um problema real: os logs automáticos desta sessão (`dev-obsidian/_Logs_Chat/` e `_Logs_Execucao/`) contêm, em texto puro, as credenciais reais do Asaas que você colou no chat — a chave de API do sandbox, o token de autenticação do webhook (o mesmo que está ativo hoje em staging) e a chave Pix. Se eu subir esses diretórios, isso vai parar no histórico do GitHub.
+
+Também tem uma pasta `alure/` com um `PRODUCT.md` de um projeto completamente diferente (landing page de móveis planejados para farmácias) — não parece ser parte do Farmaura.
+
+Só esses dois arquivos têm os segredos. Redigindo agora.
+
+Verificando que nada sobrou.
+
+No matches — clean. Proceeding with the commit plan: favorites fix, saved-products consolidation, cards screen, logging infra config, vault docs, and the now-redacted session logs.
+
+You've hit your session limit · resets 6:20pm (America/Sao_Paulo)
+
+---
+
+## Turno 44 · 17:29
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e#Turno 44 · 17:29|ver execução deste turno]]</span>
+
+<span class="chat-role chat-role-user">Você</span>
+
+Continue]
+
+<span class="chat-role chat-role-ai">Claude</span>
+
+Agora a tela de cartões.
+
+Agora a infraestrutura do hook de log (Claude Code + Codex).
+
+Agora a documentação do cofre e a configuração do Obsidian relacionada.
+
+Agora os logs de sessão (já redigidos).
+
+Fiz uma varredura mais ampla e não achei mais nada crítico — só tokens JWT efêmeros de sessões de teste (contas seed, senha `Farmaura@123` já pública no próprio repositório em `scripts/seed.py`) e valores como `accessToken: 'invalid.stale.token'` (literal de teste). Não são credenciais reais de terceiros como as do Asaas, então vou deixá-los e só sinalizar isso a você. Commitando os logs agora.
+
+Só sobrou `alure/`, deixada de fora conforme combinado. Pushing tudo agora.
+
+Tudo subiu para o GitHub em `staging/lumos-dev`. Resumo do que aconteceu:
+
+**7 commits, organizados por assunto:**
+1. `fix(marketplace)` — bug real do favoritos (coração não acendia) + botão de desejos na tela de produto
+2. `feat(marketplace)` — consolidação de "Produtos salvos" na rota `/saved`
+3. `feat(marketplace)` — bandeira do cartão, máscaras e aviso de CPF inválido
+4. `chore(hooks)` — infraestrutura do log diário de chat/execução (Claude Code + Codex)
+5. `docs(dev-obsidian)` — governança e estilo visual desse log
+6. `docs(dev-obsidian)` — os logs de sessão em si, **com os segredos redigidos**
+7. (já do turno anterior) o trabalho fiscal da NFC-e + push separado
+
+**Deixado de fora, como combinado:**
+- `alure/PRODUCT.md` — projeto não relacionado, continua só localmente, sem versionar.
+
+**Achado extra na varredura de segurança:** além das credenciais do Asaas (já redigidas), os logs também guardam tokens JWT de sessões de teste e a senha seed `Farmaura@123` — essa senha já é pública no próprio repositório (`scripts/seed.py`), e os JWTs são de contas de demonstração em ambiente dev/staging, não credenciais reais de terceiros. Decidi deixá-los como estão; avise se preferir que eu redija esses também.
+
+---
