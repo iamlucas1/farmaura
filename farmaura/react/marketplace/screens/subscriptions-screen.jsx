@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ModalShell, QtyStepper, RecurrenceOffModal, brl } from "../core/marketplace-components.jsx";
+import { ModalShell, ProductVisual, QtyStepper, RecurrenceOffModal, brl } from "../core/marketplace-components.jsx";
 import { Icon } from "../core/marketplace-icons.jsx";
 import { AccountNavShell } from "./account-shared.jsx";
 import { LoginGate } from "./extra-screen.jsx";
@@ -29,11 +29,6 @@ function resolveSubProduct(sub, products) {
   const matched = products.find((product) => product.id === sub.id);
   if (matched) return { ...matched, real: true };
   return { id: sub.id, name: sub.name || 'Produto', brand: '', price: sub.unitPrice, cat: 'medicamentos', real: false };
-}
-
-function SubProductIcon({ cat, size = 30 }) {
-  const name = cat === 'medicamentos' ? 'pill' : cat === 'perfumaria' ? 'sparkle' : cat === 'bem-estar' ? 'leaf' : 'heart';
-  return <Icon name={name} size={size} style={{ color: 'var(--fa-primary)', opacity: .5 }} />;
 }
 
 function SubscriptionsScreen({ ctx }) {
@@ -74,72 +69,88 @@ function SubscriptionsScreen({ ctx }) {
             const pendingCard = s.status === 'pending_card';
             const cancelled = s.status === 'cancelled';
             const goToProduct = () => p.real && onNav({ name: 'product', id: p.id });
+            const pillClass = cancelled ? 'is-canceled' : pendingCard ? 'is-preparing' : s.paused ? 'is-paused' : 'is-delivered';
+            const pillIcon = cancelled ? 'close' : pendingCard ? 'card' : s.paused ? 'pause' : 'check';
+            const pillLabel = cancelled ? 'Cancelada' : pendingCard ? 'Aguardando cartão' : s.paused ? 'Pausada' : 'Ativa';
+            const noteState = cancelled ? 'cancelled' : pendingCard ? 'warn' : s.paused ? 'paused' : undefined;
+            const noteIcon = cancelled ? 'close' : pendingCard ? 'card' : s.paused ? 'pause' : 'truck';
+            const noteText = cancelled
+              ? (SUB_CANCEL_REASON_LABEL[s.cancelReason] || 'Essa assinatura foi cancelada.')
+              : pendingCard
+              ? `Cadastre um cartão até ${s.dueDateLabel || 'a data prevista'} para não perder o desconto — enviamos lembretes por e-mail.`
+              : s.paused
+              ? 'Assinatura pausada — retome quando quiser para voltar a receber automaticamente.'
+              : `Próxima entrega ${s.nextInDays === 0 ? 'hoje' : `em ${s.nextInDays} ${s.nextInDays === 1 ? 'dia' : 'dias'}`} · ${faDateIn(s.nextInDays)}`;
             return (
-              <article className="sub-card" key={s.id} style={{ opacity: s.paused || cancelled ? .72 : 1 }}>
-                <div className="sub-card-main">
-                  <span className="sub-thumb" style={{ background: 'var(--fa-mist-2)', cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>
-                    <SubProductIcon cat={p.cat} size={22} />
+              <article className="order-card" key={s.id}>
+                <div className="order-card-summary sub-card-summary">
+                  <span className="order-summary-thumb" style={{ cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>
+                    <ProductVisual product={p} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} />
                   </span>
-                  <div className="sub-info">
-                    <span className="sub-brand">{p.brand}</span>
+                  <span className="order-summary-main">
                     <span className="sub-name" style={{ cursor: p.real ? 'pointer' : 'default' }} onClick={goToProduct}>{p.name}</span>
-                    {cancelled ? (
-                      <span className="set-badge is-critical" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Cancelada</span>
-                    ) : pendingCard ? (
-                      <span className="set-badge is-warn" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Aguardando cartão</span>
-                    ) : s.paused ? (
-                      <span className="set-badge" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Pausada</span>
-                    ) : (
-                      <span className="set-badge is-on" style={{ alignSelf: 'flex-start', marginTop: 2 }}>Ativa</span>
-                    )}
-                  </div>
-                  <div className="sub-price">
-                    <span className="cart-item-price-row">
-                      <span className="cart-item-price-was">{brl(p.price * s.qty)}</span>
-                      <span className="cart-item-price is-discounted">{brl(unit * s.qty)}</span>
-                      <span className="cart-item-price-off">-15%</span>
-                    </span>
-                    <span className="sub-price-caption">por entrega</span>
-                  </div>
+                    <span className="order-card-date">{p.brand ? p.brand + ' · ' : ''}{faFreqLabel(s.freq)} · Qtd {s.qty}</span>
+                  </span>
+                  <span className={'order-status ' + pillClass}><Icon name={pillIcon} size={12} stroke={2.4} />{pillLabel}</span>
+                  <span className="order-summary-total">{brl(unit * s.qty)}</span>
                 </div>
-                {(pendingCard || cancelled) && (
-                  <div className="cell-muted" style={{ margin: '0 0 12px', padding: '10px 12px', borderRadius: 'var(--fa-r-input)', background: cancelled ? 'var(--fa-rose-soft)' : 'var(--fa-warn-soft)', color: cancelled ? 'var(--fa-primary-ink)' : 'var(--fa-warn-ink)', fontSize: 12.5, lineHeight: 1.5 }}>
-                    {cancelled
-                      ? (SUB_CANCEL_REASON_LABEL[s.cancelReason] || 'Essa assinatura foi cancelada.')
-                      : `Cadastre um cartão até ${s.dueDateLabel || 'a data prevista'} para não perder o desconto — enviamos lembretes por e-mail.`}
+
+                <div className="order-card-details">
+                  <div className="order-progress-panel" data-state={noteState}>
+                    <p className="order-progress-note"><Icon name={noteIcon} size={15} stroke={2.2} />{noteText}</p>
                     {pendingCard && (
-                      <button className="fa-btn fa-btn-primary fa-btn-sm" style={{ marginTop: 8 }} onClick={() => onNav({ name: 'account' })}>
+                      <button className="fa-btn fa-btn-primary fa-btn-sm" style={{ marginTop: 10 }} onClick={() => onNav({ name: 'account' })}>
                         <Icon name="plus" size={13} />Cadastrar cartão
                       </button>
                     )}
                   </div>
-                )}
-                <div className="order-meta-grid sub-meta-grid">
-                  <div className="order-meta-item"><span className="k">Frequência</span><span className="v"><Icon name="repeat" size={13} style={{ verticalAlign: -2, marginRight: 5, color: 'var(--fa-ink-3)' }} />{faFreqLabel(s.freq)}</span></div>
-                  <div className="order-meta-item"><span className="k">{pendingCard ? 'Vencimento' : 'Próxima entrega'}</span><span className="v">{pendingCard ? s.dueDateLabel : cancelled ? '—' : s.paused ? 'Pausada' : <>{faDateIn(s.nextInDays)}<span className="sub-countdown">em {s.nextInDays} {s.nextInDays === 1 ? 'dia' : 'dias'}</span></>}</span></div>
-                  <div className="order-meta-item"><span className="k">Assinante desde</span><span className="v">{s.since}</span></div>
-                </div>
-                {!pendingCard && !cancelled && (
-                  <div className="sub-card-foot" style={{ flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--fa-ink-2)' }}>
+
+                  <div className="order-meta-grid sub-meta-grid">
+                    <div className="order-meta-item"><span className="k"><Icon name="repeat" size={13} />Frequência</span><span className="v">{faFreqLabel(s.freq)}</span></div>
+                    <div className="order-meta-item"><span className="k"><Icon name="calendar" size={13} />Assinante desde</span><span className="v">{s.since}</span></div>
+                    <div className="order-meta-item">
+                      <span className="k"><Icon name="tag" size={13} />Preço por entrega</span>
+                      <span className="v sub-price-value">
+                        <span className="sub-price-was">{brl(p.price * s.qty)}</span>
+                        <span className="sub-price-now">{brl(unit * s.qty)}</span>
+                        <span className="sub-price-off">-15%</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {!pendingCard && !cancelled && (
+                    <div className="sub-controls-row">
+                      <label className="sub-control">
                         Quantidade
                         <QtyStepper value={s.qty} onChange={(qty) => patchSub(s.id, { qty: Math.max(1, qty) })} />
                       </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--fa-ink-2)' }}>
+                      <label className="sub-control">
                         Frequência
                         <select className="fa-input" value={s.freq} onChange={(event) => patchSub(s.id, { freq: Number(event.target.value) })} style={{ height: 38, width: 'auto', paddingRight: 30, fontSize: 13 }}>
                           {FA_FREQS.map((freq) => <option key={freq.v} value={freq.v}>{freq.l}</option>)}
                         </select>
                       </label>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {!s.paused && <button className="ghost-btn" type="button" onClick={() => skipNextSub(s.id)}><Icon name="chevR" size={14} />Pular próxima</button>}
-                      <button className="ghost-btn" type="button" onClick={() => (s.paused ? patchSub(s.id, { paused: false }) : setConfirmingSub({ id: s.id, action: 'pause' }))}><Icon name={s.paused ? 'play' : 'pause'} size={14} />{s.paused ? 'Retomar' : 'Pausar'}</button>
-                      <button className="sub-remove-btn" type="button" onClick={() => setConfirmingSub({ id: s.id, action: 'cancel' })}><Icon name="trash" size={14} />Cancelar assinatura</button>
+                  )}
+
+                  {!pendingCard && !cancelled && (
+                    <div className="order-card-foot">
+                      <div className="order-card-total-wrap"><span className="k">Total por entrega</span><span className="order-card-total">{brl(unit * s.qty)}</span></div>
+                      {s.paused ? (
+                        <button className="fa-btn fa-btn-primary" onClick={() => patchSub(s.id, { paused: false })}><Icon name="play" size={16} />Retomar assinatura</button>
+                      ) : (
+                        <button className="fa-btn fa-btn-primary" onClick={() => skipNextSub(s.id)}><Icon name="chevR" size={16} />Pular próxima entrega</button>
+                      )}
                     </div>
-                  </div>
-                )}
+                  )}
+
+                  {!pendingCard && !cancelled && (
+                    <div className="order-actions-row">
+                      {!s.paused && <button type="button" className="fa-btn fa-btn-soft fa-btn-sm" onClick={() => setConfirmingSub({ id: s.id, action: 'pause' })}><Icon name="pause" size={14} />Pausar assinatura</button>}
+                      <button type="button" className="sub-remove-btn" onClick={() => setConfirmingSub({ id: s.id, action: 'cancel' })}><Icon name="trash" size={14} />Cancelar assinatura</button>
+                    </div>
+                  )}
+                </div>
               </article>
             );
           })}
@@ -173,7 +184,7 @@ function SubscriptionsScreen({ ctx }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14, maxHeight: '50vh', overflowY: 'auto' }}>
                 {eligible.map((product) => (
                   <div key={product.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 'var(--fa-r-input)', border: '1px solid var(--fa-mist)' }}>
-                    <div className="fa-ph" data-cat={product.cat} style={{ width: 48, height: 48, aspectRatio: 'auto', flex: 'none', borderRadius: 10 }}><SubProductIcon cat={product.cat} size={20} /></div>
+                    <span className="order-summary-thumb" style={{ width: 48, height: 48, borderRadius: 10, margin: 0 }}><ProductVisual product={product} style={{ width: '100%', height: '100%', aspectRatio: 'auto' }} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 13.5, lineHeight: 1.3 }}>{product.name}</div>
                       <div className="fa-faint" style={{ fontSize: 12 }}>{brl(product.price * 0.85)} <span style={{ color: 'var(--fa-success)', fontWeight: 600 }}>com assinatura</span></div>
@@ -203,4 +214,4 @@ function SubscriptionsScreen({ ctx }) {
   );
 }
 
-export { FA_FREQS, SubProductIcon, SubscriptionsScreen, faDateIn, faFreqLabel };
+export { FA_FREQS, SubscriptionsScreen, faDateIn, faFreqLabel };

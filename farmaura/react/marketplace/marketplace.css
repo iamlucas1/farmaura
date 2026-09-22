@@ -1359,6 +1359,9 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .order-status.is-transit { background: var(--fa-info-soft); color: var(--fa-info); }
 .order-status.is-preparing { background: var(--fa-warn-soft); color: var(--fa-warn-ink); }
 .order-status.is-canceled { background: var(--fa-mist-2); color: var(--fa-ink-3); }
+/* Subscriptions only: a paused subscription is neutral/recoverable, not an error — same muted
+   treatment as is-canceled, kept as its own class so the markup reads correctly either way. */
+.order-status.is-paused { background: var(--fa-mist-2); color: var(--fa-ink-2); }
 @media (max-width: 560px) { .order-card-summary { flex-wrap: wrap; padding: 14px 16px; } .order-summary-total { order: 3; margin-left: auto; } }
 
 /* in-card "andamento" panel: the progress rail plus a plain-language status line, in the same
@@ -1366,6 +1369,12 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
    reads as one consistent moment whether it's seen here or in the full tracking drawer. */
 .order-progress-panel { background: var(--fa-rose-soft); border-radius: var(--fa-r-card); padding: 16px 16px 14px; }
 .order-progress-panel[data-state="cancelled"] { background: var(--fa-mist-2); }
+/* Subscriptions only: paused reuses the cancelled panel's muted neutral (recoverable, not urgent);
+   warn is the pending-card state — a real "act before this date" caution, not a passive status. */
+.order-progress-panel[data-state="paused"] { background: var(--fa-mist-2); }
+.order-progress-panel[data-state="paused"] .order-progress-note { color: var(--fa-ink-2); }
+.order-progress-panel[data-state="warn"] { background: var(--fa-warn-soft); }
+.order-progress-panel[data-state="warn"] .order-progress-note { color: var(--fa-warn-ink); }
 .order-progress { display: flex; list-style: none; margin: 0; padding: 0; }
 .order-progress li { flex: 1; position: relative; padding-top: 40px; font-size: 11px; font-weight: 700; color: var(--fa-ink-3); text-align: center; }
 .order-progress li::before { content: ""; position: absolute; top: 15px; left: -50%; width: 100%; height: 3px; border-radius: 2px; background: var(--fa-rose); z-index: 0; }
@@ -2378,41 +2387,26 @@ body.pd-sticky-bar-active .fa-chat-widget { bottom: calc(80px + env(safe-area-in
   .cb-entry-sub { font-size: 11.5px; }
 }
 
-.sub-thumb { width: 52px; height: 52px; border-radius: 12px; display: grid; place-items: center; flex: none; color: var(--fa-primary-ink); }
-
-.sub-thumb svg { width: 22px; height: 22px; }
-
-.sub-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-
-.sub-brand { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fa-ink-3); }
-
 .sub-name { font-size: 14.5px; font-weight: 800; color: var(--fa-ink); line-height: 1.32; }
-
-.sub-rx-badge {
-  align-self: flex-start; margin-top: 2px; font-size: 10px; font-weight: 700; letter-spacing: .02em;
-  padding: 2px 8px; border-radius: 999px; background: var(--fa-rose-soft); color: var(--fa-primary-ink);
-}
-
-.sub-price { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
-
-.sub-price-caption { font-size: 11px; color: var(--fa-ink-3); }
 
 .sub-meta-grid { padding-top: 15px; border-top: 1px solid var(--fa-mist-2); }
 
-.sub-meta-grid .v .icon-repeat { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; color: var(--fa-ink-3); }
+/* Was/now/off price breakdown for the "Preço por entrega" meta item — mirrors the savings-pill
+   treatment DESIGN.md documents for Success green, so the 15% recurrence discount reads as a real
+   win instead of three unstyled price strings running together. */
+.sub-price-value { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.sub-price-was { font-family: var(--fa-mono); font-size: 12px; font-weight: 600; color: var(--fa-ink-3); text-decoration: line-through; }
+.sub-price-now { font-family: var(--fa-mono); font-size: 14px; font-weight: 700; color: var(--fa-ink); }
+.sub-price-off { font-size: 10.5px; font-weight: 800; color: var(--fa-success); background: var(--fa-success-soft); padding: 2px 7px; border-radius: 999px; }
 
-.sub-countdown {
-  display: inline-block; margin-left: 8px; font-size: 10.5px; font-weight: 700; padding: 2px 8px;
-  border-radius: 999px; background: var(--fa-info-soft); color: var(--fa-info); vertical-align: 1px; white-space: nowrap;
-}
+/* Subscription cards reuse .order-card-summary's layout but are always expanded (there's no
+   history to collapse away) — this plain <div> isn't a toggle button, so drop the inherited
+   pointer cursor and hover fill that would otherwise imply one. */
+.sub-card-summary { cursor: default; }
+.sub-card-summary:hover { background: none; }
 
-.sub-savings { font-family: var(--fa-mono); color: var(--fa-success); font-weight: 700; }
-
-.sub-savings-line { display: flex; align-items: baseline; gap: 8px; }
-
-.sub-savings-line .k { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fa-ink-3); }
-
-.sub-savings-line .v.sub-savings { font-family: var(--fa-mono); font-size: 15px; font-weight: 700; color: var(--fa-success); }
+.sub-controls-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 2px; }
+.sub-control { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--fa-ink-2); }
 
 .sub-remove-btn {
   border: 1px solid var(--fa-mist); background: var(--fa-surface); cursor: pointer; font-family: var(--fa-font);
