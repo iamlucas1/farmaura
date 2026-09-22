@@ -72,6 +72,16 @@ Domínio do fluxo de compra online do marketplace: carrinho persistido do client
 
 ## Atualizações
 
+- 2026-09-22: `screens/account-health-screen.jsx::MyOrders` — rótulo de forma de pagamento
+  humanizado em toda a tela (backend e dado de seed unificados em
+  `farmaura-api/app/domain/payment_labels.py`; antes o seed gravava valor bruto do enum em
+  português inconsistente/inglês em vários pontos). Seção "Avalie suas compras recentes"
+  redesenhada como galeria horizontal com miniatura do produto; `OrderCard`
+  (`account-shared.jsx`) redesenhado com rail de progresso por ícone, nota de status contextual e
+  ações como botões. Corrige de quebra dois nomes de ícone inexistentes (`box`, `store`) e um bug
+  de cascata CSS pré-existente que deixava o sidebar de conta `sticky` (em vez de `static`) em
+  telas ≤880px. Ver [[../00_Decisoes/2026-09-22-reformulacao-meus-pedidos-e-fix-rotulos-pagamento|ADR]].
+
 - 2026-09-20: fluxo do checkout até a nota mapeado em [[Fluxo_Pagamento_e_Nota_Fiscal]].
 - 2026-09-20: cobranças Asaas (Pix/cartão) passaram a enviar `dueDate` e, no cartão/tokenização, `remoteIp` (exigidos pela API); o cliente Asaas recusa a API de produção fora de `APP_ENV=production`. O documento fiscal diferido do pedido online segue **simulado** ([[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]]) e a nota Asaas agora referencia a cobrança (`pay_…`). Ver [[../00_Decisoes/2026-09-20-asaas-sandbox-guarda-remoteip-e-nota-no-formato-real|ADR]].
 - 2026-09-04: cashback real no marketplace — checkout resgata e abate o pagamento real, ganho fica
