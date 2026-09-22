@@ -556,5 +556,19 @@
       "/home/noname/Documentos/desenvolvimento/dev/.claude/skills",
       "/home/noname/.claude"
     ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/chat_daily_log.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
   }
 }

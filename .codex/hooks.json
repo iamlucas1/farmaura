@@ -25,6 +25,16 @@
             "commandWindows": "if exist \".agents/skills/impeccable/scripts/hook.mjs\" (node \".agents/skills/impeccable/scripts/hook.mjs\" & exit /b)"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .codex/hooks/chat_daily_log.py",
+            "timeout": 20,
+            "statusMessage": "Log diário de chat"
+          }
+        ]
       }
     ]
   }
