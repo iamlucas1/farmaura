@@ -19,6 +19,7 @@ Observations:
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -26,6 +27,9 @@ from decimal import Decimal
 from urllib import error, parse, request
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
+
+logger = get_logger("geocoding_client")
 
 
 # ============================================================================
@@ -70,6 +74,11 @@ _CACHE: dict[str, GeocodeResult | None] = {}
 _CACHE_LOCK = threading.Lock()
 _LAST_REQUEST_MONOTONIC = 0.0
 
+# Matches a trailing house-number-like token ("19A", "123") on the street segment of a
+# free-form address — used to retry a failed lookup one level coarser (street/building
+# instead of exact house) when OSM has no address point for that specific number.
+_TRAILING_HOUSE_NUMBER_RE = re.compile(r"\s+\d+[A-Za-z]{0,3}$")
+
 
 def _strip_accents(value: str) -> str:
     """Return a lowercase, accent-free copy of one string for lookup normalization."""
@@ -97,7 +106,13 @@ class GeocodingClient:
         self.min_interval_seconds = float(settings.geocoding_min_interval_seconds)
 
     def geocode(self, address: str) -> GeocodeResult | None:
-        """Return the resolved coordinate for one free-form address, or None when unavailable."""
+        """Return the resolved coordinate for one free-form address, or None when unavailable.
+
+        Retries once without the house number when the full address finds nothing: Nominatim
+        rejects the whole query when a house number isn't tagged on that street in OSM (common
+        for residential addresses), even though the street/building itself resolves fine — a
+        coarser match beats failing the address outright.
+        """
 
         normalized = " ".join(str(address or "").split()).strip()
         if not normalized or not self.enabled or not self.base_url or not self.user_agent:
@@ -106,9 +121,34 @@ class GeocodingClient:
             if normalized in _CACHE:
                 return _CACHE[normalized]
         result = self._lookup(normalized)
+        if result is None:
+            coarser = self._strip_house_number(normalized)
+            if coarser is not None:
+                result = self._lookup(coarser)
+                # Log only the house-number-stripped query, never the original: it still
+                # carries the customer's exact street and number, which is address PII.
+                if result is not None:
+                    logger.info("geocode_fallback_used", retried_as=coarser)
+        if result is None:
+            logger.info("geocode_not_found", address=self._strip_house_number(normalized) or normalized)
         with _CACHE_LOCK:
             _CACHE[normalized] = result
         return result
+
+    def _strip_house_number(self, address: str) -> str | None:
+        """Return `address` with a trailing house-number-like token removed from its first segment.
+
+        Returns None when there's nothing number-like to strip (so the caller knows not to
+        retry with an identical query).
+        """
+
+        segments = address.split(",", 1)
+        head = segments[0]
+        stripped_head = _TRAILING_HOUSE_NUMBER_RE.sub("", head).strip()
+        if not stripped_head or stripped_head == head:
+            return None
+        rest = segments[1] if len(segments) > 1 else ""
+        return f"{stripped_head}, {rest.strip()}" if rest.strip() else stripped_head
 
     def search(self, query: str, *, limit: int = 8) -> list[GeocodeSearchResult]:
         """Return up to `limit` free-text address matches, classified as neighborhood/city/other."""
