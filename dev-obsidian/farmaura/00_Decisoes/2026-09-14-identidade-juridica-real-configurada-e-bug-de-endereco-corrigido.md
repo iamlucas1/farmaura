@@ -73,6 +73,21 @@ própria loja** (campo separado do `cnpj` do marketplace-meta — ver "Consequê
   texto plano no `scripts/seed.py` do repositório, não uma credencial de produção.
 - Build limpo, container `farmaura` redeployado (porta 3000), conferido visualmente.
 
+## Atualizações
+
+- 2026-09-22: **achado** — `stores[].cnpj`/`address_line` e `portal_settings.marketplace_meta`
+  (as duas gravações desta decisão) tinham voltado ao placeholder de seed (`12.345.678/0001-90`,
+  endereço genérico) tanto local quanto em staging — um reset de ambiente em algum momento depois
+  desta decisão apagou os dois, já que nenhum dos dois é recriado pelo `bootstrap_database.py`/seed
+  automático. Restaurado nos dois ambientes (mesmos valores desta nota) ao preparar o teste da
+  extensão de NFC-e para pedidos de marketplace (ver
+  [[2026-09-22-nfce-real-para-pedidos-marketplace-pickup|ADR]]) — a validação fiscal exige
+  `stores[].cnpj` batendo com `NFCE_CNPJ`. O `PATCH` de endereço disparou de novo o bug de
+  re-geocodificação já conhecido (zera lat/long em ambiente sem internet real); coordenadas
+  restauradas manualmente de novo nos dois bancos. **Risco a observar**: qualquer reset futuro de
+  ambiente (local ou staging) volta a apagar essa configuração — não há nenhum lugar que persista
+  isso fora do banco de dados em si.
+
 ## Ver também
 
 - [[2026-09-14-telas-de-termos-privacidade-e-retencao-de-dados|ADR de origem das páginas legais]]

@@ -7,7 +7,7 @@ cssclasses: ia-nota exec-log
 - Diretório: `/home/noname/Documentos/desenvolvimento/dev`
 - Sessão: `ec2a4c0e-d965-4f11-8247-2bd68ce568c5`
 - Log de chat: [[_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e|abrir]]
-- Git (na última atualização deste log): `staging/lumos-dev` @ `3ee09ee` (árvore com 2 arquivo(s) não commitado(s))
+- Git (na última atualização deste log): `staging/lumos-dev` @ `0ffa051` (árvore com 2 arquivo(s) não commitado(s))
 
 ## Turno 1 · 09:19
 <span class="log-crosslink">💬 [[_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e#Turno 1 · 09:19|ver conversa deste turno]]</span>
@@ -23966,5 +23966,1134 @@ ce1db19 fix(marketplace): corrige toggle de favoritos e adiciona salvar na tela 
 To github.com:iamlucas1/farmaura.git
    62c99dd..3ee09ee  staging/lumos-dev -> staging/lumos-dev
 ```
+
+---
+
+## Turno 45 · 17:32
+<span class="log-crosslink">💬 [[_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e#Turno 45 · 17:32|ver conversa deste turno]]</span>
+
+<span class="exec-section">Comandos</span>
+
+_Check current git log and whether the flagged commit exists locally_
+```
+$ git log --oneline -10 && echo "---status---" && git status --porcelain=v1 && echo "---does 6e01b427 exist---" && git cat-file -t 6e01b427ef702ebfb8da539277f4a55865c5a1ed 2>&1
+```
+Saída:
+```
+6e01b42 Logs
+3ee09ee docs(dev-obsidian): registra logs de chat/execucao das sessoes de 2026-09-21
+f7d9043 docs(dev-obsidian): documenta o log diario de chat/execucao e ativa o snippet visual
+bcea9bf chore(hooks): log diario de chat e execucao por sessao (Claude Code + Codex)
+23e11f7 feat(marketplace): bandeira do cartao, mascaras e aviso de CPF invalido
+85c4be5 feat(marketplace): consolida produtos salvos na rota /saved
+ce1db19 fix(marketplace): corrige toggle de favoritos e adiciona salvar na tela do produto
+62c99dd docs(farmaura): documenta NFC-e real para pedidos de marketplace com retirada
+6be6a86 feat(fiscal): NFC-e real direto a SEFAZ-DF para pedidos de marketplace com retirada
+ee26a2a fix(asaas): corrige CEP de teste invalido no script de sandbox
+---status---
+---does 6e01b427 exist---
+commit
+```
+
+_Inspect what the user's "Logs" commit changed_
+```
+$ git show 6e01b42 --stat
+```
+Saída:
+```
+commit 6e01b427ef702ebfb8da539277f4a55865c5a1ed
+Author: Lucas Matheus <lucas.matheus0899@gmail.com>
+Date:   Tue Sep 22 17:31:36 2026 -0300
+
+    Logs
+
+ .../_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md   |  84 ++-
+ .../2026-09-21/claude-dev-ec2a4c0e.md              | 696 ++++++++++++++++++++-
+ 2 files changed, 754 insertions(+), 26 deletions(-)
+```
+
+_Undo the unpushed commit containing the leaked secret, keeping files in working tree_
+```
+$ git reset HEAD~1 && git status --porcelain=v1
+```
+Saída:
+```
+Unstaged changes after reset:
+M	dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+M	dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+ M dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+ M dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+```
+
+_Confirm which files currently contain the leaked secrets_
+```
+$ grep -rln "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
+```
+Saída:
+```
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+```
+
+_Re-redact secrets and verify none remain_
+```
+$ python3 <<'EOF'
+files = [
+    "dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md",
+    "dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md",
+]
+
+replacements = [
+    ("$$[REDACTED_ASAAS_API_KEY]", "$$[REDACTED_ASAAS_API_KEY]"),
+    ("$[REDACTED_ASAAS_API_KEY]", "$[REDACTED_ASAAS_API_KEY]"),
+    ("[REDACTED_ASAAS_API_KEY]", "[REDACTED_ASAAS_API_KEY]"),
+    ("[REDACTED_WALLET_ID]", "[REDACTED_WALLET_ID]"),
+    ("[REDACTED_WEBHOOK_TOKEN_LOCAL]", "[REDACTED_WEBHOOK_TOKEN_LOCAL]"),
+    ("[REDACTED_WEBHOOK_TOKEN_STAGING]", "[REDACTED_WEBHOOK_TOKEN_STAGING]"),
+    ("[REDACTED_PIX_KEY]", "[REDACTED_PIX_KEY]"),
+]
+
+for path in files:
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    n = len(content)
+    for old, new in replacements:
+        content = content.replace(old, new)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"{path}: {n} -> {len(content)}")
+EOF
+echo "--- verify ---"
+grep -rn "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+```
+Saída:
+```
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md: 267501 -> 266830
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md: 1322658 -> 1320234
+--- verify ---
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:$ grep -rl "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23561:$ grep -rn "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit code: $?"
+exit: 0
+```
+
+_Redact the remaining secret-prefix fragment left by my own verification greps_
+```
+$ python3 <<'EOF'
+path = "dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md"
+with open(path, "r", encoding="utf-8") as f:
+    content = f.read()
+n = len(content)
+content = content.replace("[ASAAS_KEY_PREFIX_REDACTED]", "[ASAAS_KEY_PREFIX_REDACTED]")
+with open(path, "w", encoding="utf-8") as f:
+    f.write(content)
+print(n, "->", len(content))
+EOF
+grep -c "[ASAAS_KEY_PREFIX_REDACTED]" dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+```
+Saída:
+```
+1320234 -> 1320246
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:0
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:0
+```
+
+_Stage re-redacted log files_
+```
+$ git add dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+git status --porcelain=v1
+```
+Saída:
+```
+M  dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+M  dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+```
+
+_Commit the re-redacted session logs_
+```
+$ git commit -m "$(cat <<'EOF'
+docs(dev-obsidian): atualiza logs da sessao com turnos novos, segredos redigidos
+
+O hook reescreve o arquivo inteiro a partir da transcript bruta a cada
+Stop, que ainda contem as credenciais reais do Asaas coladas pelo
+usuario - por isso a redacao anterior (commit 3ee09ee) foi desfeita na
+proxima vez que o hook rodou. Redigido de novo, incluindo o fragmento
+que minha propria checagem via grep tinha reintroduzido no log de
+execucao.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+EOF
+)"
+```
+Saída:
+```
+[staging/lumos-dev 0ffa051] docs(dev-obsidian): atualiza logs da sessao com turnos novos, segredos redigidos
+ 2 files changed, 729 insertions(+), 1 deletion(-)
+```
+
+_Push corrected commit to staging_
+```
+$ git push origin staging/lumos-dev 2>&1
+```
+Saída:
+```
+To github.com:iamlucas1/farmaura.git
+   3ee09ee..0ffa051  staging/lumos-dev -> staging/lumos-dev
+```
+
+<span class="exec-section">Arquivos</span>
+
+- `/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/memory/feedback_farmaura_log_secrets_before_push.md` — <span class="exec-file-op exec-file-op-create">criado</span>
+- `/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/memory/MEMORY.md` — <span class="exec-file-op exec-file-op-read">leitura</span>
+- `/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/memory/MEMORY.md` — <span class="exec-file-op exec-file-op-update">editado</span>
+
+`/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/memory/feedback_farmaura_log_secrets_before_push.md`:
+
+<pre class="chat-diff">
+<span class="diff-file">--- </span>
+<span class="diff-file">+++ </span>
+<span class="diff-hunk">@@ -0,0 +1,44 @@</span>
+<span class="diff-add">+---</span>
+<span class="diff-add">+name: feedback-farmaura-log-secrets-before-push</span>
+<span class="diff-add">+description: Before pushing dev-obsidian/_Logs_Chat or _Logs_Execucao changes in the dev repo, check for and redact real secrets — the chat-log hook rewrites those files from the raw session transcript on every Stop, silently undoing any prior manual redaction.</span>
+<span class="diff-add">+metadata:</span>
+<span class="diff-add">+  type: feedback</span>
+<span class="diff-add">+---</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+The dev-obsidian chat/exec logging hooks (`.claude/hooks/chat_daily_log.py`,</span>
+<span class="diff-add">+`.codex/hooks/chat_daily_log.py`) reconstruct their target `.md` file **from</span>
+<span class="diff-add">+scratch from the raw session transcript** every time they fire (every `Stop`</span>
+<span class="diff-add">+event) — see [[project_dev_obsidian_restructure]] and the &quot;Log diário de</span>
+<span class="diff-add">+chat&quot;/&quot;Log diário de execução&quot; sections of `dev-obsidian/CLAUDE.md`. If a user</span>
+<span class="diff-add">+ever pastes a real secret into chat (API key, token, password), that secret is</span>
+<span class="diff-add">+permanently embedded in the transcript and will keep reappearing in the</span>
+<span class="diff-add">+generated log file on every subsequent Stop, **even after manually redacting</span>
+<span class="diff-add">+and committing a clean version** — the next hook run overwrites the redaction.</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+Concretely hit this in session `ec2a4c0e` (2026-09-22): the user pasted real</span>
+<span class="diff-add">+Asaas sandbox credentials (API key, webhook auth token, Pix key). Redacted and</span>
+<span class="diff-add">+committed the log files once; the hook fired again on the next turn, restored</span>
+<span class="diff-add">+the raw secrets, the user committed that (&quot;Logs&quot; commit) and GitHub&#x27;s push</span>
+<span class="diff-add">+protection (GH013) blocked the push, citing the exact lines. Had to `git</span>
+<span class="diff-add">+reset` the blocked commit (never reached GitHub, safe to drop), re-redact,</span>
+<span class="diff-add">+and recommit.</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+**Why this keeps happening**: it&#x27;s not a one-time bug — it&#x27;s how the hook is</span>
+<span class="diff-add">+designed to work (full rewrite from source of truth each time, documented in</span>
+<span class="diff-add">+`dev-obsidian/CLAUDE.md` as intentional, to avoid a worse bug where partial</span>
+<span class="diff-add">+appends fragmented turns). As long as this session stays active and its</span>
+<span class="diff-add">+transcript contains the raw secret, every future Stop regenerates the leak.</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+**User&#x27;s explicit decision** (asked twice, same answer both times): keep</span>
+<span class="diff-add">+`_Logs_Chat/`/`_Logs_Execucao/` versioned in git (not gitignored) and accept</span>
+<span class="diff-add">+manually redacting before every push, rather than excluding the directories</span>
+<span class="diff-add">+from git entirely.</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+**How to apply**: before any `git push` that includes changes under</span>
+<span class="diff-add">+`dev-obsidian/_Logs_Chat/` or `dev-obsidian/_Logs_Execucao/` in this repo,</span>
+<span class="diff-add">+grep the staged/changed files for known secret patterns before committing —</span>
+<span class="diff-add">+don&#x27;t assume a prior redaction still holds. If GitHub&#x27;s push protection</span>
+<span class="diff-add">+blocks</span>
+<span class="diff-ctx">… (saída truncada, 2763 caracteres no total)</span>
+</pre>
+
+`/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/memory/MEMORY.md`:
+
+<pre class="chat-diff">
+<span class="diff-file">--- </span>
+<span class="diff-file">+++ </span>
+<span class="diff-hunk">@@ -1 +1,2 @@</span>
+<span class="diff-ctx"> - [Docker Desktop + ProtonVPN MTU conflict](project_docker_desktop_mtu_vpn.md) — large downloads fail/hang unless `~/.docker/daemon.json` mtu matches the VPN interface (1420); disk also filled up once from Docker.raw</span>
+<span class="diff-add">+- [Redact secrets in chat logs before every push](feedback_farmaura_log_secrets_before_push.md) — chat-log hook rewrites _Logs_Chat/_Logs_Execucao from raw transcript on every Stop, undoing prior redaction; check again each time</span>
+</pre>
+
+---
+
+## Turno 46 · 23:43
+<span class="log-crosslink">💬 [[_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e#Turno 46 · 23:43|ver conversa deste turno]]</span>
+
+<span class="exec-section">Comandos</span>
+
+_List Asaas and fiscal env vars configured on staging, hiding sensitive values_
+```
+$ ssh lumos-dev "grep -n '^APP_ASAAS\|^NFCE_\|^FISCAL_\|^APP_FISCAL' /opt/farmaura/farmaura-api/.env 2>/dev/null | sed -E 's/(TOKEN|PASSWORD|SECRET|KEY)=.+/\1=<hidden>/'"
+```
+Saída:
+```
+26:APP_ASAAS_ENABLED=true
+27:APP_ASAAS_BASE_URL=https://api-sandbox.asaas.com
+28:APP_ASAAS_WEBHOOK_ALLOWED_IPS=
+29:APP_ASAAS_ACCESS_TOKEN=<hidden>
+30:APP_ASAAS_WEBHOOK_AUTH_TOKEN=<hidden>
+```
+
+_List all fiscal config fields expected by the app_
+```
+$ cd /home/noname/Documentos/desenvolvimento/dev/farmaura-api && cat app/core/fiscal_config.py | grep -E "^\s*(nfce_|fiscal_)" -A0 | sed -n '1,80p'
+```
+Saída:
+```
+nfce_enabled: bool = False
+    fiscal_env: FiscalEnvironmentName = "homologacao"
+    fiscal_production_enabled: bool = False
+    nfce_env: str = ""
+    nfce_cnpj: str = ""
+    nfce_ie: str = ""
+    nfce_razao_social: str = ""
+    nfce_nome_fantasia: str = "FARMAURA"
+    nfce_crt: str = ""
+    nfce_logradouro: str = ""
+    nfce_numero: str = ""
+    nfce_complemento: str = ""
+    nfce_bairro: str = ""
+    nfce_cep: str = ""
+    nfce_municipio: str = ""
+    nfce_codigo_ibge_municipio: str = ""
+    nfce_telefone: str = ""
+    nfce_csc_id_homologacao: str = ""
+    nfce_csc_homologacao: SecretStr = SecretStr("")
+    nfce_csc_id_producao: str = ""
+    nfce_csc_producao: SecretStr = SecretStr("")
+    nfce_certificate_path: str = ""
+    nfce_certificate_password: SecretStr = SecretStr("")
+    nfce_certificate_warn_days: int = Field(default=30, ge=1, le=365)
+    nfce_serie: str = ""
+    nfce_cancel_window_minutes: int = Field(default=30, ge=1, le=1440)
+    nfce_contingency_enabled: bool = False
+    nfce_http_timeout_seconds: float = Field(default=20.0, ge=1.0, le=120.0)
+    nfce_max_attempts: int = Field(default=6, ge=1, le=20)
+    nfce_storage_prefix: str = "fiscal"
+    nfce_qrcode_url: str = "http://www.fazenda.df.gov.br/nfce/qrcode"
+    nfce_consultation_url: str = "http://www.fazenda.df.gov.br/nfce/consulta"
+    nfce_ca_bundle_path: str = ""
+```
+
+_List NFC-e/fiscal env vars configured locally_
+```
+$ grep -n "^NFCE_\|^FISCAL_" .env 2>/dev/null | sed -E 's/(CSC|PASSWORD|SECRET)=.+/\1=<hidden>/'
+```
+Saída:
+```
+(Bash completed with no output)
+```
+
+_Check env var prefix used by fiscal settings_
+```
+$ grep -n "env_prefix\|class.*Settings" app/core/fiscal_config.py | head -10
+```
+Saída:
+```
+47:class FiscalSettings(BaseSettings):
+50:    model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore", populate_by_name=True)
+```
+
+_Broaden search for fiscal env vars locally and in .env.example_
+```
+$ echo "=== local .env (grep nfce/fiscal case-insensitive) ===" && grep -ni "nfce\|fiscal" .env 2>/dev/null && echo "=== .env.example (reference) ===" && grep -ni "nfce\|fiscal" .env.example 2>/dev/null | sed -E 's/(CSC|PASSWORD|SECRET)=.+/\1=<hidden>/'
+```
+Saída: <span class="exec-fail">falhou</span>
+```
+Exit code 1
+=== local .env (grep nfce/fiscal case-insensitive) ===
+```
+
+_Check fiscal env vars documented in .env.example_
+```
+$ grep -ni "nfce\|fiscal" .env.example 2>/dev/null | sed -E 's/(CSC|PASSWORD|SECRET)=.+/\1=<hidden>/'
+```
+Saída:
+```
+44:# Fiscal module — NFC-e model 65, Distrito Federal (SVRS). See farmaura-api/docs/fiscal/NFCE.md
+47:# Master switch. false = the PDV sells normally and no fiscal document is created.
+48:NFCE_ENABLED=false
+49:# homologacao (default) or producao. Production ALSO needs FISCAL_PRODUCTION_ENABLED=true,
+50:# otherwise the fiscal module refuses to emit.
+51:FISCAL_ENV=homologacao
+52:FISCAL_PRODUCTION_ENABLED=false
+53:# Optional; when set it must equal FISCAL_ENV (a mismatch is treated as a configuration error).
+54:NFCE_ENV=
+57:NFCE_CNPJ=
+58:NFCE_IE=
+59:NFCE_RAZAO_SOCIAL=
+60:NFCE_NOME_FANTASIA=FARMAURA
+63:NFCE_CRT=
+64:NFCE_LOGRADOURO=
+65:NFCE_NUMERO=
+66:NFCE_COMPLEMENTO=
+67:NFCE_BAIRRO=
+68:NFCE_CEP=
+69:NFCE_MUNICIPIO=
+70:NFCE_CODIGO_IBGE_MUNICIPIO=
+71:NFCE_TELEFONE=
+72:NFCE_SERIE=
+75:NFCE_CSC_ID_HOMOLOGACAO=
+76:NFCE_CSC_HOMOLOGACAO=
+77:NFCE_CSC_ID_PRODUCAO=
+78:NFCE_CSC_PRODUCAO=
+80:# A1 certificate (.pfx/.p12). In Docker the folder ./secrets/nfce is mounted read-only at /run/secrets/nfce.
+81:NFCE_CERTIFICATE_PATH=
+82:NFCE_CERTIFICATE_PASSWORD=
+83:NFCE_CERTIFICATE_WARN_DAYS=30
+86:NFCE_CANCEL_WINDOW_MINUTES=30
+87:NFCE_CONTINGENCY_ENABLED=false
+88:NFCE_HTTP_TIMEOUT_SECONDS=20
+89:NFCE_MAX_ATTEMPTS=6
+91:NFCE_QRCODE_URL=http://www.fazenda.df.gov.br/nfce/qrcode
+92:NFCE_CONSULTATION_URL=http://www.fazenda.df.gov.br/nfce/consulta
+94:NFCE_CA_BUNDLE_PATH=
+111:# Nota fiscal de serviço (NFS-e) agendada no Asaas após o pagamento do pedido do marketplace.
+113:# Use o id (GET /v3/fiscalInfo/service
+… (saída truncada, 1729 caracteres no total)
+```
+
+_Check if fiscal vars are set directly in any compose file_
+```
+$ grep -n "NFCE\|FISCAL" docker-compose.yml docker-compose.staging.yml docker-compose.prod.yml 2>/dev/null
+```
+Saída:
+```
+docker-compose.yml:65:      # (git-ignored) and point NFCE_CERTIFICATE_PATH at /run/secrets/nfce/<file>.pfx.
+```
+
+_Locate the ADR about the real legal identity configuration_
+```
+$ find /home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/00_Decisoes -iname "*identidade-juridica*"
+```
+Saída:
+```
+/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md
+```
+
+<span class="exec-section">Arquivos</span>
+
+- `/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md` — <span class="exec-file-op exec-file-op-read">leitura</span>
+
+---
+
+## Turno 47 · 23:45
+<span class="log-crosslink">💬 [[_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e#Turno 47 · 23:45|ver conversa deste turno]]</span>
+
+<span class="exec-section">Comandos</span>
+
+_Compare env var keys (masked values) between local and staging_
+```
+$ sed -E 's/^([A-Z0-9_]+)=.*/\1=<set>/' .env | grep -v '^#' | grep -v '^$' | sort > /tmp/local_env_keys.txt
+ssh lumos-dev "sed -E 's/^([A-Z0-9_]+)=.*/\1=<set>/' /opt/farmaura/farmaura-api/.env" | grep -v '^#' | grep -v '^$' | sort > /tmp/staging_env_keys.txt
+echo "=== keys only in LOCAL (missing on staging) ==="
+comm -23 /tmp/local_env_keys.txt /tmp/staging_env_keys.txt
+echo "=== keys only in STAGING (not in local) ==="
+comm -13 /tmp/local_env_keys.txt /tmp/staging_env_keys.txt
+```
+Saída:
+```
+=== keys only in LOCAL (missing on staging) ===
+APP_AI_DEFAULT_PROVIDER=<set>
+APP_AI_GEMINI_API_KEY=<set>
+APP_AI_GEMINI_BASE_URL=<set>
+APP_AI_GEMINI_MODEL=<set>
+APP_AI_INVENTORY_SYSTEM_PROMPT=<set>
+APP_AI_OPENAI_API_KEY=<set>
+APP_AI_OPENAI_BASE_URL=<set>
+APP_AI_OPENAI_MODEL=<set>
+APP_AI_REQUEST_TIMEOUT_SECONDS=<set>
+APP_ALLOWED_ORIGINS=<set>
+APP_BASE_URL=<set>
+APP_DATABASE_ADMIN_URL=<set>
+APP_DATABASE_URL=<set>
+APP_MARKETPLACE_BASE_URL=<set>
+APP_SMTP_FROM_EMAIL=<set>
+APP_SMTP_FROM_NAME=<set>
+APP_SMTP_HOST=<set>
+APP_SMTP_PASSWORD=<set>
+APP_SMTP_PORT=<set>
+APP_SMTP_USERNAME=<set>
+APP_SMTP_USE_TLS=<set>
+APP_STORAGE_QUARANTINE_ROOT=<set>
+APP_STORAGE_ROOT=<set>
+APP_STORAGE_TMP_ROOT=<set>
+APP_VALKEY_URL=<set>
+=== keys only in STAGING (not in local) ===
+APP_ASAAS_WEBHOOK_ALLOWED_IPS=<set>
+APP_GEOCODING_BASE_URL=<set>
+APP_GEOCODING_ENABLED=<set>
+APP_GEOCODING_USER_AGENT=<set>
+APP_STORE_HUB_ADDRESS=<set>
+APP_STORE_HUB_NAME=<set>
+```
+
+_Check fiscal config validators that run at startup_
+```
+$ grep -n "model_validator\|field_validator\|def check\|raise ValueError" app/core/fiscal_config.py | head -30
+```
+Saída:
+```
+24:from pydantic import Field, SecretStr, model_validator
+96:    @model_validator(mode="after")
+102:            raise ValueError("NFCE_ENV must match FISCAL_ENV; refusing an ambiguous fiscal environment.")
+```
+
+_Query the store's structured address fields directly from the local DB_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "SELECT name, cnpj, street, number, complement, neighborhood, city, state, postal_code, phone FROM stores WHERE name ILIKE '%Ponte Alta%';" 2>&1
+```
+Saída: <span class="exec-fail">falhou</span>
+```
+Exit code 1
+ERROR:  column "street" does not exist
+LINE 1: SELECT name, cnpj, street, number, complement, neighborhood,...
+                           ^
+```
+
+_Inspect stores table columns for address fields_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "\d stores" 2>&1 | grep -iE "addr|cnpj|city|state|postal|phone|neighb|number|complement|ibge|name"
+```
+Saída:
+```
+name         | character varying(255)   |           | not null | 
+ address_line | character varying(255)   |           | not null | 
+ city         | character varying(120)   |           | not null | 
+ state_code   | character varying(2)     |           | not null | 
+ postal_code  | character varying(12)    |           | not null | 
+ phone        | character varying(32)    |           | not null | 
+ cnpj         | character varying(18)    |           | not null |
+```
+
+_Get exact store address values from local DB_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "SELECT name, cnpj, address_line, city, state_code, postal_code, phone FROM stores WHERE name ILIKE '%Ponte Alta%';" 2>&1
+```
+Saída:
+```
+name            |        cnpj        |                                address_line                                | city | state_code | postal_code |     phone      
+---------------------------+--------------------+----------------------------------------------------------------------------+------+------------+-------------+----------------
+ Farmaura Ponte Alta Norte | 12.345.678/0001-90 | Avenida São Francisco, Ponte Alta Norte, Gama, Distrito Federal, 72426-070 | Gama | DF         | 72426-070   | (61) 3555-0101
+(1 row)
+```
+
+_Check store address/CNPJ on staging DB_
+```
+$ ssh lumos-dev "cd /opt/farmaura/farmaura-api && docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T farmaura-postgres psql -U farmaura -d farmaura -c \"SELECT name, cnpj, address_line, city, state_code, postal_code, phone FROM stores WHERE name ILIKE '%Ponte Alta%';\""
+```
+Saída:
+```
+name            |        cnpj        |                                address_line                                | city | state_code | postal_code |     phone      
+---------------------------+--------------------+----------------------------------------------------------------------------+------+------------+-------------+----------------
+ Farmaura Ponte Alta Norte | 12.345.678/0001-90 | Avenida São Francisco, Ponte Alta Norte, Gama, Distrito Federal, 72426-070 | Gama | DF         | 72426-070   | (61) 3555-0101
+(1 row)
+```
+
+_Check where marketplace legal identity is stored_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -t -c "SELECT key, value FROM portal_settings WHERE key ILIKE '%marketplace%' OR key ILIKE '%legal%';" 2>&1 | head -20
+echo "---tables---"
+docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "\dt" 2>&1 | grep -i "portal\|market\|legal"
+```
+Saída:
+```
+ERROR:  column "key" does not exist
+LINE 1: SELECT key, value FROM portal_settings WHERE key ILIKE '%mar...
+               ^
+---tables---
+ public | marketplace_listings         | table | farmaura
+ public | portal_settings              | table | farmaura
+```
+
+_Inspect portal_settings table schema_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "\d portal_settings" 2>&1
+```
+Saída:
+```
+Table "public.portal_settings"
+   Column    |           Type           | Collation | Nullable | Default 
+-------------+--------------------------+-----------+----------+---------
+ tenant_id   | character varying(36)    |           | not null | 
+ portal_name | character varying(24)    |           | not null | 
+ setting_key | character varying(64)    |           | not null | 
+ value_json  | text                     |           | not null | 
+ id          | uuid                     |           | not null | 
+ created_at  | timestamp with time zone |           | not null | 
+ updated_at  | timestamp with time zone |           | not null | 
+Indexes:
+    "pk_portal_settings" PRIMARY KEY, btree (id)
+    "ix_portal_settings_portal_name" btree (portal_name)
+    "ix_portal_settings_setting_key" btree (setting_key)
+    "ix_portal_settings_tenant_id" btree (tenant_id)
+    "uq_portal_settings_scope" UNIQUE CONSTRAINT, btree (tenant_id, portal_name, setting_key)
+```
+
+_Check marketplace-meta legal identity setting content_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "SELECT setting_key, value_json FROM portal_settings WHERE setting_key ILIKE '%marketplace-meta%' OR setting_key ILIKE '%legal%';" 2>&1
+```
+Saída:
+```
+setting_key | value_json 
+-------------+------------
+(0 rows)
+```
+
+_List all portal_settings keys and find the exact key name used in code_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "SELECT setting_key FROM portal_settings;" 2>&1
+echo "=== grep code for the setting key name ==="
+grep -rn "marketplace-meta\|marketplace_meta" app/ --include="*.py" | grep -i "setting_key\|SETTING_KEY" | head -5
+```
+Saída:
+```
+setting_key   
+-----------------
+ cnae_settings
+ home_banner
+ home_brands
+ home_trends
+ deal_of_the_day
+(5 rows)
+
+=== grep code for the setting key name ===
+app/services/portal_service.py:155:SETTING_KEY_MARKETPLACE_META = 'marketplace_meta'
+```
+
+_Find the marketplace_meta schema fields_
+```
+$ grep -n "marketplace_meta\|MarketplaceMeta\|legal_name\|state_registration" app/services/portal_service.py app/schemas/*.py 2>/dev/null | head -30
+```
+Saída:
+```
+app/schemas/brand.py:31:    legal_name: str
+app/schemas/supplier.py:31:    legal_name: str
+app/schemas/supplier.py:55:    legal_name: str = Field(min_length=2, max_length=255)
+app/schemas/supplier.py:76:    legal_name: str = Field(min_length=2, max_length=255)
+app/schemas/portal.py:84:class PortalMarketplaceMetaResponse(StrictModel):
+app/schemas/portal.py:92:    legal_name: str = ""
+app/schemas/portal.py:94:    state_registration: str = ""
+app/schemas/portal.py:115:class PortalMarketplaceMetaUpdateRequest(StrictModel):
+app/schemas/portal.py:123:    legal_name: str = Field(default="", max_length=255)
+app/schemas/portal.py:125:    state_registration: str = Field(default="", max_length=32)
+app/schemas/portal.py:843:    marketplace: PortalMarketplaceMetaResponse
+app/schemas/portal.py:989:    marketplace: PortalMarketplaceMetaResponse
+app/schemas/portal.py:1010:    marketplace: PortalMarketplaceMetaResponse
+app/services/portal_service.py:126:    PortalMarketplaceMetaResponse,
+app/services/portal_service.py:127:    PortalMarketplaceMetaUpdateRequest,
+app/services/portal_service.py:155:SETTING_KEY_MARKETPLACE_META = 'marketplace_meta'
+app/services/portal_service.py:287:        marketplace = (await self._resolve_marketplace_meta(tenant_id=tenant_id)).model_copy(
+app/services/portal_service.py:458:        marketplace = await self._resolve_marketplace_meta(tenant_id=customer.tenant_id)
+app/services/portal_service.py:489:        marketplace = await self._resolve_marketplace_meta(tenant_
+… (saída truncada, 3154 caracteres no total)
+```
+
+_Check store update schema fields_
+```
+$ grep -n "class StoreUpdate\|address_line\|city\|state_code\|postal_code\|phone\|cnpj" app/schemas/store.py 2>/dev/null | head -30
+```
+Saída:
+```
+32:    address_line: str = Field(default="", max_length=255)
+34:    city: str = Field(default="", max_length=120)
+35:    state_code: str = Field(default="", max_length=2)
+36:    postal_code: str = Field(default="", max_length=12)
+37:    phone: str = Field(default="", max_length=32)
+38:    cnpj: str = Field(default="", max_length=18)
+42:class StoreUpdateRequest(StrictModel):
+46:    address_line: str | None = Field(default=None, max_length=255)
+48:    city: str | None = Field(default=None, max_length=120)
+49:    state_code: str | None = Field(default=None, max_length=2)
+50:    postal_code: str | None = Field(default=None, max_length=12)
+51:    phone: str | None = Field(default=None, max_length=32)
+52:    cnpj: str | None = Field(default=None, max_length=18)
+68:    address_line: str = ""
+70:    city: str = ""
+71:    state_code: str = ""
+72:    postal_code: str = ""
+75:    phone: str = ""
+76:    cnpj: str = ""
+```
+
+_Get store id and current coordinates locally_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -t -c "SELECT id, latitude, longitude FROM stores WHERE name ILIKE '%Ponte Alta%';" 2>&1
+```
+Saída:
+```
+205c6762-5cf0-5f70-b28b-99ea08c6de85 | -15.9775167 | -48.0383778
+```
+
+_Find the host port mapped to farmaura-api locally_
+```
+$ docker compose port farmaura-api 8000 2>&1
+```
+Saída: <span class="exec-fail">falhou</span>
+```
+Exit code 1
+no port 8000/tcp for container farmaura_api: 8080/tcp
+```
+
+_Confirm host port mapping for farmaura-api local container_
+```
+$ docker compose port farmaura-api 8080 2>&1
+```
+Saída:
+```
+127.0.0.1:8080
+```
+
+_Find valid portal literal values for login_
+```
+$ grep -n "portal.*Literal\|PORTAL_\|internal.*portal\|portal.*internal" app/schemas/auth.py 2>/dev/null | head -10
+```
+Saída:
+```
+(Bash completed with no output)
+```
+
+_Find portal literal type definition for login schema_
+```
+$ grep -rn "portal:\s*Literal\|Literal\[.marketplace" app/schemas/*.py 2>/dev/null | head -10
+```
+Saída:
+```
+(Bash completed with no output)
+```
+
+_Search for the internal portal string constant_
+```
+$ grep -rn "\"internal\"\|'internal'" app/schemas/auth.py app/domain/*.py 2>/dev/null | head -10
+```
+Saída:
+```
+app/domain/enums.py:39:    INTERNAL = "internal"
+app/domain/enums.py:47:    INTERNAL = "internal"
+```
+
+_Restore real legal identity and store address via local API_
+```
+$ \
+TOKEN=$(curl -s http://127.0.0.1:8080/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"adriana.lima@farmaura.com.br","password":"Farmaura@123","portal":"internal","remember_session":true}' | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token_pair',{}).get('access_token',''))") && \
+echo "login: $([ -n "$TOKEN" ] && echo ok || echo FALHOU)" && \
+curl -s -o /tmp/meta_resp.json -w 'PUT marketplace-meta HTTP %{http_code}\n' -X PUT http://127.0.0.1:8080/api/v1/portal/internal/marketplace-meta \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"legal_name":"FARMAURA LTDA","cnpj":"67.262.082/0001-13","state_registration":"08.513.331/001-88"}' && \
+cat /tmp/meta_resp.json | python3 -m json.tool | grep -E "legal_name|cnpj|state_registration" && \
+curl -s -o /tmp/store_resp.json -w 'PATCH store HTTP %{http_code}\n' -X PATCH http://127.0.0.1:8080/api/v1/stores/205c6762-5cf0-5f70-b28b-99ea08c6de85 \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"cnpj":"67.262.082/0001-13","address_line":"Rua São Francisco, Habitação Ponte Terra, S/N, Condomínio Chácara Monteiro, Casa 2, Ponte Alta Norte","city":"Gama","state_code":"DF","postal_code":"72426-070","phone":"(61) 3555-0101"}' && \
+cat /tmp/store_resp.json | python3 -m json.tool | grep -E "cnpj|address_line|latitude|longitude"
+```
+Saída:
+```
+login: ok
+PUT marketplace-meta HTTP 200
+    "legal_name": "FARMAURA LTDA",
+    "cnpj": "67.262.082/0001-13",
+    "state_registration": "08.513.331/001-88",
+PATCH store HTTP 200
+    "address_line": "Rua S\u00e3o Francisco, Habita\u00e7\u00e3o Ponte Terra, S/N, Condom\u00ednio Ch\u00e1cara Monteiro, Casa 2, Ponte Alta Norte",
+    "latitude": "0E-7",
+    "longitude": "0E-7",
+    "cnpj": "67.262.082/0001-13",
+```
+
+_Restore real store coordinates after geocoding reset them_
+```
+$ docker compose exec -T farmaura-postgres psql -U farmaura -d farmaura -c "UPDATE stores SET latitude = -15.9775167, longitude = -48.0383778 WHERE id = '205c6762-5cf0-5f70-b28b-99ea08c6de85';" 2>&1
+```
+Saída:
+```
+UPDATE 1
+```
+
+_Get staging store id and coordinates_
+```
+$ ssh lumos-dev "cd /opt/farmaura/farmaura-api && docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T farmaura-postgres psql -U farmaura -d farmaura -t -c \"SELECT id, latitude, longitude FROM stores WHERE name ILIKE '%Ponte Alta%';\""
+```
+Saída:
+```
+205c6762-5cf0-5f70-b28b-99ea08c6de85 | -15.9775167 | -48.0383778
+```
+
+_Test login inside staging container (dry run to check connectivity)_
+```
+$ ssh lumos-dev "docker exec farmaura_api sh -c '
+TOKEN=\$(curl -s http://127.0.0.1:8080/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\"email\\\":\\\"adriana.lima@farmaura.com.br\\\",\\\"password\\\":\\\"Farmaura@123\\\",\\\"portal\\\":\\\"internal\\\",\\\"remember_session\\\":true}\" | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get(chr(39)+chr(116)+chr(111)+chr(107)+chr(101)+chr(110)+chr(95)+chr(112)+chr(97)+chr(105)+chr(114)+chr(39),{}).get(chr(39)+chr(97)+chr(99)+chr(99)+chr(101)+chr(115)+chr(115)+chr(95)+chr(116)+chr(111)+chr(107)+chr(101)+chr(110)+chr(39),\\\"\\\"))\")
+echo login result present: \${#TOKEN}
+'"
+```
+Saída:
+```
+sh: 2: curl: not found
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; d=json.load(sys.stdin); print(d.get(chr(39)+chr(116)+chr(111)+chr(107)+chr(101)+chr(110)+chr(95)+chr(112)+chr(97)+chr(105)+chr(114)+chr(39),{}).get(chr(39)+chr(97)+chr(99)+chr(99)+chr(101)+chr(115)+chr(115)+chr(95)+chr(116)+chr(111)+chr(107)+chr(101)+chr(110)+chr(39),""))
+                       ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/lib/python3.13/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+login result present: 0
+```
+
+_Find staging host port mapped to farmaura-api_
+```
+$ ssh lumos-dev "cd /opt/farmaura/farmaura-api && docker compose -f docker-compose.yml -f docker-compose.staging.yml port farmaura-api 8080"
+```
+Saída:
+```
+127.0.0.1:8080
+```
+
+_Restore real legal identity and store address via staging API_
+```
+$ ssh lumos-dev '
+TOKEN=$(curl -s http://127.0.0.1:8080/api/v1/auth/login -H "Content-Type: application/json" -d "{\"email\":\"adriana.lima@farmaura.com.br\",\"password\":\"Farmaura@123\",\"portal\":\"internal\",\"remember_session\":true}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"token_pair\",{}).get(\"access_token\",\"\"))")
+echo "login: $([ -n "$TOKEN" ] && echo ok || echo FALHOU)"
+curl -s -o /tmp/meta_resp.json -w "PUT marketplace-meta HTTP %{http_code}\n" -X PUT http://127.0.0.1:8080/api/v1/portal/internal/marketplace-meta \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"legal_name\":\"FARMAURA LTDA\",\"cnpj\":\"67.262.082/0001-13\",\"state_registration\":\"08.513.331/001-88\"}"
+python3 -m json.tool < /tmp/meta_resp.json | grep -E "legal_name|cnpj|state_registration"
+curl -s -o /tmp/store_resp.json -w "PATCH store HTTP %{http_code}\n" -X PATCH http://127.0.0.1:8080/api/v1/stores/205c6762-5cf0-5f70-b28b-99ea08c6de85 \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"cnpj\":\"67.262.082/0001-13\",\"address_line\":\"Rua São Francisco, Habitação Ponte Terra, S/N, Condomínio Chácara Monteiro, Casa 2, Ponte Alta Norte\",\"city\":\"Gama\",\"state_code\":\"DF\",\"postal_code\":\"72426-070\",\"phone\":\"(61) 3555-0101\"}"
+python3 -m json.tool < /tmp/store_resp.json | grep -E "cnpj|address_line|latitude|longitude"
+'
+```
+Saída:
+```
+login: ok
+PUT marketplace-meta HTTP 200
+    "legal_name": "FARMAURA LTDA",
+    "cnpj": "67.262.082/0001-13",
+    "state_registration": "08.513.331/001-88",
+PATCH store HTTP 200
+    "address_line": "Rua S\u00e3o Francisco, Habita\u00e7\u00e3o Ponte Terra, S/N, Condom\u00ednio Ch\u00e1cara Monteiro, Casa 2, Ponte Alta Norte",
+    "latitude": "0E-7",
+    "longitude": "0E-7",
+    "cnpj": "67.262.082/0001-13",
+```
+
+_Restore real store coordinates on staging_
+```
+$ ssh lumos-dev "cd /opt/farmaura/farmaura-api && docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T farmaura-postgres psql -U farmaura -d farmaura -c \"UPDATE stores SET latitude = -15.9775167, longitude = -48.0383778 WHERE id = '205c6762-5cf0-5f70-b28b-99ea08c6de85';\""
+```
+Saída:
+```
+UPDATE 1
+```
+
+_Check NFCE docs for Gama/Brasília municipality guidance_
+```
+$ grep -n -i "brasília\|gama\|5300108\|ibge\|munic" docs/fiscal/NFCE.md 2>/dev/null | head -30
+```
+Saída:
+```
+52:| `NFCE_LOGRADOURO/NUMERO/COMPLEMENTO/BAIRRO/CEP/MUNICIPIO/CODIGO_IBGE_MUNICIPIO/TELEFONE` | Endereço (UF fixa DF, `cUF=53`). |
+178:2. CNPJ, IE/CF-DF, razão social, endereço completo e **código IBGE do município**, série a usar.
+```
+
+_Check how the hook handles Read tool calls to confirm content isn't logged_
+```
+$ cd /home/noname/Documentos/desenvolvimento/dev && grep -n "def.*read\|'Read'\|\"Read\"\|leitura" .claude/hooks/chat_daily_log.py | head -20
+```
+Saída:
+```
+29:TRACKED_FILE_TOOLS = {"Read", "Edit", "Write", "NotebookEdit"}
+50:def strip_read_line_numbers(text: str) -> str:
+92:    "leitura": "exec-file-op-read",
+332:def read_stable_lines(path: Path, max_wait: float = 1.5, interval: float = 0.15) -> list:
+445:                        if name == "Read":
+446:                            label = "leitura"
+```
+
+_Append NFC-e identification env vars to staging .env_
+```
+$ ssh lumos-dev "cat >> /opt/farmaura/farmaura-api/.env" <<'ENVEOF'
+NFCE_ENABLED=true
+FISCAL_ENV=homologacao
+FISCAL_PRODUCTION_ENABLED=false
+NFCE_CNPJ=67.262.082/0001-13
+NFCE_IE=08.513.331/001-88
+NFCE_RAZAO_SOCIAL=FARMAURA LTDA
+NFCE_NOME_FANTASIA=FARMAURA
+NFCE_CRT=
+NFCE_LOGRADOURO=Rua Sao Francisco, Habitacao Ponte Terra, Condominio Chacara Monteiro, Casa 2
+NFCE_NUMERO=S/N
+NFCE_COMPLEMENTO=
+NFCE_BAIRRO=Ponte Alta Norte
+NFCE_CEP=72426070
+NFCE_MUNICIPIO=Brasilia
+NFCE_CODIGO_IBGE_MUNICIPIO=5300108
+NFCE_TELEFONE=6135550101
+NFCE_SERIE=1
+NFCE_CSC_ID_HOMOLOGACAO=
+NFCE_CSC_HOMOLOGACAO=
+NFCE_CSC_ID_PRODUCAO=
+NFCE_CSC_PRODUCAO=
+NFCE_CERTIFICATE_PATH=
+NFCE_CERTIFICATE_PASSWORD=
+ENVEOF
+echo "appended"
+```
+Saída:
+```
+appended
+```
+
+_Restart local farmaura-api to pick up new NFC-e env vars_
+```
+$ cd /home/noname/Documentos/desenvolvimento/dev/farmaura-api && docker compose up -d farmaura-api 2>&1 | tail -10
+```
+Saída:
+```
+Container farmaura_valkey  Running
+ Container farmaura_postgres  Running
+ Container farmaura_api  Recreate
+ Container farmaura_api  Recreated
+ Container farmaura_postgres  Waiting
+ Container farmaura_valkey  Waiting
+ Container farmaura_postgres  Healthy
+ Container farmaura_valkey  Healthy
+ Container farmaura_api  Starting
+ Container farmaura_api  Started
+```
+
+_Restart staging farmaura-api to pick up new NFC-e env vars_
+```
+$ ssh lumos-dev "cd /opt/farmaura/farmaura-api && docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d farmaura-api 2>&1 | tail -10"
+```
+Saída:
+```
+Container farmaura_postgres Running 
+ Container farmaura_valkey Running 
+ Container farmaura_api Recreate 
+ Container farmaura_api Recreated 
+ Container farmaura_postgres Waiting 
+ Container farmaura_valkey Waiting 
+ Container farmaura_postgres Healthy 
+ Container farmaura_valkey Healthy 
+ Container farmaura_api Starting 
+ Container farmaura_api Started
+```
+
+_Verify both containers started cleanly and health checks pass_
+```
+$ sleep 3
+echo "=== LOCAL ===" && cd /home/noname/Documentos/desenvolvimento/dev/farmaura-api && docker logs farmaura_api --tail 15 2>&1
+echo "=== STAGING ===" && ssh lumos-dev "docker logs farmaura_api --tail 15 2>&1"
+echo "=== LOCAL health ===" && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/health
+echo "=== STAGING health ===" && ssh lumos-dev "curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/health"
+```
+Saída: <span class="exec-fail">falhou</span>
+```
+Exit code 56
+=== LOCAL ===
+   Building farmaura-api @ file:///app
+      Built farmaura-api @ file:///app
+Uninstalled 1 package in 9ms
+Installed 1 package in 1ms
+/app/app/main.py:26: StarletteDeprecationWarning: 'HTTP_413_REQUEST_ENTITY_TOO_LARGE' is deprecated. Use 'HTTP_413_CONTENT_TOO_LARGE' instead.
+  from app.api.middleware.body_limits import BodyLimitMiddleware
+INFO:     Started server process [35]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+{"query_string": "", "route_name": "", "event": "request.started", "client_ip": "127.0.0.1", "http_method": "GET", "request_id": "7f88b13d-4d8b-4e3c-b3e1-47baf116a94f", "http_path": "/api/v1/health", "timestamp": "2026-09-23T02:51:46.603055Z", "level": "info"}
+{"duration_ms": 1.2, "status_code": 200, "user_agent": "Python-urllib/3.13", "actor_user_id": "", "actor_role": "", "tenant_id": "", "access_scope": "", "event": "request.completed", "client_ip": "127.0.0.1", "http_method": "GET", "request_id": "7f88b13d-4d8b-4e3c-b3e1-47baf116a94f", "http_path": "/api/v1/health", "timestamp": "2026-09-23T02:51:46.604173Z", "level": "info"}
+INFO:     127.0.0.1:34548 - "GET /api/v1/health HTTP/1.1" 200 OK
+=== STAGING ===
+/app/app/main.py:26: StarletteDeprecationWarning: 'HTTP_413_REQUEST_ENTITY_TOO_LARGE' is deprecated. Use 'HTTP_413_CONTENT_TOO_LARGE' instead.
+  from app.api.middleware.body_limits import BodyLimitMiddleware
+=== LOCAL h
+… (saída truncada, 1540 caracteres no total)
+```
+
+_Health check both environments with correct path_
+```
+$ echo "=== LOCAL ===" && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/v1/health
+echo "=== STAGING ===" && ssh lumos-dev "curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/v1/health"
+```
+Saída:
+```
+=== LOCAL ===
+200
+=== STAGING ===
+200
+```
+
+_Check where CRT config is consumed and whether empty value is validated_
+```
+$ grep -rn "nfce_crt\|\.crt\b" app/fiscal/ app/services/fiscal_service.py 2>/dev/null | head -20
+```
+Saída:
+```
+app/fiscal/xml_builder.py:255:    _sub(emit, "CRT", emitter.crt)
+app/fiscal/xml_builder.py:269:        _append_item(inf, item, index=index, emitter_crt=emitter.crt, tp_amb=data.tp_amb, totals=totals)
+app/services/fiscal_service.py:358:            missing = missing_tax_fields(tax, crt=self.fiscal.nfce_crt)
+app/services/fiscal_service.py:479:            missing = missing_tax_fields(tax, crt=self.fiscal.nfce_crt)
+app/services/fiscal_service.py:1063:            trade_name=fiscal.nfce_nome_fantasia, crt=fiscal.nfce_crt, street=fiscal.nfce_logradouro,
+```
+
+_Inspect missing_tax_fields to see how empty CRT is handled_
+```
+$ grep -n "def missing_tax_fields" -A 25 app/domain/fiscal_tax.py 2>/dev/null || grep -rn "def missing_tax_fields" -A 25 app/ 2>/dev/null
+```
+Saída:
+```
+app/fiscal/xml_builder.py:141:def missing_tax_fields(tax: TaxProfile, *, crt: str) -> list[str]:
+app/fiscal/xml_builder.py-142-    """Return the fiscal fields absent or unsupported for one product, in operator language."""
+app/fiscal/xml_builder.py-143-
+app/fiscal/xml_builder.py-144-    problems: list[str] = []
+app/fiscal/xml_builder.py-145-    if not re.fullmatch(r"\d{8}", tax.ncm or ""):
+app/fiscal/xml_builder.py-146-        problems.append("NCM (8 dígitos)")
+app/fiscal/xml_builder.py-147-    if not re.fullmatch(r"\d{4}", tax.cfop or ""):
+app/fiscal/xml_builder.py-148-        problems.append("CFOP (4 dígitos)")
+app/fiscal/xml_builder.py-149-    if tax.origin not in {str(n) for n in range(9)}:
+app/fiscal/xml_builder.py-150-        problems.append("Origem da mercadoria (0 a 8)")
+app/fiscal/xml_builder.py-151-    if not (tax.unit or "").strip():
+app/fiscal/xml_builder.py-152-        problems.append("Unidade comercial")
+app/fiscal/xml_builder.py-153-    if tax.cest and not re.fullmatch(r"\d{7}", tax.cest):
+app/fiscal/xml_builder.py-154-        problems.append("CEST (7 dígitos)")
+app/fiscal/xml_builder.py-155-
+app/fiscal/xml_builder.py-156-    if crt in {"1", "2", "4"}:
+app/fiscal/xml_builder.py-157-        if tax.icms_csosn not in _ICMS_SN_102 | _ICMS_SN_500:
+app/fiscal/xml_builder.py-158-            problems.append("CSOSN (suportados: 102, 103, 300, 400, 500)")
+app/fiscal/xml_builder.py-159-    else:
+app/fiscal/xml_builder.py-160-        if tax.icms_cst not in _ICMS_NORMAL_00
+… (saída truncada, 2111 caracteres no total)
+```
+
+_Check hook script's entry point and stdin handling_
+```
+$ cd /home/noname/Documentos/desenvolvimento/dev && tail -60 .claude/hooks/chat_daily_log.py
+```
+Saída:
+```
+exec_lines.append(f"- Sessão: `{session_id}`")
+    exec_lines.append(f"- Log de chat: [[{chat_file_stem}|abrir]]")
+    git_snapshot = get_git_snapshot(session_cwd)
+    if git_snapshot:
+        exec_lines.append(f"- Git (na última atualização deste log): {git_snapshot}")
+    exec_lines.append("")
+
+    for turn_idx, (ts, user_text, _assistant_text, _attachments, actions) in enumerate(turns, start=1):
+        if not actions:
+            continue
+        dt = parse_timestamp(ts) if ts else datetime.datetime.now().astimezone()
+        heading = turn_heading(turn_idx, dt)
+        exec_lines.append(f"## {heading}")
+        exec_lines.append(f'<span class="log-crosslink">💬 [[{chat_file_stem}#{heading}|ver conversa deste turno]]</span>')
+        exec_lines.append("")
+        commands = [a for a in actions if a["kind"] == "bash"]
+        files = [a for a in actions if a["kind"] == "file"]
+        if commands:
+            exec_lines.append('<span class="exec-section">Comandos</span>')
+            exec_lines.append("")
+            for cmd in commands:
+                if cmd["description"]:
+                    exec_lines.append(f"_{cmd['description']}_")
+                exec_lines.append(fence_wrap(f"$ {cmd['command']}"))
+                if cmd["output"]:
+                    tag = ' <span class="exec-fail">falhou</span>' if cmd["is_error"] else ""
+                    exec_lines.append(f"Saída:{tag}")
+                    exec_lines.append(fence_wrap(truncate_output(cmd['output'])))
+… (saída truncada, 2873 caracteres no total)
+```
+
+_Check main() function's input parsing_
+```
+$ grep -n "def main" -A 25 .claude/hooks/chat_daily_log.py
+```
+Saída:
+```
+352:def main() -> int:
+353-    try:
+354-        data = json.load(sys.stdin)
+355-    except Exception:
+356-        return 0
+357-
+358-    if data.get("stop_hook_active"):
+359-        return 0
+360-
+361-    transcript_path = data.get("transcript_path")
+362-    session_id = data.get("session_id") or "local"
+363-
+364-    if not transcript_path or not Path(transcript_path).is_file():
+365-        return 0
+366-
+367-    repo_root = Path(__file__).resolve().parents[2]
+368-    vault_dir = repo_root / "dev-obsidian"
+369-    if not vault_dir.is_dir():
+370-        return 0
+371-
+372-    lines = read_stable_lines(Path(transcript_path))
+373-
+374-    entries = []
+375-    for raw in lines:
+376-        raw = raw.strip()
+377-        if not raw:
+```
+
+_Find the current session transcript file_
+```
+$ ls -t /home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/*.jsonl | head -3
+```
+Saída:
+```
+/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/ec2a4c0e-d965-4f11-8247-2bd68ce568c5.jsonl
+/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/f3dcb5b3-8bb2-45a0-bcc4-bbeede854aee.jsonl
+/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/85c6a200-518f-487c-bff3-f96c24109b6a.jsonl
+```
+
+_Manually invoke the chat/exec logging hook for the current session_
+```
+$ echo '{"transcript_path":"/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/ec2a4c0e-d965-4f11-8247-2bd68ce568c5.jsonl","session_id":"ec2a4c0e-d965-4f11-8247-2bd68ce568c5"}' | python3 .claude/hooks/chat_daily_log.py
+echo "exit: $?"
+```
+
+<span class="exec-section">Arquivos</span>
+
+- `/home/noname/Documentos/desenvolvimento/dev/farmaura-api/.env` — <span class="exec-file-op exec-file-op-read">leitura</span>
+- `/home/noname/Documentos/desenvolvimento/dev/.claude/hooks/chat_daily_log.py` — <span class="exec-file-op exec-file-op-read">leitura</span>
+- `/home/noname/Documentos/desenvolvimento/dev/farmaura-api/.env` — <span class="exec-file-op exec-file-op-update">editado</span>
+
+`/home/noname/Documentos/desenvolvimento/dev/farmaura-api/.env`:
+
+<pre class="chat-diff">
+<span class="diff-file">--- </span>
+<span class="diff-file">+++ </span>
+<span class="diff-hunk">@@ -1 +1,24 @@</span>
+<span class="diff-ctx"> APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_WEBHOOK_TOKEN_LOCAL]</span>
+<span class="diff-add">+NFCE_ENABLED=true</span>
+<span class="diff-add">+FISCAL_ENV=homologacao</span>
+<span class="diff-add">+FISCAL_PRODUCTION_ENABLED=false</span>
+<span class="diff-add">+NFCE_CNPJ=67.262.082/0001-13</span>
+<span class="diff-add">+NFCE_IE=08.513.331/001-88</span>
+<span class="diff-add">+NFCE_RAZAO_SOCIAL=FARMAURA LTDA</span>
+<span class="diff-add">+NFCE_NOME_FANTASIA=FARMAURA</span>
+<span class="diff-add">+NFCE_CRT=</span>
+<span class="diff-add">+NFCE_LOGRADOURO=Rua Sao Francisco, Habitacao Ponte Terra, Condominio Chacara Monteiro, Casa 2</span>
+<span class="diff-add">+NFCE_NUMERO=S/N</span>
+<span class="diff-add">+NFCE_COMPLEMENTO=</span>
+<span class="diff-add">+NFCE_BAIRRO=Ponte Alta Norte</span>
+<span class="diff-add">+NFCE_CEP=72426070</span>
+<span class="diff-add">+NFCE_MUNICIPIO=Brasilia</span>
+<span class="diff-add">+NFCE_CODIGO_IBGE_MUNICIPIO=5300108</span>
+<span class="diff-add">+NFCE_TELEFONE=6135550101</span>
+<span class="diff-add">+NFCE_SERIE=1</span>
+<span class="diff-add">+NFCE_CSC_ID_HOMOLOGACAO=</span>
+<span class="diff-add">+NFCE_CSC_HOMOLOGACAO=</span>
+<span class="diff-add">+NFCE_CSC_ID_PRODUCAO=</span>
+<span class="diff-add">+NFCE_CSC_PRODUCAO=</span>
+<span class="diff-add">+NFCE_CERTIFICATE_PATH=</span>
+<span class="diff-add">+NFCE_CERTIFICATE_PASSWORD=</span>
+</pre>
 
 ---

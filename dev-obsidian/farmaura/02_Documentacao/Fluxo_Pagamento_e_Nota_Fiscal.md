@@ -85,12 +85,16 @@ flowchart TD
 ## 5. O que ainda falta (visão consolidada)
 
 1. Certificado A1 real da FARMAURA LTDA (`.pfx`/`.p12`) — sem ele, nenhuma emissão real (balcão ou marketplace) passa de `SIGNING`, nem em homologação ([[../06_Pendencias/certificado-a1-farmaura-ainda-nao-fornecido|pendência]]).
-2. Perfil tributário dos produtos e CRT (contador).
-3. Decisão sobre a nota de pedidos `delivery`/`shipping` (tratamento fiscal do frete e `indPres` de venda não presencial) — [[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]].
-4. Migration `20260920_05` em Postgres real, `uv lock`, build do front ([[../06_Pendencias/aplicar-migration-nfce-fiscal-em-producao|migration]], [[../06_Pendencias/nfce-schemas-pl-010f-uv-lock-e-front-nao-buildado|lock e front]]); também a migration `20260922_01` (`orders.payment_method`) ([[../06_Pendencias/aplicar-migration-order-payment-method-em-producao|pendência]]).
-5. Contingência offline (fórmula do QR v3) e IP real atrás do gateway ([[../04_Seguranca_Riscos/webhook-asaas-ip-allowlist-valida-ip-interno-errado|nota de segurança]]).
+2. `NFCE_CRT` e os códigos CSC de homologação (contador/portal SEFAZ-DF) — sem CRT, o motor assume regime normal (CST) em vez de Simples Nacional (CSOSN) na validação por produto.
+3. Perfil tributário (NCM/CFOP/CST ou CSOSN) de cada produto — depende do item 2 para saber qual conjunto de campos vale.
+4. Decisão sobre a nota de pedidos `delivery`/`shipping` (tratamento fiscal do frete e `indPres` de venda não presencial) — [[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]].
+5. Migration `20260920_05` em Postgres real, `uv lock`, build do front ([[../06_Pendencias/aplicar-migration-nfce-fiscal-em-producao|migration]], [[../06_Pendencias/nfce-schemas-pl-010f-uv-lock-e-front-nao-buildado|lock e front]]); também a migration `20260922_01` (`orders.payment_method`) ([[../06_Pendencias/aplicar-migration-order-payment-method-em-producao|pendência]]).
+6. Contingência offline (fórmula do QR v3) e IP real atrás do gateway ([[../04_Seguranca_Riscos/webhook-asaas-ip-allowlist-valida-ip-interno-errado|nota de segurança]]).
+
+**Já resolvido (2026-09-22)**: `NFCE_ENABLED=true` e os dados de identificação (`NFCE_CNPJ`, `NFCE_IE`, `NFCE_RAZAO_SOCIAL`, endereço completo, município/IBGE, série) aplicados em `.env` local e staging, com `stores[].cnpj`/endereço e `portal_settings.marketplace_meta` restaurados para os valores reais (ver [[../00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido|ADR atualizado]]) — o módulo já inicia e valida normalmente nos dois ambientes; só para no certificado (item 1) e no CRT/perfil tributário (itens 2-3).
 
 ## Atualizações
 
+- 2026-09-22: `NFCE_ENABLED=true` e identificação (CNPJ/IE/razão social/endereço/série) aplicados em `.env` local e staging para permitir teste; identidade jurídica real (que tinha voltado ao placeholder de seed por um reset de ambiente) restaurada no banco dos dois lugares. Ver [[../00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido|ADR atualizado]].
 - 2026-09-22: pedidos de marketplace com retirada em loja (`pickup`) passaram a emitir NFC-e real, direto à SEFAZ-DF, pelo mesmo motor do PDV — o Asaas saiu do caminho fiscal (continua só para pagamento). Pedidos `delivery`/`shipping` ficam sem nenhum documento até decisão do contador. Ver [[../00_Decisoes/2026-09-22-nfce-real-para-pedidos-marketplace-pickup|ADR]].
 - 2026-09-20: nota criada — visão única dos dois caminhos (balcão/NFC-e e marketplace/Asaas) depois do módulo NFC-e e do preparo do sandbox. Decisões: [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|NFC-e]], [[../00_Decisoes/2026-09-20-asaas-sandbox-guarda-remoteip-e-nota-no-formato-real|Asaas]].
