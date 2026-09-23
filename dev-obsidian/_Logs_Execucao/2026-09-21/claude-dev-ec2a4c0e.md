@@ -7,7 +7,7 @@ cssclasses: ia-nota exec-log
 - Diretório: `/home/noname/Documentos/desenvolvimento/dev`
 - Sessão: `ec2a4c0e-d965-4f11-8247-2bd68ce568c5`
 - Log de chat: [[_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e|abrir]]
-- Git (na última atualização deste log): `staging/lumos-dev` @ `0ffa051` (árvore com 2 arquivo(s) não commitado(s))
+- Git (na última atualização deste log): `staging/lumos-dev` @ `3b8e626` (árvore com 1 arquivo(s) não commitado(s))
 
 ## Turno 1 · 09:19
 <span class="log-crosslink">💬 [[_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e#Turno 1 · 09:19|ver conversa deste turno]]</span>
@@ -6608,7 +6608,7 @@ Saída:
 ```
 APP_JWT_ISSUER=farmaura-api
 APP_JWT_AUDIENCE=farmaura-clients
-APP_JWT_PRIVATE_KEY=HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA
+APP_JWT_PRIVATE_KEY=[REDACTED_JWT_PRIVATE_KEY]
 APP_JWT_ALGORITHM=HS256
 ```
 
@@ -6631,18 +6631,18 @@ payload = {
     'exp': now + 600,
     'type': 'access',
 }
-token = jwt.encode(payload, 'HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA', algorithm='HS256')
+token = jwt.encode(payload, '[REDACTED_JWT_PRIVATE_KEY]', algorithm='HS256')
 print(token)
 " 2>&1
 ```
 Saída:
 ```
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MzY1NDAyYi1iZjJkLTUxMGQtYWFlMy02ZjQ0MjYxYmYwZmIiLCJ0ZW5hbnRfaWQiOiIzNDQ5YzhmYy1mNzEzLTU0YTgtYTZhNy1iZTBlMjIxMjU0YTciLCJyb2xlIjoiY3VzdG9tZXIiLCJhY2Nlc3Nfc2NvcGUiOiJtYXJrZXRwbGFjZSIsInNlc3Npb25fdmVyc2lvbiI6MSwic3RvcmVfaWQiOiIiLCJpc3MiOiJmYXJtYXVyYS1hcGkiLCJhdWQiOiJmYXJtYXVyYS1jbGllbnRzIiwiaWF0IjoxNzkwMDA1Nzg0LCJuYmYiOjE3OTAwMDU3ODQsImV4cCI6MTc5MDAwNjM4NCwidHlwZSI6ImFjY2VzcyJ9.XpUhGOTWZOzQfKrbHa8AKQaGmiUN3-tQHkjq43Ta1pw
+[REDACTED_SIGNED_JWT_REAL_IDS]
 ```
 
 _Test /customers/me with the minted diagnostic token for this exact user_
 ```
-$ TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MzY1NDAyYi1iZjJkLTUxMGQtYWFlMy02ZjQ0MjYxYmYwZmIiLCJ0ZW5hbnRfaWQiOiIzNDQ5YzhmYy1mNzEzLTU0YTgtYTZhNy1iZTBlMjIxMjU0YTciLCJyb2xlIjoiY3VzdG9tZXIiLCJhY2Nlc3Nfc2NvcGUiOiJtYXJrZXRwbGFjZSIsInNlc3Npb25fdmVyc2lvbiI6MSwic3RvcmVfaWQiOiIiLCJpc3MiOiJmYXJtYXVyYS1hcGkiLCJhdWQiOiJmYXJtYXVyYS1jbGllbnRzIiwiaWF0IjoxNzkwMDA1Nzg0LCJuYmYiOjE3OTAwMDU3ODQsImV4cCI6MTc5MDAwNjM4NCwidHlwZSI6ImFjY2VzcyJ9.XpUhGOTWZOzQfKrbHa8AKQaGmiUN3-tQHkjq43Ta1pw"
+$ TOKEN="[REDACTED_SIGNED_JWT_REAL_IDS]"
 ssh lumos-dev "curl -sk -o /tmp/me2.json -w 'HTTP %{http_code}\n' https://127.0.0.1/api/v1/customers/me -H 'Host: dev.drogariafarmaura.com.br' -H 'Authorization: Bearer $TOKEN' && cat /tmp/me2.json && echo"
 ```
 Saída:
@@ -19344,7 +19344,7 @@ Saída:
 1
 1
 APP_ASAAS_ACCESS_TOKEN=$$
-APP_ASAAS_WEBHOOK_AUTH_TOKEN=55754a93bc5
+APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_WEBHOOK_TOKEN_STAGING_PREFIX]
 ```
 
 ```
@@ -23440,7 +23440,7 @@ $ grep -n "aact_hmlg\|Wallet ID\|a76b1ed5\|55754a93\|292cc895" dev-obsidian/_Log
 Saída:
 ```
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1696:Wallet ID
-dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1698:[REDACTED_WALLET_ID]
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1698:a76b1ed5-8b11-4968-8280-d9a2ce3967cf
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1700:Chave de API Sandbox: $[REDACTED_ASAAS_API_KEY]
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1706:Salvei os dados com segurança (no `.env` local, que é ignorado pelo git — nunca em nota do cofre nem em arquivo versionado). Achei também um problema real no meio do caminho: a chave do Asaas começa com `$`, e o Docker Compose interpreta `$` como início de variável dentro do `.env` — sem escapar, ele reduzia a chave para uma string vazia (dava pra ver isso nos logs: "variable is not set"). Corrigi escapando como `$$aact_hmlg_...`. Já reiniciei a API e rodei o script de verificação oficial do projeto: **a chave foi aceita pelo Asaas** ✅.
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1708:**Sobre o Wallet ID**: hoje ele não é usado em nenhum lugar do código — o split de pagamentos entre contas Asaas não está implementado no Farmaura ainda (`config.py` não tem esse campo). Por isso não salvei ele em lugar nenhum por enquanto — se você quiser que eu adicione suporte a isso, me avise que eu configuro o campo.
@@ -23511,7 +23511,7 @@ dev-obsidian/.obsidian/appearance.json |  3 +-
 
 _Find all log files containing any of the leaked secrets_
 ```
-$ grep -rl "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
+$ grep -rl "[ASAAS_KEY_PREFIX_REDACTED]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
 ```
 Saída:
 ```
@@ -23533,10 +23533,10 @@ replacements = [
     ("$$[REDACTED_ASAAS_API_KEY]", "$$[REDACTED_ASAAS_API_KEY]"),
     ("$[REDACTED_ASAAS_API_KEY]", "$[REDACTED_ASAAS_API_KEY]"),
     ("[REDACTED_ASAAS_API_KEY]", "[REDACTED_ASAAS_API_KEY]"),
-    ("[REDACTED_WALLET_ID]", "[REDACTED_WALLET_ID]"),
+    ("a76b1ed5-8b11-4968-8280-d9a2ce3967cf", "[REDACTED_WALLET_ID]"),
     ("[REDACTED_WEBHOOK_TOKEN_LOCAL]", "[REDACTED_WEBHOOK_TOKEN_LOCAL]"),
     ("[REDACTED_WEBHOOK_TOKEN_STAGING]", "[REDACTED_WEBHOOK_TOKEN_STAGING]"),
-    ("[REDACTED_PIX_KEY]", "[REDACTED_PIX_KEY]"),
+    ("292cc895-15fc-4b98-8fe5-b08a495eef65", "[REDACTED_PIX_KEY]"),
 ]
 
 for path in files:
@@ -23558,7 +23558,7 @@ dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md: 1296503 -> 129495
 
 _Confirm no secrets remain and redaction markers are present_
 ```
-$ grep -rn "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit code: $?"
+$ grep -rn "[ASAAS_KEY_PREFIX_REDACTED]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit code: $?"
 grep -c "REDACTED" dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
 ```
 Saída:
@@ -24027,7 +24027,7 @@ M	dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
 
 _Confirm which files currently contain the leaked secrets_
 ```
-$ grep -rln "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
+$ grep -rln "[ASAAS_KEY_PREFIX_REDACTED]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
 ```
 Saída:
 ```
@@ -24047,10 +24047,10 @@ replacements = [
     ("$$[REDACTED_ASAAS_API_KEY]", "$$[REDACTED_ASAAS_API_KEY]"),
     ("$[REDACTED_ASAAS_API_KEY]", "$[REDACTED_ASAAS_API_KEY]"),
     ("[REDACTED_ASAAS_API_KEY]", "[REDACTED_ASAAS_API_KEY]"),
-    ("[REDACTED_WALLET_ID]", "[REDACTED_WALLET_ID]"),
+    ("a76b1ed5-8b11-4968-8280-d9a2ce3967cf", "[REDACTED_WALLET_ID]"),
     ("[REDACTED_WEBHOOK_TOKEN_LOCAL]", "[REDACTED_WEBHOOK_TOKEN_LOCAL]"),
     ("[REDACTED_WEBHOOK_TOKEN_STAGING]", "[REDACTED_WEBHOOK_TOKEN_STAGING]"),
-    ("[REDACTED_PIX_KEY]", "[REDACTED_PIX_KEY]"),
+    ("292cc895-15fc-4b98-8fe5-b08a495eef65", "[REDACTED_PIX_KEY]"),
 ]
 
 for path in files:
@@ -24064,7 +24064,7 @@ for path in files:
     print(f"{path}: {n} -> {len(content)}")
 EOF
 echo "--- verify ---"
-grep -rn "[ASAAS_KEY_PREFIX_REDACTED]\|[REDACTED_WALLET_ID]\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|[REDACTED_PIX_KEY]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+grep -rn "[ASAAS_KEY_PREFIX_REDACTED]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
 ```
 Saída:
 ```
@@ -25057,12 +25057,174 @@ _Manually invoke the chat/exec logging hook for the current session_
 $ echo '{"transcript_path":"/home/noname/.claude/projects/-home-noname-Documentos-desenvolvimento-dev/ec2a4c0e-d965-4f11-8247-2bd68ce568c5.jsonl","session_id":"ec2a4c0e-d965-4f11-8247-2bd68ce568c5"}' | python3 .claude/hooks/chat_daily_log.py
 echo "exit: $?"
 ```
+Saída:
+```
+exit: 0
+```
+
+_Check what the manual hook run changed_
+```
+$ git status --porcelain=v1 dev-obsidian/
+```
+Saída:
+```
+M dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+ M dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+```
+
+_Check for Asaas secrets after hook regeneration_
+```
+$ grep -rln "[ASAAS_KEY_PREFIX_REDACTED]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
+```
+Saída:
+```
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+```
+
+_Confirm the newly-seen Gemini/OpenAI/SMTP secrets did not leak into logs_
+```
+$ grep -rl "[REDACTED_GEMINI_API_KEY]\|[REDACTED_OPENAI_API_KEY_PREFIX]\|[REDACTED_SMTP_APP_PASSWORD]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+```
+Saída:
+```
+exit: 1
+```
+
+_Redact secrets again and do a full verification pass_
+```
+$ python3 <<'EOF'
+files = [
+    "dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md",
+    "dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md",
+]
+replacements = [
+    ("$$[REDACTED_ASAAS_API_KEY]", "$$[REDACTED_ASAAS_API_KEY]"),
+    ("$[REDACTED_ASAAS_API_KEY]", "$[REDACTED_ASAAS_API_KEY]"),
+    ("[REDACTED_ASAAS_API_KEY]", "[REDACTED_ASAAS_API_KEY]"),
+    ("[ASAAS_KEY_PREFIX_REDACTED]", "[ASAAS_KEY_PREFIX_REDACTED]"),
+    ("a76b1ed5-8b11-4968-8280-d9a2ce3967cf", "[REDACTED_WALLET_ID]"),
+    ("[REDACTED_WEBHOOK_TOKEN_LOCAL]", "[REDACTED_WEBHOOK_TOKEN_LOCAL]"),
+    ("[REDACTED_WEBHOOK_TOKEN_STAGING]", "[REDACTED_WEBHOOK_TOKEN_STAGING]"),
+    ("292cc895-15fc-4b98-8fe5-b08a495eef65", "[REDACTED_PIX_KEY]"),
+]
+for path in files:
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    n = len(content)
+    for old, new in replacements:
+        content = content.replace(old, new)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"{path}: {n} -> {len(content)}")
+EOF
+echo "--- verify ---"
+grep -rn "[ASAAS_KEY_PREFIX_REDACTED]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65\|[REDACTED_GEMINI_API_KEY]\|[REDACTED_OPENAI_API_KEY_PREFIX]\|[REDACTED_SMTP_APP_PASSWORD]" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+```
+Saída:
+```
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md: 276443 -> 275772
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md: 1373805 -> 1370672
+--- verify ---
+exit: 1
+```
+
+_Verify wikilinks resolve in the edited docs_
+```
+$ cd /home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura && for f in "00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md" "02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md"; do
+  echo "== $f =="
+  grep -oE '\[\[[^]|]+' "$f" | sed 's/\[\[//' | while read -r target; do
+    dir=$(dirname "$f")
+    resolved=$(python3 -c "import os,sys; print(os.path.normpath(os.path.join(sys.argv[1], sys.argv[2])))" "$dir" "$target")
+    if [ ! -f "${resolved}.md" ]; then
+      echo "BROKEN: $target -> ${resolved}.md"
+    fi
+  done
+done
+```
+Saída:
+```
+== 00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md ==
+== 02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md ==
+```
+
+_Check what's pending to commit_
+```
+$ cd /home/noname/Documentos/desenvolvimento/dev && git status --porcelain=v1
+```
+Saída:
+```
+M dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+ M dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+ M dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md
+ M dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md
+```
+
+_Stage documentation and redacted log updates_
+```
+$ git add \
+  dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md \
+  dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md \
+  dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md \
+  dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+git status --porcelain=v1
+```
+Saída:
+```
+M  dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md
+M  dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
+M  dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md
+M  dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md
+```
+
+_Commit documentation updates and refreshed redacted logs_
+```
+$ git commit -m "$(cat <<'EOF'
+docs(farmaura): registra restauracao da identidade juridica e config NFC-e para teste
+
+Achado: stores[].cnpj/endereco e portal_settings.marketplace_meta (a
+identidade real configurada em 14/09) tinham voltado ao placeholder de
+seed nos dois ambientes (local e staging), provavelmente por um reset
+de ambiente - nao ha nada fora do banco que persista isso. Restaurado
+nos dois, e NFCE_ENABLED=true + identificacao (CNPJ/IE/razao
+social/endereco/serie) aplicados via .env (nao versionado) para
+permitir teste manual. CRT, CSC de homologacao e o certificado A1
+continuam pendentes.
+
+Tambem atualiza os logs de chat/execucao da sessao (novos turnos,
+segredos do Asaas redigidos de novo).
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+EOF
+)"
+```
+Saída:
+```
+[staging/lumos-dev 3b8e626] docs(farmaura): registra restauracao da identidade juridica e config NFC-e para teste
+ 4 files changed, 1286 insertions(+), 5 deletions(-)
+```
+
+_Push documentation commit to GitHub_
+```
+$ git push origin staging/lumos-dev 2>&1
+```
+Saída:
+```
+To github.com:iamlucas1/farmaura.git
+   0ffa051..3b8e626  staging/lumos-dev -> staging/lumos-dev
+```
 
 <span class="exec-section">Arquivos</span>
 
 - `/home/noname/Documentos/desenvolvimento/dev/farmaura-api/.env` — <span class="exec-file-op exec-file-op-read">leitura</span>
 - `/home/noname/Documentos/desenvolvimento/dev/.claude/hooks/chat_daily_log.py` — <span class="exec-file-op exec-file-op-read">leitura</span>
 - `/home/noname/Documentos/desenvolvimento/dev/farmaura-api/.env` — <span class="exec-file-op exec-file-op-update">editado</span>
+- `/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md` — <span class="exec-file-op exec-file-op-read">leitura</span>
+- `/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md` — <span class="exec-file-op exec-file-op-update">editado</span>
+- `/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md` — <span class="exec-file-op exec-file-op-read">leitura</span>
+- `/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md` — <span class="exec-file-op exec-file-op-update">editado</span>
+- `/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md` — <span class="exec-file-op exec-file-op-read">leitura</span>
+- `/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md` — <span class="exec-file-op exec-file-op-update">editado</span>
 
 `/home/noname/Documentos/desenvolvimento/dev/farmaura-api/.env`:
 
@@ -25094,6 +25256,66 @@ echo "exit: $?"
 <span class="diff-add">+NFCE_CSC_PRODUCAO=</span>
 <span class="diff-add">+NFCE_CERTIFICATE_PATH=</span>
 <span class="diff-add">+NFCE_CERTIFICATE_PASSWORD=</span>
+</pre>
+
+`/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido.md`:
+
+<pre class="chat-diff">
+<span class="diff-file">--- </span>
+<span class="diff-file">+++ </span>
+<span class="diff-hunk">@@ -4,3 +4,18 @@</span>
+<span class="diff-ctx"> - Build limpo, container `farmaura` redeployado (porta 3000), conferido visualmente.</span>
+<span class="diff-ctx"> </span>
+<span class="diff-add">+## Atualizações</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+- 2026-09-22: **achado** — `stores[].cnpj`/`address_line` e `portal_settings.marketplace_meta`</span>
+<span class="diff-add">+  (as duas gravações desta decisão) tinham voltado ao placeholder de seed (`12.345.678/0001-90`,</span>
+<span class="diff-add">+  endereço genérico) tanto local quanto em staging — um reset de ambiente em algum momento depois</span>
+<span class="diff-add">+  desta decisão apagou os dois, já que nenhum dos dois é recriado pelo `bootstrap_database.py`/seed</span>
+<span class="diff-add">+  automático. Restaurado nos dois ambientes (mesmos valores desta nota) ao preparar o teste da</span>
+<span class="diff-add">+  extensão de NFC-e para pedidos de marketplace (ver</span>
+<span class="diff-add">+  [[2026-09-22-nfce-real-para-pedidos-marketplace-pickup|ADR]]) — a validação fiscal exige</span>
+<span class="diff-add">+  `stores[].cnpj` batendo com `NFCE_CNPJ`. O `PATCH` de endereço disparou de novo o bug de</span>
+<span class="diff-add">+  re-geocodificação já conhecido (zera lat/long em ambiente sem internet real); coordenadas</span>
+<span class="diff-add">+  restauradas manualmente de novo nos dois bancos. **Risco a observar**: qualquer reset futuro de</span>
+<span class="diff-add">+  ambiente (local ou staging) volta a apagar essa configuração — não há nenhum lugar que persista</span>
+<span class="diff-add">+  isso fora do banco de dados em si.</span>
+<span class="diff-add">+</span>
+<span class="diff-ctx"> ## Ver também</span>
+</pre>
+
+`/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md`:
+
+<pre class="chat-diff">
+<span class="diff-file">--- </span>
+<span class="diff-file">+++ </span>
+<span class="diff-hunk">@@ -2,6 +2,9 @@</span>
+<span class="diff-ctx"> </span>
+<span class="diff-ctx"> 1. Certificado A1 real da FARMAURA LTDA (`.pfx`/`.p12`) — sem ele, nenhuma emissão real (balcão ou marketplace) passa de `SIGNING`, nem em homologação ([[../06_Pendencias/certificado-a1-farmaura-ainda-nao-fornecido|pendência]]).</span>
+<span class="diff-del">-2. Perfil tributário dos produtos e CRT (contador).</span>
+<span class="diff-del">-3. Decisão sobre a nota de pedidos `delivery`/`shipping` (tratamento fiscal do frete e `indPres` de venda não presencial) — [[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]].</span>
+<span class="diff-del">-4. Migration `20260920_05` em Postgres real, `uv lock`, build do front ([[../06_Pendencias/aplicar-migration-nfce-fiscal-em-producao|migration]], [[../06_Pendencias/nfce-schemas-pl-010f-uv-lock-e-front-nao-buildado|lock e front]]); também a migration `20260922_01` (`orders.payment_method`) ([[../06_Pendencias/aplicar-migration-order-payment-method-em-producao|pendência]]).</span>
+<span class="diff-del">-5. Contingência offline (fórmula do QR v3) e IP real atrás do gateway ([[../04_Seguranca_Riscos/webhook-asaas-ip-allowlist-valida-ip-interno-errado|nota de segurança]]).</span>
+<span class="diff-add">+2. `NFCE_CRT` e os códigos CSC de homologação (contador/portal SEFAZ-DF) — sem CRT, o motor assume regime normal (CST) em vez de Simples Nacional (CSOSN) na validação por produto.</span>
+<span class="diff-add">+3. Perfil tributário (NCM/CFOP/CST ou CSOSN) de cada produto — depende do item 2 para saber qual conjunto de campos vale.</span>
+<span class="diff-add">+4. Decisão sobre a nota de pedidos `delivery`/`shipping` (tratamento fiscal do frete e `indPres` de venda não presencial) — [[../06_Pendencias/nfce-marketplace-documentos-simulados|pendência]].</span>
+<span class="diff-add">+5. Migration `20260920_05` em Postgres real, `uv lock`, build do front ([[../06_Pendencias/aplicar-migration-nfce-fiscal-em-producao|migration]], [[../06_Pendencias/nfce-schemas-pl-010f-uv-lock-e-front-nao-buildado|lock e front]]); também a migration `20260922_01` (`orders.payment_method`) ([[../06_Pendencias/aplicar-migration-order-payment-method-em-producao|pendência]]).</span>
+<span class="diff-add">+6. Contingência offline (fórmula do QR v3) e IP real atrás do gateway ([[../04_Seguranca_Riscos/webhook-asaas-ip-allowlist-valida-ip-interno-errado|nota de segurança]]).</span>
+<span class="diff-add">+</span>
+<span class="diff-add">+**Já resolvido (2026-09-22)**: `NFCE_ENABLED=true` e os dados de identificação (`NFCE_CNPJ`, `NFCE_IE`, `NFCE_RAZAO_SOCIAL`, endereço completo, município/IBGE, série) aplicados em `.env` local e staging, com `stores[].cnpj`/endereço e `portal_settings.marketplace_meta` restaurados para os valores reais (ver [[../00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corr</span>
+<span class="diff-ctx">… (saída truncada, 2657 caracteres no total)</span>
+</pre>
+
+`/home/noname/Documentos/desenvolvimento/dev/dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md`:
+
+<pre class="chat-diff">
+<span class="diff-file">--- </span>
+<span class="diff-file">+++ </span>
+<span class="diff-hunk">@@ -1,3 +1,4 @@</span>
+<span class="diff-ctx"> ## Atualizações</span>
+<span class="diff-ctx"> </span>
+<span class="diff-add">+- 2026-09-22: `NFCE_ENABLED=true` e identificação (CNPJ/IE/razão social/endereço/série) aplicados em `.env` local e staging para permitir teste; identidade jurídica real (que tinha voltado ao placeholder de seed por um reset de ambiente) restaurada no banco dos dois lugares. Ver [[../00_Decisoes/2026-09-14-identidade-juridica-real-configurada-e-bug-de-endereco-corrigido|ADR atualizado]].</span>
+<span class="diff-ctx"> - 2026-09-22: pedidos de marketplace com retirada em loja (`pickup`) passaram a emitir NFC-e real,</span>
 </pre>
 
 ---
