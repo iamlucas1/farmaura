@@ -120,14 +120,42 @@ def extract_command_str(cmd) -> str:
         return cmd
     return ""
 
-KNOWN_PROJECT_DIRS = {
-    "farmaura",
-    "farmaura-api",
-    "docker",
-    "lumos-gateway",
-    "lumosmed",
-    "lumos-api",
-    "dev-obsidian",
+# Agrupa os diretórios reais do repositório em "famílias" de projeto pra
+# nomear os arquivos de log — mesma tabela usada pelo hook do Claude Code
+# (ver .claude/hooks/chat_daily_log.py), farmaura-api e docker são infra do
+# mesmo produto que farmaura/, lumos-api é o backend do mesmo produto que
+# lumosmed/. `dirs` é usado como sinal de cwd; `keywords` (case-insensitive,
+# substring) é usado pra detectar por argumento de /contexto ou por assunto
+# da conversa. Termos genéricos demais (ex: "gateway" sozinho, que também
+# aparece falando de gateway de pagamento) ficam de fora de propósito pra
+# não dar falso positivo.
+PROJECT_FAMILIES = {
+    "farmaura": {
+        "dirs": {"farmaura", "farmaura-api", "docker"},
+        "keywords": [
+            "farmaura", "farmaura-api", "marketplace", "pdv", "farmacêutico",
+            "farmaceutico", "prescriç", "prescric", "sefaz", "nfc-e", "nfce",
+            "receituário", "receituario",
+        ],
+    },
+    "lumosmed": {
+        "dirs": {"lumosmed", "lumos-api"},
+        "keywords": [
+            "lumosmed", "lumos-api", "lumos_api", "lumos med", "clínica",
+            "clinica", "prontuário", "prontuario", "lumosmed:",
+        ],
+    },
+    "gateway": {
+        "dirs": {"lumos-gateway"},
+        "keywords": [
+            "lumos-gateway", "lumos_gateway", "nginx", "certbot", "fail2ban",
+            "geoip",
+        ],
+    },
+    "dev-obsidian": {
+        "dirs": {"dev-obsidian"},
+        "keywords": ["dev-obsidian", "vault do obsidian", "cofre obsidian"],
+    },
 }
 
 FILE_OP_CLASS = {
@@ -139,8 +167,12 @@ FILE_OP_CLASS = {
 
 def turn_heading(turn_idx: int, dt: datetime.datetime) -> str:
     """Título de turno usado nos dois logs (chat e execução) — mesmo texto
-    nos dois arquivos, pra servir de âncora de link entre eles."""
-    return f"Turno {turn_idx} · {dt.strftime('%H:%M')}"
+    nos dois arquivos, pra servir de âncora de link entre eles. Inclui a
+    data (não só a hora): a numeração de turno é global pra sessão inteira
+    (ver `days` em main()), então uma sessão que atravessa a meia-noite tem
+    turnos de dias diferentes nos dois lados, e "HH:MM" sozinho não dava
+    pra saber quando cada um rodou de fato."""
+    return f"Turno {turn_idx} · {dt.strftime('%Y-%m-%d %H:%M')}"
 
 EXT_OVERRIDES = {
     "image/png": "png",
@@ -222,18 +254,99 @@ def extract_item_attachments(item: dict) -> list:
     return attachments
 
 
-def chat_slug(cwd: str, repo_root: Path) -> str:
+def family_from_text(text: str, min_hits: int = 1):
+    """Conta ocorrências das keywords de cada família em `text` e devolve a
+    família com mais acertos, se bater o mínimo exigido. `min_hits` mais
+    alto pra varredura de assunto da conversa (evita 1 menção solta virando
+    classificação) e mínimo de 1 pra argumento explícito de /contexto (ali
+    a intenção já é explícita, uma menção basta)."""
+    lowered = text.lower()
+    best_family = None
+    best_count = 0
+    for family, spec in PROJECT_FAMILIES.items():
+        count = sum(lowered.count(kw) for kw in spec["keywords"])
+        if count > best_count:
+            best_count = count
+            best_family = family
+    return best_family if best_count >= min_hits else None
+
+
+# Diferente do Claude Code (que expande slash commands em
+# <command-name>/contexto</command-name><command-args>...</command-args>),
+# o Codex CLI grava o texto exatamente como o usuário digitou — então o
+# comando aparece como texto puro "/contexto <args>" no início da mensagem.
+CONTEXTO_RE = re.compile(r"^/contexto\b(.*)", re.IGNORECASE | re.DOTALL)
+
+
+def find_first_contexto_args(entries: list):
+    """Acha a primeira invocação de `/contexto` na sessão e devolve o texto
+    dos args (pode ser ""). None se a skill nunca foi chamada nesta sessão."""
+    for entry in entries:
+        if entry.get("type") != "event_msg":
+            continue
+        payload = entry.get("payload", {})
+        if payload.get("type") != "item_completed":
+            continue
+        item = payload.get("item", {})
+        if item.get("type") != "UserMessage":
+            continue
+        m = CONTEXTO_RE.match(extract_item_text(item).strip())
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def family_from_cwd(cwd: str, repo_root: Path):
     try:
         rel = Path(cwd).resolve().relative_to(repo_root)
-        first = rel.parts[0] if rel.parts else ""
     except ValueError:
-        first = ""
-    if first in KNOWN_PROJECT_DIRS:
-        return first
+        return None
+    first = rel.parts[0] if rel.parts else ""
     if not first or first == ".":
-        return "dev"
-    slug = re.sub(r"[^a-z0-9]+", "-", first.lower()).strip("-")
-    return slug or "dev"
+        return None
+    for family, spec in PROJECT_FAMILIES.items():
+        if first in spec["dirs"]:
+            return family
+    return None
+
+
+def detect_project_family(entries: list, cwd: str, repo_root: Path) -> str:
+    """Nome de projeto usado no arquivo de log (farmaura/lumosmed/gateway/
+    dev-obsidian/dev) — mesma ordem de prioridade do hook do Claude Code
+    (ver .claude/hooks/chat_daily_log.py):
+
+    1. Argumento passado a `/contexto` no início da sessão — sinal mais
+       explícito, o usuário disse com que projeto vai trabalhar.
+    2. Assunto da conversa — contagem de palavras-chave de cada projeto no
+       texto real trocado entre usuário e agente (UserMessage/AgentMessage).
+    3. Diretório onde a sessão foi aberta, se cair dentro de uma pasta de
+       projeto conhecida.
+
+    Cai em "dev" se nenhum sinal for conclusivo."""
+    contexto_args = find_first_contexto_args(entries)
+    if contexto_args:
+        family = family_from_text(contexto_args, min_hits=1)
+        if family:
+            return family
+
+    conversation_text_parts = []
+    for entry in entries:
+        if entry.get("type") != "event_msg":
+            continue
+        payload = entry.get("payload", {})
+        if payload.get("type") != "item_completed":
+            continue
+        item = payload.get("item", {})
+        if item.get("type") not in ("UserMessage", "AgentMessage"):
+            continue
+        text = extract_item_text(item)
+        if text:
+            conversation_text_parts.append(text)
+    family = family_from_text("\n".join(conversation_text_parts), min_hits=2)
+    if family:
+        return family
+
+    return family_from_cwd(cwd, repo_root) or "dev"
 
 
 def find_transcript(transcript_path: str, session_id: str) -> str:
@@ -382,121 +495,133 @@ def main() -> int:
         print("{}")
         return 0
 
-    first_dt = parse_timestamp(turns[0][0]) if turns[0][0] else datetime.datetime.now().astimezone()
-    day = first_dt.date().isoformat()
-    slug = chat_slug(session_cwd, repo_root)
+    slug = detect_project_family(entries, session_cwd, repo_root)
     suffix = session_id[:8] if session_id else "local"
+    git_snapshot = get_git_snapshot(session_cwd)
 
-    day_dir = vault_dir / "_Logs_Chat" / day
-    day_dir.mkdir(parents=True, exist_ok=True)
-    log_file = day_dir / f"codex-{slug}-{suffix}.md"
-    exec_file_stem = f"_Logs_Execucao/{day}/codex-{slug}-{suffix}"
-    chat_file_stem = f"_Logs_Chat/{day}/codex-{slug}-{suffix}"
-
-    any_action = any(ac for *_rest, ac in turns)
-
-    lines_out = ["---", "cssclasses: ia-nota chat-log", "---", "", f"# Chat {slug} (Codex CLI) — {day} ({session_id})", ""]
-    lines_out.append(f"- Diretório: `{session_cwd}`")
-    lines_out.append(f"- Sessão: `{session_id}`")
-    if any_action:
-        lines_out.append(f"- Log de execução: [[{exec_file_stem}|abrir]]")
-    lines_out.append("")
-
-    attachments_dir = day_dir / "attachments"
+    # Numeração de turno é global pra sessão inteira (posição real na
+    # conversa), não reinicia por dia — "Turno 15" continua sendo o mesmo
+    # turno 15 mesmo se cair no arquivo do dia seguinte. Cada Stop
+    # reconstrói o transcript inteiro do zero, e agora agrupa os turnos por
+    # data de fato (não só a do primeiro turno): se a sessão atravessa a
+    # meia-noite, os turnos de cada dia caem no arquivo diário
+    # correspondente, e não ficam todos empilhados no arquivo do dia em que
+    # a sessão começou.
+    days = {}
     for turn_idx, (ts, user_text, assistant_text, attachments, actions) in enumerate(turns, start=1):
         dt = parse_timestamp(ts) if ts else datetime.datetime.now().astimezone()
-        heading = turn_heading(turn_idx, dt)
-        lines_out.append(f"## {heading}")
-        if actions:
-            lines_out.append(f'<span class="log-crosslink">🔧 [[{exec_file_stem}#{heading}|ver execução deste turno]]</span>')
+        day = dt.date().isoformat()
+        days.setdefault(day, []).append((turn_idx, dt, user_text, assistant_text, attachments, actions))
+
+    for day, day_turns in days.items():
+        day_dir = vault_dir / "_Logs_Chat" / day
+        exec_day_dir = vault_dir / "_Logs_Execucao" / day
+        exec_file_stem = f"_Logs_Execucao/{day}/codex-{slug}-{suffix}"
+        chat_file_stem = f"_Logs_Chat/{day}/codex-{slug}-{suffix}"
+
+        any_action = any(actions for *_rest, actions in day_turns)
+
+        lines_out = ["---", "cssclasses: ia-nota chat-log", "---", "", f"# Chat {slug} (Codex CLI) — {day} ({session_id})", ""]
+        lines_out.append(f"- Diretório: `{session_cwd}`")
+        lines_out.append(f"- Sessão: `{session_id}`")
+        if any_action:
+            lines_out.append(f"- Log de execução: [[{exec_file_stem}|abrir]]")
         lines_out.append("")
-        if user_text:
-            lines_out.append(f'<span class="chat-role chat-role-user">Você</span>\n\n{user_text}')
-        else:
-            lines_out.append(
-                '<span class="chat-role chat-role-user">Você</span> '
-                '<span class="chat-empty">(sem texto — turno automático/sistema)</span>'
-            )
-        if attachments:
-            attachments_dir.mkdir(parents=True, exist_ok=True)
+
+        attachments_dir = day_dir / "attachments"
+        for turn_idx, dt, user_text, assistant_text, attachments, actions in day_turns:
+            heading = turn_heading(turn_idx, dt)
+            lines_out.append(f"## {heading}")
+            if actions:
+                lines_out.append(f'<span class="log-crosslink">🔧 [[{exec_file_stem}#{heading}|ver execução deste turno]]</span>')
             lines_out.append("")
-            for att_idx, (media_type, raw) in enumerate(attachments, start=1):
-                ext = guess_ext(media_type)
-                fname = f"codex-{slug}-{suffix}-{turn_idx}-{att_idx}.{ext}"
-                (attachments_dir / fname).write_bytes(raw)
-                rel = f"attachments/{fname}"
-                if media_type.startswith("image/"):
-                    lines_out.append(f"![imagem anexada]({rel})")
-                else:
-                    lines_out.append(f"[arquivo anexado ({media_type})]({rel})")
-        lines_out.append("")
-        if assistant_text:
-            lines_out.append(f'<span class="chat-role chat-role-ai">Codex</span>\n\n{assistant_text}')
+            if user_text:
+                lines_out.append(f'<span class="chat-role chat-role-user">Você</span>\n\n{user_text}')
+            else:
+                lines_out.append(
+                    '<span class="chat-role chat-role-user">Você</span> '
+                    '<span class="chat-empty">(sem texto — turno automático/sistema)</span>'
+                )
+            if attachments:
+                attachments_dir.mkdir(parents=True, exist_ok=True)
+                lines_out.append("")
+                for att_idx, (media_type, raw) in enumerate(attachments, start=1):
+                    ext = guess_ext(media_type)
+                    fname = f"codex-{slug}-{suffix}-{turn_idx}-{att_idx}.{ext}"
+                    (attachments_dir / fname).write_bytes(raw)
+                    rel = f"attachments/{fname}"
+                    if media_type.startswith("image/"):
+                        lines_out.append(f"![imagem anexada]({rel})")
+                    else:
+                        lines_out.append(f"[arquivo anexado ({media_type})]({rel})")
             lines_out.append("")
-        lines_out.append("---")
-        lines_out.append("")
+            if assistant_text:
+                lines_out.append(f'<span class="chat-role chat-role-ai">Codex</span>\n\n{assistant_text}')
+                lines_out.append("")
+            lines_out.append("---")
+            lines_out.append("")
 
-    log_file.write_text("\n".join(lines_out), encoding="utf-8")
+        day_dir.mkdir(parents=True, exist_ok=True)
+        log_file = day_dir / f"codex-{slug}-{suffix}.md"
+        log_file.write_text("\n".join(lines_out), encoding="utf-8")
 
-    # Fluxo de execução: comandos rodados (com saída) e arquivos editados,
-    # sem o conteúdo do código — o git já rastreia isso pelo diff.
-    exec_day_dir = vault_dir / "_Logs_Execucao" / day
-    exec_lines = ["---", "cssclasses: ia-nota exec-log", "---", "", f"# Execução {slug} (Codex CLI) — {day} ({session_id})", ""]
-    exec_lines.append(f"- Diretório: `{session_cwd}`")
-    exec_lines.append(f"- Sessão: `{session_id}`")
-    exec_lines.append(f"- Log de chat: [[{chat_file_stem}|abrir]]")
-    git_snapshot = get_git_snapshot(session_cwd)
-    if git_snapshot:
-        exec_lines.append(f"- Git (na última atualização deste log): {git_snapshot}")
-    exec_lines.append("")
-
-    for turn_idx, (ts, user_text, _assistant_text, _attachments, actions) in enumerate(turns, start=1):
-        if not actions:
-            continue
-        dt = parse_timestamp(ts) if ts else datetime.datetime.now().astimezone()
-        heading = turn_heading(turn_idx, dt)
-        exec_lines.append(f"## {heading}")
-        exec_lines.append(f'<span class="log-crosslink">💬 [[{chat_file_stem}#{heading}|ver conversa deste turno]]</span>')
+        # Fluxo de execução: comandos rodados (com saída) e arquivos
+        # editados, sem o conteúdo do código — o git já rastreia isso pelo
+        # diff.
+        exec_lines = ["---", "cssclasses: ia-nota exec-log", "---", "", f"# Execução {slug} (Codex CLI) — {day} ({session_id})", ""]
+        exec_lines.append(f"- Diretório: `{session_cwd}`")
+        exec_lines.append(f"- Sessão: `{session_id}`")
+        exec_lines.append(f"- Log de chat: [[{chat_file_stem}|abrir]]")
+        if git_snapshot:
+            exec_lines.append(f"- Git (na última atualização deste log): {git_snapshot}")
         exec_lines.append("")
-        commands = [a for a in actions if a["kind"] == "bash"]
-        files = [a for a in actions if a["kind"] == "file"]
-        if commands:
-            exec_lines.append('<span class="exec-section">Comandos</span>')
+
+        for turn_idx, dt, _user_text, _assistant_text, _attachments, actions in day_turns:
+            if not actions:
+                continue
+            heading = turn_heading(turn_idx, dt)
+            exec_lines.append(f"## {heading}")
+            exec_lines.append(f'<span class="log-crosslink">💬 [[{chat_file_stem}#{heading}|ver conversa deste turno]]</span>')
             exec_lines.append("")
-            for cmd in commands:
-                if cmd["description"]:
-                    exec_lines.append(f"_{cmd['description']}_")
-                exec_lines.append(fence_wrap(f"$ {cmd['command']}"))
-                if cmd["output"]:
-                    tag = ' <span class="exec-fail">falhou</span>' if cmd["is_error"] else ""
-                    exec_lines.append(f"Saída:{tag}")
-                    exec_lines.append(fence_wrap(truncate_output(cmd['output'])))
-                elif cmd["is_error"]:
-                    exec_lines.append('Saída: <span class="exec-fail">falhou, sem conteúdo capturado</span>')
+            commands = [a for a in actions if a["kind"] == "bash"]
+            files = [a for a in actions if a["kind"] == "file"]
+            if commands:
+                exec_lines.append('<span class="exec-section">Comandos</span>')
                 exec_lines.append("")
-        if files:
-            exec_lines.append('<span class="exec-section">Arquivos</span>')
+                for cmd in commands:
+                    if cmd["description"]:
+                        exec_lines.append(f"_{cmd['description']}_")
+                    exec_lines.append(fence_wrap(f"$ {cmd['command']}"))
+                    if cmd["output"]:
+                        tag = ' <span class="exec-fail">falhou</span>' if cmd["is_error"] else ""
+                        exec_lines.append(f"Saída:{tag}")
+                        exec_lines.append(fence_wrap(truncate_output(cmd['output'])))
+                    elif cmd["is_error"]:
+                        exec_lines.append('Saída: <span class="exec-fail">falhou, sem conteúdo capturado</span>')
+                    exec_lines.append("")
+            if files:
+                exec_lines.append('<span class="exec-section">Arquivos</span>')
+                exec_lines.append("")
+                for f in files:
+                    cls = FILE_OP_CLASS.get(f["label"], "exec-file-op-update")
+                    exec_lines.append(f'- `{f["path"]}` — <span class="exec-file-op {cls}">{f["label"]}</span>')
+                exec_lines.append("")
+                for f in files:
+                    if f.get("diff"):
+                        exec_lines.append(f'`{f["path"]}`:')
+                        exec_lines.append("")
+                        exec_lines.append(render_diff_html(f["diff"]))
+                        exec_lines.append("")
+                    elif f["label"] == "editado":
+                        exec_lines.append(f'`{f["path"]}`: _(conteúdo anterior não capturado nesta sessão — sem diff)_')
+                        exec_lines.append("")
+            exec_lines.append("---")
             exec_lines.append("")
-            for f in files:
-                cls = FILE_OP_CLASS.get(f["label"], "exec-file-op-update")
-                exec_lines.append(f'- `{f["path"]}` — <span class="exec-file-op {cls}">{f["label"]}</span>')
-            exec_lines.append("")
-            for f in files:
-                if f.get("diff"):
-                    exec_lines.append(f'`{f["path"]}`:')
-                    exec_lines.append("")
-                    exec_lines.append(render_diff_html(f["diff"]))
-                    exec_lines.append("")
-                elif f["label"] == "editado":
-                    exec_lines.append(f'`{f["path"]}`: _(conteúdo anterior não capturado nesta sessão — sem diff)_')
-                    exec_lines.append("")
-        exec_lines.append("---")
-        exec_lines.append("")
 
-    if any_action:
-        exec_day_dir.mkdir(parents=True, exist_ok=True)
-        exec_file = exec_day_dir / f"codex-{slug}-{suffix}.md"
-        exec_file.write_text("\n".join(exec_lines), encoding="utf-8")
+        if any_action:
+            exec_day_dir.mkdir(parents=True, exist_ok=True)
+            exec_file = exec_day_dir / f"codex-{slug}-{suffix}.md"
+            exec_file.write_text("\n".join(exec_lines), encoding="utf-8")
 
     print("{}")
     return 0
