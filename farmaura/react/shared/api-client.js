@@ -115,6 +115,8 @@ Observations:
   }
 
   function createClient(namespace) {
+    let refreshPromise = null;
+
     async function refreshTokens(currentState) {
       if (!currentState || !currentState.refreshToken) {
         throw new Error('No refresh token available.');
@@ -131,6 +133,33 @@ Observations:
       };
       persistAuthState(namespace, nextState, currentState.rememberSession);
       return { ...currentState, ...nextState };
+    }
+
+    /** Coalesce concurrent refresh attempts into the single in-flight request, if any.
+     *
+     * The marketplace bootstrap fires up to 11 authenticated requests at once on every page
+     * load; if the access token has already expired, all of them 401 within milliseconds of
+     * each other. Each used to call refreshTokens() independently with the same refresh token
+     * — the backend's single-use rotation (app/services/auth_service.py refresh()) treats every
+     * request after the first as reuse of an already-consumed token and revokes the *entire*
+     * token family (refresh_token_repository.py revoke_family()), including the brand-new token
+     * the first request just received. Ordinary same-tab concurrency looked identical to token
+     * theft, and silently logged the customer out. Routing every concurrent 401 through this one
+     * in-flight promise means only one /auth/refresh call ever goes out per expiry; a caller that
+     * arrives after rotation already finished (re-checked via readStored, since its own captured
+     * state may predate the rotation) just adopts the token that is already sitting in storage. */
+    function getOrStartRefresh(currentState) {
+      if (refreshPromise) {
+        return refreshPromise;
+      }
+      const latest = readStored(namespace);
+      if (latest.data && currentState && latest.data.refreshToken && latest.data.refreshToken !== currentState.refreshToken) {
+        return Promise.resolve({ ...latest.data, rememberSession: latest.rememberSession });
+      }
+      refreshPromise = refreshTokens(currentState).finally(() => {
+        refreshPromise = null;
+      });
+      return refreshPromise;
     }
 
     async function authenticatedFetch(path, options) {
@@ -162,7 +191,7 @@ Observations:
           throw error;
         }
         try {
-          const refreshedState = await refreshTokens({ ...stored.data, rememberSession: stored.rememberSession });
+          const refreshedState = await getOrStartRefresh({ ...stored.data, rememberSession: stored.rememberSession });
           return attempt(refreshedState);
         } catch (refreshError) {
           clearAuthState(namespace);
