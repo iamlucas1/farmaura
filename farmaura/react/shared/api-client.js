@@ -194,9 +194,19 @@ Observations:
           const refreshedState = await getOrStartRefresh({ ...stored.data, rememberSession: stored.rememberSession });
           return attempt(refreshedState);
         } catch (refreshError) {
-          clearAuthState(namespace);
+          const refreshStatus = Number(refreshError && refreshError.status || 0);
+          // Only wipe storage when the server actually answered and rejected the refresh token
+          // (a real HTTP status, e.g. 401 from expired/revoked/reused-token detection). A
+          // status-less failure means the /auth/refresh request itself never got a verdict — a
+          // network hiccup, or (very commonly, from repeated Ctrl+R) the browser aborting the
+          // in-flight request because the page navigated away before it finished. The stored
+          // refresh token was never actually consumed by the server in that case, so clearing it
+          // here would manufacture a logout out of a request that simply didn't complete.
+          if (refreshStatus !== 0) {
+            clearAuthState(namespace);
+          }
           const sessionError = new Error('Session expired.');
-          sessionError.status = refreshError && refreshError.status ? refreshError.status : 401;
+          sessionError.status = refreshStatus;
           sessionError.code = 'session_expired';
           sessionError.body = refreshError && refreshError.body ? refreshError.body : null;
           throw sessionError;

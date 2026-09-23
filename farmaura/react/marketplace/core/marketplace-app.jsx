@@ -1387,20 +1387,25 @@ function App() {
         setUser(nextUser);
       } catch (error) {
         const status = Number(error && error.status || 0);
-        if ([502, 503, 504].includes(status)) {
-          if (active && retryTimer == null) {
-            retryTimer = window.setTimeout(() => {
-              retryTimer = null;
-              if (active) {
-                void restoreSession();
-              }
-            }, 1500);
-          }
-        } else {
+        // Only a real 401/403 — the server actually looked at the (possibly just-refreshed)
+        // token and rejected it — means the session is genuinely dead. Everything else (502-504,
+        // or no status at all) never got a definitive answer: a status-less failure is a network
+        // hiccup or, very commonly here, this very fetch getting aborted because the page is
+        // about to navigate away (repeated Ctrl+R). Treating that as "log the customer out" wiped
+        // a perfectly valid session out from under the *next* reload, which then loaded fully
+        // signed out — retry instead, same as the 502-504 case already did.
+        if (status === 401 || status === 403) {
           authClient.clear();
           if (active) {
             setUser(null);
           }
+        } else if (active && retryTimer == null) {
+          retryTimer = window.setTimeout(() => {
+            retryTimer = null;
+            if (active) {
+              void restoreSession();
+            }
+          }, 1500);
         }
       } finally {
         if (active) {
