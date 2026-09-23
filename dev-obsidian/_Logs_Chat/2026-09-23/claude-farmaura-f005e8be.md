@@ -2,13 +2,13 @@
 cssclasses: ia-nota chat-log
 ---
 
-# Chat dev (Claude Code) — 2026-09-23 (f005e8be-b549-4d04-acbb-e04bc7b20172)
+# Chat farmaura (Claude Code) — 2026-09-23 (f005e8be-b549-4d04-acbb-e04bc7b20172)
 
 - Diretório: `c:\Users\maria\OneDrive\Documentos\Farmaura`
 - Sessão: `f005e8be-b549-4d04-acbb-e04bc7b20172`
-- Log de execução: [[_Logs_Execucao/2026-09-23/claude-dev-f005e8be|abrir]]
+- Log de execução: [[_Logs_Execucao/2026-09-23/claude-farmaura-f005e8be|abrir]]
 
-## Turno 1 · 00:24
+## Turno 1 · 2026-09-23 00:24
 
 <span class="chat-role chat-role-user">Você</span>
 
@@ -20,8 +20,8 @@ Failed to refresh OAuth token: another Claude Code process is refreshing it or e
 
 ---
 
-## Turno 2 · 00:25
-<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-dev-f005e8be#Turno 2 · 00:25|ver execução deste turno]]</span>
+## Turno 2 · 2026-09-23 00:25
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-farmaura-f005e8be#Turno 2 · 2026-09-23 00:25|ver execução deste turno]]</span>
 
 <span class="chat-role chat-role-user">Você</span>
 
@@ -46,8 +46,8 @@ Quer que eu já rode as migrations aqui?
 
 ---
 
-## Turno 3 · 01:23
-<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-dev-f005e8be#Turno 3 · 01:23|ver execução deste turno]]</span>
+## Turno 3 · 2026-09-23 01:23
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-farmaura-f005e8be#Turno 3 · 2026-09-23 01:23|ver execução deste turno]]</span>
 
 <span class="chat-role chat-role-user">Você</span>
 
@@ -80,8 +80,8 @@ Se ainda está parecendo diferente do que você lembra, pode ser em outro lugar 
 
 ---
 
-## Turno 4 · 01:27
-<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-dev-f005e8be#Turno 4 · 01:27|ver execução deste turno]]</span>
+## Turno 4 · 2026-09-23 01:27
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-farmaura-f005e8be#Turno 4 · 2026-09-23 01:27|ver execução deste turno]]</span>
 
 <span class="chat-role chat-role-user">Você</span>
 
@@ -112,8 +112,8 @@ Para evitar esse mesmo susto depois de futuros `git pull`, o fluxo correto neste
 
 ---
 
-## Turno 5 · 01:48
-<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-dev-f005e8be#Turno 5 · 01:48|ver execução deste turno]]</span>
+## Turno 5 · 2026-09-23 01:48
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-farmaura-f005e8be#Turno 5 · 2026-09-23 01:48|ver execução deste turno]]</span>
 
 <span class="chat-role chat-role-user">Você</span>
 
@@ -129,8 +129,8 @@ Perfeito. Me diga o caminho onde você colocou (ou vai colocar) o arquivo da cha
 
 ---
 
-## Turno 6 · 08:26
-<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-dev-f005e8be#Turno 6 · 08:26|ver execução deste turno]]</span>
+## Turno 6 · 2026-09-23 08:26
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-farmaura-f005e8be#Turno 6 · 2026-09-23 08:26|ver execução deste turno]]</span>
 
 <span class="chat-role chat-role-user">Você</span>
 
@@ -163,5 +163,52 @@ No caso específico daqui, isso é seguro porque:
 Depois disso, o próximo passo seria rebuildar os containers (`docker compose ... up -d --build`) pra pegar o código novo — mesma lógica do que já fizemos localmente com o `farmaura`, só que no servidor.
 
 Quer que eu prossiga?
+
+---
+
+## Turno 7 · 2026-09-23 08:29
+
+<span class="chat-role chat-role-user">Você</span>
+
+Isso modifica algo no github como apagar alguma branch?
+
+<span class="chat-role chat-role-ai">Claude</span>
+
+Não. Nenhum desses dois comandos escreve no GitHub — os dois são somente leitura em relação ao remoto:
+
+- **`git fetch origin`**: só *baixa* dados do GitHub (commits, branches). Não envia nada, não apaga nada, não é um `push`.
+- **`git reset --hard origin/staging/lumos-dev`**: mexe **só no checkout local do servidor** (os arquivos em `/opt/farmaura`). `origin/staging/lumos-dev` aqui é usado apenas como *referência* de "para onde apontar" — o comando não toca na branch remota nem em nada dentro do GitHub.
+
+Nada aqui apaga branch, faz force-push, ou altera o repositório no GitHub de forma alguma. O único lugar que sofre alteração é o disco do servidor `195.35.19.8`, e só os arquivos dentro de `/opt/farmaura` (que já confirmei estarem sem nenhuma edição local pendente).
+
+Se em algum momento eu precisasse fazer algo que *de fato* mexe no GitHub (push, delete de branch remota, etc.), eu avisaria explicitamente antes, porque aí sim seria uma mudança no remoto compartilhado.
+
+Posso prosseguir com o `fetch` + `reset --hard` no servidor?
+
+---
+
+## Turno 8 · 2026-09-23 08:29
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-farmaura-f005e8be#Turno 8 · 2026-09-23 08:29|ver execução deste turno]]</span>
+
+<span class="chat-role chat-role-user">Você</span>
+
+Ent"ao pode executar
+
+<span class="chat-role chat-role-ai">Claude</span>
+
+Código do servidor já atualizado e sincronizado com o origin (útil notar: havia 1 commit a mais no remoto — `c1031d3 Nova conversa`, um auto-commit de log de chat, só docs, sem código). Agora sigo com o rebuild da stack (passo 4 do POP).
+
+Rebuild e restart concluídos: `farmaura_api` e `farmaura` foram recriados a partir das imagens novas (backend + frontend). Agora vou verificar a saúde conforme o passo 9 do POP.
+
+**Deploy em `lumos-dev` concluído com sucesso.**
+
+- Código do servidor sincronizado (`git fetch` + `reset --hard origin/staging/lumos-dev`) até o commit mais recente da branch.
+- `farmaura` (frontend) e `farmaura_api` (backend) rebuildados e recriados via `docker compose ... up -d --build`.
+- Health check confirmado: `{"status":"ok","detail":"Farmaura API is healthy."}` em `https://dev.drogariafarmaura.com.br`.
+- Todos os containers do stack (`farmaura`, `farmaura_api`, `farmaura_postgres`, `farmaura_nominatim`, `farmaura_valkey`, `farmaura_mailhog`) estão healthy.
+
+Não mexi no gateway compartilhado (`gateway_nginx`) — não foi necessário, já estava integrado. Você já pode testar em https://dev.drogariafarmaura.com.br com as mesmas correções (favoritos, botão salvar no produto, `/saved`, assinaturas) que validamos localmente.
+
+Uma observação: o SSH funcionou via a chave dentro do WSL (`~/.ssh/id_ed25519` no Ubuntu-24.04), não há nada configurado do lado Windows desta máquina ainda. Se você for repetir isso com frequência por aqui, posso deixar um alias `ssh lumos-dev` configurado (do lado WSL ou Windows) pra não precisar do comando longo toda vez — quer que eu faça isso?
 
 ---
