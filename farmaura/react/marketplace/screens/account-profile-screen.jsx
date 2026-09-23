@@ -635,6 +635,17 @@ function ProfileManage({ ctx, acct }) {
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoError, setInfoError] = useState('');
   const [editingPersonal, setEditingPersonal] = useState(false);
+  useEffect(() => {
+    /** `useState(profile)` above only seeds `draft` on first mount — this screen renders
+     * immediately, before the marketplace bootstrap's `/customers/me` fetch resolves, so a
+     * fresh mount (e.g. landing here on a hard refresh) captured the still-empty placeholder
+     * profile and never saw the real one arrive a few hundred ms later (CPF, birth date, etc.
+     * stuck showing "—" forever even though the save worked and the server had the data all
+     * along). Re-sync whenever `profile` changes, but only while not actively editing, so this
+     * doesn't clobber in-progress edits if the context profile happens to update mid-edit. */
+
+    if (!editingPersonal) setDraft(profile);
+  }, [profile, editingPersonal]);
   const [editingAddr, setEditingAddr] = useState(null);
   const [addrError, setAddrError] = useState('');
   const [removingAddr, setRemovingAddr] = useState(null);
