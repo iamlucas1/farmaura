@@ -549,9 +549,9 @@ class CustomerService:
             provider_token=provider_token,
             brand_name=str(tokenized.get("creditCardBrand") or "Cartão"),
             last_four_digits=str(tokenized.get("creditCardNumber") or "0000")[-4:],
-            holder_name=str(tokenized.get("creditCardHolderName") or ""),
-            expiration_month=str(tokenized.get("creditCardExpiryMonth") or ""),
-            expiration_year=str(tokenized.get("creditCardExpiryYear") or ""),
+            holder_name=payload.holder_name.strip(),
+            expiration_month=payload.expiration_month,
+            expiration_year=payload.expiration_year,
             is_primary=wants_primary,
         )
         return await self.create_payment_method(subject, create_request)
