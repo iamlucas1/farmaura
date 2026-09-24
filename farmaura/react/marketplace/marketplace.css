@@ -1421,9 +1421,13 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
    the fallback for values still too long once the column is at minmax()'s floor. */
 .order-meta-item .v { font-size: 13.5px; font-weight: 600; color: var(--fa-ink); overflow-wrap: break-word; word-break: break-word; }
 
-/* Field skeleton: a filled gray bar standing in for a value, used in two distinct states —
-   static (the backend answered and the field is genuinely empty) and shimmering (still waiting
-   on the response). Sized to the .v line-box above so it doesn't shift row height on arrival. */
+/* A field with no value reads as text ("Não informado", faint + italic — same signal a form's
+   own empty-select placeholder uses) rather than a shape, so it can never be mistaken for the
+   loading skeleton below. */
+.fa-field-empty { color: var(--fa-ink-3); font-weight: 500; font-style: italic; }
+
+/* Field skeleton: a shimmering gray bar standing in for a value still in flight. Sized to the .v
+   line-box above so it doesn't shift row height once the real value (or "Não informado") lands. */
 .fa-field-skel { display: inline-block; width: var(--fa-skel-w, 88px); height: 13px; margin: 2px 0; border-radius: 999px; background: var(--fa-mist-2); }
 .fa-field-skel-loading {
   background: linear-gradient(90deg, var(--fa-mist-2) 25%, var(--fa-mist) 50%, var(--fa-mist-2) 75%);

@@ -715,6 +715,16 @@ function ProfileManage({ ctx, acct }) {
     if (digits.length > 3) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
     return digits;
   };
+  const maskCpfForDisplay = (value) => {
+    /** Privacy mask for the read-only summary card — first 3 and last 2 digits stay visible
+     * (enough for the customer to recognize their own CPF at a glance), the two middle groups
+     * are hidden behind bullets. Editing still shows the real value (maskCpfInput above); this
+     * is display-only. */
+
+    const digits = (value || '').replace(/\D/g, '').slice(0, 11);
+    if (digits.length !== 11) return maskCpfInput(value);
+    return `${digits.slice(0, 3)}.•••.•••-${digits.slice(9)}`;
+  };
   const formatBirthDateLabel = (isoDate) => {
     /** Render the stored ISO (YYYY-MM-DD, from the <input type="date">) as DD/MM/AAAA for
      * reading — the raw ISO string is fine as a form value but reads awkwardly as plain text. */
@@ -836,7 +846,7 @@ function ProfileManage({ ctx, acct }) {
 
   const PERSONAL_FIELDS = [
     ['fullname', 'Nome completo', draft.name],
-    ['cpf', 'CPF', draft.cpf ? maskCpfInput(draft.cpf) : '—'],
+    ['cpf', 'CPF', draft.cpf ? maskCpfForDisplay(draft.cpf) : '—'],
     ['birth', 'Data de nascimento', formatBirthDateLabel(draft.birth)],
     ['phone', 'Telefone', draft.phone || '—'],
     ['email', 'E-mail', draft.email],
@@ -1027,7 +1037,7 @@ function ProfileManage({ ctx, acct }) {
                   {!profileLoaded ? (
                     <span className="fa-field-skel fa-field-skel-loading" style={{ '--fa-skel-w': `${PERSONAL_FIELD_WIDTHS[key] || 88}px` }} aria-hidden="true" />
                   ) : value === '—' ? (
-                    <span className="fa-field-skel" style={{ '--fa-skel-w': `${PERSONAL_FIELD_WIDTHS[key] || 88}px` }} aria-label="Não informado" />
+                    <span className="v fa-field-empty">Não informado</span>
                   ) : (
                     <span className="v">{value}</span>
                   )}
