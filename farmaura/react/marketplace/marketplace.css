@@ -1421,6 +1421,20 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
    the fallback for values still too long once the column is at minmax()'s floor. */
 .order-meta-item .v { font-size: 13.5px; font-weight: 600; color: var(--fa-ink); overflow-wrap: break-word; word-break: break-word; }
 
+/* Field skeleton: a filled gray bar standing in for a value, used in two distinct states —
+   static (the backend answered and the field is genuinely empty) and shimmering (still waiting
+   on the response). Sized to the .v line-box above so it doesn't shift row height on arrival. */
+.fa-field-skel { display: inline-block; width: var(--fa-skel-w, 88px); height: 13px; margin: 2px 0; border-radius: 999px; background: var(--fa-mist-2); }
+.fa-field-skel-loading {
+  background: linear-gradient(90deg, var(--fa-mist-2) 25%, var(--fa-mist) 50%, var(--fa-mist-2) 75%);
+  background-size: 200% 100%;
+  animation: faFieldSkelShimmer 1.4s ease-in-out infinite;
+}
+@keyframes faFieldSkelShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .fa-field-skel-loading { animation: none; background: var(--fa-mist-2); }
+}
+
 .order-products { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--fa-mist); padding-top: 14px; }
 .order-product-row { display: flex; align-items: center; gap: 12px; }
 .order-product-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }

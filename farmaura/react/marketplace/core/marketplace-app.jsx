@@ -1343,6 +1343,11 @@ function App() {
   const [addresses, setAddresses] = useState([]);
   const [cards, setCards] = useState([]);
   const [customerProfile, setCustomerProfile] = useState(() => createMarketplaceProfileSnapshot(null));
+  // Distinguishes "the backend told us this field is genuinely empty" from "we haven't heard
+  // back yet" — customerProfile itself can't tell these apart, since it starts as the same blank
+  // snapshot in both cases. The profile screen uses this to show a loading skeleton instead of
+  // flashing empty dashes while the marketplace bootstrap's /customers/me call is in flight.
+  const [customerProfileLoaded, setCustomerProfileLoaded] = useState(false);
   const [mostSearchedProductIds, setMostSearchedProductIds] = useState([]);
   useEffect(() => {
     // Public, best-effort ranking (real sales volume, online + PDV) for the "Mais buscados"
@@ -1484,6 +1489,9 @@ function App() {
   }, [user && user.id, chatThreads]);
 
   useEffect(() => {
+    if (!user) {
+      setCustomerProfileLoaded(false);
+    }
     setCustomerProfile((current) => {
       const baseProfile = createMarketplaceProfileSnapshot(user);
       if (!user) {
@@ -2359,6 +2367,7 @@ function App() {
           setCashbackWallet({ availableBalance: 0, pendingBalance: 0, lifetimeEarnedTotal: 0, redeemedTotal: 0, redeemMaxPercent: 25, entries: [] });
           setAnniversaryOffers([]);
           setCustomerProfile(createMarketplaceProfileSnapshot(user));
+          setCustomerProfileLoaded(true);
           return;
         }
         const cartFetchSeq = cartMutationSeqRef.current;
@@ -2422,6 +2431,7 @@ function App() {
           pharmacistName: thread.pharmacist_name || thread.pharmacistName || normalizedBootstrap.pharmacist.name,
         }))));
         setCustomerProfile(normalizeMarketplaceProfile(profilePayload, user));
+        setCustomerProfileLoaded(true);
         const liveOrders = Array.isArray(ordersPayload && ordersPayload.items)
           ? ordersPayload.items.map(normalizeMarketplaceOrder).filter(Boolean)
           : [];
@@ -2431,6 +2441,7 @@ function App() {
         }
       } catch (error) {
         const status = Number(error && error.status || 0);
+        const willRetry = [502, 503, 504].includes(status);
         // The backend's own "orphaned session" guard: the access token decodes fine (not
         // expired/tampered) but its user_id no longer matches any row — e.g. a browser tab left
         // open across a database reset/reseed, or an account deleted server-side. Falling back to
@@ -2453,8 +2464,14 @@ function App() {
           setAvailabilityAlerts([]);
           setCoupons(cachedBootstrap.coupons || []);
           setCustomerProfile(createMarketplaceProfileSnapshot(user));
+          // A 502-504 schedules an automatic retry below — keep the profile screen showing its
+          // loading skeleton through that retry instead of flashing empty dashes and then
+          // skeleton again once the real data arrives.
+          if (!willRetry) {
+            setCustomerProfileLoaded(true);
+          }
         }
-        if (active && retryTimer == null && [502, 503, 504].includes(status)) {
+        if (active && retryTimer == null && willRetry) {
           retryTimer = window.setTimeout(() => {
             retryTimer = null;
             if (active) {
@@ -2758,7 +2775,7 @@ function App() {
     homeBrands: portalData.homeBrands,
     homeTrends: portalData.homeTrends,
     dealOfTheDay: portalData.dealOfTheDay,
-    profile: customerProfile, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, dismissProfileNudge, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
+    profile: customerProfile, profileLoaded: customerProfileLoaded, setCustomerProfile, saveCustomerAvatar, saveCustomerProfile, saveCustomerPrivacyPreferences, dismissProfileNudge, beginTwoFactorSetup, enableTwoFactor, disableTwoFactor,
     justSignedUpViaGoogle, clearGoogleWelcome: () => setJustSignedUpViaGoogle(false),
     googleOauthClientId: portalData.googleOauthClientId, linkGoogleAccount, unlinkGoogleAccount,
     addresses, createCustomerAddress, updateCustomerAddress, deleteCustomerAddress, setPrimaryCustomerAddress,

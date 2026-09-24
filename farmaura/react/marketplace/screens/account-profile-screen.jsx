@@ -629,6 +629,7 @@ function ProfileManage({ ctx, acct }) {
    */
 
   const { profile, setProfile } = acct;
+  const profileLoaded = ctx.profileLoaded;
   const addresses = ctx.addresses;
   const [draft, setDraft] = useState(profile);
   const [savedInfo, setSavedInfo] = useState(false);
@@ -846,6 +847,11 @@ function ProfileManage({ ctx, acct }) {
     // with no kids would just be visual noise (see the user's own request: "caso tenha").
     ...(childrenAgesLabel ? [['childrenAges', 'Filhos', childrenAgesLabel]] : []),
   ];
+  // Rough natural width per field, so the placeholder/skeleton bar reads as "a value of about
+  // this length" instead of one generic block repeated eight times.
+  const PERSONAL_FIELD_WIDTHS = {
+    fullname: 132, cpf: 108, birth: 84, phone: 116, email: 148, gender: 72, marital: 96, children: 32, childrenAges: 136,
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -1018,7 +1024,13 @@ function ProfileManage({ ctx, acct }) {
               {PERSONAL_FIELDS.map(([key, label, value]) => (
                 <div className="order-meta-item" key={key}>
                   <span className="k">{label}</span>
-                  <span className="v">{value}</span>
+                  {!profileLoaded ? (
+                    <span className="fa-field-skel fa-field-skel-loading" style={{ '--fa-skel-w': `${PERSONAL_FIELD_WIDTHS[key] || 88}px` }} aria-hidden="true" />
+                  ) : value === '—' ? (
+                    <span className="fa-field-skel" style={{ '--fa-skel-w': `${PERSONAL_FIELD_WIDTHS[key] || 88}px` }} aria-label="Não informado" />
+                  ) : (
+                    <span className="v">{value}</span>
+                  )}
                   {key === 'cpf' && draft.cpf && !isValidCpfChecksum(draft.cpf) && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, fontSize: 11.5, fontWeight: 700, color: 'var(--fa-error)' }}>
                       <Icon name="info" size={12} />CPF inválido — corrija para poder salvar cartões
