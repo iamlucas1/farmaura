@@ -716,14 +716,13 @@ function ProfileManage({ ctx, acct }) {
     return digits;
   };
   const maskCpfForDisplay = (value) => {
-    /** Privacy mask for the read-only summary card — first 3 and last 2 digits stay visible
-     * (enough for the customer to recognize their own CPF at a glance), the two middle groups
-     * are hidden behind bullets. Editing still shows the real value (maskCpfInput above); this
-     * is display-only. */
+    /** Privacy mask for the read-only summary card — first 3 and last 2 digits are hidden
+     * behind bullets, the two middle groups stay visible. Editing still shows the real value
+     * (maskCpfInput above); this is display-only. */
 
     const digits = (value || '').replace(/\D/g, '').slice(0, 11);
     if (digits.length !== 11) return maskCpfInput(value);
-    return `${digits.slice(0, 3)}.•••.•••-${digits.slice(9)}`;
+    return `•••.${digits.slice(3, 6)}.${digits.slice(6, 9)}-••`;
   };
   const formatBirthDateLabel = (isoDate) => {
     /** Render the stored ISO (YYYY-MM-DD, from the <input type="date">) as DD/MM/AAAA for
