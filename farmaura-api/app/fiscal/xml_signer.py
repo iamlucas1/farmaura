@@ -44,9 +44,22 @@ def _q(tag: str) -> str:
 
 
 def canonicalize(element: etree._Element) -> bytes:
-    """Return the inclusive C14N 1.0 form of `element`, without comments."""
+    """Return the inclusive C14N 1.0 form of `element`, without comments.
 
-    return etree.tostring(element, method="c14n", exclusive=False, with_comments=False)
+    `element` is re-serialized and re-parsed into its own standalone document first. libxml2's inclusive
+    C14N, applied directly to a live element that is not itself the document root, incorrectly resets
+    inherited namespaces to empty (`xmlns=""`) on descendants that never redeclare them — the ambient
+    namespace gets correctly lifted onto `element` itself, but then spuriously "un-declared" again one
+    level down. That changes the digested bytes without changing the document's actual meaning, so SEFAZ
+    (which canonicalizes the same logical content with a spec-compliant implementation) computes a
+    different digest and rejects the note with cStat 297 ("Assinatura difere do calculado"), even though
+    `verify_signature` below — which reuses this same function for both directions — sees no mismatch.
+    Detaching into a standalone document before canonicalizing avoids the bug: as an actual document
+    root, `element` no longer needs any namespace lifted onto it, so libxml2 has nothing to get wrong.
+    """
+
+    standalone = etree.fromstring(etree.tostring(element))
+    return etree.tostring(standalone, method="c14n", exclusive=False, with_comments=False)
 
 
 def parse_xml(xml: str | bytes) -> etree._Element:

@@ -138,7 +138,7 @@ async def main() -> int:
         NfceInput(
             emitter=emitter, tp_amb=settings.tp_amb, serie=int(settings.nfce_serie), number=args.number,
             numeric_code=generate_numeric_code(args.number), issued_at=now, items=[item],
-            payments=[PaymentData(tpag="99", amount=Decimal("1.00"))], qrcode_base_url=settings.nfce_qrcode_url,
+            payments=[PaymentData(tpag="01", amount=Decimal("1.00"))], qrcode_base_url=settings.nfce_qrcode_url,
             consultation_url=settings.nfce_consultation_url, additional_info="Teste de homologacao Farmaura",
             process_version="farmaura-api/hml-check", uf_code=DF_UF_CODE,
         )
