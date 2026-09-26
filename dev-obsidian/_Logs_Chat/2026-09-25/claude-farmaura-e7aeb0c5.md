@@ -63,3 +63,34 @@ Feito. Resumo do que mudei:
 Daqui pra frente, isso é automático: antes de qualquer push, vou sempre rodar essa checagem primeiro, sem precisar que você peça de novo.
 
 ---
+
+## Turno 34 · 2026-09-25 22:33
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-25/claude-farmaura-e7aeb0c5#Turno 34 · 2026-09-25 22:33|ver execução deste turno]]</span>
+
+<span class="chat-role chat-role-user">Você</span>
+
+Isso também para quando é documentado
+
+<span class="chat-role chat-role-ai">Claude</span>
+
+Agora vou ajustar a memória para refletir a mesma unificação (documentação manual e logs automáticos sob o mesmo princípio).
+
+Agora vou atualizar o índice `MEMORY.md` para refletir o escopo ampliado, e commitar/subir a mudança no `CLAUDE.md`.
+
+Agora vou aplicar o mesmo procedimento de checagem antes de subir o `CLAUDE.md` atualizado (o hook já deve ter reescrito os logs de novo desde o último push).
+
+Ainda tinha bastante coisa sem redigir (minha checagem anterior com regex tinha um erro de sintaxe). Vou corrigir agora.
+
+Agora reconfirmo com a mesma checagem não-literal, mais uma varredura ampla por outros formatos conhecidos de segredo.
+
+Agora reconfirmo tudo com uma varredura final.
+
+Tudo limpo agora. Vou commitar (`CLAUDE.md` ampliado + logs redigidos) e subir.
+
+Publicado. Resumo do que mudou:
+
+- **`dev-obsidian/CLAUDE.md`**: a regra agora deixa explícito que é um princípio único com duas aplicações — **preventiva** para tudo que eu escrevo à mão (decisões, documentação, pendências: nunca digitar o valor real, nem para exemplificar) e **reativa** para os logs automáticos (scan antes de cada push, já que ali eu não controlo o que é escrito).
+- Ajustei a memória correspondente com a mesma generalização.
+- No processo, encontrei que minha varredura anterior tinha um regex com bug e só pegava os dois segredos mais recentes — refiz com detecção mais ampla (qualquer variável terminando em `KEY/TOKEN/PASSWORD/SECRET/WALLET/PIX`, mais JWT, chaves estilo OpenAI/Gemini e blocos PEM) e limpei tudo que tinha voltado.
+
+---
