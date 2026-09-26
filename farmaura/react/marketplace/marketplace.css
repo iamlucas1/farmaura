@@ -1058,11 +1058,16 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 }
 .fa-cart-link-btn:hover { text-decoration: underline; }
 
-.fa-cart-item { display: grid; grid-template-columns: 96px 1fr auto; gap: 16px; align-items: start; }
+.fa-cart-item { display: grid; grid-template-columns: 96px 1fr auto; gap: 16px; align-items: stretch; }
 .fa-cart-item-media { width: 96px; height: 96px; flex: none; cursor: pointer; }
 .fa-cart-item-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fa-cart-item-badges { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 0; }
-.fa-cart-item-aside { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
+/* `justify-content: space-between` (not the default flex-start) so the qty stepper always sits at
+   the bottom of the column, level with the end of the name/recurrence-toggle block on the left —
+   otherwise a short price block (no discount, no "economize" line) leaves the stepper floating high
+   and visibly out of line with the recurrence toggle beside it. Needs `align-items: stretch` on the
+   row above so this column actually has the row's full height to distribute. */
+.fa-cart-item-aside { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 10px; flex: none; }
 /* Icon-only now (no "Remover" label) — padding turns the 15px glyph into a real ~32px tap target,
    and the rounded hover fill gives it the same "are you sure" weight a labeled button used to carry
    from its own text, without permanently occupying that text's horizontal space. */
