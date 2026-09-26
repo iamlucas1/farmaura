@@ -565,8 +565,10 @@ function CartScreen({ ctx }) {
                     <div style={{ fontWeight: 800, fontSize: 17 }}>{brl(lineTotal)}</div>
                     {hasLineSavings && <div className="fa-cart-item-savings">Você economiza {brl(anchorTotal - lineTotal)}</div>}
                   </div>
-                  <QtyStepper value={item.qty} onChange={(qty) => updateQty(item.id, qty)} />
-                  <button onClick={() => setConfirmingRemoveId(item.id)} className="fa-cart-item-remove" aria-label="remover"><Icon name="trash" size={15} /></button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <QtyStepper value={item.qty} onChange={(qty) => updateQty(item.id, qty)} />
+                    <button onClick={() => setConfirmingRemoveId(item.id)} className="fa-cart-item-remove" aria-label="remover"><Icon name="trash" size={15} /></button>
+                  </div>
                 </div>
               </div>
             );
