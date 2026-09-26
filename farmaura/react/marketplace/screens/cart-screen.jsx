@@ -560,9 +560,9 @@ function CartScreen({ ctx }) {
                   </div>
                 </div>
                 <div className="fa-cart-item-aside">
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: 'right', padding: '2px 0' }}>
                     {hasLineSavings && <span className="fa-price-old" style={{ fontSize: 12 }}>{brl(anchorTotal)}</span>}
-                    <div style={{ fontWeight: 800, fontSize: 17 }}>{brl(lineTotal)}</div>
+                    <div className="fa-price">{brl(lineTotal)}</div>
                     {hasLineSavings && <div className="fa-cart-item-savings">Você economiza {brl(anchorTotal - lineTotal)}</div>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
