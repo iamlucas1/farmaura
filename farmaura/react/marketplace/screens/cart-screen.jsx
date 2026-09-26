@@ -465,7 +465,7 @@ function CartScreen({ ctx }) {
                         <div className="fa-pc-brand">Item indisponível</div>
                         <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3 }}>Este produto não está mais disponível no catálogo atual.</div>
                       </div>
-                      <button onClick={() => removeItem(item.id)} className="fa-cart-item-remove" style={{ flex: 'none' }} aria-label="remover"><Icon name="trash" size={13} />Remover</button>
+                      <button onClick={() => removeItem(item.id)} className="fa-cart-item-remove" style={{ flex: 'none' }} aria-label="remover"><Icon name="trash" size={15} /></button>
                     </div>
                     <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 8 }}>Remova este item do carrinho para continuar com o pedido.</div>
                   </div>
@@ -486,7 +486,7 @@ function CartScreen({ ctx }) {
                         <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3 }}>{product.name}</div>
                         <span className="fa-badge fa-badge-mist" style={{ marginTop: 6 }}><Icon name="minus" size={11} stroke={2.2} />Sem estoque no momento</span>
                       </div>
-                      <button onClick={() => removeItem(item.id)} className="fa-cart-item-remove" style={{ flex: 'none' }} aria-label="remover"><Icon name="trash" size={13} />Remover</button>
+                      <button onClick={() => removeItem(item.id)} className="fa-cart-item-remove" style={{ flex: 'none' }} aria-label="remover"><Icon name="trash" size={15} /></button>
                     </div>
                     <div className="fa-muted" style={{ fontSize: 13.5, marginTop: 8 }}>Remova este item para finalizar a compra, ou peça para te avisarmos quando ele voltar.</div>
                     <button
@@ -566,7 +566,7 @@ function CartScreen({ ctx }) {
                     {hasLineSavings && <div className="fa-cart-item-savings">Você economiza {brl(anchorTotal - lineTotal)}</div>}
                   </div>
                   <QtyStepper value={item.qty} onChange={(qty) => updateQty(item.id, qty)} />
-                  <button onClick={() => setConfirmingRemoveId(item.id)} className="fa-cart-item-remove" aria-label="remover"><Icon name="trash" size={13} />Remover</button>
+                  <button onClick={() => setConfirmingRemoveId(item.id)} className="fa-cart-item-remove" aria-label="remover"><Icon name="trash" size={15} /></button>
                 </div>
               </div>
             );
