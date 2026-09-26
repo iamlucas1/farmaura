@@ -34,3 +34,32 @@ No caminho, a GitHub bloqueou o primeiro envio por causa de um token Asaas real 
 O único arquivo que ficou de fora, como de costume, foi `.claude/settings.json` (alterações locais de permissão da sessão, não fazem parte do conteúdo do projeto).
 
 ---
+
+## Turno 33 · 2026-09-25 22:29
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-25/claude-farmaura-e7aeb0c5#Turno 33 · 2026-09-25 22:29|ver execução deste turno]]</span>
+
+<span class="chat-role chat-role-user">Você</span>
+
+Quero que faça uma mudança, sempre que for subir para o github, alterar chaves, senhas, segredos, etc para que não tenhamos vazamos, mas localmente e dentro do lumos-dev e lumos-prd quero manter os segredos sem que tenham sido ocultados, então faça com que isso seja mapeado
+
+<span class="chat-role chat-role-ai">Claude</span>
+
+Agora vou salvar isso também na minha memória persistente, para aplicar mesmo fora deste repositório.
+
+Bom, os links resolvem. Agora atualizo o índice `MEMORY.md`.
+
+Como esperado, o próprio hook já reescreveu os logs de novo (incluindo minhas buscas desta sessão). Vou aplicar agora o procedimento que acabei de documentar antes de subir.
+
+Limpo agora. Vou commitar tudo (a regra nova + os logs redigidos) e subir.
+
+Feito. Resumo do que mudei:
+
+1. **`dev-obsidian/CLAUDE.md`** ganhou uma seção nova na "Regra de Segurança do Cofre" formalizando exatamente o que você pediu: segredos reais nunca são ocultados no `.env` local, no `lumos-dev` ou no `lumos-prd` — só é ocultado o que vai para o GitHub, com foco nos logs automáticos (`_Logs_Chat`/`_Logs_Execucao`), que são o único ponto real de vazamento aqui. O texto documenta o procedimento a seguir sempre antes de um push: buscar padrões de segredo, redigir com `[REDACTED_<NOME>]`, e nunca digitar o valor literal no próprio comando de redação (senão ele volta no log seguinte).
+
+2. **Salvei o mesmo princípio na minha memória persistente**, para aplicar mesmo fora deste repositório.
+
+3. Confirmei que o `.env` local continua com a senha real do certificado, sem qualquer ocultação — e usei o próprio procedimento novo para limpar vazamentos que o hook já tinha reintroduzido nos logs de 23 a 25/09 antes de subir tudo.
+
+Daqui pra frente, isso é automático: antes de qualquer push, vou sempre rodar essa checagem primeiro, sem precisar que você peça de novo.
+
+---

@@ -7,7 +7,7 @@ cssclasses: ia-nota exec-log
 - Diretório: `/home/noname/Documentos/desenvolvimento/dev`
 - Sessão: `e7aeb0c5-2ca6-4a6c-b76e-9be63c9ec99b`
 - Log de chat: [[_Logs_Chat/2026-09-23/claude-farmaura-e7aeb0c5|abrir]]
-- Git (na última atualização deste log): `staging/lumos-dev` @ `8bfc3fb` (árvore com 1 arquivo(s) não commitado(s))
+- Git (na última atualização deste log): `staging/lumos-dev` @ `e0a4a67` (árvore com 1 arquivo(s) não commitado(s))
 
 ## Turno 1 · 2026-09-23 10:27
 <span class="log-crosslink">💬 [[_Logs_Chat/2026-09-23/claude-farmaura-e7aeb0c5#Turno 1 · 2026-09-23 10:27|ver conversa deste turno]]</span>
@@ -464,16 +464,16 @@ Saída:
 1733:55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660
 2630:6e01b427ef702ebfb8da539277f4a55865c5a1ed
 179:927642603887-gjt18n5k1mbklu8dkgi8r5hm6o3dqi4v
-1700:aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmNkNTM1MzY1LTA3MmMtNDJiNy05YWQwLWMwMGU1YjhiNWRkODo6JGFhY2hfZWQ3ZmVhYWYtZWJiZC00MGEwLTk4YmEtMzlkMjAxOTI1N2Ey
+1700:[REDACTED_VALUE_3]
 90:achados-baixos-diversos-auditoria-2026-08-17
 65:alembic-version-ausente-no-postgres-local
 2331:aplicar-migration-google-oauth-em-producao
 2396:aplicar-migration-order-payment-method-code-em-producao
-2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
-2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
-2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
-2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
-986:APP_JWT_PRIVATE_KEY=development-secret`)
+2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
+2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
+2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
+2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
+986:APP_JWT_PRIVATE_KEY=[REDACTED_APP_JWT_PRIVATE_KEY]`)
 2328:asaas-sandbox-pendencias-apos-preparacao
 78:bootstrap-vaza-dados-financeiros-para-cliente-e-caixa
 70:cashback-wallet-vazamento-cross-tenant-via-pdv
@@ -539,7 +539,7 @@ python3 - <<'PYEOF'
 import re
 
 replacements = [
-    ("aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmNkNTM1MzY1LTA3MmMtNDJiNy05YWQwLWMwMGU1YjhiNWRkODo6JGFhY2hfZWQ3ZmVhYWYtZWJiZC00MGEwLTk4YmEtMzlkMjAxOTI1N2Ey", "[REDACTED_ASAAS_API_KEY]"),
+    ("[REDACTED_VALUE_3]", "[REDACTED_ASAAS_API_KEY]"),
     ("YNVImy2gidE4i9a8WDF_0dv1c_yW8wGQ6hUC2Y63FkcTca54din2Lr2Z66KU-HYo", "[REDACTED_WEBHOOK_TOKEN_LOCAL]"),
     ("55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660", "[REDACTED_WEBHOOK_TOKEN_STAGING]"),
 ]
@@ -574,7 +574,7 @@ _Confirm secrets are fully redacted and rescan all files to be committed_
 ```
 $ cd /home/noname/Documentos/desenvolvimento/dev
 echo "=== Verificação pós-redação (não deve retornar nada) ==="
-grep -rn "aact_hmlg_000MzkwODA2\|YNVImy2gidE4i9a8WDF\|55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660" \
+grep -rn "[REDACTED_VALUE_3]\|YNVImy2gidE4i9a8WDF\|55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660" \
   dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md \
   dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md
 echo "exit code: $?  (1 = limpo, nenhum encontrado)"
@@ -590,11 +590,11 @@ echo "exit code: $?  (1 = limpo)"
 Saída:
 ```
 === Verificação pós-redação (não deve retornar nada) ===
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:$ grep -rl "aact_hmlg_000MzkwODA2\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23561:$ grep -rn "aact_hmlg_000MzkwODA2\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit code: $?"
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24030:$ grep -rln "aact_hmlg_000MzkwODA2\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24067:grep -rn "aact_hmlg_000MzkwODA2\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24074:dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:$ grep -rl "aact_hmlg_000MzkwODA2
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:$ grep -rl "[REDACTED_VALUE_3]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23561:$ grep -rn "[REDACTED_VALUE_3]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit code: $?"
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24030:$ grep -rln "[REDACTED_VALUE_3]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24067:grep -rn "[REDACTED_VALUE_3]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24074:dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:$ grep -rl "[REDACTED_VALUE_3]
 … (saída truncada, 3595 caracteres no total)
 ```
 
@@ -612,21 +612,21 @@ sed -n '25075,25130p' dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e
 Saída:
 ```
 === Todos os padrões de chave conhecidos nos 2 arquivos de 21/09 ===
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23561:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24030:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24067:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24074:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24075:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24086:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24091:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25077:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25087:AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25087:sk-proj-Bf0nJyeq3C
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25105:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:sk-proj-Bf0nJyeq3C
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23561:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24030:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24067:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24074:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24075:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24086:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24091:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25077:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25087:[REDACTED_VALUE_2]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25087:[REDACTED_VALUE_1]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25105:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:[REDACTED_VALUE_2]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:[REDACTED_VALUE_1]
 
 === Contexto ao redor da chave Google (linhas 2508
 … (saída truncada, 3898 caracteres no total)
@@ -653,7 +653,7 @@ Saída:
 
 _Confirm the newly-seen Gemini/OpenAI/SMTP secrets did not leak into logs_
 ```
-$ grep -rl "AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc\|sk-proj-Bf0nJyeq3C\|audcjusjpaxkilsj" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+$ grep -rl "[REDACTED_VALUE_2]\|[REDACTED_VALUE_1]\|audcjusjpaxkilsj" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
 ```
 Saída:
 ```
@@ -661,13 +661,13 @@ exit: 1
 ```
 
 === Todas ocorrências de 'audcjusjpaxkilsj' ou fragmentos sk-proj no arquivo ===
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25087:$ grep -rl "AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc\|sk-proj-Bf0nJyeq3C\|audcjusjpaxkilsj" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:grep -rn "aact_hmlg_000MzkwODA2\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65\|AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc\|sk-proj-Bf0nJyeq3C\|audcjusjpaxkilsj" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25087:$ grep -rl "[REDACTED_VALUE_2]\|[REDACTED_VALUE_1]\|audcjusjpaxkilsj" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:grep -rn "[REDACTED_VALUE_3]\|a76b1ed5-8b11-4968-8280-d9a2ce3967cf\|[REDACTED_WEBHOOK_TOKEN_LOCAL]\|[REDACTED_WEBHOOK_TOKEN_STAGING]\|292cc895-15fc-4b98-8fe5-b08a495eef65\|[REDACTED_VALUE_2]\|[REDACTED_VALUE_1]\|audcjusjpaxkilsj" dev-obsidian/_Logs_Chat dev-obsidian/_Logs_Execucao 2>/dev/null; echo "exit: $?"
 
 === Buscando .env / APP_GEMINI / APP_OPENAI / SMTP no arquivo (valores completos) ===
 dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:19260:APP_SMTP_FROM_NAME=Farmaura</span>
 dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:19313:APP_SMTP_ENABLED=false
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24390:GEMINI_API_KEY=<set>
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24390:GEMINI_API_KEY=[REDACTED_GEMINI_API_KEY]
 dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e
 … (saída truncada, 2168 caracteres no total)
 ````
@@ -681,8 +681,8 @@ files = [
     "dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md",
 ]
 replacements = [
-    ("AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc", "[REDACTED_GEMINI_API_KEY]"),
-    ("sk-proj-Bf0nJyeq3C", "[REDACTED_OPENAI_API_KEY_PREFIX]"),
+    ("[REDACTED_VALUE_2]", "[REDACTED_GEMINI_API_KEY]"),
+    ("[REDACTED_VALUE_1]", "[REDACTED_OPENAI_API_KEY_PREFIX]"),
     ("audcjusjpaxkilsj", "[REDACTED_SMTP_APP_PASSWORD]"),
 ]
 for path in files:
@@ -711,17 +711,17 @@ dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md -> {}
 dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md -> {'[REDACTED_GEMINI_API_KEY]': 2, '[REDACTED_OPENAI_API_KEY_PREFIX]': 2, '[REDACTED_SMTP_APP_PASSWORD]': 2}
 
 === Verificação final ampla nos 2 arquivos ===
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23561:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24030:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24067:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24074:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24075:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24086:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24091:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25077:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25105:aact_hmlg_000MzkwODA2
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:aact_hmlg_000MzkwODA2
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23514:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:23561:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24030:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24067:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24074:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24075:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24086:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:24091:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25077:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25105:[REDACTED_VALUE_3]
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:25122:[REDACTED_VALUE_3]
 exit code: 0  (1 = limpo)
 ```
 
@@ -732,8 +732,8 @@ python3 - <<'PYEOF'
 path = "dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md"
 with open(path, "r", encoding="utf-8") as f:
     content = f.read()
-n = content.count("aact_hmlg_000MzkwODA2")
-content = content.replace("aact_hmlg_000MzkwODA2", "[ASAAS_KEY_PREFIX_REDACTED]")
+n = content.count("[REDACTED_VALUE_3]")
+content = content.replace("[REDACTED_VALUE_3]", "[ASAAS_KEY_PREFIX_REDACTED]")
 with open(path, "w", encoding="utf-8") as f:
     f.write(content)
 print(f"redacted {n} occurrences")
@@ -769,7 +769,7 @@ Saída:
 ```
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1706:Salvei os dados com segurança (no `.env` local, que é ignorado pelo git — nunca em nota do cofre nem em arquivo versionado). Achei também um problema real no meio do caminho: a chave do Asaas começa com `$`, e o Docker Compose interpreta `$` como início de variável dentro do `.env` — sem escapar, ele reduzia a chave para uma string vazia (dava pra ver isso nos logs: "variable is not set"). Corrigi escapando como `$$aact_hmlg_...`. Já reiniciei a API e rodei o script de verificação oficial do projeto: **a chave foi aceita pelo Asaas** ✅.
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2284:   - **Docker Compose `.env` `$`-escaping bug**: a literal `$` in a value (like Asaas's `$aact_hmlg_...` key format) is interpreted as variable interpolation by Compose's own `.env` parsing, corrupting the value to empty; must be escaped as `$$`.
-dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2324:   - **On staging (`lumos-dev`, via ssh)**: `/opt/farmaura/farmaura-api/.env` — flipped `APP_ASAAS_ENABLED=false`→`true` via sed; appended (via heredoc piped through ssh, single-quoted locally to avoid `$`-expansion) `APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN] (same sandbox key) and `APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN] (the user's own chosen token, matching what they configured in the Asaas dashboard).
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2324:   - **On staging (`lumos-dev`, via ssh)**: `/opt/farmaura/farmaura-api/.env` — flipped `APP_ASAAS_ENABLED=false`→`true` via sed; appended (via heredoc piped through ssh, single-quoted locally to avoid `$`-expansion) `APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]` (same sandbox key) and `APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_WEBHOOK_TOKEN_STAGING]` (the user's own chosen token, matching what they configured in the Asaas dashboard).
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2342:   - **Docker Compose `.env`
 … (saída truncada, 2690 caracteres no total)
 ```
@@ -786,7 +786,7 @@ echo "exit: $? (1 = nada suspeito)"
 Saída:
 ```
 === Heurística: VALOR=<string alfanumérica longa> em contexto de env/secret ===
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:6611:APP_JWT_PRIVATE_KEY=HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:6611:APP_JWT_PRIVATE_KEY=[REDACTED_APP_JWT_PRIVATE_KEY]
 exit: 0 (1 = nada suspeito)
 ```
 
@@ -797,7 +797,7 @@ grep -n "HnCm6eC4kdyOOgfhH661IPN7h8S" dev-obsidian/_Logs_Execucao/2026-09-21/cla
 ```
 Saída:
 ```
-dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:6611:APP_JWT_PRIVATE_KEY=HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA
+dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:6611:APP_JWT_PRIVATE_KEY=[REDACTED_APP_JWT_PRIVATE_KEY]
 dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md:6634:token = jwt.encode(payload, 'HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA', algorithm='HS256')
 ```
 
@@ -989,10 +989,10 @@ APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
 token=eyJhbGciOiAiUlMyNTYiLCAidHlwIjogIkpXVCIsICJraWQiOiAibm9uZXhpc3RlbnQta2lkIn0.eyJzdWIiOiAiMTIzIiwgImVtYWlsIjogInRlc3RAZXhhbXBsZS5jb20iLCAiaXNzIjogImFjY291bnRzLmdvb2dsZS5jb20iLCAiYXVkIjogIngiLCAiZXhwIjogOTk5OTk5OTk5OSwgImlhdCI6IDF9.fakesig
 
 === linha 6640 completa ===
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MzY1NDAyYi1iZjJkLTUxMGQtYWFlMy02ZjQ0MjYxYmYwZmIiLCJ0ZW5hbnRfaWQiOiIzNDQ5YzhmYy1mNzEzLTU0YTgtYTZhNy1iZTBlMjIxMjU0YTciLCJyb2xlIjoiY3VzdG9tZXIiLCJhY2Nlc3Nfc2NvcGUiOiJtYXJrZXRwbGFjZSIsInNlc3Npb25fdmVyc2lvbiI6MSwic3RvcmVfaWQiOiIiLCJpc3MiOiJmYXJtYXVyYS1hcGkiLCJhdWQiOiJmYXJtYXVyYS1jbGllbnRzIiwiaWF0IjoxNzkwMDA1Nzg0LCJuYmYiOjE3OTAwMDU3ODQsImV4cCI6MTc5MDAwNjM4NCwidHlwZSI6ImFjY2VzcyJ9.XpUhGOTWZOzQfKrbHa8AKQaGmiUN3-tQHkjq43Ta1pw
+[REDACTED_VALUE_0]
 
 === linha 6831 completa ===
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJ0ZW5hbnRfaWQiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJyb2xlIjoiY3VzdG9tZXIiLCJhY2Nlc3Nfc2NvcGUiOiJtYXJrZXRwbGFjZSIsInNlc3Npb25fdmVyc2lvbiI6MSwic3RvcmVfaWQiOiIiLCJpc3MiOiJmYXJtYXVyYS1hcGkiLCJhdWQiOiJmYXJtYXVyYS1jbGllbnRzIiwiaWF0IjoxNzkwMDA1OTY2LCJuYmYiOjE3OTAwMDU5NjYsImV4cCI6MTc5MDAwNjU2NiwidHlwZSI6ImFjY2VzcyJ9.gzL5OClwmRQaO7tyqK1fmZXVcBhBQ8F6qWM3-qPn_tg
+[REDACTED_VALUE_0]
 ````
 
 _Redact the real-ID signed JWT and leftover webhook token prefix_
@@ -1003,7 +1003,7 @@ path = "dev-obsidian/_Logs_Execucao/2026-09-21/claude-dev-ec2a4c0e.md"
 with open(path, encoding="utf-8") as f:
     content = f.read()
 
-real_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MzY1NDAyYi1iZjJkLTUxMGQtYWFlMy02ZjQ0MjYxYmYwZmIiLCJ0ZW5hbnRfaWQiOiIzNDQ5YzhmYy1mNzEzLTU0YTgtYTZhNy1iZTBlMjIxMjU0YTciLCJyb2xlIjoiY3VzdG9tZXIiLCJhY2Nlc3Nfc2NvcGUiOiJtYXJrZXRwbGFjZSIsInNlc3Npb25fdmVyc2lvbiI6MSwic3RvcmVfaWQiOiIiLCJpc3MiOiJmYXJtYXVyYS1hcGkiLCJhdWQiOiJmYXJtYXVyYS1jbGllbnRzIiwiaWF0IjoxNzkwMDA1Nzg0LCJuYmYiOjE3OTAwMDU3ODQsImV4cCI6MTc5MDAwNjM4NCwidHlwZSI6ImFjY2VzcyJ9.XpUhGOTWZOzQfKrbHa8AKQaGmiUN3-tQHkjq43Ta1pw"
+real_jwt = "[REDACTED_VALUE_0]"
 n1 = content.count(real_jwt)
 content = content.replace(real_jwt, "[REDACTED_SIGNED_JWT_REAL_IDS]")
 
@@ -1216,7 +1216,7 @@ Saída: <span class="exec-fail">falhou</span>
 Exit code 1
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/postgresql/17/bin
 POSTGRES_USER=farmaura
-POSTGRES_PASSWORD=farmaura
+POSTGRES_PASSWORD=[REDACTED_POSTGRES_PASSWORD]
 POSTGRES_DB=farmaura
 PGDATA=/var/lib/postgresql/data
 ---
@@ -3458,7 +3458,7 @@ Saída:
 exit: 123
 
 === KEY=value com aparencia de segredo ===
-dev-obsidian/_Logs_Execucao/2026-09-23/claude-dev-obsidian-982e37b0.md:44:CLAUDE_CODE_MESSAGING_TOKEN=5da1295073acc4594f3fbf533d2b4a3a
+dev-obsidian/_Logs_Execucao/2026-09-23/claude-dev-obsidian-982e37b0.md:44:CLAUDE_CODE_MESSAGING_TOKEN=[REDACTED_CLAUDE_CODE_MESSAGING_TOKEN]
 exit: 0
 ```
 
@@ -3471,7 +3471,7 @@ sed -n '38,50p' dev-obsidian/_Logs_Execucao/2026-09-23/claude-dev-obsidian-982e3
 ```
 Saída:
 ```
-dev-obsidian/_Logs_Execucao/2026-09-23/claude-dev-obsidian-982e37b0.md:44:CLAUDE_CODE_MESSAGING_TOKEN=5da1295073acc4594f3fbf533d2b4a3a
+dev-obsidian/_Logs_Execucao/2026-09-23/claude-dev-obsidian-982e37b0.md:44:CLAUDE_CODE_MESSAGING_TOKEN=[REDACTED_CLAUDE_CODE_MESSAGING_TOKEN]
 ---contexto---
 CLAUDE_AGENT_SDK_VERSION=0.3.270
 CLAUDE_CODE_ENABLE_TASKS=0
@@ -3479,7 +3479,7 @@ CLAUDE_CODE_ENTRYPOINT=claude-vscode
 CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=true
 AI_AGENT=claude-code_2-1-270_agent
 CLAUDE_CODE_MESSAGING_SOCKET=/run/user/1000/cc-socks/1496078.sock
-CLAUDE_CODE_MESSAGING_TOKEN=5da1295073acc4594f3fbf533d2b4a3a
+CLAUDE_CODE_MESSAGING_TOKEN=[REDACTED_CLAUDE_CODE_MESSAGING_TOKEN]
 CLAUDE_CODE_EXECPATH=/home/noname/.antigravity/extensions/anthropic.claude-code-2.1.270-linux-x64/resources/native-binary/claude
 CLAUDECODE=1
 CLAUDE_CODE_SESSION_ID=982e37b0-4c41-4782-9fdb-00941cc1f6f1
@@ -3719,16 +3719,16 @@ Saída:
 ```
 2630:6e01b427ef702ebfb8da539277f4a55865c5a1ed
 179:927642603887-gjt18n5k1mbklu8dkgi8r5hm6o3dqi4v
-1700:aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmNkNTM1MzY1LTA3MmMtNDJiNy05YWQwLWMwMGU1YjhiNWRkODo6JGFhY2hfZWQ3ZmVhYWYtZWJiZC00MGEwLTk4YmEtMzlkMjAxOTI1N2Ey
+1700:[REDACTED_VALUE_3]
 90:achados-baixos-diversos-auditoria-2026-08-17
 65:alembic-version-ausente-no-postgres-local
 2331:aplicar-migration-google-oauth-em-producao
 2396:aplicar-migration-order-payment-method-code-em-producao
-2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
-2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
-2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
-2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
-986:APP_JWT_PRIVATE_KEY=development-secret`)
+2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
+2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
+2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
+2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
+986:APP_JWT_PRIVATE_KEY=[REDACTED_APP_JWT_PRIVATE_KEY]`)
 2328:asaas-sandbox-pendencias-apos-preparacao
 78:bootstrap-vaza-dados-financeiros-para-cliente-e-caixa
 70:cashback-wallet-vazamento-cross-tenant-via-pdv
@@ -3739,9 +3739,9 @@ _Count occurrences of all known real secret values in this session's own logs_
 ```
 $ cd /home/noname/Documentos/desenvolvimento/dev
 echo "=== Ocorrências no Execucao ==="
-grep -c "aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmNkNTM1MzY1LTA3MmMtNDJiNy05YWQwLWMwMGU1YjhiNWRkODo6JGFhY2hfZWQ3ZmVhYWYtZWJiZC00MGEwLTk4YmEtMzlkMjAxOTI1N2Ey\|YNVImy2gidE4i9a8WDF_0dv1c_yW8wGQ6hUC2Y63FkcTca54din2Lr2Z66KU-HYo\|55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660\|AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc\|HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA" dev-obsidian/_Logs_Execucao/2026-09-23/claude-farmaura-e7aeb0c5.md
+grep -c "[REDACTED_VALUE_3]\|YNVImy2gidE4i9a8WDF_0dv1c_yW8wGQ6hUC2Y63FkcTca54din2Lr2Z66KU-HYo\|55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660\|[REDACTED_VALUE_2]\|HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA" dev-obsidian/_Logs_Execucao/2026-09-23/claude-farmaura-e7aeb0c5.md
 echo "=== Ocorrências no Chat ==="
-grep -c "aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmNkNTM1MzY1LTA3MmMtNDJiNy05YWQwLWMwMGU1YjhiNWRkODo6JGFhY2hfZWQ3ZmVhYWYtZWJiZC00MGEwLTk4YmEtMzlkMjAxOTI1N2Ey\|YNVImy2gidE4i9a8WDF_0dv1c_yW8wGQ6hUC2Y63FkcTca54din2Lr2Z66KU-HYo\|55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660\|AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc\|HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA" dev-obsidian/_Logs_Chat/2026-09-23/claude-farmaura-e7aeb0c5.md
+grep -c "[REDACTED_VALUE_3]\|YNVImy2gidE4i9a8WDF_0dv1c_yW8wGQ6hUC2Y63FkcTca54din2Lr2Z66KU-HYo\|55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660\|[REDACTED_VALUE_2]\|HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA" dev-obsidian/_Logs_Chat/2026-09-23/claude-farmaura-e7aeb0c5.md
 ```
 Saída:
 ```
@@ -3759,14 +3759,14 @@ files = [
     "dev-obsidian/_Logs_Chat/2026-09-23/claude-farmaura-e7aeb0c5.md",
 ]
 replacements = [
-    ("aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmNkNTM1MzY1LTA3MmMtNDJiNy05YWQwLWMwMGU1YjhiNWRkODo6JGFhY2hfZWQ3ZmVhYWYtZWJiZC00MGEwLTk4YmEtMzlkMjAxOTI1N2Ey", "[REDACTED_ASAAS_API_KEY]"),
+    ("[REDACTED_VALUE_3]", "[REDACTED_ASAAS_API_KEY]"),
     ("YNVImy2gidE4i9a8WDF_0dv1c_yW8wGQ6hUC2Y63FkcTca54din2Lr2Z66KU-HYo", "[REDACTED_WEBHOOK_TOKEN_LOCAL]"),
     ("55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660", "[REDACTED_WEBHOOK_TOKEN_STAGING]"),
-    ("AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc", "[REDACTED_GEMINI_API_KEY]"),
+    ("[REDACTED_VALUE_2]", "[REDACTED_GEMINI_API_KEY]"),
     ("HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA", "[REDACTED_JWT_PRIVATE_KEY]"),
-    ("sk-proj-Bf0nJyeq3C", "[REDACTED_OPENAI_API_KEY_PREFIX]"),
+    ("[REDACTED_VALUE_1]", "[REDACTED_OPENAI_API_KEY_PREFIX]"),
     ("audcjusjpaxkilsj", "[REDACTED_SMTP_APP_PASSWORD]"),
-    ("aact_hmlg_000MzkwODA2", "[ASAAS_KEY_PREFIX_REDACTED]"),
+    ("[REDACTED_VALUE_3]", "[ASAAS_KEY_PREFIX_REDACTED]"),
 ]
 for path in files:
     with open(path, encoding="utf-8") as f:
@@ -3811,10 +3811,10 @@ for pat in patterns:
         print(pat, "->", len(matches), matches[:3])
 print("---checking remaining known real values individually---")
 for val, name in [
-    ("aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmNkNTM1MzY1LTA3MmMtNDJiNy05YWQwLWMwMGU1YjhiNWRkODo6JGFhY2hfZWQ3ZmVhYWYtZWJiZC00MGEwLTk4YmEtMzlkMjAxOTI1N2Ey", "asaas key"),
+    ("[REDACTED_VALUE_3]", "asaas key"),
     ("YNVImy2gidE4i9a8WDF_0dv1c_yW8wGQ6hUC2Y63FkcTca54din2Lr2Z66KU-HYo", "webhook local"),
     ("55754a93bc592b2723e2ab3af97ae9bdb2e58017ecdaacf24a1284f80c5e4660", "webhook staging"),
-    ("AIzaSyAs8v228gR9ovECbGSK_lwTFQj5C9PuvEc", "gemini"),
+    ("[REDACTED_VALUE_2]", "gemini"),
     ("HnCm6eC4kdyOOgfhH661IPN7h8S/JiV3TnGDYBObwdAoOzwjG06gCESfB9RKNGHA", "jwt"),
 ]:
     print(name, content.count(val))
@@ -3859,7 +3859,7 @@ Saída:
 ```
 241 'db29c7d331a8f15639661181669df052bb35d3ed'
 242 'db29c7d331a8f15639661181669df052bb35d3ed'
-984 'APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
+984 'APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]'
 989 'token=eyJhbGciOiAiUlMyNTYiLCAidHlwIjogIkpXVCIsICJraWQiOiAibm9uZXhpc3RlbnQta2lkIn0.eyJzdWIiOiAiMTIzIi'
 992 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MzY1NDAyYi1iZjJkLTUxMGQtYWFlMy02ZjQ0MjYxYmYwZmIiLCJ'
 995 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJ'
@@ -3879,7 +3879,7 @@ path = "dev-obsidian/_Logs_Execucao/2026-09-23/claude-farmaura-e7aeb0c5.md"
 with open(path, encoding="utf-8") as f:
     content = f.read()
 
-real_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MzY1NDAyYi1iZjJkLTUxMGQtYWFlMy02ZjQ0MjYxYmYwZmIiLCJ0ZW5hbnRfaWQiOiIzNDQ5YzhmYy1mNzEzLTU0YTgtYTZhNy1iZTBlMjIxMjU0YTciLCJyb2xlIjoiY3VzdG9tZXIiLCJhY2Nlc3Nfc2NvcGUiOiJtYXJrZXRwbGFjZSIsInNlc3Npb25fdmVyc2lvbiI6MSwic3RvcmVfaWQiOiIiLCJpc3MiOiJmYXJtYXVyYS1hcGkiLCJhdWQiOiJmYXJtYXVyYS1jbGllbnRzIiwiaWF0IjoxNzkwMDA1Nzg0LCJuYmYiOjE3OTAwMDU3ODQsImV4cCI6MTc5MDAwNjM4NCwidHlwZSI6ImFjY2VzcyJ9.XpUhGOTWZOzQfKrbHa8AKQaGmiUN3-tQHkjq43Ta1pw"
+real_jwt = "[REDACTED_VALUE_0]"
 
 n1 = content.count(real_jwt)
 content = content.replace(real_jwt, "[REDACTED_SIGNED_JWT_REAL_IDS]")
@@ -4060,7 +4060,7 @@ Fast-forward
 <span class="diff-file">--- </span>
 <span class="diff-file">+++ </span>
 <span class="diff-hunk">@@ -1 +1 @@</span>
-<span class="diff-del">-CLAUDE_CODE_MESSAGING_TOKEN=5da1295073acc4594f3fbf533d2b4a3a</span>
+<span class="diff-del">-CLAUDE_CODE_MESSAGING_TOKEN=[REDACTED_CLAUDE_CODE_MESSAGING_TOKEN]
 <span class="diff-add">+CLAUDE_CODE_MESSAGING_TOKEN=[REDACTED_LOCAL_IPC_TOKEN]</span>
 </pre>
 

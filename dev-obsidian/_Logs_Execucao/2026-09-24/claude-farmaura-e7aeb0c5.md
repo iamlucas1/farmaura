@@ -7,7 +7,7 @@ cssclasses: ia-nota exec-log
 - Diretório: `/home/noname/Documentos/desenvolvimento/dev`
 - Sessão: `e7aeb0c5-2ca6-4a6c-b76e-9be63c9ec99b`
 - Log de chat: [[_Logs_Chat/2026-09-24/claude-farmaura-e7aeb0c5|abrir]]
-- Git (na última atualização deste log): `staging/lumos-dev` @ `8bfc3fb` (árvore com 1 arquivo(s) não commitado(s))
+- Git (na última atualização deste log): `staging/lumos-dev` @ `e0a4a67` (árvore com 1 arquivo(s) não commitado(s))
 
 ## Turno 17 · 2026-09-24 08:31
 <span class="log-crosslink">💬 [[_Logs_Chat/2026-09-24/claude-farmaura-e7aeb0c5#Turno 17 · 2026-09-24 08:31|ver conversa deste turno]]</span>
@@ -3527,7 +3527,7 @@ dev-obsidian/farmaura/02_Documentacao/Fluxo_Pagamento_e_Nota_Fiscal.md
 
 _Show the exact line to fill in .env_
 ```
-$ cd /home/noname/Documentos/desenvolvimento/dev/farmaura-api && grep -n "^NFCE_CERTIFICATE_PASSWORD=[REDACTED_NFCE_CERTIFICATE_PASSWORD] .env
+$ cd /home/noname/Documentos/desenvolvimento/dev/farmaura-api && grep -n "^NFCE_CERTIFICATE_PASSWORD=" .env
 ```
 Saída:
 ```
@@ -3811,7 +3811,7 @@ Saída:
 <span class="diff-file">+++ </span>
 <span class="diff-hunk">@@ -1 +1 @@</span>
 <span class="diff-del">-NFCE_CERTIFICATE_PASSWORD=[REDACTED_NFCE_CERTIFICATE_PASSWORD]
-<span class="diff-add">+NFCE_CERTIFICATE_PASSWORD=[REDACTED_NFCE_CERTIFICATE_PASSWORD]
+<span class="diff-add">+NFCE_CERTIFICATE_PASSWORD=[REDACTED_NFCE_CERTIFICATE_PASSWORD]</span>
 </pre>
 
 ---
@@ -5482,7 +5482,7 @@ dev-obsidian/farmaura/05_Integracoes_Infra/SEFAZ_NFCe_SVRS_DF.md
 <span class="diff-file">+++ </span>
 <span class="diff-hunk">@@ -1,2 +1,3 @@</span>
 <span class="diff-ctx"> NFCE_CERTIFICATE_PATH=/run/secrets/nfce/certfarmaura.pfx</span>
-<span class="diff-ctx"> NFCE_CERTIFICATE_PASSWORD=[REDACTED_NFCE_CERTIFICATE_PASSWORD]
+<span class="diff-ctx"> NFCE_CERTIFICATE_PASSWORD=[REDACTED_NFCE_CERTIFICATE_PASSWORD]</span>
 <span class="diff-add">+NFCE_CA_BUNDLE_PATH=/run/secrets/nfce/icp-brasil-ca-bundle.pem</span>
 </pre>
 
