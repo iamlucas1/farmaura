@@ -174,23 +174,38 @@ function resolveMarketplaceCoupon(coupons, products, items, rawCode, orders, del
 // Shared by OrderSummary and the checkout's cashback block, so both size the "how much can be
 // redeemed" preview against the exact same gross total the order summary already shows — server
 // still re-caps for real when the order is actually placed (see CashbackService.apply_on_order).
+//
+// Also returns the undiscounted reference figures (grossSubtotal, baseShipping) so the summary can
+// show what the order would cost with no discount at all, struck through next to what it actually
+// costs — the same "you're about to lose this" framing RemoveItemModal already used, but visible up
+// front during review instead of only at the moment the customer tries to remove something.
 function computeMarketplaceOrderTotal(items, products, coupon, deliveryEstimate) {
   const getProduct = (itemId) => products.find((entry) => entry.id === itemId) || null;
+  // A line's "anchor" is the highest price it's ever shown at: the catalog's pre-discount price
+  // (product.old) when the item is on sale, otherwise just its current price.
+  const anchorPrice = (product) => (product.old != null && Number(product.old) > Number(product.price) ? Number(product.old) : Number(product.price));
   const sumItem = (item) => {
     const product = getProduct(item.id);
     if (!product) return 0;
     const unit = item.sub ? product.price * 0.85 : product.price;
     return unit * item.qty;
   };
+  const sumItemGross = (item) => {
+    const product = getProduct(item.id);
+    if (!product) return 0;
+    return anchorPrice(product) * item.qty;
+  };
   const subtotal = items.reduce((sum, item) => sum + sumItem(item), 0);
+  const grossSubtotal = items.reduce((sum, item) => sum + sumItemGross(item), 0);
   const discount = coupon ? Number(coupon.discountAmount || 0) : 0;
   const shipping = computeMarketplaceDeliveryFee(subtotal, deliveryEstimate);
-  return { subtotal, discount, shipping, total: subtotal - discount + shipping };
+  const baseShipping = (deliveryEstimate || DEFAULT_DELIVERY_ESTIMATE).baseFee;
+  return { subtotal, grossSubtotal, discount, shipping, baseShipping, total: subtotal - discount + shipping };
 }
 
 function OrderSummary({ items, products, coupon, children, beforeTotal, deliveryEstimate, paymentRules, cashbackApplied }) {
   const getProduct = (itemId) => products.find((entry) => entry.id === itemId) || null;
-  const { subtotal, discount, shipping } = computeMarketplaceOrderTotal(items, products, coupon, deliveryEstimate);
+  const { subtotal, grossSubtotal, discount, shipping, baseShipping } = computeMarketplaceOrderTotal(items, products, coupon, deliveryEstimate);
   const subSavings = items.reduce((sum, item) => {
     const product = getProduct(item.id);
     if (!product) return sum;
@@ -198,20 +213,52 @@ function OrderSummary({ items, products, coupon, children, beforeTotal, delivery
   }, 0);
   const cashback = Math.max(0, Number(cashbackApplied || 0));
   const total = Math.max(0, subtotal - discount + shipping - cashback);
-  const Row = ({ l, v, c, discount: isDiscount }) => (
+  // The "no discount at all" reference for the whole order: every line at its catalog anchor price,
+  // full delivery fee, no coupon, no cashback. Compared against `total`, this is exactly what the
+  // customer stands to lose by walking away — the same number RemoveItemModal shows per item, rolled
+  // up for the order.
+  const grossTotal = grossSubtotal + baseShipping;
+  const totalSavings = Math.max(0, grossTotal - total);
+  const catalogSavings = Math.max(0, grossSubtotal - subtotal);
+  const Row = ({ l, v, before, c, discount: isDiscount }) => (
     <div className={'fa-cart-summary-row' + (isDiscount ? ' is-discount' : '')}>
-      <span>{l}</span><span style={c ? { color: c } : undefined}>{v}</span>
+      <span>{l}</span>
+      <span style={c ? { color: c } : undefined}>
+        {before != null && <span className="fa-price-old" style={{ marginRight: 7 }}>{before}</span>}
+        {v}
+      </span>
     </div>
   );
   return (
     <div>
-      <Row l={`Subtotal (${items.reduce((sum, item) => sum + item.qty, 0)} itens)`} v={brl(subtotal)} />
+      <Row
+        l={`Subtotal (${items.reduce((sum, item) => sum + item.qty, 0)} itens)`}
+        v={brl(subtotal)}
+        before={catalogSavings > 0.004 ? brl(grossSubtotal) : null}
+      />
       {coupon && <Row l={`Cupom ${coupon.code}`} v={'-' + brl(discount)} discount />}
       {subSavings > 0 && <Row l="Economia assinatura" v={'-' + brl(subSavings)} discount />}
-      <Row l="Entrega" v={shipping === 0 ? 'Grátis' : brl(shipping)} c={shipping === 0 ? 'var(--fa-success)' : undefined} />
+      <Row
+        l="Entrega"
+        v={shipping === 0 ? 'Grátis' : brl(shipping)}
+        before={shipping === 0 && baseShipping > 0 ? brl(baseShipping) : null}
+        c={shipping === 0 ? 'var(--fa-success)' : undefined}
+      />
       {cashback > 0 && <Row l="Cashback" v={'-' + brl(cashback)} discount />}
       {beforeTotal}
-      <div className="fa-cart-summary-total"><span>Total</span><span>{brl(total)}</span></div>
+      <div className="fa-cart-summary-total">
+        <span>Total</span>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, justifyContent: 'flex-end' }}>
+          {totalSavings > 0.004 && <span className="fa-price-old" style={{ fontSize: 14 }}>{brl(grossTotal)}</span>}
+          <span>{brl(total)}</span>
+        </span>
+      </div>
+      {totalSavings > 0.004 && (
+        <div className="fa-cart-savings-callout">
+          <Icon name="percent" size={13} stroke={2.4} />
+          <span>Você está economizando <b>{brl(totalSavings)}</b> neste pedido</span>
+        </div>
+      )}
       {(() => {
         const bestInstallment = resolvePaymentBreakdown(total, paymentRules, { cartTotal: total }).bestInstallmentLabel;
         if (!bestInstallment || bestInstallment.n <= 1) return null;
@@ -455,6 +502,14 @@ function CartScreen({ ctx }) {
               );
             }
             const unit = item.sub ? product.price * 0.85 : product.price;
+            // The line's anchor is the highest price it's ever shown at — the catalog's pre-discount
+            // price when the item is on sale, otherwise its current price — so a subscribed item that
+            // is *also* on sale still strikes through the true original, not just the pre-subscription
+            // price (see computeMarketplaceOrderTotal's anchorPrice for the same rule at order level).
+            const anchor = product.old != null && Number(product.old) > Number(product.price) ? Number(product.old) : Number(product.price);
+            const lineTotal = unit * item.qty;
+            const anchorTotal = anchor * item.qty;
+            const hasLineSavings = anchorTotal > lineTotal + 0.004;
             return (
               <div key={item.id} className="fa-card fa-cart-item" style={{ padding: 16 }}>
                 <div className="fa-cart-item-media" onClick={() => onNav({ name: 'product', id: product.id })}>
@@ -506,8 +561,9 @@ function CartScreen({ ctx }) {
                 </div>
                 <div className="fa-cart-item-aside">
                   <div style={{ textAlign: 'right' }}>
-                    {item.sub && <span className="fa-price-old" style={{ fontSize: 12 }}>{brl(product.price * item.qty)}</span>}
-                    <div style={{ fontWeight: 800, fontSize: 17 }}>{brl(unit * item.qty)}</div>
+                    {hasLineSavings && <span className="fa-price-old" style={{ fontSize: 12 }}>{brl(anchorTotal)}</span>}
+                    <div style={{ fontWeight: 800, fontSize: 17 }}>{brl(lineTotal)}</div>
+                    {hasLineSavings && <div className="fa-cart-item-savings">Você economiza {brl(anchorTotal - lineTotal)}</div>}
                   </div>
                   <QtyStepper value={item.qty} onChange={(qty) => updateQty(item.id, qty)} />
                   <button onClick={() => setConfirmingRemoveId(item.id)} className="fa-cart-item-remove" aria-label="remover"><Icon name="trash" size={13} />Remover</button>

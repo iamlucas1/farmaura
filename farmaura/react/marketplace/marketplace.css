@@ -1084,6 +1084,17 @@ main:has(.fa-login-aureola:last-child) + .fa-footer { margin-top: 0; }
 .fa-cart-summary-row.is-discount span:last-child { color: var(--fa-success); font-weight: 700; }
 .fa-cart-summary-total { display: flex; justify-content: space-between; align-items: baseline; padding-top: 14px; margin-top: 6px; border-top: 1px solid var(--fa-mist); font-size: 15px; font-weight: 800; color: var(--fa-ink); }
 .fa-cart-summary-total span:last-child { font-family: var(--fa-mono); font-size: 21px; color: var(--fa-primary); }
+/* Per-line "you're saving" note under a discounted cart item's price, and the order-level rollup
+   below the total — both make the discount legible during review instead of only at removal time
+   (RemoveItemModal already showed this loss framing; these surface it up front). */
+.fa-cart-item-savings { font-size: 11px; font-weight: 700; color: var(--fa-success); margin-top: 3px; }
+.fa-cart-savings-callout {
+  display: flex; align-items: flex-start; gap: 7px; margin-top: 10px; padding: 10px 14px;
+  border-radius: var(--fa-r-input); background: var(--fa-success-soft); color: var(--fa-success);
+  font-size: 12.5px; font-weight: 600; line-height: 1.4;
+}
+.fa-cart-savings-callout svg { flex: none; margin-top: 2px; }
+.fa-cart-savings-callout b { font-weight: 800; }
 .fa-cart-continue-link {
   display: block; width: 100%; text-align: center; border: 1px solid var(--fa-mist); border-radius: var(--fa-r-btn);
   background: none; padding: 10px; font-size: 12.5px; font-weight: 700; color: var(--fa-ink-2); cursor: pointer;
