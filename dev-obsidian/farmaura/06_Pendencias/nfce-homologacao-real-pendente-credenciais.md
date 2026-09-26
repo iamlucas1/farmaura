@@ -2,19 +2,21 @@
 cssclasses: ia-nota
 ---
 
-# Teste real de homologação da NFC-e pendente (faltam certificado e dados do emitente)
+# Emissor ainda não credenciado na SEFAZ-DF para NFC-e (cStat 781)
 
-**Status:** Aberto
+**Status:** Bloqueado
 **Prioridade:** Alta
 **Registrado em:** 2026-09-20
 
 ## Descrição
 
-O módulo foi implementado e testado **offline** (XML validado no XSD oficial, assinatura verificada, SEFAZ simulada). **Nenhuma chamada real à SEFAZ foi feita**: faltam certificado A1 (`.pfx` + senha), CNPJ/IE, razão social, endereço com código IBGE, série, CRT e o perfil tributário dos produtos.
+Atualizado em 2026-09-24 — a maior parte desta pendência foi resolvida: certificado A1 real fornecido e verificado (ver [[certificado-a1-farmaura-ainda-nao-fornecido|pendência do certificado]]), `.env` preenchido (CNPJ/IE/razão social/endereço/IBGE/série/CRT=1, Simples Nacional), e o teste real `python scripts/fiscal_homologation_check.py --send --profile ...` chegou a transmitir uma NFC-e de teste de verdade para a SEFAZ-DF (homologação).
 
-Para executar: preencher o `.env`, colocar o `.pfx` em `farmaura-api/secrets/nfce/` e rodar `python scripts/fiscal_homologation_check.py` (passos 1-3) e depois `--send --profile profile.json`. Só depois disso os itens "homologação funcionando", "autorização funcionando", "QR Code funcionando" e "cancelamento funcionando" do checklist podem ser marcados.
+Nesse teste real apareceu (e foi corrigido) um bug sério: a canonicalização C14N usada para assinar (`app/fiscal/xml_signer.py`) invalidava a assinatura em qualquer envio real — rejeição cStat 297 "Assinatura difere do calculado". Isso bloquearia **100% das emissões reais**, mesmo com certificado e dados corretos, e não era visível offline porque a auto-verificação interna reusava a mesma função com bug nos dois lados da comparação. Corrigido e testado (105 testes de `app/tests/unit/test_fiscal_*` passando, e nova transmissão real confirmando que a rejeição de assinatura desapareceu). Detalhe técnico no commit `8aaea2f`.
 
-Riscos que só a homologação revela: pacote de schemas (PL_010b v1.30 vs. NT 2025.002 v1.51), regra do grupo `card` (`tpIntegra=2`, cStat 737) e URL de consulta/QR do DF em homologação.
+Depois da correção, a SEFAZ-DF passou a avaliar a nota por regras de negócio reais e rejeitou com **cStat 781: "Emissor não habilitado para emissão da NF-e/NFC-e"** — o CNPJ da FARMAURA (67.262.082/0001-13) ainda não está credenciado para emitir NFC-e no ambiente de homologação da SEFAZ-DF. Isso é um passo administrativo junto à SEFAZ (fora do código) — normalmente feito pelo contador ou diretamente no Portal do Contribuinte do DF.
+
+Depois do credenciamento, falta ainda o perfil fiscal dos produtos (CSOSN, NCM, etc. — ver [[nfce-cadastro-fiscal-dos-produtos-e-crt|pendência separada]]) antes de qualquer venda real do marketplace/PDV gerar NFC-e.
 
 ## Contexto
 

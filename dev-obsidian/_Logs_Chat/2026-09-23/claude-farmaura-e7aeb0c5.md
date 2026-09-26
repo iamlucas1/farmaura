@@ -440,3 +440,37 @@ Ou seja, as três correções (CPF sumindo, corrida de refresh concorrente, e lo
 Uma observação à parte: há vários arquivos de log não commitados na árvore de trabalho — não são desta conversa, parecem ser de **outras sessões** rodando em paralelo nesta máquina (sufixos `982e37b0`, `536fa4af`, `25f12804`, `fc04cc55`, `56ec622f`, incluindo uma sessão "gateway" e uma "dev-obsidian"). Não mexi neles. Quer que eu inclua esses logs no commit também, ou prefere deixar como está para as outras sessões cuidarem disso?
 
 ---
+
+## Turno 16 · 2026-09-23 14:48
+<span class="log-crosslink">🔧 [[_Logs_Execucao/2026-09-23/claude-farmaura-e7aeb0c5#Turno 16 · 2026-09-23 14:48|ver execução deste turno]]</span>
+
+<span class="chat-role chat-role-user">Você</span>
+
+Suba o dev-obsidian tamb;em
+
+<span class="chat-role chat-role-ai">Claude</span>
+
+Agora vou rodar uma varredura mais ampla (heurística de linha isolada de alta entropia) nesses mesmos arquivos, igual fiz antes.
+
+Varredura concluída — só um achado real: um token de IPC local do próprio Claude Code (`CLAUDE_CODE_MESSAGING_TOKEN`) na sessão dev-obsidian, já redigido. O resto (IDs de container Docker, senha interna do Nominatim já pública no `docker-compose.yml`, placeholders de comando) não é sensível. Agora vou commitar e subir tudo.
+
+O GitHub bloqueou o push — encontrou um token real da Asaas que minha varredura não pegou, no log de execução desta própria sessão (`claude-farmaura-e7aeb0c5.md:473`). Vou corrigir antes de tentar de novo.
+
+Limpo agora — restavam só JWTs de teste (dados fictícios) e um hash de commit git, ambos inofensivos. Vou corrigir o commit (ainda não publicado, então dá pra emendar com segurança) e tentar o push de novo.
+
+Confirmado: `c50017d` existe só localmente, nenhum branch remoto o contém. Seguro emendar.
+
+Agora tento o push novamente.
+
+Push aceito. Agora o deploy no lumos-dev (esse commit é só documentação, mas vou sincronizar o checkout de qualquer forma).
+
+Concluído. Resumo:
+
+- **GitHub bloqueou o primeiro push** — a proteção de secret scanning encontrou um token real da Asaas no log de execução desta própria sessão (`claude-farmaura-e7aeb0c5.md`), reintroduzido pelo mesmo mecanismo de sempre: minhas próprias saídas de `grep`/debug durante a investigação de hoje acabaram gravadas no transcript bruto.
+- Redigi tudo (chave Asaas, os dois webhook tokens, prefixo remanescente, e um JWT assinado com IDs reais) e um token de IPC local (`CLAUDE_CODE_MESSAGING_TOKEN`) encontrado no log da sessão dev-obsidian.
+- Como o commit ainda não tinha sido publicado (rejeitado pelo GitHub), usei `git commit --amend` para corrigir sem deixar o segredo na história — seguro nesse caso porque nada foi compartilhado.
+- Push aceito (`a8e51f2`), pull feito no lumos-dev, sem necessidade de rebuild (é só documentação).
+
+Tudo sincronizado: local, GitHub e lumos-dev no mesmo commit.
+
+---

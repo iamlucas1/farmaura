@@ -4,7 +4,7 @@ cssclasses: ia-nota
 
 # Certificado A1 real da FARMAURA LTDA ainda não fornecido
 
-**Status:** Aberto
+**Status:** Resolvido em 2026-09-24
 **Prioridade:** Alta
 **Registrado em:** 2026-09-22
 
@@ -19,3 +19,7 @@ O `.cer` da Certisign enviado pode eventualmente servir como `NFCE_CA_BUNDLE_PAT
 ## Contexto
 
 Achado ao preparar a emissão fiscal real de pedidos de marketplace. Pendência aplicável tanto ao PDV (já decidido em [[../00_Decisoes/2026-09-20-nfce-real-svrs-df-homologacao|ADR anterior]]) quanto ao marketplace. Requer que o usuário obtenha o certificado A1 correto junto à autoridade certificadora/contador da empresa.
+
+## Resolução (2026-09-24)
+
+Usuário forneceu o `.pfx` real (`farmaura-api/secrets/nfce/certfarmaura.pfx`, senha em `NFCE_CERTIFICATE_PASSWORD`). Verificado: chave RSA, válido até 13/08/2027, CNPJ do certificado confere com `NFCE_CNPJ`. `NFCE_CERTIFICATE_PATH` e `NFCE_CA_BUNDLE_PATH` (cadeia ICP-Brasil do SERPRO, necessária para o TLS mútuo com a SEFAZ) configurados em `.env` local. Teste real de homologação confirmou conectividade e assinatura funcionando — ver [[nfce-homologacao-real-pendente-credenciais|pendência de homologação]] para o estado atual (bloqueio restante é credenciamento do emissor, não mais o certificado).

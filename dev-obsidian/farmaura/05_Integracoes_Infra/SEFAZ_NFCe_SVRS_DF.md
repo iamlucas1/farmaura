@@ -36,4 +36,5 @@ Namespace `http://www.portalfiscal.inf.br/nfe/wsdl/<Operação>`, `SOAPAction = 
 
 ## Atualizações
 
+- 2026-09-24: primeira chamada real confirmada (`NFeStatusServico4` em homologação, `cStat 107`). Foi preciso configurar `NFCE_CA_BUNDLE_PATH` com a cadeia ICP-Brasil do emissor do certificado do servidor SVRS (intermediária "AC do SERPRO SSLv1" + raiz "AC Raiz Brasileira v10", baixadas de `repositorio.serpro.gov.br/cadeias/serprossl.p7b`) — sem isso a chamada falha com `CERTIFICATE_VERIFY_FAILED` (mascarado por `httpx`/`FiscalTransientError` como timeout genérico). Também foi encontrado e corrigido um bug real na assinatura (`app/fiscal/xml_signer.py` — canonicalização C14N incorreta em elemento não-raiz, rejeição `cStat 297`); ver [[../06_Pendencias/nfce-homologacao-real-pendente-credenciais|pendência]] para o estado atual (bloqueio restante: credenciamento do emissor, `cStat 781`).
 - 2026-09-20: nota criada com a implementação do módulo NFC-e. Ainda **sem chamada real** à SEFAZ (faltam certificado/CNPJ) — ver [[../06_Pendencias/nfce-homologacao-real-pendente-credenciais|pendência]].
