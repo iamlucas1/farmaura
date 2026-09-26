@@ -486,7 +486,7 @@ O caminho do certificado (`NFCE_CERTIFICATE_PATH`) estava vazio — já apontei 
 
 Falta a senha do `.pfx` (`NFCE_CERTIFICATE_PASSWORD`), que também está vazia. Para eu não precisar ver/repetir a senha no chat (ela acabaria indo parar nos logs automáticos do dev-obsidian), pode preencher direto no arquivo?
 
-É a linha 72 do `farmaura-api/.env`: `NFCE_CERTIFICATE_PASSWORD=`. Coloque a senha do PFX depois do `=` e me avise — assim que estiver preenchida, eu rodo a verificação (validade, se a chave é RSA e se o CNPJ do certificado bate com o `NFCE_CNPJ` configurado) sem precisar exibir a senha em nenhum momento.
+É a linha 72 do `farmaura-api/.env`: `NFCE_CERTIFICATE_PASSWORD=[REDACTED_NFCE_CERTIFICATE_PASSWORD] Coloque a senha do PFX depois do `=` e me avise — assim que estiver preenchida, eu rodo a verificação (validade, se a chave é RSA e se o CNPJ do certificado bate com o `NFCE_CNPJ` configurado) sem precisar exibir a senha em nenhum momento.
 
 ---
 

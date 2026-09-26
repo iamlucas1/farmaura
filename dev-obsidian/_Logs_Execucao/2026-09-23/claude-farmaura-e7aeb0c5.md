@@ -7,7 +7,7 @@ cssclasses: ia-nota exec-log
 - Diretório: `/home/noname/Documentos/desenvolvimento/dev`
 - Sessão: `e7aeb0c5-2ca6-4a6c-b76e-9be63c9ec99b`
 - Log de chat: [[_Logs_Chat/2026-09-23/claude-farmaura-e7aeb0c5|abrir]]
-- Git (na última atualização deste log): `staging/lumos-dev` @ `8aaea2f` (árvore com 8 arquivo(s) não commitado(s))
+- Git (na última atualização deste log): `staging/lumos-dev` @ `8bfc3fb` (árvore com 1 arquivo(s) não commitado(s))
 
 ## Turno 1 · 2026-09-23 10:27
 <span class="log-crosslink">💬 [[_Logs_Chat/2026-09-23/claude-farmaura-e7aeb0c5#Turno 1 · 2026-09-23 10:27|ver conversa deste turno]]</span>
@@ -469,10 +469,10 @@ Saída:
 65:alembic-version-ausente-no-postgres-local
 2331:aplicar-migration-google-oauth-em-producao
 2396:aplicar-migration-order-payment-method-code-em-producao
-2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
-2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
-2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
-2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
+2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
+2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
+2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
+2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
 986:APP_JWT_PRIVATE_KEY=development-secret`)
 2328:asaas-sandbox-pendencias-apos-preparacao
 78:bootstrap-vaza-dados-financeiros-para-cliente-e-caixa
@@ -769,7 +769,7 @@ Saída:
 ```
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:1706:Salvei os dados com segurança (no `.env` local, que é ignorado pelo git — nunca em nota do cofre nem em arquivo versionado). Achei também um problema real no meio do caminho: a chave do Asaas começa com `$`, e o Docker Compose interpreta `$` como início de variável dentro do `.env` — sem escapar, ele reduzia a chave para uma string vazia (dava pra ver isso nos logs: "variable is not set"). Corrigi escapando como `$$aact_hmlg_...`. Já reiniciei a API e rodei o script de verificação oficial do projeto: **a chave foi aceita pelo Asaas** ✅.
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2284:   - **Docker Compose `.env` `$`-escaping bug**: a literal `$` in a value (like Asaas's `$aact_hmlg_...` key format) is interpreted as variable interpolation by Compose's own `.env` parsing, corrupting the value to empty; must be escaped as `$$`.
-dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2324:   - **On staging (`lumos-dev`, via ssh)**: `/opt/farmaura/farmaura-api/.env` — flipped `APP_ASAAS_ENABLED=false`→`true` via sed; appended (via heredoc piped through ssh, single-quoted locally to avoid `$`-expansion) `APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]` (same sandbox key) and `APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]` (the user's own chosen token, matching what they configured in the Asaas dashboard).
+dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2324:   - **On staging (`lumos-dev`, via ssh)**: `/opt/farmaura/farmaura-api/.env` — flipped `APP_ASAAS_ENABLED=false`→`true` via sed; appended (via heredoc piped through ssh, single-quoted locally to avoid `$`-expansion) `APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN] (same sandbox key) and `APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN] (the user's own chosen token, matching what they configured in the Asaas dashboard).
 dev-obsidian/_Logs_Chat/2026-09-21/claude-dev-ec2a4c0e.md:2342:   - **Docker Compose `.env`
 … (saída truncada, 2690 caracteres no total)
 ```
@@ -3724,10 +3724,10 @@ Saída:
 65:alembic-version-ausente-no-postgres-local
 2331:aplicar-migration-google-oauth-em-producao
 2396:aplicar-migration-order-payment-method-code-em-producao
-2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
-2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]`
-2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
-2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]`
+2324:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
+2322:APP_ASAAS_ACCESS_TOKEN=[REDACTED_APP_ASAAS_ACCESS_TOKEN]
+2324:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
+2322:APP_ASAAS_WEBHOOK_AUTH_TOKEN=[REDACTED_APP_ASAAS_WEBHOOK_AUTH_TOKEN]
 986:APP_JWT_PRIVATE_KEY=development-secret`)
 2328:asaas-sandbox-pendencias-apos-preparacao
 78:bootstrap-vaza-dados-financeiros-para-cliente-e-caixa

@@ -128,6 +128,18 @@ Ficam de fora desta convenção `00_Decisoes/` (ADR já é um registro pontual, 
 
 **Nunca** gravar segredos, chaves, tokens ou valores reais de `.env` em nenhuma nota. Documentar apenas o propósito/contrato de uma configuração, nunca seu valor.
 
+Segredos reais (senhas, chaves de API, tokens, certificados) **devem continuar sem ocultação** em todo lugar onde o sistema realmente precisa deles para funcionar: `.env` local, `.env` em `lumos-dev` e `lumos-prd`, secrets montados em container (`secrets/nfce/*.pfx`, etc.). Nunca redigir, mascarar ou substituir esses valores nos arquivos reais de configuração — a ocultação é só para o que vai para o GitHub.
+
+O único vetor real de vazamento neste cofre são os logs automáticos (`_Logs_Chat/`, `_Logs_Execucao/`, ver seção "Log diário de chat" acima): o hook `Stop` reconstrói cada arquivo do zero a partir do transcript bruto **a cada turno**, então qualquer segredo que apareça na conversa (colado pelo usuário, exibido por um comando, lido de um `.env`) entra de novo no log automaticamente, mesmo que já tenha sido redigido antes. Por isso, **antes de qualquer `git push` que inclua arquivos de `_Logs_Chat/` ou `_Logs_Execucao/`, sempre**:
+
+1. Rodar uma busca ampla por padrões de segredo nos arquivos que serão commitados daquela vez (formatos conhecidos: `aact_*` do Asaas, `sk-`/`AIzaSy`/tokens de API, `-----BEGIN...PRIVATE KEY-----`, JWT `eyJ...`, e também senhas/valores arbitrários que o usuário tenha colado na conversa).
+2. Substituir cada valor real encontrado por um placeholder `[REDACTED_<NOME_DA_VARIAVEL_OU_SEGREDO>]`, preservando o resto do conteúdo do log intacto.
+3. **Nunca digitar o valor literal do segredo no próprio comando de redação** (Bash, Edit, etc.) — esse comando também vira parte do transcript e será logado de novo pelo hook no fim do turno, reintroduzindo o vazamento que acabou de ser corrigido. Preferir padrões estruturais que casem pelo nome da variável/formato (`NOME_DA_VAR=\S+`, prefixo conhecido do formato do token) em vez do valor em si; quando não houver como evitar (ex: uma senha arbitrária sem contexto fixo ao redor), decodificar o valor em tempo de execução a partir de uma forma ofuscada (ex: base64 calculado à parte) em vez de escrever o texto puro no código do comando.
+4. Depois de redigir, conferir de novo com uma busca que também não reproduza o segredo literal (grep pelo nome da variável ou pelo prefixo do formato, não pelo valor completo).
+5. Isso pode precisar ser repetido a cada novo push: o próprio comando de redação de uma rodada vira, no fim daquele turno, uma nova ocorrência do segredo no log seguinte — é esperado revisar de novo antes do próximo push, não é sinal de falha do processo anterior.
+
+Esse procedimento é necessário **só** para o que será commitado/enviado ao GitHub. Nada disso se aplica aos arquivos reais de configuração (`.env`, secrets montados) em nenhum ambiente — local, `lumos-dev` ou `lumos-prd` continuam com os valores reais, sem qualquer ocultação, porque precisam deles para funcionar.
+
 ## Separação visual por autoria (IA vs usuário)
 
 O cofre usa um snippet CSS nativo (`.obsidian/snippets/autoria-cores.css`, habilitado em `appearance.json`) para colorir notas por quem escreveu: **laranja = IA**, **azul = usuário**. Não depende de plugin de comunidade — usa a propriedade reservada `cssclasses` do frontmatter, que o Obsidian já injeta como classe CSS na nota.
